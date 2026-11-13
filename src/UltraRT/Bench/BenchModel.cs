@@ -45,6 +45,8 @@ namespace UltraRT.Bench
         // approach: re-walk a recorded route first (untimed) so room/area triggers fire like they did for the player.
         // F11 saves one with every pose. Without Position, the pose defaults to the approach's last sample.
         public string Approach;
+        // areas: re-apply the object/light/render-settings changes area triggers had made when the pose was saved (F11).
+        public string Areas;
         public float ApproachSpeed = 1.5f;
         // recording
         public string File;

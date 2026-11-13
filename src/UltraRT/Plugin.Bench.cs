@@ -74,11 +74,13 @@ namespace UltraRT
             if (GameControl.Player == null || GameControl.Cam == null) { Toast("No player in this scene"); return; }
             var p = GameControl.CurrentPose();
             string approach = _recorder?.SaveApproach();
+            string areas = _recorder?.SaveAreas();
             var entry = new
             {
                 Scene = SceneHelper.CurrentScene,
                 Saved = DateTime.Now.ToString("s"),
                 Approach = approach,
+                Areas = areas,
                 Position = new[] { Round(p.Position.x), Round(p.Position.y), Round(p.Position.z) },
                 Yaw = Round(p.Yaw),
                 Pitch = Round(p.Pitch),
@@ -86,7 +88,7 @@ namespace UltraRT
             string file = Path.Combine(_outDir, "poses.jsonl");
             File.AppendAllText(file, JsonConvert.SerializeObject(entry) + Environment.NewLine);
             Logger.LogInfo($"Pose saved: {JsonConvert.SerializeObject(entry)}");
-            Toast($"Pose saved: {entry.Scene} ({entry.Position[0]}, {entry.Position[1]}, {entry.Position[2]}){(approach != null ? " + approach path" : "")}");
+            Toast($"Pose saved: {entry.Scene} ({entry.Position[0]}, {entry.Position[1]}, {entry.Position[2]}){(areas != null ? " + area state" : "")}{(approach != null ? " + approach" : "")}");
 
             float Round(float v) => (float)Math.Round(v, 2);
         }
@@ -213,6 +215,14 @@ namespace UltraRT
             yield return null;
 
             var spawn = GameControl.CurrentPose();
+            if (!string.IsNullOrEmpty(sc.Path.Areas))
+            {
+                // Re-apply what the area triggers had switched on/off when the pose was saved (no route needed).
+                var areaFile = Path.IsPathRooted(sc.Path.Areas) ? sc.Path.Areas : Path.Combine(suiteDir, sc.Path.Areas);
+                var (applied, missing) = AreaState.Load(areaFile).Apply();
+                Logger.LogInfo($"Benchmark: area state applied ({applied} changes, {missing} not found)");
+                yield return new WaitForSecondsRealtime(1f);
+            }
             if (!string.IsNullOrEmpty(sc.Path.Approach))
             {
                 // Re-walk the recorded route (not timed, RT off) so the game's area triggers fire in order.

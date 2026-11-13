@@ -108,6 +108,7 @@ namespace UltraRT.Bench
                 _traceScene = scene;
                 _traceT0 = Time.realtimeSinceStartup;
                 _traceNext = 0f;
+                _areaBaseline = AreaState.Snapshot.Take(); // before the player has passed any area trigger
             }
             float t = Time.realtimeSinceStartup - _traceT0;
             if (t < _traceNext) return;
@@ -116,6 +117,18 @@ namespace UltraRT.Bench
             _trace.Samples.Add(new[] { t, p.Position.x, p.Position.y, p.Position.z, p.Yaw, p.Pitch });
         }
 
+        private AreaState.Snapshot _areaBaseline;
+
+        /// <summary>Save what area triggers changed since the level loaded (objects/lights toggled, ambient, fog). Returns the file name.</summary>
+        public string SaveAreas()
+        {
+            if (_areaBaseline == null || _trace == null) return null;
+            var diff = AreaState.Diff(_areaBaseline, AreaState.Snapshot.Take(), _trace.Scene);
+            string name = $"areas_{Sanitize(_trace.Scene)}_{DateTime.Now:yyyyMMdd-HHmmss}.json";
+            diff.Save(Path.Combine(_dir, name));
+            _log.LogInfo($"Area state saved: {name} ({diff.Objects.Count} objects, {diff.Lights.Count} lights changed)");
+            return name;
+        }
         /// <summary>Save the route walked since the level loaded (ending at the current pose). Returns the file name.</summary>
         public string SaveApproach()
         {
