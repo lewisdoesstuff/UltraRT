@@ -1,0 +1,22 @@
+{
+    "Name":  "debug-4-1b",
+    "Scenarios":  [
+                      {
+                          "Name":  "4-1 indoor B",
+                          "Scene":  "Level 4-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/4-1-approach-b.json",
+                                       "Duration":  8
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-direct"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      }
+                  ]
+}

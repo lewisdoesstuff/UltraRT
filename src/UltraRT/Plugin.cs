@@ -119,6 +119,7 @@ namespace UltraRT
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
+            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -171,6 +172,9 @@ namespace UltraRT
                         }
                         break;
                     case "-ultrart-ris-m": int.TryParse(Next(), out _lightSamplingSettings.candidates); break;
+                    case "-ultrart-noemissive": _emissiveSettings.enabled = false; break;
+                    case "-ultrart-emissive-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.lightScale); break;
+                    case "-ultrart-emissive-hybrid": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.hybridAdd); break;
                     case "-ultrart-static-always": SceneProxies.StaticActivation = false; break;
                     case "-ultrart-static-level": { if (int.TryParse(Next(), out var lv)) SceneProxies.ForceGroupLevel = lv; break; }
                     case "-ultrart-static-budget": { if (int.TryParse(Next(), out var bg)) SceneProxies.StaticRecordBudget = bg; break; }
@@ -245,6 +249,7 @@ namespace UltraRT
             try
             {
                 if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F5)) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
                 if (Input.GetKeyDown(KeyCode.F6)) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
                 if (Input.GetKeyDown(KeyCode.F8)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
@@ -280,6 +285,7 @@ namespace UltraRT
             _denoiser?.Reset();
             _denoiserDirect?.Reset();
             _lightSampling?.Reset();
+            _emissive?.Clear();
         }
 
         private Denoiser _denoiser;
@@ -300,6 +306,7 @@ namespace UltraRT
                 var cam = Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
                 _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0);
                 _proxies.Build();
+                _emissive.Build(_proxies);
                 Logger.LogInfo($"Scene RT setup took {sw.Elapsed.TotalMilliseconds:F0} ms");
                 LogLightingEnvironment();
             }
@@ -393,6 +400,8 @@ namespace UltraRT
         private static readonly int UltraRTGIStrengthId = Shader.PropertyToID("_UltraRTGIStrength");
         private static readonly int UltraRTModeId = Shader.PropertyToID("_UltraRTMode");
         private LightSampling _lightSampling;
+        private EmissiveLights _emissive;
+        private readonly EmissiveLightSettings _emissiveSettings = new EmissiveLightSettings();
         private readonly Light[] _packedLights = new Light[MaxLights];
         private readonly LightSamplingSettings _lightSamplingSettings = new LightSamplingSettings();
         private Denoiser _denoiserDirect;          // hybrid: filters ReSTIR's (noisy) shadowed direct light
@@ -526,6 +535,7 @@ namespace UltraRT
                 Logger.LogInfo($"Rescan took {sw.Elapsed.TotalMilliseconds:F2} ms");
             }
             _proxies.SyncDynamic();
+            _emissive.Update(_proxies, _camera.transform.position);
             _cpuMs += cpu.Elapsed.TotalMilliseconds;
             _cpuFrames++;
             if (_cpuFrames >= 600)
@@ -565,7 +575,8 @@ namespace UltraRT
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
-                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount);
+                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged);
+                _emissive.Bind(_cmd, shader, _lightSamplingSettings.mode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
                 _cmd.SetRayTracingIntParam(shader, "_AccumFrames", (int)_accumFrames);
                 _cmd.SetRayTracingVectorParam(shader, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
