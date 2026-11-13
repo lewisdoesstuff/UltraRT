@@ -33,6 +33,7 @@ namespace UltraRT.Editor
                 assetNames = new[]
                 {
                     "Assets/UltraRT/Shaders/DebugView.raytrace",
+                    "Assets/UltraRT/Shaders/PathTrace.raytrace",
                     "Assets/UltraRT/Shaders/Proxy.shader",
                 },
             };

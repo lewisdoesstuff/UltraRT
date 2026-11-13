@@ -22,6 +22,15 @@ if (-not $SkipShaders) {
     }
     Select-String -Path $log -Pattern 'Shader warning' | ForEach-Object Line | Select-Object -Unique
     "Shaders built in $([int]$sw.Elapsed.TotalSeconds)s"
+
+    # Deploy right away: a running game hot-reloads the bundle when it changes.
+    $pluginDir = Join-Path $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }) 'BepInEx\plugins\UltraRT'
+    if (Test-Path $pluginDir) {
+        Copy-Item (Join-Path $project 'Build\ultrart.shaders') $pluginDir -Force
+        # Copy-Item keeps the source timestamp; bump it so a running game always sees a change.
+        (Get-Item (Join-Path $pluginDir 'ultrart.shaders')).LastWriteTimeUtc = [DateTime]::UtcNow
+        "Deployed shader bundle -> $pluginDir"
+    }
 }
 
 if (-not $SkipPlugins) {

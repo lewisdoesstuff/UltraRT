@@ -1,7 +1,10 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using BepInEx;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -12,26 +15,60 @@ namespace UltraRT
 {
     /// <summary>
     /// UltraRT: hardware ray tracing for ULTRAKILL (DX12 only: launch with -force-d3d12).
-    /// Milestone 1 is a primary-ray debug view drawn over the game.
-    ///   F7  toggle the debug view        F8  cycle the debug mode
+    ///   F7 toggle view   F8 next mode   F9 reload shader bundle (also automatic when the file changes)
     /// Unattended testing (see scripts/run-debugview.ps1):
-    ///   -ultrart-scene "Level 1-1"  -ultrart-view N  -ultrart-capture  -ultrart-quit
+    ///   -ultrart-scene "Level 1-1"  -ultrart-view N  -ultrart-scale 0.5  -ultrart-capture  -ultrart-quit
     /// </summary>
-    [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.1.0")]
+    [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
     public class Plugin : BaseUnityPlugin
     {
-        public static readonly string[] ModeNames = { "lit", "albedo", "normals", "depth", "instance", "uv", "emission", "primitive" };
+        private enum Kind { Debug, PathTrace }
 
-        private RayTracingShader _debugShader;
+        private static readonly (string name, Kind kind, int mode)[] Modes =
+        {
+            ("pt", Kind.PathTrace, 0),
+            ("pt-direct", Kind.PathTrace, 1),
+            ("pt-indirect", Kind.PathTrace, 2),
+            ("lit", Kind.Debug, 0),
+            ("albedo", Kind.Debug, 1),
+            ("normals", Kind.Debug, 2),
+            ("depth", Kind.Debug, 3),
+            ("instance", Kind.Debug, 4),
+            ("uv", Kind.Debug, 5),
+            ("emission", Kind.Debug, 6),
+            ("primitive", Kind.Debug, 7),
+        };
+
+        private const int MaxLights = 256;
+
+        private string _bundlePath;
+        private DateTime _bundleStamp;
+        private float _nextBundleCheck;
+        private AssetBundle _bundle;
+        private RayTracingShader _debugShader, _ptShader;
         private Shader _proxyShader;
+
         private SceneProxies _proxies;
-        private RenderTexture _output;
+        private RenderTexture _output, _accum;
+        private ComputeBuffer _lightBuffer;
+        private readonly Vector4[] _lightData = new Vector4[MaxLights * 2];
+        private int _lightCount;
+        private Light[] _sceneLights = Array.Empty<Light>();
+        private float _nextLightScan;
         private CommandBuffer _cmd;
         private Camera _camera;
         private CoroutineHost _host;
 
         private bool _viewEnabled = true;
         private int _mode;
+        private float _scale = 0.5f;
+        private uint _frameIndex;
+        private uint _accumFrames;
+        private bool _accumulate;
+        private Matrix4x4 _lastViewProj;
+        private int _lastMode = -1;
+        private int _tracedFrames;
+
         private string _autoScene;
         private bool _capture, _quit;
         private string _outDir;
@@ -48,19 +85,21 @@ namespace UltraRT
                 Logger.LogWarning("Ray tracing unavailable (launch with -force-d3d12 on a DXR GPU). UltraRT is idle.");
                 return;
             }
+
+            _bundlePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", "ultrart.shaders");
             if (!LoadShaders()) return;
 
             _cmd = new CommandBuffer { name = "UltraRT" };
+            _lightBuffer = new ComputeBuffer(MaxLights * 2, 16);
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
-            _host.OnUpdate = HandleInput;
+            _host.OnUpdate = OnUpdate;
 
             SceneManager.activeSceneChanged += (_, to) =>
             {
                 Logger.LogInfo($"Scene -> {to.name} ({SafeCurrentScene()})");
-                _proxies?.Dispose();
-                _proxies = null;
+                ResetScene();
                 _host.StartCoroutine(BuildWhenLoaded());
             };
 
@@ -78,23 +117,83 @@ namespace UltraRT
                 {
                     case "-ultrart-scene": _autoScene = Next(); break;
                     case "-ultrart-view": int.TryParse(Next(), out _mode); break;
+                    case "-ultrart-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _scale); break;
+                    case "-ultrart-accumulate": _accumulate = true; break;
                     case "-ultrart-capture": _capture = true; break;
                     case "-ultrart-quit": _quit = true; break;
                     case "-ultrart-off": _viewEnabled = false; break;
                     case "-ultrart-dumpverts": SceneProxies.DumpAtlasVertices = true; break;
                 }
             }
+            _scale = Mathf.Clamp(_scale, 0.1f, 1f);
+            _mode = Mathf.Clamp(_mode, 0, Modes.Length - 1);
         }
+
+        // ---------------------------------------------------------------- shaders / hot reload
 
         private bool LoadShaders()
         {
-            var path = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", "ultrart.shaders");
-            var bundle = AssetBundle.LoadFromFile(path);
-            if (bundle == null) { Logger.LogError($"Could not load shader bundle at {path}"); return false; }
-            _debugShader = bundle.LoadAllAssets<RayTracingShader>().FirstOrDefault();
-            _proxyShader = bundle.LoadAllAssets<Shader>().FirstOrDefault(s => s.name == "UltraRT/Proxy");
-            Logger.LogInfo($"Bundle loaded: raytrace={(_debugShader ? _debugShader.name : "MISSING")} proxy={(_proxyShader ? (_proxyShader.isSupported ? "ok" : "UNSUPPORTED") : "MISSING")}");
-            return _debugShader != null && _proxyShader != null;
+            if (!File.Exists(_bundlePath)) { Logger.LogError($"Shader bundle missing: {_bundlePath}"); return false; }
+            // Load from memory so the file isn't locked and the build can overwrite it while the game runs.
+            var bundle = AssetBundle.LoadFromMemory(File.ReadAllBytes(_bundlePath));
+            if (bundle == null) { Logger.LogError($"Could not load shader bundle at {_bundlePath}"); return false; }
+
+            var rts = bundle.LoadAllAssets<RayTracingShader>();
+            var debug = rts.FirstOrDefault(s => s.name == "DebugView");
+            var pt = rts.FirstOrDefault(s => s.name == "PathTrace");
+            var proxy = bundle.LoadAllAssets<Shader>().FirstOrDefault(s => s.name == "UltraRT/Proxy");
+            Logger.LogInfo($"Bundle loaded: DebugView={(debug ? "ok" : "MISSING")} PathTrace={(pt ? "ok" : "MISSING")} proxy={(proxy ? (proxy.isSupported ? "ok" : "UNSUPPORTED") : "MISSING")}");
+            if (debug == null || pt == null || proxy == null) { bundle.Unload(true); return false; }
+
+            _bundle = bundle;
+            _debugShader = debug;
+            _ptShader = pt;
+            _proxyShader = proxy;
+            _bundleStamp = File.GetLastWriteTimeUtc(_bundlePath);
+            return true;
+        }
+
+        private void ReloadShaders()
+        {
+            Logger.LogInfo("Reloading shader bundle...");
+            ResetScene(); // proxy materials reference the old shader
+            if (_bundle != null) _bundle.Unload(true);
+            _bundle = null;
+            _debugShader = _ptShader = null;
+            _proxyShader = null;
+            if (LoadShaders()) _host.StartCoroutine(BuildWhenLoaded());
+        }
+
+        private void OnUpdate()
+        {
+            try
+            {
+                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F8)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); }
+                if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
+            }
+            catch (InvalidOperationException) { /* legacy input disabled */ }
+
+            if (Time.realtimeSinceStartup >= _nextBundleCheck)
+            {
+                _nextBundleCheck = Time.realtimeSinceStartup + 0.5f;
+                try
+                {
+                    var stamp = File.GetLastWriteTimeUtc(_bundlePath);
+                    // Let the writer finish before reading.
+                    if (stamp != _bundleStamp && (DateTime.UtcNow - stamp).TotalSeconds > 0.5) ReloadShaders();
+                }
+                catch (IOException) { }
+            }
+        }
+
+        // ---------------------------------------------------------------- scene
+
+        private void ResetScene()
+        {
+            _proxies?.Dispose();
+            _proxies = null;
+            _accumFrames = 0;
         }
 
         private IEnumerator BuildWhenLoaded()
@@ -102,10 +201,10 @@ namespace UltraRT
             yield return null;
             while (SceneHelper.PendingScene != null) yield return null;
             yield return new WaitForSecondsRealtime(1f);
-            if (_proxies != null) yield break;
+            if (_proxies != null || _proxyShader == null) yield break;
             try
             {
-                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var sw = Stopwatch.StartNew();
                 _proxies = new SceneProxies(Logger, _proxyShader);
                 _proxies.Build();
                 Logger.LogInfo($"Scene RT setup took {sw.Elapsed.TotalMilliseconds:F0} ms");
@@ -113,10 +212,32 @@ namespace UltraRT
             catch (Exception e)
             {
                 Logger.LogError($"Proxy build failed: {e}");
-                _proxies?.Dispose();
-                _proxies = null;
+                ResetScene();
             }
         }
+
+        private void GatherLights()
+        {
+            if (Time.realtimeSinceStartup >= _nextLightScan)
+            {
+                _nextLightScan = Time.realtimeSinceStartup + 1f;
+                _sceneLights = FindObjectsOfType<Light>();
+            }
+            _lightCount = 0;
+            foreach (var l in _sceneLights)
+            {
+                if (_lightCount >= MaxLights) break;
+                if (l == null || !l.isActiveAndEnabled || l.intensity <= 0f) continue;
+                if (l.type != LightType.Point && l.type != LightType.Spot) continue;
+                var c = l.color * l.intensity;
+                _lightData[_lightCount * 2] = new Vector4(l.transform.position.x, l.transform.position.y, l.transform.position.z, l.range);
+                _lightData[_lightCount * 2 + 1] = new Vector4(c.r, c.g, c.b, 0);
+                _lightCount++;
+            }
+            _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 2);
+        }
+
+        // ---------------------------------------------------------------- rendering
 
         private IEnumerator RenderLoop()
         {
@@ -124,7 +245,8 @@ namespace UltraRT
             while (true)
             {
                 yield return eof;
-                if (_proxies?.Rtas == null || !_viewEnabled || _proxies.Rtas.GetInstanceCount() == 0) continue;
+                if (_proxies?.Rtas == null || !_viewEnabled || _ptShader == null) continue;
+                if (_proxies.Rtas.GetInstanceCount() == 0) continue; // dispatching against an empty RTAS hangs the GPU
                 if (_camera == null || !_camera.isActiveAndEnabled)
                     _camera = Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
                 if (_camera == null) continue;
@@ -138,52 +260,78 @@ namespace UltraRT
             }
         }
 
+        private void EnsureTargets(int w, int h)
+        {
+            if (_output != null && _output.width == w && _output.height == h) return;
+            if (_output != null) _output.Release();
+            if (_accum != null) _accum.Release();
+            _output = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32) { enableRandomWrite = true, filterMode = FilterMode.Point, name = "UltraRT Output" };
+            _output.Create();
+            _accum = new RenderTexture(w, h, 0, RenderTextureFormat.ARGBHalf) { enableRandomWrite = true, filterMode = FilterMode.Point, name = "UltraRT Accum" };
+            _accum.Create();
+            _accumFrames = 0;
+        }
+
         private void Trace()
         {
-            int w = _camera.pixelWidth, h = _camera.pixelHeight;
-            if (_output == null || _output.width != w || _output.height != h)
-            {
-                if (_output != null) _output.Release();
-                _output = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32) { enableRandomWrite = true, name = "UltraRT Output" };
-                _output.Create();
-            }
+            var (_, kind, mode) = Modes[_mode];
+            bool pt = kind == Kind.PathTrace;
+            int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * (pt ? _scale : 1f)));
+            int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * (pt ? _scale : 1f)));
+            EnsureTargets(w, h);
 
             _proxies.SyncDynamic();
 
-            var view = _camera.worldToCameraMatrix;
-            var proj = _camera.projectionMatrix;
-            var invViewProj = (proj * view).inverse;
+            var viewProj = _camera.projectionMatrix * _camera.worldToCameraMatrix;
+            if (!_accumulate || !Approximately(viewProj, _lastViewProj) || _mode != _lastMode) _accumFrames = 0;
+            _lastViewProj = viewProj;
+            _lastMode = _mode;
+            var invViewProj = viewProj.inverse;
 
             _cmd.Clear();
             _cmd.BuildRayTracingAccelerationStructure(_proxies.Rtas);
-            _debugShader.SetShaderPass("UltraRTHit");
-            _cmd.SetRayTracingAccelerationStructure(_debugShader, "_Scene", _proxies.Rtas);
-            _cmd.SetRayTracingTextureParam(_debugShader, "_Output", _output);
-            _cmd.SetRayTracingMatrixParam(_debugShader, "_InvViewProj", invViewProj);
-            _cmd.SetRayTracingVectorParam(_debugShader, "_CamPos", _camera.transform.position);
-            _cmd.SetRayTracingIntParam(_debugShader, "_Mode", _mode);
-            _cmd.SetRayTracingFloatParam(_debugShader, "_DepthScale", 150f);
-            _cmd.DispatchRays(_debugShader, "RayGen", (uint)w, (uint)h, 1);
 
-            bool log = _tracedFrames < 3;
-            if (log) Logger.LogInfo($"trace frame {_tracedFrames}: {w}x{h} instances={_proxies.Rtas.GetInstanceCount()} cam='{_camera.name}' executing");
+            var shader = pt ? _ptShader : _debugShader;
+            shader.SetShaderPass("UltraRTHit");
+            _cmd.SetRayTracingAccelerationStructure(shader, "_Scene", _proxies.Rtas);
+            _cmd.SetRayTracingTextureParam(shader, "_Output", _output);
+            _cmd.SetRayTracingMatrixParam(shader, "_InvViewProj", invViewProj);
+            _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
+            _cmd.SetRayTracingIntParam(shader, "_Mode", mode);
+
+            if (pt)
+            {
+                GatherLights();
+                var ambient = RenderSettings.ambientLight;
+                _cmd.SetRayTracingTextureParam(shader, "_Accum", _accum);
+                _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
+                _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
+                _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
+                _cmd.SetRayTracingIntParam(shader, "_AccumFrames", (int)_accumFrames);
+                _cmd.SetRayTracingVectorParam(shader, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
+                _cmd.SetRayTracingVectorParam(shader, "_Ambient", new Vector4(ambient.r, ambient.g, ambient.b, 1) * 0.5f);
+                _cmd.SetRayTracingFloatParam(shader, "_LightScale", 1f);
+                _cmd.SetRayTracingFloatParam(shader, "_EmissionScale", 1f);
+            }
+            else
+            {
+                _cmd.SetRayTracingFloatParam(shader, "_DepthScale", 150f);
+            }
+
+            _cmd.DispatchRays(shader, "RayGen", (uint)w, (uint)h, 1);
             Graphics.ExecuteCommandBuffer(_cmd);
-            if (log) Logger.LogInfo($"trace frame {_tracedFrames}: executed, blitting");
             Graphics.Blit(_output, (RenderTexture)null);
-            if (log) Logger.LogInfo($"trace frame {_tracedFrames}: done");
-            _tracedFrames++;
+
+            _frameIndex++;
+            if (pt && _accumulate) _accumFrames++;
+            if (_tracedFrames++ == 0) Logger.LogInfo($"First trace OK: {w}x{h}, instances={_proxies.Rtas.GetInstanceCount()}, lights={_lightCount}");
         }
 
-        private int _tracedFrames;
-
-        private void HandleInput()
+        private static bool Approximately(Matrix4x4 a, Matrix4x4 b)
         {
-            try
-            {
-                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; Logger.LogInfo($"Debug view {(_viewEnabled ? "on" : "off")}"); }
-                if (Input.GetKeyDown(KeyCode.F8)) { _mode = (_mode + 1) % ModeNames.Length; Logger.LogInfo($"Debug mode: {ModeNames[_mode]}"); }
-            }
-            catch (InvalidOperationException) { /* legacy input disabled */ }
+            for (int i = 0; i < 16; i++)
+                if (Mathf.Abs(a[i] - b[i]) > 1e-4f) return false;
+            return true;
         }
 
         // ---------------------------------------------------------------- unattended testing
@@ -209,19 +357,55 @@ namespace UltraRT
             if (_capture)
             {
                 string tag = new string(_autoScene.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
-                bool prev = _viewEnabled;
+                var report = new StringBuilder($"# UltraRT capture {DateTime.Now:yyyy-MM-dd HH:mm:ss} {_autoScene} scale={_scale}\n");
+                bool prevView = _viewEnabled, prevAccum = _accumulate;
+                int prevMode = _mode;
+
+                // Uncapped frame-time cost: game alone vs. each tracing mode.
+                QualitySettings.vSyncCount = 0;
+                Application.targetFrameRate = -1;
+                _viewEnabled = false;
+                yield return Measure("game only", report);
+                _viewEnabled = true;
+                _accumulate = false;
+                foreach (int m in new[] { 0, 3 })
+                {
+                    _mode = m;
+                    yield return Measure($"+ {Modes[m].name} @ {(Modes[m].kind == Kind.PathTrace ? _scale : 1f)}x", report);
+                }
+
                 _viewEnabled = false;
                 yield return null; yield return null;
                 ScreenCapture.CaptureScreenshot(Path.Combine(_outDir, $"dv-{tag}-game.png"));
                 yield return null; yield return null;
                 _viewEnabled = true;
-                for (int m = 0; m < ModeNames.Length; m++)
+
+                for (int m = 0; m < Modes.Length; m++)
                 {
                     _mode = m;
+                    _accumulate = false;
                     yield return null; yield return null; yield return new WaitForEndOfFrame();
-                    SaveOutput(Path.Combine(_outDir, $"dv-{tag}-{m}-{ModeNames[m]}.png"));
+                    SaveOutput(Path.Combine(_outDir, $"dv-{tag}-{m:00}-{Modes[m].name}.png"));
+                    if (Modes[m].kind == Kind.PathTrace)
+                    {
+                        // Reference image: freeze game time so the camera holds still, accumulate up to 256 frames.
+                        float prevTimeScale = Time.timeScale;
+                        Time.timeScale = 0f;
+                        _accumulate = true;
+                        _accumFrames = 0;
+                        float deadline = Time.realtimeSinceStartup + 8f;
+                        while (_accumFrames < 256 && Time.realtimeSinceStartup < deadline) yield return null;
+                        yield return new WaitForEndOfFrame();
+                        SaveOutput(Path.Combine(_outDir, $"dv-{tag}-{m:00}-{Modes[m].name}-accum{_accumFrames}.png"));
+                        report.AppendLine($"{Modes[m].name}: accumulated {_accumFrames} frames");
+                        _accumulate = false;
+                        Time.timeScale = prevTimeScale;
+                    }
                 }
-                _viewEnabled = prev;
+
+                File.WriteAllText(Path.Combine(_outDir, $"dv-{tag}-timing.md"), report.ToString());
+                Logger.LogInfo(report.ToString());
+                _viewEnabled = prevView; _accumulate = prevAccum; _mode = prevMode;
                 Logger.LogInfo("Capture done");
             }
             if (_quit)
@@ -229,6 +413,23 @@ namespace UltraRT
                 yield return new WaitForSecondsRealtime(1f);
                 Application.Quit();
             }
+        }
+
+        private IEnumerator Measure(string label, StringBuilder report, float seconds = 4f)
+        {
+            yield return new WaitForSecondsRealtime(0.5f);
+            var dts = new List<float>(4096);
+            float end = Time.realtimeSinceStartup + seconds;
+            while (Time.realtimeSinceStartup < end)
+            {
+                yield return null;
+                dts.Add(Time.unscaledDeltaTime * 1000f);
+            }
+            dts.Sort();
+            float avg = dts.Average();
+            var line = $"{label,-28} avg {avg:F3} ms ({1000f / avg:F0} fps)  p50 {dts[dts.Count / 2]:F3}  p99 {dts[(int)(dts.Count * 0.99)]:F3}";
+            report.AppendLine(line);
+            Logger.LogInfo(line);
         }
 
         private void SaveOutput(string path)
@@ -242,7 +443,6 @@ namespace UltraRT
             RenderTexture.active = prev;
             File.WriteAllBytes(path, tex.EncodeToPNG());
             Destroy(tex);
-            Logger.LogInfo($"Saved {path}");
         }
 
         private static string SafeCurrentScene()

@@ -1,0 +1,181 @@
+// First lighting pass: primary hit, shadowed direct light from the scene's point lights,
+// and one diffuse bounce that picks up emissive surfaces plus one shadowed light sample at the bounce.
+// Optional progressive accumulation while the camera is still (reference quality for comparisons).
+#pragma max_recursion_depth 1
+
+#include "UltraRTCommon.hlsl"
+
+RaytracingAccelerationStructure _Scene;
+RWTexture2D<float4> _Output;
+RWTexture2D<float4> _Accum;
+
+float4x4 _InvViewProj;
+float4   _CamPos;
+int      _Mode;          // 0 full, 1 direct only, 2 indirect only
+uint     _FrameIndex;
+uint     _AccumFrames;   // frames already accumulated (0 = reset)
+
+StructuredBuffer<float4> _Lights; // per light: [posWS, range], [color * intensity, 0]
+int      _LightCount;
+
+float4   _SkyColor;      // radiance for rays escaping the level
+float4   _Ambient;       // cheap stand-in for further bounces, applied at the bounce hit only
+float    _LightScale;
+float    _EmissionScale;
+
+// ---------------------------------------------------------------- rng
+
+uint Pcg(inout uint s)
+{
+    s = s * 747796405u + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+
+float Rand(inout uint s) { return Pcg(s) * (1.0 / 4294967296.0); }
+
+float3 CosineHemisphere(float3 n, float u1, float u2)
+{
+    float r = sqrt(u1);
+    float phi = 6.28318530718 * u2;
+    float3 t = abs(n.y) < 0.999 ? normalize(cross(n, float3(0, 1, 0))) : float3(1, 0, 0);
+    float3 b = cross(n, t);
+    return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(0.0, 1.0 - u1)));
+}
+
+// ---------------------------------------------------------------- tracing helpers
+
+bool Visible(float3 p, float3 n, float3 dir, float dist)
+{
+    RayDesc r;
+    r.Origin = p + n * 0.02;
+    r.Direction = dir;
+    r.TMin = 0.0;
+    r.TMax = max(0.0, dist - 0.05);
+    RayPayload sp = (RayPayload)0;
+    sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
+    TraceRay(_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, 0, 1, 0, r, sp);
+    return sp.t < 0.0;
+}
+
+// Smooth, range-limited falloff in the spirit of Unity's built-in point light attenuation.
+float Attenuation(float d, float range)
+{
+    float r = d / max(range, 1e-3);
+    float w = saturate(1.0 - r * r * r * r);
+    return (w * w) / (1.0 + 25.0 * r * r);
+}
+
+float3 LightFrom(int i, float3 p, float3 n)
+{
+    float4 a = _Lights[i * 2];
+    float4 c = _Lights[i * 2 + 1];
+    float3 toL = a.xyz - p;
+    float d = length(toL);
+    if (d >= a.w) return 0;
+    float3 l = toL / max(d, 1e-4);
+    float ndl = dot(n, l);
+    if (ndl <= 0.0) return 0;
+    float att = Attenuation(d, a.w);
+    if (att < 1e-3) return 0;
+    if (!Visible(p, n, l, d)) return 0;
+    return c.rgb * (att * ndl);
+}
+
+float3 DirectAll(float3 p, float3 n)
+{
+    float3 sum = 0;
+    for (int i = 0; i < _LightCount; i++) sum += LightFrom(i, p, n);
+    return sum * _LightScale;
+}
+
+float3 DirectOne(float3 p, float3 n, inout uint rng)
+{
+    if (_LightCount <= 0) return 0;
+    int i = min((int)(Rand(rng) * _LightCount), _LightCount - 1);
+    return LightFrom(i, p, n) * (_LightCount * _LightScale);
+}
+
+// ---------------------------------------------------------------- ray generation
+
+[shader("raygeneration")]
+void RayGen()
+{
+    uint2 id = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+    uint rng = (id.x * 1973u + id.y * 9277u + _FrameIndex * 26699u) | 1u;
+
+    // Jitter within the pixel only while accumulating, so a single frame stays stable.
+    float2 jitter = _AccumFrames > 0 ? float2(Rand(rng), Rand(rng)) : float2(0.5, 0.5);
+    float2 ndc = ((float2)id + jitter) / (float2)dim * 2.0 - 1.0;
+    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
+    farPt.xyz /= farPt.w;
+
+    RayDesc ray;
+    ray.Origin = _CamPos.xyz;
+    ray.Direction = normalize(farPt.xyz - _CamPos.xyz);
+    ray.TMin = 0.0;
+    ray.TMax = 1.0e5;
+
+    RayPayload p = (RayPayload)0;
+    p.t = -1.0;
+    TraceRay(_Scene, RAY_FLAG_NONE, 0xFF, 0, 1, 0, ray, p);
+
+    float3 c;
+    if (p.t < 0.0)
+    {
+        c = _SkyColor.rgb;
+    }
+    else
+    {
+        float3 pos = ray.Origin + ray.Direction * p.t;
+        float3 n = p.normal;
+
+        float3 direct = DirectAll(pos, n);
+
+        // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
+        float3 indirect = 0;
+        {
+            RayDesc b;
+            b.Origin = pos + n * 0.02;
+            b.Direction = CosineHemisphere(n, Rand(rng), Rand(rng));
+            b.TMin = 0.0;
+            b.TMax = 1.0e4;
+            RayPayload h = (RayPayload)0;
+            h.t = -1.0;
+            TraceRay(_Scene, RAY_FLAG_NONE, 0xFF, 0, 1, 0, b, h);
+            if (h.t < 0.0)
+            {
+                indirect = _SkyColor.rgb;
+            }
+            else
+            {
+                float3 hp = b.Origin + b.Direction * h.t;
+                indirect = h.emission * _EmissionScale + h.albedo * (DirectOne(hp, h.normal, rng) + _Ambient.rgb);
+            }
+        }
+
+        float3 emission = p.emission * _EmissionScale;
+        switch (_Mode)
+        {
+            default:
+            case 0: c = p.albedo * (direct + indirect) + emission; break;
+            case 1: c = p.albedo * direct + emission; break;
+            case 2: c = p.albedo * indirect; break;
+        }
+    }
+
+    if (_AccumFrames > 0)
+    {
+        float4 prev = _Accum[id];
+        c = lerp(prev.rgb, c, 1.0 / (float)(_AccumFrames + 1));
+    }
+    _Accum[id] = float4(c, 1.0);
+    _Output[id] = float4(c, 1.0);
+}
+
+[shader("miss")]
+void Miss(inout RayPayload p : SV_RayPayload)
+{
+    p.t = -1.0;
+}
