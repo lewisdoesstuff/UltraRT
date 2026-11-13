@@ -22,10 +22,15 @@ namespace UltraRT
     [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
     public class Plugin : BaseUnityPlugin
     {
-        private enum Kind { Debug, PathTrace }
+        private enum Kind { Debug, PathTrace, Denoised }
 
+        // For Denoised, `mode` is a DenoiserDebugView; the trace itself runs PathTrace mode 0.
         private static readonly (string name, Kind kind, int mode)[] Modes =
         {
+            ("pt-dn", Kind.Denoised, (int)DenoiserDebugView.Final),
+            ("dn-lighting", Kind.Denoised, (int)DenoiserDebugView.FilteredLighting),
+            ("dn-variance", Kind.Denoised, (int)DenoiserDebugView.Variance),
+            ("dn-history", Kind.Denoised, (int)DenoiserDebugView.HistoryLength),
             ("pt", Kind.PathTrace, 0),
             ("pt-direct", Kind.PathTrace, 1),
             ("pt-indirect", Kind.PathTrace, 2),
@@ -147,8 +152,15 @@ namespace UltraRT
             var debug = rts.FirstOrDefault(s => s.name == "DebugView");
             var pt = rts.FirstOrDefault(s => s.name == "PathTrace");
             var proxy = bundle.LoadAllAssets<Shader>().FirstOrDefault(s => s.name == "UltraRT/Proxy");
-            Logger.LogInfo($"Bundle loaded: DebugView={(debug ? "ok" : "MISSING")} PathTrace={(pt ? "ok" : "MISSING")} proxy={(proxy ? (proxy.isSupported ? "ok" : "UNSUPPORTED") : "MISSING")}");
-            if (debug == null || pt == null || proxy == null) { bundle.Unload(true); return false; }
+            var denoise = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Denoise");
+            Logger.LogInfo($"Bundle loaded: DebugView={(debug ? "ok" : "MISSING")} PathTrace={(pt ? "ok" : "MISSING")} " +
+                           $"proxy={(proxy ? (proxy.isSupported ? "ok" : "UNSUPPORTED") : "MISSING")} Denoise={(denoise ? "ok" : "MISSING")}");
+            if (debug == null || pt == null || proxy == null || denoise == null) { bundle.Unload(true); return false; }
+
+            var settings = _denoiser?.Settings;
+            _denoiser?.Dispose();
+            _denoiser = new Denoiser(denoise);
+            if (settings != null) _denoiser.Settings = settings;
 
             _bundle = bundle;
             _debugShader = debug;
@@ -173,7 +185,7 @@ namespace UltraRT
         {
             try
             {
-                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
                 if (Input.GetKeyDown(KeyCode.F8)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
             }
@@ -199,7 +211,13 @@ namespace UltraRT
             _proxies?.Dispose();
             _proxies = null;
             _accumFrames = 0;
+            _denoiser?.Reset();
         }
+
+        private Denoiser _denoiser;
+        private RenderTexture _denoised;
+        private RenderTexture _displayed;
+        private Kind _lastKind = Kind.Debug;
 
         private IEnumerator BuildWhenLoaded()
         {
@@ -329,7 +347,11 @@ namespace UltraRT
         private void Trace()
         {
             var (_, kind, mode) = Modes[_mode];
-            bool pt = kind == Kind.PathTrace;
+            bool denoised = kind == Kind.Denoised;
+            bool pt = kind != Kind.Debug;
+            if (denoised && _lastKind != Kind.Denoised) _denoiser.Reset(); // history is stale after other modes
+            _lastKind = kind;
+            if (denoised) _accumulate = false; // the denoiser needs unjittered primary rays
             int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * (pt ? _scale : 1f)));
             int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * (pt ? _scale : 1f)));
             EnsureTargets(w, h);
@@ -374,7 +396,7 @@ namespace UltraRT
             _cmd.SetRayTracingTextureParam(shader, "_Output", _output);
             _cmd.SetRayTracingMatrixParam(shader, "_InvViewProj", invViewProj);
             _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
-            _cmd.SetRayTracingIntParam(shader, "_Mode", mode);
+            _cmd.SetRayTracingIntParam(shader, "_Mode", denoised ? 0 : mode);
 
             if (pt)
             {
@@ -406,10 +428,33 @@ namespace UltraRT
             _cmd.BeginSample(SampleTrace);
             _cmd.DispatchRays(shader, "RayGen", (uint)w, (uint)h, 1);
             _cmd.EndSample(SampleTrace);
-            _cmd.BeginSample(SampleBlit);
-            _cmd.Blit(_output, BuiltinRenderTextureType.CameraTarget);
-            _cmd.EndSample(SampleBlit);
+
+            _displayed = _output;
+            if (denoised)
+            {
+                if (_denoised == null || _denoised.width != w || _denoised.height != h)
+                {
+                    if (_denoised != null) _denoised.Release();
+                    _denoised = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
+                        { enableRandomWrite = true, filterMode = FilterMode.Point, name = "UltraRT Denoised" };
+                    _denoised.Create();
+                }
+                _denoiser.Settings.debugView = (DenoiserDebugView)mode;
+                var inputs = new DenoiserInputs
+                {
+                    radiance = _gRadiance, albedo = _gAlbedo, emission = _gEmission,
+                    normalDepth = _gNormalDepth, instanceId = _gInstanceId,
+                    viewProj = viewProj, invViewProj = invViewProj,
+                    camPos = _camera.transform.position,
+                };
+                _cmd.BeginSample(SampleDenoise);
+                _denoiser.Execute(_cmd, inputs, _denoised);
+                _cmd.EndSample(SampleDenoise);
+                _displayed = _denoised;
+            }
+
             Graphics.ExecuteCommandBuffer(_cmd);
+            Graphics.Blit(_displayed, (RenderTexture)null);
 
             _frameIndex++;
             if (pt && _accumulate) _accumFrames++;
@@ -418,7 +463,7 @@ namespace UltraRT
 
         // Debug markers (visible in PIX/RenderDoc). Unity's Recorder reports 0 GPU time in this release player;
         // real GPU timings come from the native timer plugin.
-        private const string SampleBuild = "UltraRT.BuildRTAS", SampleTrace = "UltraRT.DispatchRays", SampleBlit = "UltraRT.Blit";
+        private const string SampleBuild = "UltraRT.BuildRTAS", SampleTrace = "UltraRT.DispatchRays", SampleDenoise = "UltraRT.Denoise";
 
         private static bool Approximately(Matrix4x4 a, Matrix4x4 b)
         {
@@ -463,10 +508,11 @@ namespace UltraRT
                 yield return Measure("game only", report);
                 _viewEnabled = true;
                 _accumulate = false;
-                foreach (int m in new[] { 0, 3 })
+                foreach (string name in new[] { "pt-dn", "pt", "lit" })
                 {
+                    int m = Array.FindIndex(Modes, x => x.name == name);
                     _mode = m;
-                    yield return Measure($"+ {Modes[m].name} @ {(Modes[m].kind == Kind.PathTrace ? _scale : 1f)}x", report);
+                    yield return Measure($"+ {Modes[m].name} @ {(Modes[m].kind != Kind.Debug ? _scale : 1f)}x", report);
                 }
 
                 _viewEnabled = false;
@@ -479,7 +525,10 @@ namespace UltraRT
                 {
                     _mode = m;
                     _accumulate = false;
-                    yield return null; yield return null; yield return new WaitForEndOfFrame();
+                    yield return null; yield return null;
+                    if (Modes[m].kind == Kind.Denoised)
+                        for (int f = 0; f < 60; f++) yield return null; // let temporal history build up
+                    yield return new WaitForEndOfFrame();
                     SaveOutput(Path.Combine(_outDir, $"dv-{tag}-{m:00}-{Modes[m].name}.png"));
                     if (Modes[m].kind == Kind.PathTrace)
                     {
@@ -561,11 +610,12 @@ namespace UltraRT
 
         private void SaveOutput(string path)
         {
-            if (_output == null) { Logger.LogWarning("No RT output to save"); return; }
+            var src = _displayed != null ? _displayed : _output;
+            if (src == null) { Logger.LogWarning("No RT output to save"); return; }
             var prev = RenderTexture.active;
-            RenderTexture.active = _output;
-            var tex = new Texture2D(_output.width, _output.height, TextureFormat.RGBA32, false);
-            tex.ReadPixels(new Rect(0, 0, _output.width, _output.height), 0, 0);
+            RenderTexture.active = src;
+            var tex = new Texture2D(src.width, src.height, TextureFormat.RGBA32, false);
+            tex.ReadPixels(new Rect(0, 0, src.width, src.height), 0, 0);
             tex.Apply();
             RenderTexture.active = prev;
             File.WriteAllBytes(path, tex.EncodeToPNG());
