@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -89,8 +89,49 @@ namespace UltraRT.Bench
             _rec = null;
         }
 
+        // ---------------------------------------------------------------- background approach trace
+
+        // Always-on, low-rate trace since the level loaded. F11 saves it as the "approach" to a pose, so benchmarks
+        // can re-walk the route and fire the same room/area triggers a teleport would skip.
+        private Recording _trace;
+        private string _traceScene;
+        private float _traceT0, _traceNext;
+        private const float TraceRate = 30f;
+
+        private void UpdateTrace()
+        {
+            var scene = SceneHelper.CurrentScene;
+            if (GameControl.Player == null || GameControl.Cam == null) { _trace = null; return; }
+            if (_trace == null || _traceScene != scene)
+            {
+                _trace = new Recording { Scene = scene, Created = DateTime.Now.ToString("s"), SampleRate = TraceRate };
+                _traceScene = scene;
+                _traceT0 = Time.realtimeSinceStartup;
+                _traceNext = 0f;
+            }
+            float t = Time.realtimeSinceStartup - _traceT0;
+            if (t < _traceNext) return;
+            _traceNext = t + 1f / TraceRate;
+            var p = GameControl.CurrentPose();
+            _trace.Samples.Add(new[] { t, p.Position.x, p.Position.y, p.Position.z, p.Yaw, p.Pitch });
+        }
+
+        /// <summary>Save the route walked since the level loaded (ending at the current pose). Returns the file name.</summary>
+        public string SaveApproach()
+        {
+            if (_trace == null || _trace.Samples.Count == 0) return null;
+            var p = GameControl.CurrentPose();
+            float t = Time.realtimeSinceStartup - _traceT0;
+            _trace.Samples.Add(new[] { t, p.Position.x, p.Position.y, p.Position.z, p.Yaw, p.Pitch });
+            string name = $"approach_{Sanitize(_trace.Scene)}_{DateTime.Now:yyyyMMdd-HHmmss}.json";
+            _trace.Save(Path.Combine(_dir, name));
+            _log.LogInfo($"Approach saved: {name} ({_trace.Samples.Count} samples, {t:F1}s, {_trace.Arenas.Count} arena events)");
+            return name;
+        }
+
         public void Update()
         {
+            UpdateTrace();
             if (_rec == null) return;
             if (GameControl.Player == null) { Stop(); return; } // level ended / changed
             float t = Elapsed;
@@ -102,9 +143,11 @@ namespace UltraRT.Bench
 
         public void OnArenaActivated(ActivateArena arena)
         {
-            if (_rec == null || arena == null) return;
+            if (arena == null) return;
             var pos = arena.transform.position;
-            _rec.Arenas.Add(new Recording.ArenaEvent { Time = Elapsed, Path = GameControl.PathOf(arena.transform), Position = new[] { pos.x, pos.y, pos.z } });
+            var path = GameControl.PathOf(arena.transform);
+            if (_rec != null) _rec.Arenas.Add(new Recording.ArenaEvent { Time = Elapsed, Path = path, Position = new[] { pos.x, pos.y, pos.z } });
+            if (_trace != null) _trace.Arenas.Add(new Recording.ArenaEvent { Time = Time.realtimeSinceStartup - _traceT0, Path = path, Position = new[] { pos.x, pos.y, pos.z } });
         }
 
         private static string Sanitize(string s) => new string((s ?? "unknown").Select(c => char.IsLetterOrDigit(c) || c == '-' ? c : '_').ToArray());

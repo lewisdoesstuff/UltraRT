@@ -42,6 +42,10 @@ namespace UltraRT.Bench
         // sweep (around the spawn pose, or Position if given)
         public float YawSpeed = 90f;
         public float PitchAmplitude = 15f;
+        // approach: re-walk a recorded route first (untimed) so room/area triggers fire like they did for the player.
+        // F11 saves one with every pose. Without Position, the pose defaults to the approach's last sample.
+        public string Approach;
+        public float ApproachSpeed = 1.5f;
         // recording
         public string File;
         public float Start;

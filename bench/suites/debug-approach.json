@@ -1,0 +1,12 @@
+{
+  "Name": "debug-approach",
+  "Scenarios": [
+    {
+      "Name": "1-1 approach then hold",
+      "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-doors.json", "ApproachSpeed": 1.5, "Duration": 5 },
+      "Modes": ["off", "pt-dn"],
+      "Screenshots": [2]
+    }
+  ]
+}

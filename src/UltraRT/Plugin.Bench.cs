@@ -73,10 +73,12 @@ namespace UltraRT
         {
             if (GameControl.Player == null || GameControl.Cam == null) { Toast("No player in this scene"); return; }
             var p = GameControl.CurrentPose();
+            string approach = _recorder?.SaveApproach();
             var entry = new
             {
                 Scene = SceneHelper.CurrentScene,
                 Saved = DateTime.Now.ToString("s"),
+                Approach = approach,
                 Position = new[] { Round(p.Position.x), Round(p.Position.y), Round(p.Position.z) },
                 Yaw = Round(p.Yaw),
                 Pitch = Round(p.Pitch),
@@ -84,7 +86,7 @@ namespace UltraRT
             string file = Path.Combine(_outDir, "poses.jsonl");
             File.AppendAllText(file, JsonConvert.SerializeObject(entry) + Environment.NewLine);
             Logger.LogInfo($"Pose saved: {JsonConvert.SerializeObject(entry)}");
-            Toast($"Pose saved: {entry.Scene} ({entry.Position[0]}, {entry.Position[1]}, {entry.Position[2]})");
+            Toast($"Pose saved: {entry.Scene} ({entry.Position[0]}, {entry.Position[1]}, {entry.Position[2]}){(approach != null ? " + approach path" : "")}");
 
             float Round(float v) => (float)Math.Round(v, 2);
         }
@@ -211,6 +213,27 @@ namespace UltraRT
             yield return null;
 
             var spawn = GameControl.CurrentPose();
+            if (!string.IsNullOrEmpty(sc.Path.Approach))
+            {
+                // Re-walk the recorded route (not timed, RT off) so the game's area triggers fire in order.
+                var approachRec = Recording.Load(Path.IsPathRooted(sc.Path.Approach) ? sc.Path.Approach : Path.Combine(suiteDir, sc.Path.Approach));
+                var approach = approachRec.ToPath();
+                ApplyBenchMode("off");
+                GameControl.TakeControl(approach.Start);
+                float speed = Mathf.Max(0.1f, sc.Path.ApproachSpeed);
+                float at = 0f;
+                Logger.LogInfo($"Benchmark: approach {approach.Duration:F1}s at {speed}x");
+                while (at < approach.Duration)
+                {
+                    at += Time.unscaledDeltaTime * speed;
+                    GameControl.SetPose(approach.Sample(at));
+                    GameControl.HideCheatPanels();
+                    yield return null;
+                }
+                GameControl.SetPose(approach.Sample(approach.Duration));
+                spawn = approach.Sample(approach.Duration);
+                yield return new WaitForSecondsRealtime(1.5f); // let area activation settle
+            }
             var (path, arenas) = BuildPath(sc.Path, spawn, suiteDir);
             sr.Duration = path.Duration;
             GameControl.TakeControl(path.Start);
