@@ -16,7 +16,8 @@
 // Per light, 4 x float4:
 //   [0] position (or -forward for directional), range (0 = directional)
 //   [1] color * intensity, unused (culling masks live in _LightMasks)
-//   [2] forward, unused
+//   [2] forward, soft-shadow radius (m; 0 = _LightRadius; < 0 upper half-sphere). Lights lifted out of their fixture
+//       get the fixture's size.
 //   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), unused
 StructuredBuffer<float4> _Lights;
 StructuredBuffer<uint>   _LightMasks; // per-light culling mask (separate: masks like ~0 are NaN bit patterns as floats)
@@ -93,17 +94,24 @@ float _LightRadius;      // soft-shadow light size (m); 0 = point lights
 float _FixtureShadows;   // 1: light fixtures (torch bowls etc.) shadow their own lights
 static uint g_ShadowRng; // seeded per pixel by each ray-generation shader
 
-bool LightVisible(float3 p, float3 n, float3 L, float dist)
+bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
 {
-    // Soft shadows: aim at a random point within _LightRadius of the light (a point light becomes a small sphere).
-    if (_LightRadius > 0.0)
+    // Soft shadows: aim at a random point within the light's radius (a point light becomes a small sphere).
+    // Per-light radius: > 0 a sphere; < 0 the upper half-sphere only (a flame sitting on its bowl: samples never dip
+    // below the rim, where the bowl itself would block them).
+    float radius = _Lights[i * 4 + 2].w != 0.0 ? _Lights[i * 4 + 2].w : _LightRadius;
+    bool upper = radius < 0.0;
+    radius = abs(radius);
+    if (radius > 0.0 && dist < 1.0e3)
     {
         float3 lp = p + L * dist;
         float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
         float u2 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
         float u3 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
         float z = u1 * 2.0 - 1.0, phi = u2 * 6.28318530718, rr = sqrt(max(0.0, 1.0 - z * z));
-        lp += float3(rr * cos(phi), rr * sin(phi), z) * (_LightRadius * pow(u3, 1.0 / 3.0));
+        float3 o = float3(rr * cos(phi), z, rr * sin(phi));
+        if (upper) o.y = abs(o.y);
+        lp += o * (radius * pow(u3, 1.0 / 3.0));
         float3 d = lp - p;
         dist = length(d);
         L = d / max(dist, 1e-4);
@@ -181,7 +189,7 @@ float3 LightFrom(uint i, float3 p, float3 n, uint layer)
     float3 L, c;
     float dist;
     if (!LightEval(i, p, n, layer, L, dist, c)) return 0;
-    if (!LightUnshadowed(i) && !LightVisible(p, n, L, dist)) return 0;
+    if (!LightUnshadowed(i) && !LightVisible(i, p, n, L, dist)) return 0;
     return c;
 }
 
@@ -410,7 +418,7 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
 
 bool SampleVisible(Reservoir r, float3 p, float3 n)
 {
-    return (r.light & ULTRART_EMISSIVE) != 0u ? EmissiveVisible(p, n, r.L, r.dist) : LightVisible(p, n, r.L, r.dist);
+    return (r.light & ULTRART_EMISSIVE) != 0u ? EmissiveVisible(p, n, r.L, r.dist) : LightVisible(r.light, p, n, r.L, r.dist);
 }
 
 // ---------------------------------------------------------------- temporal reuse
@@ -551,7 +559,7 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
             float dist;
             if (!LightEval((uint)i, pos, n, layer, L, dist, c)) continue;
             unshadowed += c;
-            if (LightUnshadowed((uint)i) || LightVisible(pos, n, L, dist)) shadowed += c;
+            if (LightUnshadowed((uint)i) || LightVisible((uint)i, pos, n, L, dist)) shadowed += c;
         }
         float3 emUnshadowed;
         float3 em = EmissiveDirect(pos, n, _EmissiveRefSamples, rng, emUnshadowed);

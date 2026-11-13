@@ -1,0 +1,11 @@
+{
+    "Name": "debug-fixtures",
+    "Scenarios": [
+        { "Name": "torch", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-torch-hall.json", "Duration": 5 }, "Modes": ["off", "hybrid", "relight"], "Screenshots": [3] },
+        { "Name": "indoor-a", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-a.json", "Duration": 5 }, "Modes": ["off", "hybrid", "relight"], "Screenshots": [3] },
+        { "Name": "indoor-b", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-b.json", "Duration": 5 }, "Modes": ["off", "hybrid", "relight"], "Screenshots": [3] },
+        { "Name": "indoor-c", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-c.json", "Duration": 5 }, "Modes": ["off", "hybrid", "relight"], "Screenshots": [3] },
+        { "Name": "cerberus", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-cerberus.json", "Duration": 5 }, "Modes": ["off", "hybrid", "relight"], "Screenshots": [3] },
+        { "Name": "4-1 A", "Scene": "Level 4-1", "Path": { "Type": "static", "Approach": "../recordings/4-1-approach-a.json", "Duration": 5 }, "Modes": ["off", "hybrid", "relight"], "Screenshots": [3] }
+    ]
+}

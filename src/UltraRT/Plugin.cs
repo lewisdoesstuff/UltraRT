@@ -187,6 +187,8 @@ namespace UltraRT
                     case "-ultrart-relight-white": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightWhite); break;
                     case "-ultrart-light-radius": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _lightRadius); break;
                     case "-ultrart-nofixtureshadows": _fixtureShadows = false; break;
+                    case "-ultrart-nofixturelift": _fixtureLift = false; break;
+                    case "-ultrart-logfixtures": _logFixtures = true; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
@@ -368,6 +370,13 @@ namespace UltraRT
                 _skyMaterial = FindSkyMaterial();
             }
             // Layout must match PathTrace.raytrace: 4 x float4 per light (see the comment on _Lights there).
+            UpdateFixtureLifts();
+            if (_logFixtures && _camera != null && Time.realtimeSinceStartup > _nextLightDump)
+            {
+                _nextLightDump = Time.realtimeSinceStartup + 3f;
+                Logger.LogInfo($"--- lights near camera {_camera.transform.position}");
+                LogLightsNear(_camera.transform.position, 25f);
+            }
             _lightCount = 0;
             foreach (var l in _sceneLights)
             {
@@ -376,16 +385,23 @@ namespace UltraRT
                 var t = l.transform;
                 var fwd = t.forward;
                 var c = l.color * l.intensity;
+                var pos = t.position;
+                float shadowRadius = 0f; // 0: the global _LightRadius
+                if (_fixtureLifts.TryGetValue(l, out var lift))
+                {
+                    pos.y += lift.y;
+                    shadowRadius = lift.w;
+                }
                 Vector4 l0, l3;
                 switch (l.type)
                 {
                     case LightType.Point:
-                        l0 = new Vector4(t.position.x, t.position.y, t.position.z, Mathf.Max(l.range, 1e-4f));
+                        l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
                         l3 = new Vector4(-1f, 1f, 0, 0);
                         break;
                     case LightType.Spot:
                     {
-                        l0 = new Vector4(t.position.x, t.position.y, t.position.z, Mathf.Max(l.range, 1e-4f));
+                        l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
                         float a = l.spotAngle * Mathf.Deg2Rad;
                         float cosHalf = Mathf.Cos(a * 0.5f), cosQuarter = Mathf.Cos(a * 0.25f);
                         l3 = new Vector4(cosHalf, 1f / Mathf.Max(cosQuarter - cosHalf, 1e-4f), 0, 0);
@@ -405,12 +421,75 @@ namespace UltraRT
                 _lightData[i + 1] = new Vector4(c.r, c.g, c.b, 0);
                 _lightMasks[_lightCount] = unchecked((uint)l.cullingMask);
                 _packedLights[_lightCount] = l;
-                _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, 0);
+                _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, shadowRadius);
                 _lightData[i + 3] = l3;
                 _lightCount++;
             }
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
+        }
+
+        // Lights inside open fixtures (torch bowls, braziers) are moved to just above the rim and get a soft-shadow radius
+        // the size of the fixture, like a fire filling the bowl: the bowl casts a soft shadow under itself instead of
+        // blacking out everything below its rim. Lights with something solid right above their fixture (ceiling lamps)
+        // stay put. y: lift (m), w: soft-shadow radius (m). docs/relight.md, "Light fixtures".
+        private readonly Dictionary<Light, Vector4> _fixtureLifts = new Dictionary<Light, Vector4>();
+        private SceneProxies _fixtureLiftSource;
+        private int _fixtureLiftVersion = -1;
+        private bool _fixtureLift = true; // -ultrart-nofixturelift
+        private bool _logFixtures;        // -ultrart-logfixtures
+        private float _nextLightDump;
+        private const float FixtureLiftAbove = 0.15f, FixtureLiftMax = 1.5f, FixtureRadiusMin = 0.08f, FixtureRadiusMax = 0.75f;
+
+        private void UpdateFixtureLifts()
+        {
+            var px = _fixtureLift ? _proxies : null;
+            if (px == null)
+            {
+                _fixtureLifts.Clear();
+                _fixtureLiftSource = null;
+                return;
+            }
+            if (px == _fixtureLiftSource && px.FixtureVersion == _fixtureLiftVersion) return;
+            _fixtureLiftSource = px;
+            _fixtureLiftVersion = px.FixtureVersion;
+            _fixtureLifts.Clear();
+            int covered = 0, tooDeep = 0;
+            foreach (var kv in px.FixtureBounds)
+            {
+                var l = kv.Key;
+                if (l == null) continue;
+                var b = kv.Value;
+                var p = l.transform.position;
+                float radius = Mathf.Clamp(Mathf.Min(b.extents.x, b.extents.z), FixtureRadiusMin, FixtureRadiusMax);
+                float lift = Mathf.Max(0f, b.max.y + FixtureLiftAbove - p.y);
+                var top = new Vector3(p.x, b.max.y + 0.02f, p.z);
+                var hitAbove = Physics.Raycast(top, Vector3.up, out var hit, 1f, ~(1 << 2), QueryTriggerInteraction.Ignore);
+                if (_logFixtures)
+                    Logger.LogInfo($"fixture light {Bench.GameControl.PathOf(l.transform)} at {p} bounds {b.min}..{b.max} lift {lift:F2}" +
+                                   (hitAbove ? $" covered by {hit.collider.name} at {hit.distance:F2} m" : ""));
+                // Only lights near the top of their fixture (a fire in a bowl). A light in the middle of an orb or skull
+                // is the object glowing; moving it above would be wrong.
+                if (lift > FixtureLiftMax || b.max.y - p.y > 0.4f * b.size.y) { tooDeep++; continue; }
+                if (hitAbove) { covered++; continue; }
+                _fixtureLifts[l] = new Vector4(0f, lift, 0f, -radius); // negative: upper half-sphere (UltraRTLights.hlsl)
+            }
+            Logger.LogInfo($"Fixture lights: {_fixtureLifts.Count} lifted above their fixture, {covered} covered (kept), {tooDeep} too deep in it (kept)");
+        }
+
+        private void LogLightsNear(Vector3 c, float radius)
+        {
+            var renderers = FindObjectsOfType<Renderer>();
+            foreach (var l in FindObjectsOfType<Light>())
+            {
+                if (l.type != LightType.Point && l.type != LightType.Spot) continue;
+                var p = l.transform.position;
+                if ((p - c).magnitude > radius) continue;
+                var near = renderers.Where(r => r != null && r.bounds.SqrDistance(p) < 0.25f && r.bounds.size.magnitude < 12f)
+                    .OrderBy(r => r.bounds.size.magnitude).Take(4)
+                    .Select(r => $"{r.name}{(r.isPartOfStaticBatch ? "[static]" : "")} {r.bounds.min}..{r.bounds.max}");
+                Logger.LogInfo($"light near cam: {Bench.GameControl.PathOf(l.transform)} {l.type} at {p} range {l.range:F1} int {l.intensity:F2} | {string.Join(" ; ", near)}");
+            }
         }
 
         private static float AsFloat(int bits) => BitConverter.Int32BitsToSingle(bits);

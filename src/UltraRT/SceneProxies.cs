@@ -267,6 +267,8 @@ namespace UltraRT
 
                 if (r.isPartOfStaticBatch)
                 {
+                    // Merged batches can't carry the fixture mask, but the light can still be lifted out (Plugin.cs).
+                    IsLightFixture(r);
                     if (batches == null)
                     {
                         // Combined meshes only exist at load, but their renderers get cloned (CheckPoint rooms).
@@ -514,18 +516,40 @@ namespace UltraRT
         /// </summary>
         private bool IsLightFixture(Renderer r)
         {
-            if (_lightPositions == null)
-                _lightPositions = Object.FindObjectsOfType<Light>(true).Where(l => l.type == LightType.Point || l.type == LightType.Spot)
-                    .Select(l => l.transform.position).ToArray();
-            var b = r.bounds;
-            if (b.size.magnitude > 4f) return false;
+            if (_pointLights == null)
+                _pointLights = Object.FindObjectsOfType<Light>(true).Where(l => l.type == LightType.Point || l.type == LightType.Spot).ToArray();
+            var rb = r.bounds;
+            if (rb.size.magnitude > 4f) return false;
+            var b = rb;
             b.Expand(0.2f);
-            foreach (var p in _lightPositions)
-                if (b.Contains(p)) { FixtureCount++; return true; }
-            return false;
+            var encloses = false;
+            foreach (var l in _pointLights)
+            {
+                if (l == null) continue;
+                var p = l.transform.position;
+                // Encloses the light (torch bowl, lamp housing), or holds it from just below (a fire sitting on a wide,
+                // flat brazier: 1-1's BigTorch light is 0.25 m above its "Pipe"). Both are recorded for the light lift
+                // (Plugin.UpdateFixtureLifts); only enclosing ones get the fixture mask.
+                bool inside = b.Contains(p);
+                bool under = !inside && p.x >= b.min.x && p.x <= b.max.x && p.z >= b.min.z && p.z <= b.max.z
+                             && p.y > rb.max.y && p.y - rb.max.y < FixtureSupportGap;
+                if (!inside && !under) continue;
+                encloses |= inside;
+                if (FixtureBounds.TryGetValue(l, out var e)) { e.Encapsulate(rb); FixtureBounds[l] = e; }
+                else FixtureBounds[l] = rb;
+                FixtureVersion++;
+            }
+            if (encloses) FixtureCount++;
+            return encloses;
         }
 
-        private Vector3[] _lightPositions;
+        private const float FixtureSupportGap = 0.5f;
+        private Light[] _pointLights;
+
+        /// <summary>World bounds of the fixture(s) each light sits in (union when several renderers enclose it).</summary>
+        public readonly Dictionary<Light, Bounds> FixtureBounds = new Dictionary<Light, Bounds>();
+        /// <summary>Bumped whenever <see cref="FixtureBounds"/> changes.</summary>
+        public int FixtureVersion { get; private set; }
         public int FixtureCount { get; private set; }
         private static bool SourceSkyWall(Material m) => m != null && m.IsKeywordEnabled("LIMBO_WALLS");
         private bool IsTwoSided(Material proxy) => proxy != null && _twoSidedProxies.Contains(proxy);
