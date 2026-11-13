@@ -11,7 +11,7 @@ Each run launches the game on DX12 and plays every scenario in `bench/suites/<su
 **Saves are safe.** For the whole run the plugin skips every save-file, prefs and Steam-stat writer (`BenchSafety`). Cheats (invincibility, plus blind enemies or no spawns) are enabled for the session only, with `saveState:false`.
 
 ## How a scenario is measured
-- The level loads with a fixed `Seed` (`Random.InitState`, applied before the level's own `Start`s run), then waits `Settle` seconds.
+- The level loads with a fixed `Seed` (or is reused from the previous scenario, see "Chaining") (`Random.InitState`, applied before the level's own `Start`s run), then waits `Settle` seconds.
 - The player is taken over the way noclip does it, and the camera follows `Path`.
 - `Modes` alternate every `Segment` seconds *within* the same pass (off / pt-dn / off / ...). This keeps the comparison fair even when the scene isn't deterministic, such as enemies or physics. The first `SwitchSkipFrames` frames after each switch aren't counted.
 - Frame times are uncapped (vsync off, no frame limit). GPU per-pass times come from the native timer (`-NoGpuTimer` turns it off).
@@ -55,6 +55,17 @@ The default, `auto`, is `approach-fast` when the scenario has an `Approach`. Set
 
 The summary lists how each pose was loaded and how long it took.
 
+### Chaining: one level load for several poses
+Poses saved in one play session (F11 pressed several times) have routes that are prefixes of one another. The benchmark loads such a level once, fast-forwards the longest route once, and stops at the end of each shorter route to measure that pose (same Modes, Segment, Duration and Screenshots as on its own). Then it carries on to the next pose. A route counts as a prefix of another when its samples lie within 0.5 m of the other route at the same times, and the arenas and checkpoints both recorded so far agree.
+
+To make this work, scenarios of the same level (same `Scene`, `Seed`, `Enemies` and `RandomPicks`) run together, in this order: spawn poses, then each chain of routes from shortest to longest, then everything else. Levels keep the order in which they first appear in the suite. Results are still reported per scenario and in suite order. The summary lists each scenario's run order and how it was reached: `fresh load` or `chained after 'X'`, with the level-load and pose-load times. `results.json` has the same fields (`Reached`, `ChainedAfter`, `LevelLoadSeconds`, `LoadSeconds`, `WallSeconds`, `Order`).
+
+Only `approach-fast` poses chain, and only when `ApproachSpeed`, `FastTimeScale` and `ApproachKillEnemies` match. A level is also reused for spawn poses and poses without a route, as long as nothing has moved the level on. A scenario always gets its own fresh load when it is a recording, uses `checkpoint`, `approach` or `areas`, or sets `"FreshLoad": true`. Nothing chains after a recording, or after a pose held at an explicit `Position` away from its route's end (it may have set off triggers there). A FreshLoad scenario may still be the start of a chain. `-NoChain` loads every scenario's level in suite order, the old behaviour, so results can be compared:
+```powershell
+.\scripts\bench.ps1 -Suite poses -NoChain
+.\scripts\bench.ps1 -Suite poses -ValidateLoad -ValidateMethods 'approach-fast,chain'   # chained vs fresh, per pose
+```
+
 ### Saving a pose
 Press **F11** in normal play. It appends the pose to `BepInEx\ultrart\poses.jsonl` and saves two files next to the recordings: the route walked since the level loaded (`approach_*.json`) and the area diff (`areas_*.json`). The route also records every checkpoint you activated, so the benchmark knows exactly where to jump. Older routes have no checkpoint list; for those the last checkpoint the route passed through is used.
 
@@ -78,7 +89,7 @@ The plugin log lists each picker and its entries (`random pick ... entries: ...`
 .\scripts\bench.ps1 -Suite poses -ValidateLoad -TimeoutSec 3600
 .\scripts\bench.ps1 -Suite poses-8-3 -ValidateLoad -ValidateMethods 'approach,checkpoint,approach-fast@12'
 ```
-Instead of measuring, this reaches each distinct pose with every method (a fresh level load each time) and compares against the first method. `validation.json` and `summary.md` report, per pose and method: load time, how many of the level's mesh renderers are on (all, and within 120 m of the camera), which near renderers are missing or extra compared with the reference, and how much a game-only screenshot differs. A load counts as matching when at most 3 near renderers are missing and under 25% of the screenshot differs. Screenshots of every method are saved for a visual check.
+Instead of measuring, this reaches each distinct pose with every method (a fresh level load each time) and compares against the first method. The `chain` method (included by default) runs last: it reaches every pose the way a chained benchmark does and compares it with the same reference. Chaining is otherwise off while validating. `validation.json` and `summary.md` report, per pose and method: load time, how many of the level's mesh renderers are on (all, and within 120 m of the camera), which near renderers are missing or extra compared with the reference, and how much a game-only screenshot differs. A load counts as matching when at most 3 near renderers are missing and under 25% of the screenshot differs. Screenshots of every method are saved for a visual check.
 
 The screenshot limit is loose on purpose. Moving geometry is at a different point of its cycle when a load takes a different amount of time (8-3's shifting hallway), and gore differs between any two runs; together they change up to 10%. An unloaded area changes 60% or more.
 
