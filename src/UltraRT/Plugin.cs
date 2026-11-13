@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -101,7 +101,6 @@ namespace UltraRT
                 var nativePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", GpuTimer.DllName);
                 if (GpuTimer.TryCreate(nativePath, out _gpu, out var gpuError)) Logger.LogInfo($"GPU timer: {_gpu.Status}");
                 else Logger.LogWarning($"GPU timer unavailable: {gpuError}");
-                _cmdPost = new CommandBuffer { name = "UltraRT Post" };
             }
 
             Patches.Apply(Info.Metadata.GUID);
@@ -120,7 +119,7 @@ namespace UltraRT
                 _host.StartCoroutine(BuildWhenLoaded());
             };
 
-            _host.StartCoroutine(RenderLoop());
+            Camera.onPreRender += OnCameraPreRender;
             if (!StartBenchIfRequested() && !string.IsNullOrEmpty(_autoScene)) _host.StartCoroutine(AutoRun());
         }
 
@@ -145,6 +144,8 @@ namespace UltraRT
                     case "-ultrart-gputimer": _useGpuTimer = true; break;
                     case "-ultrart-nostatic": SceneProxies.SkipStaticBatches = true; break;
                     case "-ultrart-nomerge": SceneProxies.NoSubmeshMerge = true; break;
+                    case "-ultrart-flipy": _flipY = true; break;
+                    case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) InjectEvent = ev; break;
                     case "-ultrart-gputimer-flags": Environment.SetEnvironmentVariable("ULTRART_GPUTIMER_FLAGS", Next()); break;
                     case "-ultrart-ambient": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _primaryAmbient); break;
                 }
@@ -165,11 +166,17 @@ namespace UltraRT
             var rts = bundle.LoadAllAssets<RayTracingShader>();
             var debug = rts.FirstOrDefault(s => s.name == "DebugView");
             var pt = rts.FirstOrDefault(s => s.name == "PathTrace");
-            var proxy = bundle.LoadAllAssets<Shader>().FirstOrDefault(s => s.name == "UltraRT/Proxy");
+            var shaders = bundle.LoadAllAssets<Shader>();
+            var proxy = shaders.FirstOrDefault(s => s.name == "UltraRT/Proxy");
+            var composite = shaders.FirstOrDefault(s => s.name == "UltraRT/Composite");
             var denoise = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Denoise");
             Logger.LogInfo($"Bundle loaded: DebugView={(debug ? "ok" : "MISSING")} PathTrace={(pt ? "ok" : "MISSING")} " +
-                           $"proxy={(proxy ? (proxy.isSupported ? "ok" : "UNSUPPORTED") : "MISSING")} Denoise={(denoise ? "ok" : "MISSING")}");
-            if (debug == null || pt == null || proxy == null || denoise == null) { bundle.Unload(true); return false; }
+                           $"proxy={(proxy ? (proxy.isSupported ? "ok" : "UNSUPPORTED") : "MISSING")} Denoise={(denoise ? "ok" : "MISSING")} " +
+                           $"Composite={(composite ? "ok" : "MISSING")}");
+            if (debug == null || pt == null || proxy == null || denoise == null || composite == null) { bundle.Unload(true); return false; }
+
+            if (_compositeMat != null) Destroy(_compositeMat);
+            _compositeMat = new Material(composite) { name = "UltraRT Composite" };
 
             var settings = _denoiser?.Settings;
             _denoiser?.Dispose();
@@ -315,24 +322,39 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- rendering
 
-        private IEnumerator RenderLoop()
-        {
-            var eof = new WaitForEndOfFrame();
-            while (true)
-            {
-                yield return eof;
-                if (_proxies?.Rtas == null || !_viewEnabled || _ptShader == null) continue;
-                if (_proxies.Rtas.GetInstanceCount() == 0) continue; // dispatching against an empty RTAS hangs the GPU
-                if (_camera == null || !_camera.isActiveAndEnabled)
-                    _camera = Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
-                if (_camera == null) continue;
+        // The RT image is drawn inside the main camera's render, after opaques + skybox. Transparents, blood decals,
+        // post-processing, the viewmodel camera and UI all still draw on top of it.
+        private CameraEvent InjectEvent = CameraEvent.AfterSkybox;
+        private Camera _attachedCam;
+        private static readonly int UltraRTImageId = Shader.PropertyToID("_UltraRTImage");
+        private static readonly int UltraRTFlipYId = Shader.PropertyToID("_UltraRTFlipY");
+        private bool _flipY;
+        private int _recordedFrame = -1;
+        private Material _compositeMat;
 
-                try { Trace(); }
-                catch (Exception e)
-                {
-                    Logger.LogError($"Trace failed, disabling view: {e}");
-                    _viewEnabled = false;
-                }
+        private void OnCameraPreRender(Camera cam)
+        {
+            if (cam == null || cam.name != "Main Camera" || _cmd == null) return;
+            if (_recordedFrame == Time.frameCount && cam == _attachedCam) return; // rendered twice in a frame: keep the recording
+            _recordedFrame = Time.frameCount;
+            _camera = cam;
+            if (_attachedCam != cam)
+            {
+                if (_attachedCam != null) _attachedCam.RemoveCommandBuffer(InjectEvent, _cmd);
+                cam.AddCommandBuffer(InjectEvent, _cmd);
+                _attachedCam = cam;
+            }
+
+            _cmd.Clear();
+            if (_proxies?.Rtas == null || !_viewEnabled || _ptShader == null || _compositeMat == null) return;
+            if (_proxies.Rtas.GetInstanceCount() == 0) return; // dispatching against an empty RTAS hangs the GPU
+
+            try { Trace(); }
+            catch (Exception e)
+            {
+                _cmd.Clear();
+                Logger.LogError($"Trace failed, disabling view: {e}");
+                _viewEnabled = false;
             }
         }
 
@@ -475,17 +497,16 @@ namespace UltraRT
                 _displayed = _denoised;
             }
 
+            // Composite into the camera's current target without changing render-target bindings.
             _gpu?.Begin(_cmd, SlotBlit);
-            Graphics.ExecuteCommandBuffer(_cmd);
-            Graphics.Blit(_displayed, (RenderTexture)null);
+            _cmd.SetGlobalTexture(UltraRTImageId, _displayed);
+            _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
+            _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
+            _gpu?.End(_cmd, SlotBlit);
+            _gpu?.End(_cmd, SlotTotal);
             if (_gpu != null)
             {
-                // Blit isn't part of _cmd, so the bracket closes in a second buffer queued after it.
-                _cmdPost.Clear();
-                _gpu.End(_cmdPost, SlotBlit);
-                _gpu.End(_cmdPost, SlotTotal);
-                _gpu.EndFrame(_cmdPost);
-                Graphics.ExecuteCommandBuffer(_cmdPost);
+                _gpu.EndFrame(_cmd);
                 SampleGpuTimings();
             }
 
@@ -504,7 +525,6 @@ namespace UltraRT
         private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
-        private CommandBuffer _cmdPost;
         private long _lastResolved;
         private readonly double[] _gpuSum = new double[SlotCount];
         private readonly int[] _gpuN = new int[SlotCount];
@@ -583,6 +603,13 @@ namespace UltraRT
                 _viewEnabled = false;
                 yield return null; yield return null;
                 ScreenCapture.CaptureScreenshot(Path.Combine(_outDir, $"dv-{tag}-game.png"));
+                yield return null; yield return null;
+                _viewEnabled = true;
+                _mode = Array.FindIndex(Modes, x => x.name == "pt-dn");
+                for (int f = 0; f < 30; f++) yield return null;
+                ScreenCapture.CaptureScreenshot(Path.Combine(_outDir, $"dv-{tag}-composited-{InjectEvent}.png"));
+                yield return null; yield return null;
+                _viewEnabled = false;
                 yield return null; yield return null;
                 _viewEnabled = true;
 

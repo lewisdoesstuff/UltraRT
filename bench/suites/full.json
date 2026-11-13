@@ -2,32 +2,53 @@
   "Name": "full",
   "Scenarios": [
     {
-      "Name": "1-1 static",
+      "Name": "1-1 pose",
       "Scene": "Level 1-1",
-      "Path": { "Type": "spawn", "Duration": 10 },
+      "Path": { "Type": "static", "Position": [-7.32, 3.0, 323.24], "Yaw": 63.64, "Pitch": -6.76, "Duration": 8 },
       "Modes": ["off", "pt-dn", "pt"],
       "Screenshots": [4]
     },
     {
-      "Name": "1-1 sweep",
+      "Name": "1-1 doors run",
       "Scene": "Level 1-1",
-      "Path": { "Type": "sweep", "Duration": 12, "YawSpeed": 120, "PitchAmplitude": 20 },
+      "Path": { "Type": "recording", "File": "../recordings/1-1-doors.json" },
       "Modes": ["off", "pt-dn", "pt"],
-      "Screenshots": [2.5, 7]
+      "Screenshots": [3, 8]
     },
     {
-      "Name": "0-5 lava (sweep at spawn; replace with a recording)",
+      "Name": "0-5 lava pose",
       "Scene": "Level 0-5",
-      "Path": { "Type": "sweep", "Duration": 12, "YawSpeed": 90, "PitchAmplitude": 25 },
+      "Path": { "Type": "static", "Position": [-2.55, 1.5, 368.67], "Yaw": 61.52, "Pitch": -3.72, "Duration": 8 },
       "Modes": ["off", "pt-dn"],
-      "Screenshots": [3, 8]
+      "Screenshots": [4]
     },
     {
-      "Name": "8-3 portals (sweep at spawn; replace with a recording)",
+      "Name": "0-5 lava sweep",
+      "Scene": "Level 0-5",
+      "Path": { "Type": "sweep", "Position": [-2.55, 1.5, 368.67], "Yaw": 61.52, "Pitch": -3.72, "Duration": 10, "YawSpeed": 90, "PitchAmplitude": 20 },
+      "Modes": ["off", "pt-dn"]
+    },
+    {
+      "Name": "8-3 portals pose",
       "Scene": "Level 8-3",
-      "Path": { "Type": "sweep", "Duration": 12, "YawSpeed": 90, "PitchAmplitude": 20 },
+      "Path": { "Type": "static", "Position": [-67.77, 11.5, 748.44], "Yaw": 264.83, "Pitch": -4.07, "Duration": 8 },
       "Modes": ["off", "pt-dn"],
-      "Screenshots": [3, 8]
+      "Screenshots": [4]
+    },
+    {
+      "Name": "8-3 portals sweep",
+      "Scene": "Level 8-3",
+      "Path": { "Type": "sweep", "Position": [-67.77, 11.5, 748.44], "Yaw": 264.83, "Pitch": -4.07, "Duration": 10, "YawSpeed": 90, "PitchAmplitude": 15 },
+      "Modes": ["off", "pt-dn"]
+    },
+    {
+      "Name": "0-2 run",
+      "Scene": "Level 0-2",
+      "Path": { "Type": "recording", "File": "../recordings/0-2-run.json" },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Modes": ["off", "pt-dn"],
+      "Screenshots": [15, 40, 65]
     }
   ]
 }

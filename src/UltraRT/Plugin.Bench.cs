@@ -240,10 +240,17 @@ namespace UltraRT
                             ApplyBenchMode(m);
                             for (int f = 0; f < 12; f++) yield return null;
                             yield return new WaitForEndOfFrame();
+                            // What the player sees (RT composited under transparents/post/HUD), plus the raw RT image.
                             string file = $"{Sanitize(sc.Name)}_{at:F1}s_{Sanitize(m)}.png";
-                            if (m == "off") ScreenCapture.CaptureScreenshot(Path.Combine(outDir, file));
-                            else SaveOutput(Path.Combine(outDir, file));
+                            ScreenCapture.CaptureScreenshot(Path.Combine(outDir, file));
                             sr.Screenshots.Add(file);
+                            if (m != "off")
+                            {
+                                string raw = $"{Sanitize(sc.Name)}_{at:F1}s_{Sanitize(m)}_raw.png";
+                                SaveOutput(Path.Combine(outDir, raw));
+                                sr.Screenshots.Add(raw);
+                            }
+                            yield return null; // CaptureScreenshot completes at the end of this frame
                         }
                         current = null; // force a fresh switch below
                     }

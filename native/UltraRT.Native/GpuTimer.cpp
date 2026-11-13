@@ -1,4 +1,4 @@
-﻿// UltraRT.Native: D3D12 timestamp queries recorded into Unity's own command list.
+// UltraRT.Native: D3D12 timestamp queries recorded into Unity's own command list.
 //
 // Flow (see docs/gpu-timer.md):
 //   main thread    UltraRT_Init()  -> registers this DLL with Unity -> Unity calls UnityPluginLoad(interfaces)
@@ -304,10 +304,9 @@ namespace
         }
     }
 
-    // Event flags: default SyncWorkerThreads | ModifiesCommandBuffersState. With native graphics jobs (enabled in
-    // ULTRAKILL's boot.config) Unity may not expose its command list to plugin events without syncing workers.
+    // Event flags default to 0: configuring at device init (not mid-frame) is what makes CommandRecordingState work,
     // Override for experiments with the ULTRART_GPUTIMER_FLAGS environment variable (decimal or 0x hex).
-    UINT32 s_EventFlags = kUnityD3D12EventConfigFlag_SyncWorkerThreads | kUnityD3D12EventConfigFlag_ModifiesCommandBuffersState;
+    UINT32 s_EventFlags = 0; // timestamps touch no bound state; ModifiesCommandBuffersState breaks draws that follow inside a camera
 
     void ConfigureEvents()
     {
