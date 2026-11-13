@@ -111,6 +111,7 @@ namespace UltraRT
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
             _host.OnUpdate = OnUpdate;
+            _host.OnGui = DrawHud;
 
             SceneManager.activeSceneChanged += (_, to) =>
             {
@@ -701,6 +702,8 @@ namespace UltraRT
     internal sealed class CoroutineHost : MonoBehaviour
     {
         public Action OnUpdate;
+        public Action OnGui;
         private void Update() => OnUpdate?.Invoke();
+        private void OnGUI() => OnGui?.Invoke();
     }
 }

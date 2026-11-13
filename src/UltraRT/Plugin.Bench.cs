@@ -54,9 +54,68 @@ namespace UltraRT
         private void UpdateRecorder()
         {
             if (BenchSafety.Active || _recorder == null) return;
-            try { if (Input.GetKeyDown(KeyCode.F10)) _recorder.Toggle(); }
+            try
+            {
+                if (Input.GetKeyDown(KeyCode.F10))
+                {
+                    bool was = _recorder.IsRecording;
+                    _recorder.Toggle();
+                    if (was && !_recorder.IsRecording) Toast($"Recording saved ({_recorder.LastSavedName})");
+                }
+                if (Input.GetKeyDown(KeyCode.F11)) SavePose();
+            }
             catch (InvalidOperationException) { }
             _recorder.Update();
+        }
+
+        /// <summary>F11: append the current player position + look to BepInEx/ultrart/poses.jsonl, ready to paste into a suite.</summary>
+        private void SavePose()
+        {
+            if (GameControl.Player == null || GameControl.Cam == null) { Toast("No player in this scene"); return; }
+            var p = GameControl.CurrentPose();
+            var entry = new
+            {
+                Scene = SceneHelper.CurrentScene,
+                Saved = DateTime.Now.ToString("s"),
+                Position = new[] { Round(p.Position.x), Round(p.Position.y), Round(p.Position.z) },
+                Yaw = Round(p.Yaw),
+                Pitch = Round(p.Pitch),
+            };
+            string file = Path.Combine(_outDir, "poses.jsonl");
+            File.AppendAllText(file, JsonConvert.SerializeObject(entry) + Environment.NewLine);
+            Logger.LogInfo($"Pose saved: {JsonConvert.SerializeObject(entry)}");
+            Toast($"Pose saved: {entry.Scene} ({entry.Position[0]}, {entry.Position[1]}, {entry.Position[2]})");
+
+            float Round(float v) => (float)Math.Round(v, 2);
+        }
+
+        // ---------------------------------------------------------------- on-screen feedback
+
+        private string _toast;
+        private float _toastUntil;
+        private GUIStyle _hudStyle;
+
+        private void Toast(string text)
+        {
+            _toast = text;
+            _toastUntil = Time.realtimeSinceStartup + 3f;
+        }
+
+        private void DrawHud()
+        {
+            if (BenchSafety.Active) return;
+            if (_hudStyle == null)
+                _hudStyle = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
+            if (_recorder != null && _recorder.IsRecording)
+            {
+                _hudStyle.normal.textColor = Color.red;
+                GUI.Label(new Rect(20, 20, 600, 40), $"● REC {_recorder.Elapsed:F1}s  (F10 to stop)", _hudStyle);
+            }
+            if (_toast != null && Time.realtimeSinceStartup < _toastUntil)
+            {
+                _hudStyle.normal.textColor = Color.white;
+                GUI.Label(new Rect(20, 60, 1200, 40), _toast, _hudStyle);
+            }
         }
 
         // ---------------------------------------------------------------- suite

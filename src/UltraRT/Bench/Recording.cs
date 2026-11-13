@@ -53,6 +53,7 @@ namespace UltraRT.Bench
         private float _t0, _nextSample;
 
         public bool IsRecording => _rec != null;
+        public string LastSavedName { get; private set; }
         public float Elapsed => _rec == null ? 0f : Time.realtimeSinceStartup - _t0;
 
         public Recorder(string dir, BepInEx.Logging.ManualLogSource log)
@@ -83,6 +84,7 @@ namespace UltraRT.Bench
             string name = $"{Sanitize(_rec.Scene)}_{DateTime.Now:yyyyMMdd-HHmmss}.json";
             string path = Path.Combine(_dir, name);
             _rec.Save(path);
+            LastSavedName = name;
             _log.LogInfo($"Recording saved: {path} ({_rec.Samples.Count} samples, {Elapsed:F1}s, {_rec.Arenas.Count} arena events)");
             _rec = null;
         }
