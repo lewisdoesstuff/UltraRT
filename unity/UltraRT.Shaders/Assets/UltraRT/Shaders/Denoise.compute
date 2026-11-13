@@ -1,0 +1,352 @@
+// UltraRT denoiser: SVGF-style temporal accumulation + edge-aware a-trous wavelet filter on
+// demodulated lighting, followed by remodulation with albedo. See docs/denoiser.md.
+//
+// Passes (all 8x8 thread groups, driven by src/UltraRT/Denoiser.cs):
+//   Temporal   reproject + validate + accumulate lighting and luminance moments, estimate variance,
+//              write this frame's packed geometry for next frame's reprojection.
+//   Atrous3/5  one a-trous iteration (3x3 or 5x5 B3-spline taps at _Step spacing), filters variance too.
+//   Composite  albedo * lighting + emission (or a debug view) into the output.
+
+#pragma kernel Temporal
+#pragma kernel Atrous3
+#pragma kernel Atrous5
+#pragma kernel Composite
+
+// ---------------------------------------------------------------- shared
+
+float4   _Dim;          // trace resolution: w, h, 1/w, 1/h
+float4   _CamPos;       // current camera world position
+float4x4 _InvViewProj;  // current (projection * worldToCamera)^-1
+float4x4 _PrevViewProj; // viewProj of the frame that wrote the history
+
+float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
+
+// Geometry is packed into an int4 so next frame can validate history taps with one fetch:
+//   xyz = asint(world position), w = bit31 valid | bits 24..30 instance & 0x7F | 12-bit octahedral normal x2.
+float2 OctWrap(float2 v) { return (1.0 - abs(v.yx)) * (v >= 0.0 ? 1.0 : -1.0); }
+
+float2 OctEncode(float3 n)
+{
+    n /= abs(n.x) + abs(n.y) + abs(n.z);
+    n.xy = n.z >= 0.0 ? n.xy : OctWrap(n.xy);
+    return n.xy * 0.5 + 0.5;
+}
+
+float3 OctDecode(float2 f)
+{
+    f = f * 2.0 - 1.0;
+    float3 n = float3(f, 1.0 - abs(f.x) - abs(f.y));
+    float t = saturate(-n.z);
+    n.xy += n.xy >= 0.0 ? -t : t;
+    return normalize(n);
+}
+
+int4 PackGeo(float3 pos, float3 n, int instance)
+{
+    uint2 q = (uint2)round(saturate(OctEncode(n)) * 4095.0);
+    uint w = 0x80000000u | (((uint)instance & 0x7Fu) << 24) | (q.y << 12) | q.x;
+    return int4(asint(pos), asint(w));
+}
+
+bool GeoValid(int4 g) { return ((uint)g.w >> 31) != 0; }
+uint GeoInstance(int4 g) { return ((uint)g.w >> 24) & 0x7Fu; }
+float3 GeoPos(int4 g) { return asfloat(g.xyz); }
+float3 GeoNormal(int4 g)
+{
+    uint w = (uint)g.w;
+    return OctDecode(float2(w & 0xFFFu, (w >> 12) & 0xFFFu) / 4095.0);
+}
+
+// ---------------------------------------------------------------- temporal
+
+Texture2D<float4>   _Radiance;      // demodulated noisy lighting (rgb)
+Texture2D<float4>   _NormalDepth;   // xyz world normal, w ray t (< 0 = sky)
+Texture2D<int>      _InstanceId;    // -1 = sky
+Texture2D<int4>     _PrevGeo;       // last frame's packed geometry
+Texture2D<float4>   _HistColor;     // last frame's first a-trous output (rgb)
+Texture2D<float4>   _PrevMoments;   // last frame's moments: m1, m2, history length, variance
+RWTexture2D<float4> _OutIntegrated; // rgb lighting, a variance
+RWTexture2D<float4> _OutMoments;    // m1, m2, history length, variance
+RWTexture2D<int4>   _OutGeo;
+
+int   _HistoryValid;
+float _AlphaMin;
+float _MaxHistory;
+float _NormalTol;   // min dot(n, nPrev) for a history tap
+float _PlaneTol;    // max plane distance for a history tap, relative to ray t
+int   _ClampHistory;
+float _ClampSigma;
+
+#define TILE 10 // 8x8 group + 1 pixel apron
+groupshared float4 gsTile[TILE * TILE]; // rgb radiance, t (-2 outside the screen)
+
+float3 SanitizeRadiance(float3 c)
+{
+    return min(max(c, 0.0), 65000.0); // max() first: drops NaN on D3D
+}
+
+[numthreads(8, 8, 1)]
+void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_GroupIndex)
+{
+    int2 dim = (int2)_Dim.xy;
+    int2 origin = (int2)(gid.xy * 8) - 1;
+    for (uint i = gi; i < TILE * TILE; i += 64)
+    {
+        int2 p = origin + int2(i % TILE, i / TILE);
+        float4 v = float4(0, 0, 0, -2.0);
+        if (all(p >= 0) && all(p < dim))
+            v = float4(SanitizeRadiance(_Radiance[p].rgb), _NormalDepth[p].w);
+        gsTile[i] = v;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (any((int2)id.xy >= dim)) return;
+
+    uint centerIdx = (gtid.y + 1) * TILE + gtid.x + 1;
+    float3 rad = gsTile[centerIdx].rgb;
+    float4 nd = _NormalDepth[id.xy];
+    float t = nd.w;
+
+    if (t < 0.0)
+    {
+        _OutIntegrated[id.xy] = float4(rad, 0);
+        _OutMoments[id.xy] = 0;
+        _OutGeo[id.xy] = 0; // invalid
+        return;
+    }
+
+    // Same primary ray as the ray generation shader.
+    float2 ndc = ((float2)id.xy + 0.5) * _Dim.zw * 2.0 - 1.0;
+    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
+    float3 dir = normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+    float3 pos = _CamPos.xyz + dir * t;
+    float3 n = normalize(nd.xyz);
+    int instance = _InstanceId[id.xy];
+    int4 geo = PackGeo(pos, n, instance);
+    _OutGeo[id.xy] = geo;
+    n = GeoNormal(geo); // compare quantized against quantized
+    uint inst7 = GeoInstance(geo);
+
+    // 3x3 neighbourhood statistics of the noisy input (same-surface-ish pixels only, via a depth test).
+    float3 s1 = 0, s2 = 0;
+    float l1 = 0, l2 = 0, cnt = 0;
+    [unroll] for (int dy = -1; dy <= 1; dy++)
+    [unroll] for (int dx = -1; dx <= 1; dx++)
+    {
+        float4 v = gsTile[centerIdx + dy * TILE + dx];
+        if (v.w < 0.0 || abs(v.w - t) > 0.1 * t) continue;
+        float l = Luma(v.rgb);
+        s1 += v.rgb; s2 += v.rgb * v.rgb;
+        l1 += l; l2 += l * l;
+        cnt += 1.0;
+    }
+    s1 /= cnt; s2 /= cnt; l1 /= cnt; l2 /= cnt;
+    float spatialVar = max(0.0, l2 - l1 * l1);
+
+    // Reproject into the previous frame: bilinear over the 2x2 footprint, each tap validated on its own.
+    float3 hColor = 0;
+    float3 hMom = 0; // m1, m2, length
+    float wSum = 0;
+    float4 pc = mul(_PrevViewProj, float4(pos, 1.0));
+    if (_HistoryValid != 0 && pc.w > 1e-5)
+    {
+        float2 pp = (pc.xy / pc.w * 0.5 + 0.5) * _Dim.xy - 0.5;
+        int2 base = (int2)floor(pp);
+        float2 f = pp - (float2)base;
+        float planeTol = _PlaneTol * t + 0.01;
+        [unroll] for (int k = 0; k < 4; k++)
+        {
+            int2 o = int2(k & 1, k >> 1);
+            int2 q = base + o;
+            if (any(q < 0) || any(q >= dim)) continue;
+            int4 g = _PrevGeo[q];
+            if (!GeoValid(g) || GeoInstance(g) != inst7) continue;
+            if (dot(n, GeoNormal(g)) < _NormalTol) continue;
+            if (abs(dot(GeoPos(g) - pos, n)) > planeTol) continue;
+            float w = (o.x ? f.x : 1.0 - f.x) * (o.y ? f.y : 1.0 - f.y);
+            hColor += w * _HistColor[q].rgb;
+            hMom += w * _PrevMoments[q].xyz;
+            wSum += w;
+        }
+    }
+
+    float histLen = 0;
+    if (wSum > 1e-3)
+    {
+        hColor /= wSum;
+        hMom /= wSum;
+        histLen = hMom.z;
+    }
+
+    if (_ClampHistory != 0 && histLen > 0)
+    {
+        // Variance clip against the noisy neighbourhood. The box never shrinks below the history's own
+        // temporal spread, so sparse bright bounce samples (all 9 neighbours missing them) don't flicker.
+        float histSd = sqrt(max(0.0, hMom.y - hMom.x * hMom.x));
+        float3 sd = sqrt(max(0.0, s2 - s1 * s1));
+        float3 ext = _ClampSigma * max(sd, histSd) + 1e-3;
+        hColor = clamp(hColor, s1 - ext, s1 + ext);
+    }
+
+    float newLen = min(histLen + 1.0, _MaxHistory);
+    float alpha = max(1.0 / newLen, _AlphaMin);
+    float lum = Luma(rad);
+    float3 color = lerp(hColor, rad, alpha);
+    float2 mom = lerp(hMom.xy, float2(lum, lum * lum), alpha);
+    mom.y = min(mom.y, 65000.0);
+    float variance = newLen < 4.0 ? spatialVar : max(0.0, mom.y - mom.x * mom.x);
+
+    _OutIntegrated[id.xy] = float4(color, variance);
+    _OutMoments[id.xy] = float4(mom, newLen, variance);
+}
+
+// ---------------------------------------------------------------- a-trous
+
+Texture2D<float4>   _AtrousIn;   // rgb lighting, a variance
+Texture2D<int4>     _Geo;        // this frame's packed geometry
+RWTexture2D<float4> _AtrousOut;
+
+int   _Step;
+int   _PrefilterVariance;
+float _PhiNormal;
+float _PhiDepth;
+float _PhiLuminance;
+float _PixelAngle; // world-space size of one trace pixel at distance 1
+
+float KernelWeight(int radius, int o)
+{
+    // 3x3: (1/4, 1/2, 1/4); 5x5: B3 spline (1/16, 1/4, 3/8, 1/4, 1/16)
+    if (radius == 1) return o == 0 ? 0.5 : 0.25;
+    return o == 0 ? 0.375 : (abs(o) == 1 ? 0.25 : 0.0625);
+}
+
+void AtrousImpl(int2 id, int radius)
+{
+    int2 dim = (int2)_Dim.xy;
+    if (any(id >= dim)) return;
+
+    float4 c = _AtrousIn[id];
+    int4 g = _Geo[id];
+    if (!GeoValid(g))
+    {
+        _AtrousOut[id] = c; // sky: pass through
+        return;
+    }
+    float3 pos = GeoPos(g);
+    float3 n = GeoNormal(g);
+    float t = distance(pos, _CamPos.xyz);
+
+    float var = c.a;
+    if (_PrefilterVariance != 0)
+    {
+        // 3x3 gaussian of the variance (SVGF), stabilises the luminance edge-stopping function.
+        float vs = 0, ws = 0;
+        [unroll] for (int py = -1; py <= 1; py++)
+        [unroll] for (int px = -1; px <= 1; px++)
+        {
+            int2 q = id + int2(px, py);
+            if (any(q < 0) || any(q >= dim)) continue;
+            float w = KernelWeight(1, px) * KernelWeight(1, py);
+            vs += _AtrousIn[q].a * w;
+            ws += w;
+        }
+        var = vs / ws;
+    }
+
+    float lumC = Luma(c.rgb);
+    float lumDenom = _PhiLuminance * sqrt(max(var, 0.0)) + 1e-4;
+    float depthScale = t * _PixelAngle * _PhiDepth;
+    float depthFloor = t * 1e-3; // half-precision ray t noise
+
+    float wc = KernelWeight(radius, 0) * KernelWeight(radius, 0);
+    float3 sumC = c.rgb * wc;
+    float sumV = c.a * wc * wc;
+    float sumW = wc;
+
+    [unroll] for (int dy = -radius; dy <= radius; dy++)
+    [unroll] for (int dx = -radius; dx <= radius; dx++)
+    {
+        if (dx == 0 && dy == 0) continue;
+        int2 q = id + int2(dx, dy) * _Step;
+        if (any(q < 0) || any(q >= dim)) continue;
+        int4 gq = _Geo[q];
+        if (!GeoValid(gq)) continue;
+        float4 cq = _AtrousIn[q];
+
+        float stepLen = length(float2(dx, dy)) * _Step;
+        float wz = exp(-abs(dot(GeoPos(gq) - pos, n)) / (depthScale * stepLen + depthFloor));
+        float wn = pow(saturate(dot(n, GeoNormal(gq))), _PhiNormal);
+        float wl = exp(-abs(Luma(cq.rgb) - lumC) / lumDenom);
+        float w = KernelWeight(radius, dx) * KernelWeight(radius, dy) * wz * wn * wl;
+
+        sumC += cq.rgb * w;
+        sumV += cq.a * w * w;
+        sumW += w;
+    }
+
+    _AtrousOut[id] = float4(sumC / sumW, sumV / (sumW * sumW));
+}
+
+[numthreads(8, 8, 1)]
+void Atrous3(uint3 id : SV_DispatchThreadID) { AtrousImpl((int2)id.xy, 1); }
+
+[numthreads(8, 8, 1)]
+void Atrous5(uint3 id : SV_DispatchThreadID) { AtrousImpl((int2)id.xy, 2); }
+
+// ---------------------------------------------------------------- composite
+
+Texture2D<float4>   _Filtered;  // final lighting (rgb), variance (a)
+Texture2D<float4>   _Albedo;
+Texture2D<float4>   _Emission;
+Texture2D<float4>   _Moments;   // this frame's m1, m2, history length, variance
+RWTexture2D<float4> _Output;
+
+float4 _OutDim;    // output w, h
+int    _DebugView; // see DenoiserDebugView
+
+float3 Heat(float x)
+{
+    x = saturate(x);
+    return saturate(float3(1.5 - abs(4.0 * x - 3.0), 1.5 - abs(4.0 * x - 2.0), 1.5 - abs(4.0 * x - 1.0)));
+}
+
+[numthreads(8, 8, 1)]
+void Composite(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_OutDim.xy)) return;
+    // Nearest-neighbour fetch so the output may be larger than the trace resolution (blocky upscale).
+    uint2 s = min((uint2)(((float2)id.xy + 0.5) * _Dim.xy / _OutDim.xy), (uint2)_Dim.xy - 1);
+
+    float3 lighting = _Filtered[s].rgb;
+    float3 albedo = _Albedo[s].rgb;
+    float3 c;
+    switch (_DebugView)
+    {
+        default:
+        case 0: c = albedo * lighting + _Emission[s].rgb; break;
+        case 1: c = lighting; break;
+        case 2: c = SanitizeRadiance(_Radiance[s].rgb); break;
+        case 3:
+        {
+            // Relative standard deviation of the temporal estimate: blue = clean, red = noisy (>= 2x mean).
+            float4 m = _Moments[s];
+            c = m.z > 0.0 ? Heat(sqrt(max(m.w, 0.0)) / (m.x + 0.05) * 0.5) : 0;
+            break;
+        }
+        case 4:
+        {
+            float len = _Moments[s].z;
+            c = len > 0.0 ? Heat(len / _MaxHistory) : 0;
+            break;
+        }
+        case 5:
+        {
+            // Red: history rejected this frame. Otherwise a dim grey version of the final image.
+            float len = _Moments[s].z;
+            float grey = Luma(saturate(albedo * lighting)) * 0.5;
+            c = len == 1.0 ? float3(1, 0, 0) : grey.xxx;
+            break;
+        }
+    }
+    _Output[id.xy] = float4(saturate(c), 1.0);
+}
