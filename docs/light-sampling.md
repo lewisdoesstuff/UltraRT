@@ -45,10 +45,12 @@ Each pixel draws `candidates` (M, default 8) lights. Each candidate gets weight 
 
 | Field | Content |
 |---|---|
-| x | light index (16 bits, `0xFFFF` = none) \| half(M) << 16 |
-| y | asuint(W), with 0 if the final shadow ray was blocked (see below) |
-| z | octahedral normal, 2 × 16 bits |
+| x | light code (17 bits: light index, or `0x10000` \| emissive triangle; `0xFFFF` = none) \| uint(M) << 20 (12 bits) |
+| y | asuint(W) with its 10 low mantissa bits holding the emissive sample's barycentric u; W = 0 if the final shadow ray was blocked (see below) |
+| z | octahedral normal, 2 × 11 bits \| barycentric v << 22 (10 bits) |
 | w | asuint(dot(n_quantised, worldPos)): the surface plane |
+
+This layout changed with emissive lights (it used to be a 16-bit light index, half(M), and a 2 × 16-bit normal); see `docs/emissive-lights.md`. M is now an integer capped at 4000 (`_RestirParams.x`).
 
 Sky pixels write `(0xFFFF, 0, 0, 0)`, and M = 0 is never reused. At 1280x720 each buffer is 14.7 MB, so 29.5 MB in total. The buffers are only allocated in `ReSTIR` mode. Other modes bind two 1-element dummies, never the same buffer as both SRV and UAV.
 
