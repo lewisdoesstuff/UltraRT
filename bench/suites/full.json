@@ -91,6 +91,57 @@
                                           ]
                       },
                       {
+                          "Name":  "1-1 grass pose",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-grass-approach.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              3
+                                          ]
+                      },
+                      {
+                          "Name":  "4-1 indoor A",
+                          "Scene":  "Level 4-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/4-1-approach-a.json",
+                                       "Duration":  8
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
+                          "Name":  "4-1 indoor B",
+                          "Scene":  "Level 4-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/4-1-approach-b.json",
+                                       "Duration":  8
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
                           "Name":  "8-3 portals sweep (must be last: leaving 8-3 hangs the game on DX12)",
                           "Scene":  "Level 8-3",
                           "Path":  {

@@ -35,6 +35,7 @@ namespace UltraRT
 
         /// <summary>Experiment (-ultrart-nostatic): leave static batches out of the RTAS.</summary>
         public static bool SkipStaticBatches;
+        public int AlphaTestedMaterials { get; private set; }
 
         /// <summary>Winding convention for RT back-face culling (-ultrart-ccw flips it).</summary>
         public static bool FrontCounterClockwise;
@@ -150,7 +151,7 @@ namespace UltraRT
                          $"in {StaticInstancesActive}/{_staticPartsTotal} group instances, dynamic {dynamicRecords} in {_active.Count} instances)");
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
-                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count}");
+                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials})");
         }
 
         /// <summary>Pick up renderers created or loaded since the last scan (Cyber Grind spawns, instantiated props).</summary>
@@ -230,7 +231,7 @@ namespace UltraRT
             for (int i = 0; i < flags.Length; i++)
             {
                 var m = i < mats.Length ? mats[i] : null;
-                flags[i] = Traceable(m) ? RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.ClosestHitOnly : RayTracingSubMeshFlags.Disabled;
+                flags[i] = Traceable(m) ? SubmeshOn(m) : RayTracingSubMeshFlags.Disabled;
             }
             return flags;
         }
@@ -398,6 +399,28 @@ namespace UltraRT
 
         private Material ProxyOrDisabled(Material src) => Traceable(src) ? Proxy(src) : _disabledMaterial;
 
+        /// <summary>
+        /// Cutout (alpha-tested) materials, e.g. grass cards: their hits run the any-hit alpha test, so their submeshes must
+        /// not be flagged opaque (ClosestHitOnly). Works on source or proxy materials.
+        /// </summary>
+        internal static RayTracingSubMeshFlags SubmeshOn(Material m) =>
+            RayTracingSubMeshFlags.Enabled | (IsAlphaTested(m) ? 0 : RayTracingSubMeshFlags.ClosestHitOnly);
+
+        private static bool IsAlphaTested(Material m)
+        {
+            if (m == null) return false;
+            if (m.HasProperty("_AlphaTest") && m.shader != null && m.shader.name == "UltraRT/Proxy") return m.GetFloat("_AlphaTest") > 0.5f;
+            return SourceAlphaTested(m);
+        }
+
+        private static bool SourceAlphaTested(Material m)
+        {
+            if (m == null) return false;
+            if (m.IsKeywordEnabled("ALPHA_TEST") || m.IsKeywordEnabled("_ALPHATEST_ON") || m.IsKeywordEnabled("_ALPHA_TEST")) return true;
+            if (m.renderQueue >= 2450 && m.renderQueue < 3000) return true; // Unity's AlphaTest queue range
+            return m.HasProperty("_Mode") && m.shader != null && m.shader.name == "Standard" && Mathf.RoundToInt(m.GetFloat("_Mode")) == 1; // Cutout
+        }
+
         private readonly HashSet<Material> _twoSidedProxies = new HashSet<Material>();
         private readonly HashSet<Material> _skyWallProxies = new HashSet<Material>();
         private bool IsSkyWall(Material proxy) => proxy != null && _skyWallProxies.Contains(proxy);
@@ -436,6 +459,12 @@ namespace UltraRT
                 m.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
             }
             if (src.HasProperty("_Color")) m.SetColor("_Color", src.GetColor("_Color"));
+            if (SourceAlphaTested(src))
+            {
+                m.SetFloat("_AlphaTest", 1f);
+                m.SetFloat("_Cutoff", src.HasProperty("_Cutoff") ? src.GetFloat("_Cutoff") : 0.5f);
+                AlphaTestedMaterials++;
+            }
 
             // StaticSceneOptimizer's baked level geometry: _MainTex/_BlendTex are scene atlases, and each vertex carries
             // its atlas rects in TEXCOORD1 (main) / TEXCOORD2 (blend). UV0 tiles within those rects.

@@ -146,8 +146,11 @@ namespace UltraRT
             };
 
             float t0 = Time.realtimeSinceStartup;
+            bool skippedIntro = false;
             while (SafeCurrentScene() != "Main Menu" || SceneHelper.PendingScene != null)
             {
+                // Skip the intro sequence: jump straight to the main menu once the intro scene is up.
+                if (!skippedIntro && SafeCurrentScene() == "Intro" && SceneHelper.PendingScene == null) { skippedIntro = true; SceneHelper.LoadScene("Main Menu"); }
                 if (Time.realtimeSinceStartup - t0 > 120f) { Logger.LogError("Benchmark: timed out waiting for main menu"); yield break; }
                 yield return null;
             }

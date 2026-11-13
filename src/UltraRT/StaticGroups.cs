@@ -857,25 +857,25 @@ namespace UltraRT
             Mesh mesh;
             Material[] mats;
             RayTracingSubMeshFlags[] flags;
-            const RayTracingSubMeshFlags on = RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.ClosestHitOnly;
+
             if (c.FlagsMode)
             {
                 mesh = c.Mesh;
                 mats = c.SubMaterials;
                 flags = new RayTracingSubMeshFlags[c.Mesh.subMeshCount]; // Disabled
-                for (int i = 0; i < n; i++) if (want[i]) flags[list[i].Sub] = on;
+                for (int i = 0; i < n; i++) if (want[i]) flags[list[i].Sub] = SubmeshOn(mats[list[i].Sub]);
             }
             else if (visible == n)
             {
                 mesh = gp.Full;
                 mats = gp.FullMaterials;
-                flags = AllOn(mats.Length);
+                flags = AllOn(mats);
             }
             else if (gp.Partial != null && gp.PartialSet.SequenceEqual(want))
             {
                 mesh = gp.Partial;
                 mats = gp.PartialMaterials;
-                flags = AllOn(mats.Length);
+                flags = AllOn(mats);
                 _sumReused++;
             }
             else
@@ -906,7 +906,7 @@ namespace UltraRT
                     if (_loggedPartial++ < 12)
                         _log.LogInfo($"Partial group mesh '{c.Name}' / '{g.Name}'{PartName(p)}: {visible}/{n} submeshes, {mesh.vertexCount:N0} verts, {ms:F2} ms");
                 }
-                flags = AllOn(mats.Length);
+                flags = AllOn(mats);
             }
 
             if (gp.InRtas) RemovePart(gp);
@@ -925,10 +925,10 @@ namespace UltraRT
 
         private static string PartName(int p) => ((p & 1) != 0 ? " two-sided" : "") + ((p & 2) != 0 ? " sky-wall" : "");
 
-        private static RayTracingSubMeshFlags[] AllOn(int count)
+        private static RayTracingSubMeshFlags[] AllOn(Material[] mats)
         {
-            var f = new RayTracingSubMeshFlags[count];
-            for (int i = 0; i < count; i++) f[i] = RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.ClosestHitOnly;
+            var f = new RayTracingSubMeshFlags[mats.Length];
+            for (int i = 0; i < mats.Length; i++) f[i] = SubmeshOn(mats[i]);
             return f;
         }
 

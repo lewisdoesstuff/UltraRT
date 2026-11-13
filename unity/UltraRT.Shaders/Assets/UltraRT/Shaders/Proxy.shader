@@ -14,6 +14,7 @@ Shader "UltraRT/Proxy"
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
         _BlendTex ("Blend atlas", 2D) = "white" {}
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
+        _AlphaTest ("Alpha test in any-hit", Float) = 0
     }
 
     SubShader
@@ -58,6 +59,7 @@ Shader "UltraRT/Proxy"
             float _Cutoff;
             float _AtlasMode;
             float _SkyWall;
+            float _AlphaTest;
 
             float2 FetchUV(uint3 tri, float3 b)
             {
@@ -67,34 +69,11 @@ Shader "UltraRT/Proxy"
                 return u0 * b.x + u1 * b.y + u2 * b.z;
             }
 
-            [shader("closesthit")]
-            void ClosestHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
+            // Surface colour (alpha = coverage) at a hit; litWeight 0 = fullbright.
+            float4 SampleAlbedo(uint3 tri, float3 b, float2 uv, out float litWeight)
             {
-                // The game draws these as the sky (by view direction): the ray "escapes" here.
-                if (_SkyWall > 0.5) { p.t = -1.0; return; }
-
-                uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
-                float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
-
-                float3 p0 = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributePosition);
-                float3 p1 = UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributePosition);
-                float3 p2 = UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributePosition);
-                float3 nObj = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributeNormal) * b.x
-                            + UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributeNormal) * b.y
-                            + UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributeNormal) * b.z;
-                uint flags = 0;
-                if (dot(nObj, nObj) < 1e-8)
-                {
-                    nObj = cross(p1 - p0, p2 - p0);
-                    flags |= 1;
-                }
-
-                float3 n = normalize(mul(nObj, (float3x3)WorldToObject3x4()));
-                if (dot(n, WorldRayDirection()) > 0.0) n = -n; // treat everything as two-sided for now
-
-                float2 uv = FetchUV(tri, b);
                 float4 albedo;
-                float litWeight = 1.0; // 0 = fullbright (game: lerp(1, lighting, vertexColor.a))
+                litWeight = 1.0; // 0 = fullbright (game: lerp(1, lighting, vertexColor.a))
                 if (_AtlasMode > 0.5)
                 {
                     // StaticSceneOptimizer geometry. Atlas rects (xMin, yMin, xMax, yMax) are constant per face.
@@ -125,6 +104,48 @@ Shader "UltraRT/Proxy"
                 {
                     albedo = _MainTex.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0) * _Color;
                 }
+                return albedo;
+            }
+
+            // Alpha-tested (cutout) materials such as grass cards: ignore the hit where the texture is transparent.
+            [shader("anyhit")]
+            void AnyHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
+            {
+                if (_AlphaTest < 0.5) return;
+                uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
+                float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
+                float litWeight;
+                if (SampleAlbedo(tri, b, FetchUV(tri, b), litWeight).a < _Cutoff) IgnoreHit();
+            }
+
+            [shader("closesthit")]
+            void ClosestHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
+            {
+                // The game draws these as the sky (by view direction): the ray "escapes" here.
+                if (_SkyWall > 0.5) { p.t = -1.0; return; }
+
+                uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
+                float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
+
+                float3 p0 = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributePosition);
+                float3 p1 = UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributePosition);
+                float3 p2 = UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributePosition);
+                float3 nObj = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributeNormal) * b.x
+                            + UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributeNormal) * b.y
+                            + UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributeNormal) * b.z;
+                uint flags = 0;
+                if (dot(nObj, nObj) < 1e-8)
+                {
+                    nObj = cross(p1 - p0, p2 - p0);
+                    flags |= 1;
+                }
+
+                float3 n = normalize(mul(nObj, (float3x3)WorldToObject3x4()));
+                if (dot(n, WorldRayDirection()) > 0.0) n = -n; // treat everything as two-sided for now
+
+                float2 uv = FetchUV(tri, b);
+                float litWeight;
+                float4 albedo = SampleAlbedo(tri, b, uv, litWeight);
 
                 float3 emission = 0;
                 if (_EmissiveIntensity > 0.0)
