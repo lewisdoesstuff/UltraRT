@@ -53,6 +53,7 @@ namespace UltraRT
             ("spec-params", Kind.Debug, 9),      // r smoothness, g metalness, b reflection strength / spec weight
             ("cache", Kind.PathTrace, CacheDebugModeBase + (int)RadianceCacheDebug.Radiance),     // Plugin.Cache.cs
             ("cache-cells", Kind.PathTrace, CacheDebugModeBase + (int)RadianceCacheDebug.Cells),
+            ("dn-boost", Kind.Denoised, (int)DenoiserDebugView.SpatialBoost), // denoiser stability features (docs/denoiser.md)
         };
 
         private const int MaxLights = 256;

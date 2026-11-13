@@ -2,8 +2,10 @@
 // demodulated lighting, followed by remodulation with albedo. See docs/denoiser.md.
 //
 // Passes (all 8x8 thread groups, driven by src/UltraRT/Denoiser.cs):
-//   Temporal   reproject + validate + accumulate lighting and luminance moments, estimate variance,
-//              write this frame's packed geometry for next frame's reprojection.
+//   Temporal   reproject (2x2 bilinear, 3x3 search fallback) + validate + accumulate lighting and luminance moments,
+//              estimate variance, write this frame's packed geometry for next frame's reprojection. Short-history pixels
+//              accumulate a geometry-aware pre-blur of the input (optionally seeded from the radiance cache) instead of
+//              their single sample; long-history pixels get a firefly clamp.
 //   Atrous3/5  one a-trous iteration (3x3 or 5x5 B3-spline taps at _Step spacing), filters variance too.
 //   Composite  albedo * lighting * keep + emission + specular (or a debug view) into the output.
 
@@ -68,6 +70,7 @@ Texture2D<float4>   _PrevMoments;   // last frame's moments: m1, m2, history len
 RWTexture2D<float4> _OutIntegrated; // rgb lighting, a variance
 RWTexture2D<float4> _OutMoments;    // m1, m2, history length, variance
 RWTexture2D<int4>   _OutGeo;
+RWTexture2D<float4> _OutBoost;      // debug (DenoiserDebugView.SpatialBoost): r pre-blur, g cache seed, b 3x3 search, a firefly cut
 
 int   _HistoryValid;
 float _UltraRTTonemapWhite; // global, set by the plugin in relight mode
@@ -77,69 +80,145 @@ float _NormalTol;   // min dot(n, nPrev) for a history tap
 float _PlaneTol;    // max plane distance for a history tap, relative to ray t
 int   _ClampHistory;
 float _ClampSigma;
+// Stability features (docs/denoiser.md). All zero = the plain SVGF temporal pass.
+float4 _Boost;           // x pre-blur history frames (0 = off), y pre-blur radius (px, <= APRON), z firefly sigma (0 = off), w 3x3 history search (0/1)
+float4 _CacheSeed;       // x seed weight (virtual samples at history 0; 0 = off), y channel (1 total, 2 indirect), z relative tolerance
+float4 _CacheSeedOffset; // rgb added to the cached value (terms PathTrace adds that the cache leaves out, e.g. ambient)
+uint   _DnFrame;
+// Shared with the a-trous passes (the pre-blur uses the same geometry weights).
+float _PhiNormal;
+float _PhiDepth;
+float _PixelAngle; // world-space size of one trace pixel at distance 1
 
-#define TILE 10 // 8x8 group + 1 pixel apron
-groupshared float4 gsTile[TILE * TILE]; // rgb radiance, t (-2 outside the screen)
+#include "UltraRTCommon.hlsl" // HashU32 (the cache's key hash)
+#include "UltraRTCache.hlsl"  // read-only radiance cache lookups (needs _CamPos, declared above)
+
+// 8x8 group + APRON pixels on each side, cached once in groupshared memory: the 3x3 statistics and the pre-blur window.
+#define APRON 4
+#define TILE (8 + 2 * APRON)
+#define TILE_N (TILE * TILE)
+groupshared float4 gsRadT[TILE_N]; // rgb radiance, t (< 0 sky, -2 outside the screen)
+groupshared float3 gsPos[TILE_N];  // world position (primary ray)
+groupshared float3 gsNrm[TILE_N];  // world normal
 
 float3 SanitizeRadiance(float3 c)
 {
     return min(max(c, 0.0), 65000.0); // max() first: drops NaN on D3D
 }
 
+// Same primary ray as the ray generation shader.
+float3 PrimaryDir(int2 p)
+{
+    float2 ndc = ((float2)p + 0.5) * _Dim.zw * 2.0 - 1.0;
+    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
+    return normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+}
+
+// History-aware pre-blur of the noisy input (the "pre-pass" of ReBLUR): a Gaussian of radius R restricted to the same
+// plane and normal (the a-trous geometry weights; no luminance weight, which is meaningless at 1 spp). Above radius 2
+// the window is sampled on a 2-pixel lattice whose phase alternates per pixel, so each 2x2 quad covers every texel and
+// the first a-trous step merges them. Also returns the mean and the variance of the mean of the taps' luminance.
+float3 PreBlur(int2 id, uint c, float3 rad, float3 pos, float3 n, float t, float R, out float meanL, out float varMeanL)
+{
+    int r = min((int)ceil(R), APRON);
+    int stepS = r > 2 ? 2 : 1;
+    int2 par = stepS == 2 ? (id & 1) : int2(0, 0);
+    float sigma = max(0.5 * R, 0.5);
+    float inv2s2 = 0.5 / (sigma * sigma);
+    float depthScale = t * _PixelAngle * _PhiDepth;
+    float depthFloor = t * 1e-3;
+
+    float lc = Luma(rad);
+    float3 sumC = rad;
+    float w1 = 1.0, w2 = 1.0, l1 = lc, l2 = lc * lc;
+    [loop] for (int dy = -r + par.y; dy <= r; dy += stepS)
+    {
+        [loop] for (int dx = -r + par.x; dx <= r; dx += stepS)
+        {
+            if (dx == 0 && dy == 0) continue;
+            uint q = (uint)((int)c + dy * TILE + dx);
+            float4 v = gsRadT[q];
+            if (v.w < 0.0) continue;
+            float d2 = (float)(dx * dx + dy * dy);
+            float wz = exp(-abs(dot(gsPos[q] - pos, n)) / (depthScale * sqrt(d2) + depthFloor));
+            float wn = pow(saturate(dot(n, gsNrm[q])), _PhiNormal);
+            float w = exp(-d2 * inv2s2) * wz * wn;
+            float l = Luma(v.rgb);
+            sumC += v.rgb * w;
+            w1 += w; w2 += w * w;
+            l1 += l * w; l2 += l * l * w;
+        }
+    }
+    meanL = l1 / w1;
+    float varL = max(0.0, l2 / w1 - meanL * meanL);
+    varMeanL = varL * w2 / (w1 * w1); // variance of the weighted mean: var / Neff, Neff = w1^2 / w2
+    return sumC / w1;
+}
+
 [numthreads(8, 8, 1)]
 void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_GroupIndex)
 {
     int2 dim = (int2)_Dim.xy;
-    int2 origin = (int2)(gid.xy * 8) - 1;
-    for (uint i = gi; i < TILE * TILE; i += 64)
+    int2 origin = (int2)(gid.xy * 8) - APRON;
+    for (uint i = gi; i < TILE_N; i += 64)
     {
         int2 p = origin + int2(i % TILE, i / TILE);
         float4 v = float4(0, 0, 0, -2.0);
+        float3 wp = 0, wn = 0;
         if (all(p >= 0) && all(p < dim))
-            v = float4(SanitizeRadiance(_Radiance[p].rgb), _NormalDepth[p].w);
-        gsTile[i] = v;
+        {
+            float4 nd = _NormalDepth[p];
+            v = float4(SanitizeRadiance(_Radiance[p].rgb), nd.w);
+            if (nd.w >= 0.0)
+            {
+                wp = _CamPos.xyz + PrimaryDir(p) * nd.w;
+                wn = normalize(nd.xyz);
+            }
+        }
+        gsRadT[i] = v;
+        gsPos[i] = wp;
+        gsNrm[i] = wn;
     }
     GroupMemoryBarrierWithGroupSync();
 
     if (any((int2)id.xy >= dim)) return;
 
-    uint centerIdx = (gtid.y + 1) * TILE + gtid.x + 1;
-    float3 rad = gsTile[centerIdx].rgb;
-    float4 nd = _NormalDepth[id.xy];
-    float t = nd.w;
+    uint centerIdx = (gtid.y + APRON) * TILE + gtid.x + APRON;
+    float3 rad = gsRadT[centerIdx].rgb;
+    float t = gsRadT[centerIdx].w;
 
     if (t < 0.0)
     {
         _OutIntegrated[id.xy] = float4(rad, 0);
         _OutMoments[id.xy] = 0;
         _OutGeo[id.xy] = 0; // invalid
+        _OutBoost[id.xy] = 0;
         return;
     }
 
-    // Same primary ray as the ray generation shader.
-    float2 ndc = ((float2)id.xy + 0.5) * _Dim.zw * 2.0 - 1.0;
-    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
-    float3 dir = normalize(farPt.xyz / farPt.w - _CamPos.xyz);
-    float3 pos = _CamPos.xyz + dir * t;
-    float3 n = normalize(nd.xyz);
+    float3 pos = gsPos[centerIdx];
+    float3 nFull = gsNrm[centerIdx];
     int instance = _InstanceId[id.xy];
-    int4 geo = PackGeo(pos, n, instance);
+    int4 geo = PackGeo(pos, nFull, instance);
     _OutGeo[id.xy] = geo;
-    n = GeoNormal(geo); // compare quantized against quantized
+    float3 n = GeoNormal(geo); // compare quantized against quantized
     uint inst7 = GeoInstance(geo);
 
     // 3x3 neighbourhood statistics of the noisy input (same-surface-ish pixels only, via a depth test).
+    // The 8 neighbours without the centre are also summed for the firefly test.
     float3 s1 = 0, s2 = 0;
     float l1 = 0, l2 = 0, cnt = 0;
+    float n1 = 0, n2 = 0, ncnt = 0;
     [unroll] for (int dy = -1; dy <= 1; dy++)
     [unroll] for (int dx = -1; dx <= 1; dx++)
     {
-        float4 v = gsTile[centerIdx + dy * TILE + dx];
+        float4 v = gsRadT[centerIdx + dy * TILE + dx];
         if (v.w < 0.0 || abs(v.w - t) > 0.1 * t) continue;
         float l = Luma(v.rgb);
         s1 += v.rgb; s2 += v.rgb * v.rgb;
         l1 += l; l2 += l * l;
         cnt += 1.0;
+        if (dx != 0 || dy != 0) { n1 += l; n2 += l * l; ncnt += 1.0; }
     }
     s1 /= cnt; s2 /= cnt; l1 /= cnt; l2 /= cnt;
     float spatialVar = max(0.0, l2 - l1 * l1);
@@ -148,6 +227,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     float3 hColor = 0;
     float3 hMom = 0; // m1, m2, length
     float wSum = 0;
+    bool searched = false;
     float4 pc = mul(_PrevViewProj, float4(pos, 1.0));
     if (_HistoryValid != 0 && pc.w > 1e-5)
     {
@@ -169,6 +249,37 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
             hMom += w * _PrevMoments[q].xyz;
             wSum += w;
         }
+
+        // All four taps failed (silhouettes, thin geometry, sub-pixel slivers): take the best matching texel of the 3x3
+        // around the reprojected position before giving up on the history. Same tests; the score prefers the closest
+        // plane, then the closest texel.
+        if (wSum <= 1e-3 && _Boost.w > 0.5)
+        {
+            int2 c0 = (int2)round(pp);
+            float best = 1e30;
+            int2 bestQ = int2(-1, -1);
+            [unroll] for (int sy = -1; sy <= 1; sy++)
+            [unroll] for (int sx = -1; sx <= 1; sx++)
+            {
+                int2 q = c0 + int2(sx, sy);
+                if (any(q < 0) || any(q >= dim)) continue;
+                int4 g = _PrevGeo[q];
+                if (!GeoValid(g) || GeoInstance(g) != inst7) continue;
+                if (dot(n, GeoNormal(g)) < _NormalTol) continue;
+                float pd = abs(dot(GeoPos(g) - pos, n));
+                if (pd > planeTol) continue;
+                float2 dq = (float2)q - pp;
+                float score = pd / planeTol + 0.5 * dot(dq, dq);
+                if (score < best) { best = score; bestQ = q; }
+            }
+            if (bestQ.x >= 0)
+            {
+                hColor = _HistColor[bestQ].rgb;
+                hMom = _PrevMoments[bestQ].xyz;
+                wSum = 1.0;
+                searched = true;
+            }
+        }
     }
 
     float histLen = 0;
@@ -177,6 +288,26 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         hColor /= wSum;
         hMom /= wSum;
         histLen = hMom.z;
+    }
+
+    // Anti-firefly: with enough history, a sample far above both the history and the current neighbourhood is scaled
+    // down (hue kept) before it enters the moving average. The bound never drops below 2x the reference and widens with
+    // the temporal and spatial spread, so sparse but regular bright samples (part of the true mean) pass. Short-history
+    // pixels have no reliable reference and are not clamped: the pre-blur below spreads their outliers instead.
+    float fireflyCut = 0;
+    if (_Boost.z > 0.0 && histLen >= 4.0)
+    {
+        float histSd = sqrt(max(0.0, hMom.y - hMom.x * hMom.x));
+        float nMean = ncnt > 0.0 ? n1 / ncnt : 0.0;
+        float nSd = ncnt > 0.0 ? sqrt(max(0.0, n2 / ncnt - nMean * nMean)) : 0.0;
+        float ref = max(hMom.x, nMean);
+        float bound = max(2.0 * ref, ref + _Boost.z * max(histSd, nSd)) + 1e-3;
+        float lumIn = Luma(rad);
+        if (lumIn > bound)
+        {
+            fireflyCut = 1.0 - bound / lumIn;
+            rad *= bound / lumIn;
+        }
     }
 
     if (_ClampHistory != 0 && histLen > 0)
@@ -192,7 +323,49 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     float newLen = min(histLen + 1.0, _MaxHistory);
     float alpha = max(1.0 / newLen, _AlphaMin);
     float lum = Luma(rad);
-    float3 color = lerp(hColor, rad, alpha);
+
+    // History-aware pre-blur: a pixel with less than _Boost.x frames of history takes a geometry-aware Gaussian of the
+    // noisy input instead of its own single sample, the radius shrinking linearly with the history length. Disocclusions
+    // (screen edges while sliding, behind moving enemies) start smooth instead of speckled; edges stay where the plane
+    // and normal weights put them.
+    float3 radIn = rad;
+    float boost = _Boost.x > 0.0 ? saturate(1.0 - histLen / _Boost.x) : 0.0;
+    float seedW = 0;
+    if (boost > 0.0 && _Boost.y > 0.0)
+    {
+        float meanL, varMeanL;
+        radIn = PreBlur((int2)id.xy, centerIdx, rad, pos, nFull, t, _Boost.y * boost, meanL, varMeanL);
+
+        // Radiance cache seed: the cache cell under this pixel already averages many paths and, being world space, has
+        // no disocclusion. Blend it in as _CacheSeed.x virtual samples (fading with the history), but only where it agrees
+        // with the pre-blurred estimate within that estimate's noise plus a relative tolerance: fullbright surfaces,
+        // terms the cache leaves out and cell-sized leaks then fall back to the pre-blur alone. The query point is
+        // jittered within the cell's tangent plane (like PathTrace's primary mode), so cells turn into noise, not blocks.
+        if (_CacheSeed.x > 0.0 && _CacheMode > 0)
+        {
+            uint h = HashU32(id.x * 1973u + id.y * 9277u + _DnFrame * 26699u);
+            float u1 = (h & 0xFFFFu) * (1.0 / 65536.0), u2 = (h >> 16) * (1.0 / 65536.0);
+            float cell = CacheCellSize(CacheLevel(pos));
+            float3 tb = abs(nFull.y) < 0.999 ? normalize(cross(nFull, float3(0, 1, 0))) : float3(1, 0, 0);
+            float3 bb = cross(nFull, tb);
+            float3 pj = pos + (tb * (u1 - 0.5) + bb * (u2 - 0.5)) * (cell * _CacheQuery.y);
+            float3 total, indirect;
+            if (CacheLookup(pj, nFull, total, indirect))
+            {
+                float3 cv = max((_CacheSeed.y > 1.5 ? indirect : total) + _CacheSeedOffset.rgb, 0.0);
+                float lc = Luma(cv);
+                float tol = sqrt(varMeanL) + _CacheSeed.z * lc + 1e-3;
+                float z = abs(Luma(radIn) - lc) / tol;
+                float trust = saturate(1.5 - 0.5 * z); // full up to 1 tolerance, none beyond 3
+                seedW = _CacheSeed.x * boost * trust;
+                radIn = (radIn + cv * seedW) / (1.0 + seedW);
+            }
+        }
+    }
+    _OutBoost[id.xy] = float4(_Boost.y > 0.0 ? boost : 0.0, seedW / (1.0 + seedW), searched ? 1.0 : 0.0, fireflyCut);
+
+    float3 color = lerp(hColor, radIn, alpha);
+    // The moments stay per sample (raw, firefly-clamped luminance), so the variance keeps describing the input noise.
     float2 mom = lerp(hMom.xy, float2(lum, lum * lum), alpha);
     mom.y = min(mom.y, 65000.0);
     float variance = newLen < 4.0 ? spatialVar : max(0.0, mom.y - mom.x * mom.x);
@@ -209,10 +382,8 @@ RWTexture2D<float4> _AtrousOut;
 
 int   _Step;
 int   _PrefilterVariance;
-float _PhiNormal;
-float _PhiDepth;
 float _PhiLuminance;
-float _PixelAngle; // world-space size of one trace pixel at distance 1
+// _PhiNormal, _PhiDepth, _PixelAngle: declared with the temporal pass (the pre-blur shares them).
 
 float KernelWeight(int radius, int o)
 {
@@ -302,6 +473,7 @@ Texture2D<float4>   _Emission;
 Texture2D<float4>   _Moments;   // this frame's m1, m2, history length, variance
 Texture2D<float4>   _Specular;  // optional (Reflections.compute Resolve): rgb added, a = keep factor for the diffuse part
 int                 _HasSpecular;
+Texture2D<float4>   _BoostInfo; // Temporal's _OutBoost (debug view 6)
 RWTexture2D<float4> _Output;
 
 float4 _OutDim;    // output w, h
@@ -353,6 +525,15 @@ void Composite(uint3 id : SV_DispatchThreadID)
             float len = _Moments[s].z;
             float grey = Luma(saturate(albedo * lighting)) * 0.5;
             c = len == 1.0 ? float3(1, 0, 0) : grey.xxx;
+            break;
+        }
+        case 6:
+        {
+            // Stability features over a dim grey image: red = pre-blur strength (short history), green = radiance cache
+            // seed weight, blue = history recovered by the 3x3 search, white = firefly clamped by more than 10%.
+            float4 b = _BoostInfo[s];
+            float grey = Luma(saturate(albedo * lighting)) * 0.35;
+            c = b.a > 0.1 ? float3(1, 1, 1) : grey + float3(b.r, b.g, b.b) * 0.75;
             break;
         }
     }
