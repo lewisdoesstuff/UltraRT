@@ -34,9 +34,14 @@ if ($Extra) { $gameArgs += @($Extra | Where-Object { $_ }) }
 $exe = Join-Path $GameDir 'ULTRAKILL.exe'
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $p = Start-Process $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir -PassThru
-if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+$summaryPath = Join-Path $outDir 'summary.md'
+$deadline = (Get-Date).AddSeconds($TimeoutSec)
+while (-not $p.HasExited -and (Get-Date) -lt $deadline -and -not (Test-Path $summaryPath)) { Start-Sleep -Milliseconds 500 }
+# The summary is the last thing written. Give the game a moment to quit by itself; it sometimes hangs on exit.
+if (-not $p.HasExited -and -not $p.WaitForExit(20000)) {
     Stop-Process -Id $p.Id -Force
-    Write-Warning "Timed out after $TimeoutSec s; killed. Partial results (if any) in $outDir"
+    if (Test-Path $summaryPath) { Write-Warning 'Game did not quit after finishing; killed it (results are complete).' }
+    else { Write-Warning "Timed out after $TimeoutSec s; killed. Partial results (if any) in $outDir" }
 }
 "Ran $suiteName in $([int]$sw.Elapsed.TotalSeconds)s -> $outDir"
 
