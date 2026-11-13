@@ -20,14 +20,7 @@ int      _Mode;          // 0 full, 1 direct only, 2 indirect only
 uint     _FrameIndex;
 uint     _AccumFrames;   // frames already accumulated (0 = reset)
 
-// Per light, 4 x float4:
-//   [0] position (or -forward for directional), range (0 = directional)
-//   [1] color * intensity, unused (culling masks live in _LightMasks)
-//   [2] forward, unused
-//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), unused
-StructuredBuffer<float4> _Lights;
-StructuredBuffer<uint>   _LightMasks; // per-light culling mask (separate: masks like ~0 are NaN bit patterns as floats)
-int      _LightCount;
+// Light buffers (_Lights, _LightMasks, _LightCount) and light sampling state: UltraRTLights.hlsl.
 
 float4   _SkyColor;       // radiance for rays escaping the level (when there is no sky texture)
 Texture2D _SkyTex;        // the level's panoramic sky (lat-long), e.g. LimboSkybox/SkySphere
@@ -71,65 +64,7 @@ float3 CosineHemisphere(float3 n, float u1, float u2)
 
 // ---------------------------------------------------------------- lights
 
-bool Visible(float3 p, float3 n, float3 dir, float dist)
-{
-    RayDesc r;
-    r.Origin = p + n * 0.02;
-    r.Direction = dir;
-    r.TMin = 0.0;
-    r.TMax = max(0.0, dist - 0.05);
-    RayPayload sp = (RayPayload)0;
-    sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0x01 /* geometry only: sky walls never block light */, 0, 1, 0, r, sp);
-    return sp.t < 0.0;
-}
-
-// ULTRAKILL's falloff (StaticSceneOptimizer / Stationary shader): Unity's vertex-light term,
-// the spot cone, and a linear fade from range to 2 * range.
-float3 LightFrom(int i, float3 p, float3 n, uint layer)
-{
-    float4 l0 = _Lights[i * 4];
-    float4 l1 = _Lights[i * 4 + 1];
-    if (((_LightMasks[i] >> layer) & 1u) == 0u) return 0;
-
-    bool local = l0.w != 0.0;
-    float3 toL = local ? l0.xyz - p : l0.xyz;
-    float d2 = max(dot(toL, toL), 1e-6);
-    float d = sqrt(d2);
-    float3 L = toL / d;
-    float ndl = dot(n, L);
-    if (ndl <= 0.0) return 0;
-
-    float4 l3 = _Lights[i * 4 + 3];
-    float atten = 1.0;
-    float dist = 1.0e4;
-    if (local)
-    {
-        float4 l2 = _Lights[i * 4 + 2];
-        float r = max(l0.w, 1e-6);
-        atten = 1.0 / (1.0 + d2 * 25.0 / (r * r));
-        atten *= saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
-        atten *= saturate(2.0 - d / r);
-        dist = d;
-    }
-    if (atten < 1e-3) return 0;
-    if (l3.z < 0.5 && !Visible(p, n, L, dist)) return 0; // l3.z: unshadowed fill light
-    return l1.rgb * (atten * ndl);
-}
-
-float3 DirectAll(float3 p, float3 n, uint layer)
-{
-    float3 sum = 0;
-    for (int i = 0; i < _LightCount; i++) sum += LightFrom(i, p, n, layer);
-    return sum * _LightScale;
-}
-
-float3 DirectOne(float3 p, float3 n, uint layer, inout uint rng)
-{
-    if (_LightCount <= 0) return 0;
-    int i = min((int)(Rand(rng) * _LightCount), _LightCount - 1);
-    return LightFrom(i, p, n, layer) * (_LightCount * _LightScale);
-}
+#include "UltraRTLights.hlsl"
 
 // ---------------------------------------------------------------- ray generation
 
@@ -165,6 +100,7 @@ void RayGen()
         c = lighting;
         _NormalDepth[id] = float4(0, 0, 0, -1);
         _InstanceId[id] = -1;
+        RestirWriteEmpty(id, dim);
     }
     else
     {
@@ -172,7 +108,7 @@ void RayGen()
         float3 n = p.normal;
         uint layer = PayloadLayer(p);
 
-        float3 direct = DirectAll(pos, n, layer);
+        float3 direct = DirectLighting(id, dim, pos, n, p.t, layer, rng);
 
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
         float3 indirect = 0;
