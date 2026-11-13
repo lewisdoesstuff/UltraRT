@@ -80,7 +80,7 @@ bool Visible(float3 p, float3 n, float3 dir, float dist)
     r.TMax = max(0.0, dist - 0.05);
     RayPayload sp = (RayPayload)0;
     sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, 0, 1, 0, r, sp);
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0x01 /* geometry only: sky walls never block light */, 0, 1, 0, r, sp);
     return sp.t < 0.0;
 }
 

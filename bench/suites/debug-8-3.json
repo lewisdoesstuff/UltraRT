@@ -1,0 +1,27 @@
+{
+    "Name":  "debug-8-3",
+    "Scenarios":  [
+                      {
+                          "Name":  "8-3 portals sweep (must be last: leaving 8-3 hangs the game on DX12)",
+                          "Scene":  "Level 8-3",
+                          "Path":  {
+                                       "Type":  "sweep",
+                                       "Yaw":  631.03,
+                                       "Pitch":  -4.38,
+                                       "Duration":  10,
+                                       "YawSpeed":  90,
+                                       "PitchAmplitude":  15,
+                                       "Approach":  "../recordings/8-3-approach.json",
+                                       "ApproachSpeed":  2
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              0.2,
+                                              5
+                                          ]
+                      }
+                  ]
+}

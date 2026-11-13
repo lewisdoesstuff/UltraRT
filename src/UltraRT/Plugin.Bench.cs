@@ -204,7 +204,7 @@ namespace UltraRT
             SceneHelper.LoadScene(sc.Scene);
             yield return null;
             float t0 = Time.realtimeSinceStartup;
-            while (SceneHelper.PendingScene != null || _proxies == null || SafeCurrentScene() != sc.Scene)
+            while (SceneHelper.PendingScene != null || (_proxies == null && !_noScene) || SafeCurrentScene() != sc.Scene)
             {
                 if (Time.realtimeSinceStartup - t0 > 120f) throw new TimeoutException($"loading {sc.Scene}");
                 yield return null;
@@ -233,13 +233,25 @@ namespace UltraRT
                 float speed = Mathf.Max(0.1f, sc.Path.ApproachSpeed);
                 float at = 0f;
                 Logger.LogInfo($"Benchmark: approach {approach.Duration:F1}s at {speed}x");
+                float nextKill = 0f;
+                int killed = 0;
                 while (at < approach.Duration)
                 {
                     at += Time.unscaledDeltaTime * speed;
                     GameControl.SetPose(approach.Sample(at));
                     GameControl.HideCheatPanels();
+                    // Arena completion (all enemies dead) is what opens doors and activates the next areas.
+                    if (sc.Path.ApproachKillEnemies && Time.realtimeSinceStartup >= nextKill)
+                    {
+                        nextKill = Time.realtimeSinceStartup + 0.25f;
+                        var tracker = MonoSingleton<EnemyTracker>.Instance;
+                        if (tracker != null)
+                            foreach (var e in tracker.GetCurrentEnemies().ToList())
+                                if (e != null && !e.dead) { e.InstaKill(); killed++; }
+                    }
                     yield return null;
                 }
+                if (killed > 0) Logger.LogInfo($"Benchmark: approach killed {killed} enemies");
                 GameControl.SetPose(approach.Sample(approach.Duration));
                 spawn = approach.Sample(approach.Duration);
                 yield return new WaitForSecondsRealtime(1.5f); // let area activation settle

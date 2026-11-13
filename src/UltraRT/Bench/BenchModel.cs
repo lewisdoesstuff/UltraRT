@@ -48,6 +48,8 @@ namespace UltraRT.Bench
         // areas: re-apply the object/light/render-settings changes area triggers had made when the pose was saved (F11).
         public string Areas;
         public float ApproachSpeed = 1.5f;
+        /// <summary>Kill enemies as they spawn during the approach, so arena completions open doors and load areas.</summary>
+        public bool ApproachKillEnemies = true;
         // recording
         public string File;
         public float Start;

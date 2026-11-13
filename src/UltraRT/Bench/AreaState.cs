@@ -48,7 +48,7 @@ namespace UltraRT.Bench
 
             private static void Walk(Transform t, string path, Snapshot s)
             {
-                if ((t.gameObject.hideFlags & HideFlags.HideAndDontSave) != 0) return; // our own proxies
+                if (SceneProxies.IsProxyObject(t.gameObject)) return; // our own proxies
                 s.Objects[path] = t.gameObject.activeSelf;
                 var light = t.GetComponent<Light>();
                 if (light != null) s.Lights[path] = light.enabled;

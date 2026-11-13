@@ -13,6 +13,7 @@ Shader "UltraRT/Proxy"
         _Cutoff ("Alpha cutoff", Float) = 0
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
         _BlendTex ("Blend atlas", 2D) = "white" {}
+        _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
     }
 
     SubShader
@@ -56,6 +57,7 @@ Shader "UltraRT/Proxy"
             float _UseAlbedoAsEmissive;
             float _Cutoff;
             float _AtlasMode;
+            float _SkyWall;
 
             float2 FetchUV(uint3 tri, float3 b)
             {
@@ -68,6 +70,9 @@ Shader "UltraRT/Proxy"
             [shader("closesthit")]
             void ClosestHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
             {
+                // The game draws these as the sky (by view direction): the ray "escapes" here.
+                if (_SkyWall > 0.5) { p.t = -1.0; return; }
+
                 uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
 

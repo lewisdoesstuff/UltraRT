@@ -76,6 +76,7 @@ namespace UltraRT
             public RayTracingSubMeshFlags[] Flags;
             public uint Id;
             public bool TwoSided;
+            public uint Mask = GeometryMask;
             public bool Visible;
         }
 
@@ -106,7 +107,7 @@ namespace UltraRT
             string s = m.shader.name;
             // LIMBO_WALLS: the "TV sky" walls (ScreenSky/ScreenField) draw the panoramic sky by view direction through a
             // scanline mask. For RT they are sky, not surfaces: rays pass through to the sky lookup and the sun isn't blocked.
-            if (m.IsKeywordEnabled("LIMBO_WALLS")) return false;
+            // (They ARE traced, as "sky walls": see SkyWallMask.)
             return !(s.Contains("Particles") || s.Contains("Additive") || s.Contains("Skybox") || s.Contains("Sprite") || s.Contains("Stencil") || s.StartsWith("Hidden/ProBuilder"));
         }
 
@@ -179,7 +180,7 @@ namespace UltraRT
             foreach (var r in meshRenderers ?? Object.FindObjectsOfType<MeshRenderer>(true))
             {
                 if (!_known.Add(r)) continue;
-                if ((r.gameObject.hideFlags & HideFlags.HideAndDontSave) != 0) continue; // our own proxies
+                if (IsProxyObject(r.gameObject)) continue; // our own proxies
                 if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; continue; }
                 if (IsBackdrop(r)) { stats.SkippedBackdrop++; continue; }
                 var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
@@ -205,7 +206,7 @@ namespace UltraRT
             foreach (var r in skinnedRenderers ?? Object.FindObjectsOfType<SkinnedMeshRenderer>(true))
             {
                 if (!_known.Add(r)) continue;
-                if ((r.gameObject.hideFlags & HideFlags.HideAndDontSave) != 0) continue;
+                if (IsProxyObject(r.gameObject)) continue;
                 if (r.sharedMesh == null) { stats.SkippedMesh++; continue; }
                 if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; continue; }
                 if (IsBackdrop(r)) { stats.SkippedBackdrop++; continue; }
@@ -243,6 +244,7 @@ namespace UltraRT
                 Flags = flags,
                 Id = (uint)OriginalLayer(source.gameObject.layer),
                 TwoSided = source.sharedMaterials.Any(m => Traceable(m) && SourceTwoSided(m)),
+                Mask = source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : GeometryMask,
             };
             _dynamic.Add(entry);
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
@@ -298,12 +300,16 @@ namespace UltraRT
             // Back-face culling is per instance, so two-sided submeshes go in a second instance of the same mesh.
             var root = StaticBatchRoot?.GetValue(sources[0]) as Transform;
             uint id = (uint)OriginalLayer(sources[0].gameObject.layer);
+            // Sky walls also need their own instance, for the instance mask.
             foreach (bool twoSided in new[] { false, true })
+            foreach (bool skyWall in new[] { false, true })
             {
-                var part = flags.Select((f, i) => f != RayTracingSubMeshFlags.Disabled && IsTwoSided(mats[i]) == twoSided ? f : RayTracingSubMeshFlags.Disabled).ToArray();
+                var part = flags.Select((f, i) => f != RayTracingSubMeshFlags.Disabled && IsTwoSided(mats[i]) == twoSided && IsSkyWall(mats[i]) == skyWall
+                    ? f : RayTracingSubMeshFlags.Disabled).ToArray();
                 if (part.All(f => f == RayTracingSubMeshFlags.Disabled)) continue;
-                var proxy = CreateMeshProxy($"{combined.name}{(twoSided ? " two-sided" : "")} [UltraRT]", root, mesh, mats);
-                Rtas.AddInstance(proxy, part, enableTriangleCulling: !twoSided, frontTriangleCounterClockwise: FrontCounterClockwise, id: id);
+                var proxy = CreateMeshProxy($"{combined.name}{(twoSided ? " two-sided" : "")}{(skyWall ? " sky-wall" : "")} [UltraRT]", root, mesh, mats);
+                Rtas.AddInstance(proxy, part, enableTriangleCulling: !twoSided, frontTriangleCounterClockwise: FrontCounterClockwise,
+                    mask: skyWall ? SkyWallMask : GeometryMask, id: id);
                 _staticRecords += part.Count(f => f != RayTracingSubMeshFlags.Disabled);
                 _staticSlots += part.Length;
             }
@@ -423,6 +429,8 @@ namespace UltraRT
             }
         }
 
+        public static bool IsProxyObject(GameObject go) => (go.hideFlags & HideFlags.HideInHierarchy) != 0 && go.name.EndsWith("[UltraRT]", StringComparison.Ordinal);
+
         private MeshRenderer CreateMeshProxy(string name, Transform parent, Mesh mesh, Material[] materials)
         {
             var go = NewProxyObject(name, parent);
@@ -455,7 +463,9 @@ namespace UltraRT
 
         private GameObject NewProxyObject(string name, Transform parent)
         {
-            var go = new GameObject(name) { hideFlags = HideFlags.HideAndDontSave };
+            // HideInHierarchy only: DontSave (part of HideAndDontSave) marks objects "not destroyed on scene load", which
+            // contradicts being parented under scene objects and hung the game when unloading 8-3.
+            var go = new GameObject(name) { hideFlags = HideFlags.HideInHierarchy | HideFlags.NotEditable };
             if (parent != null) go.transform.SetParent(parent, false);
             go.layer = parent != null ? parent.gameObject.layer : 0;
             _proxyObjects.Add(go);
@@ -512,7 +522,7 @@ namespace UltraRT
             if (visible == d.Visible) return;
             if (visible)
             {
-                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: FrontCounterClockwise, id: d.Id);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: FrontCounterClockwise, mask: d.Mask, id: d.Id);
                 d.SourceTransform.hasChanged = false;
                 _active.Add(d);
             }
@@ -527,6 +537,15 @@ namespace UltraRT
         private Material ProxyOrDisabled(Material src) => Traceable(src) ? Proxy(src) : _disabledMaterial;
 
         private readonly HashSet<Material> _twoSidedProxies = new HashSet<Material>();
+        private readonly HashSet<Material> _skyWallProxies = new HashSet<Material>();
+        private bool IsSkyWall(Material proxy) => proxy != null && _skyWallProxies.Contains(proxy);
+
+        /// <summary>
+        /// Instance masks: shadow rays only test GeometryMask. Sky walls (LIMBO_WALLS, the "TV sky") stop camera and bounce
+        /// rays and report sky, so the level behind them stays hidden as in game, but never block light.
+        /// </summary>
+        public const uint GeometryMask = 0x01, SkyWallMask = 0x02;
+        private static bool SourceSkyWall(Material m) => m != null && m.IsKeywordEnabled("LIMBO_WALLS");
         private bool IsTwoSided(Material proxy) => proxy != null && _twoSidedProxies.Contains(proxy);
 
         /// <summary>
@@ -584,6 +603,7 @@ namespace UltraRT
 
             _materialCache[src] = m;
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
+            if (SourceSkyWall(src)) { _skyWallProxies.Add(m); m.SetFloat("_SkyWall", 1f); }
             return m;
         }
 

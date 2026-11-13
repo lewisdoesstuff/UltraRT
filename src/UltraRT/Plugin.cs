@@ -88,9 +88,17 @@ namespace UltraRT
             Directory.CreateDirectory(_outDir);
 
             Logger.LogInfo($"API={SystemInfo.graphicsDeviceType} supportsRayTracing={SystemInfo.supportsRayTracing} colorSpace={QualitySettings.activeColorSpace}");
-            if (!SystemInfo.supportsRayTracing)
+            if (!SystemInfo.supportsRayTracing || Environment.GetCommandLineArgs().Any(a => a.Equals("-ultrart-minimal", StringComparison.OrdinalIgnoreCase)))
             {
                 Logger.LogWarning("Ray tracing unavailable (launch with -force-d3d12 on a DXR GPU). UltraRT is idle.");
+                // Benchmarks can still run game-only ("off" modes) for comparisons, e.g. against DX11.
+                var idleHost = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
+                DontDestroyOnLoad(idleHost);
+                _host = idleHost.AddComponent<CoroutineHost>();
+                _noScene = true;
+                SceneManager.sceneUnloaded += s => Logger.LogInfo($"sceneUnloaded '{s.name}'");
+                SceneManager.activeSceneChanged += (_, to) => Logger.LogInfo($"Scene -> {to.name} ({SafeCurrentScene()})");
+                StartBenchIfRequested();
                 return;
             }
 
@@ -105,7 +113,7 @@ namespace UltraRT
                 else Logger.LogWarning($"GPU timer unavailable: {gpuError}");
             }
 
-            Patches.Apply(Info.Metadata.GUID);
+            if (!_noHook) Patches.Apply(Info.Metadata.GUID);
             _cmd = new CommandBuffer { name = "UltraRT" };
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
@@ -115,6 +123,7 @@ namespace UltraRT
             _host.OnUpdate = OnUpdate;
             _host.OnGui = DrawHud;
 
+            SceneManager.sceneUnloaded += s => Logger.LogInfo($"sceneUnloaded '{s.name}'");
             SceneManager.activeSceneChanged += (_, to) =>
             {
                 Logger.LogInfo($"Scene -> {to.name} ({SafeCurrentScene()})");
@@ -122,7 +131,7 @@ namespace UltraRT
                 _host.StartCoroutine(BuildWhenLoaded());
             };
 
-            Camera.onPreRender += OnCameraPreRender;
+            if (!_noHook) Camera.onPreRender += OnCameraPreRender;
             if (!StartBenchIfRequested() && !string.IsNullOrEmpty(_autoScene)) _host.StartCoroutine(AutoRun());
         }
 
@@ -149,6 +158,8 @@ namespace UltraRT
                     case "-ultrart-nomerge": SceneProxies.NoSubmeshMerge = true; break;
                     case "-ultrart-flipy": _flipY = true; break;
                     case "-ultrart-ccw": SceneProxies.FrontCounterClockwise = true; break;
+                    case "-ultrart-noscene": _noScene = true; break;
+                    case "-ultrart-nohook": _noHook = true; break;
                     case "-ultrart-pose": _capturePose = Next(); break;
                     case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) InjectEvent = ev; break;
                     case "-ultrart-gputimer-flags": Environment.SetEnvironmentVariable("ULTRART_GPUTIMER_FLAGS", Next()); break;
@@ -235,7 +246,13 @@ namespace UltraRT
 
         private void ResetScene()
         {
-            _proxies?.Dispose();
+            if (_proxies != null)
+            {
+                var sw = Stopwatch.StartNew();
+                Logger.LogInfo("ResetScene: disposing RT scene...");
+                _proxies.Dispose();
+                Logger.LogInfo($"ResetScene: disposed in {sw.Elapsed.TotalMilliseconds:F1} ms");
+            }
             _proxies = null;
             _accumFrames = 0;
             _denoiser?.Reset();
@@ -252,6 +269,7 @@ namespace UltraRT
             while (SceneHelper.PendingScene != null) yield return null;
             yield return new WaitForSecondsRealtime(1f);
             if (_proxies != null || _proxyShader == null) yield break;
+            if (_noScene) { Logger.LogInfo("RT scene build skipped (-ultrart-noscene)"); yield break; }
             try
             {
                 var sw = Stopwatch.StartNew();
@@ -389,6 +407,7 @@ namespace UltraRT
 
         private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId;
         private string _capturePose;
+        private bool _noScene, _noHook;
         private Material _skyMaterial;
 
         /// <summary>

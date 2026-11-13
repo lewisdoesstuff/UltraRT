@@ -7,6 +7,7 @@
 # stats are blocked in-game for the whole run.
 param(
     [string] $Suite = 'short',
+    [ValidateSet('d3d12', 'd3d11')] [string] $Api = 'd3d12',
     [string] $Compare,
     [double] $Scale = 0.5,
     [switch] $NoGpuTimer,
@@ -26,7 +27,7 @@ if (git -C $root status --porcelain 2>$null) { $commit += '-dirty' }
 $outDir = Join-Path $root "bench\results\$(Get-Date -Format 'yyyyMMdd-HHmmss')_$suiteName"
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
-$gameArgs = @('-force-d3d12', '-ultrart-bench', "`"$suitePath`"", '-ultrart-bench-out', "`"$outDir`"",
+$gameArgs = @("-force-$Api", '-ultrart-bench', "`"$suitePath`"", '-ultrart-bench-out', "`"$outDir`"",
     '-ultrart-bench-tag', $commit, '-ultrart-scale', $Scale.ToString([Globalization.CultureInfo]::InvariantCulture), '-ultrart-quit')
 if (-not $NoGpuTimer) { $gameArgs += '-ultrart-gputimer' }
 if ($Extra) { $gameArgs += @($Extra | Where-Object { $_ }) }
