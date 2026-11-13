@@ -21,6 +21,11 @@ namespace UltraRT.Bench
         public Dictionary<string, string> RandomPicks;
         /// <summary>Seconds to let the level settle after loading (and RT setup) before anything happens.</summary>
         public float Settle = 3f;
+        /// <summary>
+        /// Always load the level for this scenario, never reuse one an earlier scenario left (see "Chaining" in
+        /// bench/README.md). Later scenarios may still chain after it.
+        /// </summary>
+        public bool FreshLoad;
         public PathSpec Path = new PathSpec();
         /// <summary>blind: enemies idle (still animate); active: they fight an invincible player; none: no spawns.</summary>
         public string Enemies = "blind";
@@ -84,6 +89,11 @@ namespace UltraRT.Bench
         public string Resolution;
         public float TraceScale;
         public bool GpuTimer;
+        /// <summary>Levels loaded once and reused by later scenarios (off with -ultrart-bench-nochain).</summary>
+        public bool Chaining;
+        public int LevelLoads;
+        /// <summary>Wall-clock seconds from the plugin starting the suite to the summary.</summary>
+        public float TotalSeconds;
         public List<ScenarioResult> Scenarios = new List<ScenarioResult>();
     }
 
@@ -98,6 +108,14 @@ namespace UltraRT.Bench
         /// <summary>How the pose was reached (see PathSpec.Load) and how long that took after the level had settled.</summary>
         public string Load;
         public float LoadSeconds;
+        /// <summary>"fresh load" or "chained after '&lt;scenario&gt;'" (the level that scenario left was reused).</summary>
+        public string Reached;
+        public string ChainedAfter;
+        /// <summary>Level load including Settle (0 when chained); Load detail; whole scenario wall-clock; run order (1-based).</summary>
+        public float LevelLoadSeconds;
+        public string LoadDetail;
+        public float WallSeconds;
+        public int Order;
         public Dictionary<string, ModeStats> Modes = new Dictionary<string, ModeStats>();
         public List<string> Screenshots = new List<string>();
     }

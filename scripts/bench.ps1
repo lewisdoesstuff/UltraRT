@@ -15,9 +15,12 @@ param(
     [switch] $NativeGfxJobs,
     # Force one pose-load method for every scenario: checkpoint, approach-fast, approach, areas, none.
     [string] $Load,
+    # Load the level for every scenario instead of reusing it along shared routes (the behaviour before chaining).
+    [switch] $NoChain,
     # Instead of measuring: reach every pose with each load method and compare the loaded scene (see bench\README.md).
     [switch] $ValidateLoad,
-    # With -ValidateLoad: comma-separated methods to compare, first one is the reference. "approach-fast@3" = at game speed 3.
+    # With -ValidateLoad: comma-separated methods to compare, first one is the reference. "approach-fast@3" = at game speed 3;
+    # "chain" = reached the way a chained benchmark reaches it.
     [string] $ValidateMethods,
     [string[]] $Extra = @(),
     [string] $GameDir = $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }),
@@ -40,6 +43,7 @@ $gameArgs = @("-force-$Api", '-ultrart-bench', "`"$suitePath`"", '-ultrart-bench
 if (-not $NoGpuTimer) { $gameArgs += '-ultrart-gputimer' }
 if (-not $NativeGfxJobs) { $gameArgs += @('-force-gfx-jobs', 'legacy') }
 if ($Load) { $gameArgs += @('-ultrart-bench-load', $Load) }
+if ($NoChain) { $gameArgs += '-ultrart-bench-nochain' }
 if ($ValidateLoad) { $gameArgs += '-ultrart-bench-validate' }
 if ($ValidateMethods) { $gameArgs += @('-ultrart-bench-validate-methods', $ValidateMethods) }
 if ($Extra) { $gameArgs += @($Extra | Where-Object { $_ }) }
