@@ -58,6 +58,8 @@ namespace UltraRT
         private RenderTexture _output, _accum;
         private ComputeBuffer _lightBuffer;
         private readonly Vector4[] _lightData = new Vector4[MaxLights * 4];
+        private readonly uint[] _lightMasks = new uint[MaxLights];
+        private ComputeBuffer _lightMaskBuffer;
         private int _lightCount;
         private Light[] _sceneLights = Array.Empty<Light>();
         private float _nextLightScan;
@@ -106,6 +108,7 @@ namespace UltraRT
             Patches.Apply(Info.Metadata.GUID);
             _cmd = new CommandBuffer { name = "UltraRT" };
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
+            _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -145,6 +148,8 @@ namespace UltraRT
                     case "-ultrart-nostatic": SceneProxies.SkipStaticBatches = true; break;
                     case "-ultrart-nomerge": SceneProxies.NoSubmeshMerge = true; break;
                     case "-ultrart-flipy": _flipY = true; break;
+                    case "-ultrart-ccw": SceneProxies.FrontCounterClockwise = true; break;
+                    case "-ultrart-pose": _capturePose = Next(); break;
                     case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) InjectEvent = ev; break;
                     case "-ultrart-gputimer-flags": Environment.SetEnvironmentVariable("ULTRART_GPUTIMER_FLAGS", Next()); break;
                     case "-ultrart-ambient": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _primaryAmbient); break;
@@ -254,6 +259,7 @@ namespace UltraRT
                 _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0);
                 _proxies.Build();
                 Logger.LogInfo($"Scene RT setup took {sw.Elapsed.TotalMilliseconds:F0} ms");
+                LogLightingEnvironment();
             }
             catch (Exception e)
             {
@@ -268,6 +274,7 @@ namespace UltraRT
             {
                 _nextLightScan = Time.realtimeSinceStartup + 1f;
                 _sceneLights = FindObjectsOfType<Light>();
+                _skyMaterial = FindSkyMaterial();
             }
             // Layout must match PathTrace.raytrace: 4 x float4 per light (see the comment on _Lights there).
             _lightCount = 0;
@@ -295,19 +302,23 @@ namespace UltraRT
                     }
                     case LightType.Directional:
                         l0 = new Vector4(-fwd.x, -fwd.y, -fwd.z, 0f);
-                        l3 = new Vector4(-1f, 1f, 0, 0);
+                        // Directional lights arriving from below the horizon are fill lights faking ground bounce (the game
+                        // has no shadows). Shadowing them against the floor would remove them, so leave them unshadowed.
+                        l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : 0f, 0);
                         break;
                     default:
                         continue;
                 }
                 int i = _lightCount * 4;
                 _lightData[i] = l0;
-                _lightData[i + 1] = new Vector4(c.r, c.g, c.b, AsFloat(l.cullingMask));
+                _lightData[i + 1] = new Vector4(c.r, c.g, c.b, 0);
+                _lightMasks[_lightCount] = unchecked((uint)l.cullingMask);
                 _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, 0);
                 _lightData[i + 3] = l3;
                 _lightCount++;
             }
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
+            _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
         }
 
         private static float AsFloat(int bits) => BitConverter.Int32BitsToSingle(bits);
@@ -328,6 +339,7 @@ namespace UltraRT
         private Camera _attachedCam;
         private static readonly int UltraRTImageId = Shader.PropertyToID("_UltraRTImage");
         private static readonly int UltraRTFlipYId = Shader.PropertyToID("_UltraRTFlipY");
+        private static readonly int UltraRTNormalDepthId = Shader.PropertyToID("_UltraRTNormalDepth");
         private bool _flipY;
         private int _recordedFrame = -1;
         private Material _compositeMat;
@@ -376,6 +388,51 @@ namespace UltraRT
         }
 
         private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId;
+        private string _capturePose;
+        private Material _skyMaterial;
+
+        /// <summary>
+        /// The sky the player actually sees: ULTRAKILL draws fake skies as panoramic sky spheres (e.g. LimboSkybox/SkySphere),
+        /// often with RenderSettings.skybox left at an unused default. Prefer an active Skybox/Panoramic renderer.
+        /// </summary>
+        private static Material FindSkyMaterial()
+        {
+            foreach (var r in FindObjectsOfType<Renderer>())
+            {
+                var m = r.sharedMaterial;
+                if (r.enabled && m != null && m.shader != null && m.shader.name == "Skybox/Panoramic" && m.mainTexture != null) return m;
+            }
+            var s = RenderSettings.skybox;
+            return s != null && s.shader != null && s.shader.name == "Skybox/Panoramic" && s.mainTexture != null ? s : null;
+        }
+
+        private void BindSky(RayTracingShader shader)
+        {
+            var m = _skyMaterial;
+            if (m == null)
+            {
+                _cmd.SetRayTracingTextureParam(shader, "_SkyTex", Texture2D.blackTexture);
+                _cmd.SetRayTracingVectorParam(shader, "_SkyParams", Vector4.zero);
+                return;
+            }
+            var tint = m.HasProperty("_Tint") ? m.GetColor("_Tint") : Color.gray;
+            float exposure = m.HasProperty("_Exposure") ? m.GetFloat("_Exposure") : 1f;
+            float rot = m.HasProperty("_Rotation") ? m.GetFloat("_Rotation") : 0f;
+            // Skybox/Panoramic: tex * _Tint * unity_ColorSpaceDouble (2 in gamma space) * _Exposure.
+            float k = (QualitySettings.activeColorSpace == ColorSpace.Gamma ? 2f : 4.59479f) * exposure;
+            _cmd.SetRayTracingTextureParam(shader, "_SkyTex", m.mainTexture);
+            _cmd.SetRayTracingVectorParam(shader, "_SkyTint", new Vector4(tint.r * k, tint.g * k, tint.b * k, 1));
+            _cmd.SetRayTracingVectorParam(shader, "_SkyParams", new Vector4(1f, rot * Mathf.Deg2Rad, 0, 0));
+        }
+
+        private void LogLightingEnvironment()
+        {
+            var sky = RenderSettings.skybox;
+            Logger.LogInfo($"Lighting env: ambientMode={RenderSettings.ambientMode} ambient={RenderSettings.ambientLight} sky={(sky ? sky.shader.name : "none")} skyTex={(sky && sky.HasProperty("_MainTex") && sky.mainTexture ? sky.mainTexture.name : "-")} fog={RenderSettings.fog} fogColor={RenderSettings.fogColor}");
+            foreach (var l in FindObjectsOfType<Light>().Where(l => l.type == LightType.Directional))
+                Logger.LogInfo($"  directional '{l.name}' enabled={l.isActiveAndEnabled} color={l.color} intensity={l.intensity:F2} mask=0x{l.cullingMask:X8} rot={l.transform.eulerAngles}");
+        }
+
         private float _nextRescan;
         private double _cpuMs;
         private int _cpuFrames;
@@ -444,10 +501,12 @@ namespace UltraRT
                 var ambient = RenderSettings.ambientLight;
                 _cmd.SetRayTracingTextureParam(shader, "_Accum", _accum);
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
+                _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
                 _cmd.SetRayTracingIntParam(shader, "_AccumFrames", (int)_accumFrames);
                 _cmd.SetRayTracingVectorParam(shader, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
+                BindSky(shader);
                 // The game's lit term is 2 * ambient + lights.
                 _cmd.SetRayTracingVectorParam(shader, "_Ambient", new Vector4(ambient.r, ambient.g, ambient.b, 1) * 2f);
                 _cmd.SetRayTracingFloatParam(shader, "_PrimaryAmbient", _primaryAmbient);
@@ -500,6 +559,7 @@ namespace UltraRT
             // Composite into the camera's current target without changing render-target bindings.
             _gpu?.Begin(_cmd, SlotBlit);
             _cmd.SetGlobalTexture(UltraRTImageId, _displayed);
+            _cmd.SetGlobalTexture(UltraRTNormalDepthId, pt ? (Texture)_gNormalDepth : Texture2D.whiteTexture);
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);
@@ -577,6 +637,12 @@ namespace UltraRT
             }
             yield return new WaitForSecondsRealtime(4f);
 
+            if (!string.IsNullOrEmpty(_capturePose))
+            {
+                var v = _capturePose.Split(',').Select(s => float.Parse(s, System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+                Bench.GameControl.TakeControl(new Bench.CamPose(new Vector3(v[0], v[1], v[2]), v[3], v[4]));
+                yield return new WaitForSecondsRealtime(1f);
+            }
             if (_spawnTest) yield return SpawnTestEnemy();
 
             if (_capture)

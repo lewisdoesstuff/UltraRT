@@ -1,0 +1,13 @@
+{
+  "Name": "debug-outdoor",
+  "Scenarios": [
+    {
+      "Name": "1-1 doors run",
+      "Scene": "Level 1-1",
+      "Path": { "Type": "recording", "File": "../recordings/1-1-doors.json" },
+      "Modes": ["off", "pt-dn", "albedo", "pt-direct", "emission"],
+      "Segment": 1.0,
+      "Screenshots": [6, 10]
+    }
+  ]
+}

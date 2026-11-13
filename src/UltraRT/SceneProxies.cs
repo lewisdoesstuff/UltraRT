@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -34,6 +34,9 @@ namespace UltraRT
 
         /// <summary>Experiment (-ultrart-nostatic): leave static batches out of the RTAS.</summary>
         public static bool SkipStaticBatches;
+
+        /// <summary>Winding convention for RT back-face culling (-ultrart-ccw flips it).</summary>
+        public static bool FrontCounterClockwise;
         private int _staticRecords, _staticSlots;
 
         private readonly ManualLogSource _log;
@@ -72,6 +75,7 @@ namespace UltraRT
             public int BlendShapes;
             public RayTracingSubMeshFlags[] Flags;
             public uint Id;
+            public bool TwoSided;
             public bool Visible;
         }
 
@@ -100,7 +104,10 @@ namespace UltraRT
             if (m == null || m.shader == null) return false;
             if (m.renderQueue >= 3000) return false;
             string s = m.shader.name;
-            return !(s.Contains("Particles") || s.Contains("Additive") || s.Contains("Skybox") || s.Contains("Sprite") || s.StartsWith("Hidden/ProBuilder"));
+            // LIMBO_WALLS: the "TV sky" walls (ScreenSky/ScreenField) draw the panoramic sky by view direction through a
+            // scanline mask. For RT they are sky, not surfaces: rays pass through to the sky lookup and the sun isn't blocked.
+            if (m.IsKeywordEnabled("LIMBO_WALLS")) return false;
+            return !(s.Contains("Particles") || s.Contains("Additive") || s.Contains("Skybox") || s.Contains("Sprite") || s.Contains("Stencil") || s.StartsWith("Hidden/ProBuilder"));
         }
 
         public void Build()
@@ -109,18 +116,38 @@ namespace UltraRT
                 RayTracingAccelerationStructure.ManagementMode.Manual,
                 RayTracingAccelerationStructure.RayTracingModeMask.Everything, ~0));
 
+            var player = MonoSingleton<NewMovement>.Instance;
+            _playerPos = player != null ? player.transform.position : (Vector3?)null;
             var batches = new Dictionary<Mesh, List<MeshRenderer>>();
             var stats = new ScanStats();
             // Include inactive objects: ULTRAKILL keeps most enemies and room contents disabled until triggered.
             ScanRenderers(batches, stats);
+            // Debug (-ultrart-dumpverts): the largest renderers (sky boxes/domes show up here).
+            if (DumpAtlasVertices) foreach (var r in Object.FindObjectsOfType<Renderer>(true).Where(r => r is MeshRenderer || r is SkinnedMeshRenderer)
+                         .OrderByDescending(r => r.bounds.size.magnitude).Take(8))
+            {
+                var m = r.sharedMaterial;
+                _log.LogInfo($"  big renderer '{GameControlPath(r.transform)}' size={r.bounds.size.magnitude:F0} layer={r.gameObject.layer} active={r.gameObject.activeInHierarchy} " +
+                             $"static={r.isPartOfStaticBatch} shader='{m?.shader?.name}' mat='{m?.name}' queue={m?.renderQueue} kw=[{(m != null ? string.Join(" ", m.shaderKeywords) : "")}]");
+            }
+
             if (!SkipStaticBatches) foreach (var kv in batches) AddStaticBatch(kv.Key, kv.Value);
+
+            if (DumpAtlasVertices)
+            {
+                // Debug: every traced source material, to spot odd ones (sky screens, masks).
+                var lines = _materialCache.Keys.Where(m => m != null).Select(m =>
+                    $"{m.shader?.name}\t{m.name}\tqueue={m.renderQueue}\ttex={(m.mainTexture ? m.mainTexture.name : "-")}\tkw={string.Join(" ", m.shaderKeywords)}")
+                    .OrderBy(s => s).ToArray();
+                System.IO.File.WriteAllLines(System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "ultrart", $"materials-{UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}.tsv"), lines);
+            }
 
             SyncDynamic(force: true);
             Rtas.Build();
             int records = _staticRecords + _active.Sum(d => d.Flags.Count(f => f != RayTracingSubMeshFlags.Disabled));
             _log.LogInfo($"Shader-table hit records (enabled submeshes): {records} (static batches {_staticRecords}, total submesh slots {_staticSlots + _active.Sum(d => d.Flags.Length)})");
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
-                         $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh}; " +
+                         $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count}");
         }
 
@@ -142,7 +169,7 @@ namespace UltraRT
             ScanRenderers(null, stats, root.GetComponentsInChildren<MeshRenderer>(true), root.GetComponentsInChildren<SkinnedMeshRenderer>(true));
         }
 
-        private sealed class ScanStats { public int Batched, Dynamic, Skinned, SkippedLayer, SkippedMaterial, SkippedMesh; }
+        private sealed class ScanStats { public int Batched, Dynamic, Skinned, SkippedLayer, SkippedMaterial, SkippedMesh, SkippedBackdrop; }
 
         private readonly HashSet<Renderer> _known = new HashSet<Renderer>();
 
@@ -154,6 +181,7 @@ namespace UltraRT
                 if (!_known.Add(r)) continue;
                 if ((r.gameObject.hideFlags & HideFlags.HideAndDontSave) != 0) continue; // our own proxies
                 if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; continue; }
+                if (IsBackdrop(r)) { stats.SkippedBackdrop++; continue; }
                 var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
                 if (mesh == null) { stats.SkippedMesh++; continue; }
                 if (!r.sharedMaterials.Any(Traceable)) { stats.SkippedMaterial++; continue; }
@@ -180,6 +208,7 @@ namespace UltraRT
                 if ((r.gameObject.hideFlags & HideFlags.HideAndDontSave) != 0) continue;
                 if (r.sharedMesh == null) { stats.SkippedMesh++; continue; }
                 if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; continue; }
+                if (IsBackdrop(r)) { stats.SkippedBackdrop++; continue; }
                 if (!r.sharedMaterials.Any(Traceable)) { stats.SkippedMaterial++; continue; }
                 var proxy = CreateSkinnedProxy(r);
                 AddDynamic(r, proxy, SubmeshFlags(r.sharedMaterials, r.sharedMesh.subMeshCount));
@@ -213,6 +242,7 @@ namespace UltraRT
                 BlendShapes = ss != null && ss.sharedMesh != null ? ss.sharedMesh.blendShapeCount : 0,
                 Flags = flags,
                 Id = (uint)OriginalLayer(source.gameObject.layer),
+                TwoSided = source.sharedMaterials.Any(m => Traceable(m) && SourceTwoSided(m)),
             };
             _dynamic.Add(entry);
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
@@ -265,12 +295,42 @@ namespace UltraRT
 
             // Combined vertices live in the batch root's space, or world space if there is no root.
             // All sources of one combined mesh share a layer in practice (StaticSceneOptimizer: one per material).
+            // Back-face culling is per instance, so two-sided submeshes go in a second instance of the same mesh.
             var root = StaticBatchRoot?.GetValue(sources[0]) as Transform;
-            var proxy = CreateMeshProxy($"{combined.name} [UltraRT]", root, mesh, mats);
             uint id = (uint)OriginalLayer(sources[0].gameObject.layer);
-            Rtas.AddInstance(proxy, flags, enableTriangleCulling: false, id: id);
-            _staticRecords += flags.Count(f => f != RayTracingSubMeshFlags.Disabled);
-            _staticSlots += flags.Length;
+            foreach (bool twoSided in new[] { false, true })
+            {
+                var part = flags.Select((f, i) => f != RayTracingSubMeshFlags.Disabled && IsTwoSided(mats[i]) == twoSided ? f : RayTracingSubMeshFlags.Disabled).ToArray();
+                if (part.All(f => f == RayTracingSubMeshFlags.Disabled)) continue;
+                var proxy = CreateMeshProxy($"{combined.name}{(twoSided ? " two-sided" : "")} [UltraRT]", root, mesh, mats);
+                Rtas.AddInstance(proxy, part, enableTriangleCulling: !twoSided, frontTriangleCounterClockwise: FrontCounterClockwise, id: id);
+                _staticRecords += part.Count(f => f != RayTracingSubMeshFlags.Disabled);
+                _staticSlots += part.Length;
+            }
+        }
+
+        /// <summary>
+        /// Enclosures the raster game never shows: e.g. 1-1's 2.8 km inward-facing OutOfBounds cube, hidden in game behind
+        /// the sky sphere (drawn later, transparent queue). As RT geometry they block the sun for the whole level.
+        /// Rule: named OutOfBounds, or bounds over 1 km that contain the player. Every exclusion is logged.
+        /// </summary>
+        private bool IsBackdrop(Renderer r)
+        {
+            var b = r.bounds;
+            bool named = r.name.IndexOf("OutOfBounds", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         (r.transform.parent != null && r.transform.parent.name.IndexOf("OutOfBounds", StringComparison.OrdinalIgnoreCase) >= 0);
+            bool enclosure = b.size.magnitude > 1000f && _playerPos.HasValue && b.Contains(_playerPos.Value);
+            if (!named && !enclosure) return false;
+            _log.LogInfo($"Excluded backdrop '{GameControlPath(r.transform)}' size={b.size.magnitude:F0} ({(named ? "named" : "encloses player")})");
+            return true;
+        }
+
+        private Vector3? _playerPos;
+        private static string GameControlPath(Transform t)
+        {
+            var s = t.name;
+            for (var p = t.parent; p != null; p = p.parent) s = p.name + "/" + s;
+            return s;
         }
 
         /// <summary>Experiment (-ultrart-nomerge): keep static batches' original submesh layout.</summary>
@@ -452,7 +512,7 @@ namespace UltraRT
             if (visible == d.Visible) return;
             if (visible)
             {
-                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: false, id: d.Id);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: FrontCounterClockwise, id: d.Id);
                 d.SourceTransform.hasChanged = false;
                 _active.Add(d);
             }
@@ -465,6 +525,22 @@ namespace UltraRT
         }
 
         private Material ProxyOrDisabled(Material src) => Traceable(src) ? Proxy(src) : _disabledMaterial;
+
+        private readonly HashSet<Material> _twoSidedProxies = new HashSet<Material>();
+        private bool IsTwoSided(Material proxy) => proxy != null && _twoSidedProxies.Contains(proxy);
+
+        /// <summary>
+        /// Matches the raster pipeline's face culling: rays cull back faces unless the material renders both sides.
+        /// (Without this, e.g. 1-1's huge inward-facing OutOfBounds cube, invisible in game, blocked the sun.)
+        /// ULTRAKILL/Master uses _CullMode, most Unity shaders _Cull; CullMode.Off == 0. Default is back-face culling.
+        /// </summary>
+        private static bool SourceTwoSided(Material m)
+        {
+            if (m == null) return false;
+            if (m.HasProperty("_CullMode")) return Mathf.RoundToInt(m.GetFloat("_CullMode")) == (int)CullMode.Off;
+            if (m.HasProperty("_Cull")) return Mathf.RoundToInt(m.GetFloat("_Cull")) == (int)CullMode.Off;
+            return false;
+        }
 
         private Material Proxy(Material src)
         {
@@ -507,6 +583,7 @@ namespace UltraRT
             }
 
             _materialCache[src] = m;
+            if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
             return m;
         }
 

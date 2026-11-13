@@ -17,6 +17,7 @@ Shader "UltraRT/Composite"
             #include "UnityCG.cginc"
 
             Texture2D _UltraRTImage;
+            Texture2D _UltraRTNormalDepth; // w < 0: the ray hit nothing (sky) -> keep the game's own sky
             SamplerState my_point_clamp_sampler;
             float _UltraRTFlipY;
 
@@ -40,6 +41,7 @@ Shader "UltraRT/Composite"
 
             float4 frag(v2f i) : SV_Target
             {
+                if (_UltraRTNormalDepth.Sample(my_point_clamp_sampler, i.uv).w < 0.0) discard;
                 return float4(_UltraRTImage.Sample(my_point_clamp_sampler, i.uv).rgb, 1.0);
             }
             ENDHLSL

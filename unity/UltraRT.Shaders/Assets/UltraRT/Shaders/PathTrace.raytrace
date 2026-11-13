@@ -22,13 +22,27 @@ uint     _AccumFrames;   // frames already accumulated (0 = reset)
 
 // Per light, 4 x float4:
 //   [0] position (or -forward for directional), range (0 = directional)
-//   [1] color * intensity, culling mask (asfloat of uint)
+//   [1] color * intensity, unused (culling masks live in _LightMasks)
 //   [2] forward, unused
-//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unused, unused
+//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), unused
 StructuredBuffer<float4> _Lights;
+StructuredBuffer<uint>   _LightMasks; // per-light culling mask (separate: masks like ~0 are NaN bit patterns as floats)
 int      _LightCount;
 
-float4   _SkyColor;       // radiance for rays escaping the level
+float4   _SkyColor;       // radiance for rays escaping the level (when there is no sky texture)
+Texture2D _SkyTex;        // the level's panoramic sky (lat-long), e.g. LimboSkybox/SkySphere
+SamplerState sampler_linear_repeat_SkyTex;
+float4   _SkyTint;        // tint * exposure * colour-space double, rgb
+float4   _SkyParams;      // x: has texture, y: rotation (radians)
+
+float3 SkyRadiance(float3 d)
+{
+    if (_SkyParams.x < 0.5) return _SkyColor.rgb;
+    float s = sin(_SkyParams.y), c = cos(_SkyParams.y);
+    d = float3(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
+    float2 uv = float2(atan2(d.x, d.z) * (0.5 / 3.14159265) + 0.5, asin(clamp(d.y, -1.0, 1.0)) * (1.0 / 3.14159265) + 0.5);
+    return _SkyTex.SampleLevel(sampler_linear_repeat_SkyTex, uv, 0).rgb * _SkyTint.rgb;
+}
 float4   _Ambient;        // the game's ambient term (2 * RenderSettings.ambientLight)
 float    _PrimaryAmbient; // how much of _Ambient to add at the primary hit (art knob)
 float    _BounceAmbient;  // how much of _Ambient to add at the bounce hit (stand-in for further bounces)
@@ -66,7 +80,7 @@ bool Visible(float3 p, float3 n, float3 dir, float dist)
     r.TMax = max(0.0, dist - 0.05);
     RayPayload sp = (RayPayload)0;
     sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
-    TraceRay(_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, 0, 1, 0, r, sp);
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0xFF, 0, 1, 0, r, sp);
     return sp.t < 0.0;
 }
 
@@ -76,7 +90,7 @@ float3 LightFrom(int i, float3 p, float3 n, uint layer)
 {
     float4 l0 = _Lights[i * 4];
     float4 l1 = _Lights[i * 4 + 1];
-    if (((asuint(l1.w) >> layer) & 1u) == 0u) return 0;
+    if (((_LightMasks[i] >> layer) & 1u) == 0u) return 0;
 
     bool local = l0.w != 0.0;
     float3 toL = local ? l0.xyz - p : l0.xyz;
@@ -86,12 +100,12 @@ float3 LightFrom(int i, float3 p, float3 n, uint layer)
     float ndl = dot(n, L);
     if (ndl <= 0.0) return 0;
 
+    float4 l3 = _Lights[i * 4 + 3];
     float atten = 1.0;
     float dist = 1.0e4;
     if (local)
     {
         float4 l2 = _Lights[i * 4 + 2];
-        float4 l3 = _Lights[i * 4 + 3];
         float r = max(l0.w, 1e-6);
         atten = 1.0 / (1.0 + d2 * 25.0 / (r * r));
         atten *= saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
@@ -99,7 +113,7 @@ float3 LightFrom(int i, float3 p, float3 n, uint layer)
         dist = d;
     }
     if (atten < 1e-3) return 0;
-    if (!Visible(p, n, L, dist)) return 0;
+    if (l3.z < 0.5 && !Visible(p, n, L, dist)) return 0; // l3.z: unshadowed fill light
     return l1.rgb * (atten * ndl);
 }
 
@@ -140,12 +154,12 @@ void RayGen()
 
     RayPayload p = (RayPayload)0;
     p.t = -1.0;
-    TraceRay(_Scene, RAY_FLAG_NONE, 0xFF, 0, 1, 0, ray, p);
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, ray, p);
 
     float3 c, lighting, albedo, emission;
     if (p.t < 0.0)
     {
-        lighting = _SkyColor.rgb;
+        lighting = SkyRadiance(ray.Direction);
         albedo = 1;
         emission = 0;
         c = lighting;
@@ -170,10 +184,10 @@ void RayGen()
             b.TMax = 1.0e4;
             RayPayload h = (RayPayload)0;
             h.t = -1.0;
-            TraceRay(_Scene, RAY_FLAG_NONE, 0xFF, 0, 1, 0, b, h);
+            TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, b, h);
             if (h.t < 0.0)
             {
-                indirect = _SkyColor.rgb;
+                indirect = SkyRadiance(b.Direction);
             }
             else
             {

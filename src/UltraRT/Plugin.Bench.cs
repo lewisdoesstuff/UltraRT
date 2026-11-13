@@ -235,10 +235,30 @@ namespace UltraRT
                     if (round == 0 && shots.Count > 0 && pathT >= shots.Peek())
                     {
                         float at = shots.Dequeue();
+                        var activeLights = FindObjectsOfType<Light>().Where(l => l.isActiveAndEnabled && l.intensity > 0).ToList();
+                        Logger.LogInfo($"Benchmark: '{sc.Name}' @ {at:F1}s ambient={RenderSettings.ambientLight} lights: " +
+                                       string.Join(", ", activeLights.GroupBy(l => l.type).Select(g => $"{g.Key}={g.Count()}")) +
+                                       string.Concat(activeLights.Where(l => l.type == LightType.Directional)
+                                           .Select(l => $" | sun '{l.name}' I={l.intensity:F2} mask=0x{l.cullingMask:X8}")));
+                        var camPos = GameControl.Cam != null ? GameControl.Cam.transform.position : Vector3.zero;
+                        foreach (var r in FindObjectsOfType<Renderer>())
+                        {
+                            var m = r.sharedMaterial;
+                            if (!r.enabled || m == null || m.shader == null) continue;
+                            var texProps = m.GetTexturePropertyNames().Select(n => (n, t: m.GetTexture(n))).Where(x => x.t != null).ToList();
+                            bool usesRT = texProps.Any(x => x.t is RenderTexture);
+                            bool skyShader = m.shader.name.IndexOf("Sky", StringComparison.OrdinalIgnoreCase) >= 0;
+                            bool bigNear = r.bounds.size.magnitude > 150f && r.bounds.SqrDistance(camPos) < 1f; // camera inside its bounds
+                            if (!usesRT && !skyShader && !bigNear) continue;
+                            Logger.LogInfo($"  sky-ish renderer '{GameControl.PathOf(r.transform)}' size={r.bounds.size.magnitude:F0} layer={r.gameObject.layer} " +
+                                           $"shader='{m.shader.name}' mat='{m.name}' queue={m.renderQueue} kw=[{string.Join(" ", m.shaderKeywords)}] " +
+                                           $"tex=[{string.Join(", ", texProps.Select(x => $"{x.n}={x.t.name}{(x.t is RenderTexture ? "(RT)" : "")}"))}] " +
+                                           $"why={(usesRT ? "RT " : "")}{(skyShader ? "skyshader " : "")}{(bigNear ? "encloses-camera" : "")}");
+                        }
                         foreach (var m in sc.Modes)
                         {
                             ApplyBenchMode(m);
-                            for (int f = 0; f < 12; f++) yield return null;
+                            for (int f = 0; f < 12; f++) { GameControl.HideCheatPanels(); yield return null; }
                             yield return new WaitForEndOfFrame();
                             // What the player sees (RT composited under transparents/post/HUD), plus the raw RT image.
                             string file = $"{Sanitize(sc.Name)}_{at:F1}s_{Sanitize(m)}.png";
