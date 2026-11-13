@@ -1,0 +1,80 @@
+// Radiance cache resolve: one thread per hash slot. Blends the samples CacheUpdate added this frame into the slot's
+// history, clears the accumulators, and evicts cells nobody has sampled for a while. See docs/radiance-cache.md.
+#pragma kernel Resolve
+#pragma kernel Clear
+
+RWStructuredBuffer<uint>  _CacheKeys;     // checksum per slot, 0 = empty
+RWStructuredBuffer<uint>  _CacheAccum;    // 8 uints per slot: total rgb, count, indirect rgb, last sampled frame
+RWStructuredBuffer<uint4> _CacheResolved; // see UltraRTCache.hlsl
+
+uint   _CacheCapacity;
+uint   _CacheFrame;
+float4 _CacheResolve; // x history cap (frames), y stale after (frames), z 1 / fixed-point scale, w unused
+
+#define MAX_HALF 60000.0
+
+uint PackHalf2(float a, float b) { return f32tof16(min(a, MAX_HALF)) | (f32tof16(min(b, MAX_HALF)) << 16); }
+
+[numthreads(256, 1, 1)]
+void Resolve(uint3 tid : SV_DispatchThreadID)
+{
+    uint i = tid.x;
+    if (i >= _CacheCapacity) return;
+    if (_CacheKeys[i] == 0u) return;
+
+    uint base = i * 8u;
+    uint count = _CacheAccum[base + 3u];
+    if (count == 0u)
+    {
+        if (_CacheFrame - _CacheAccum[base + 7u] > (uint)_CacheResolve.y)
+        {
+            // Stale: free the slot. Lookups scan the whole bucket, so a hole doesn't hide later entries.
+            _CacheKeys[i] = 0u;
+            _CacheResolved[i] = uint4(0u, 0u, 0u, 0u);
+            _CacheAccum[base + 7u] = 0u;
+        }
+        return;
+    }
+
+    float n = (float)count;
+    float s = _CacheResolve.z / n;
+    float3 total = float3(_CacheAccum[base + 0u], _CacheAccum[base + 1u], _CacheAccum[base + 2u]) * s;
+    float3 indirect = float3(_CacheAccum[base + 4u], _CacheAccum[base + 5u], _CacheAccum[base + 6u]) * s;
+
+    uint4 r = _CacheResolved[i];
+    float3 hTotal = float3(f16tof32(r.x), f16tof32(r.x >> 16), f16tof32(r.y));
+    float3 hIndirect = float3(f16tof32(r.y >> 16), f16tof32(r.z), f16tof32(r.z >> 16));
+    float M = f16tof32(r.w);
+    float avg = f16tof32(r.w >> 16);
+
+    // History is capped at `history` frames' worth of samples at this cell's usual rate, so a cell converges equally
+    // fast (in frames) whether it gets 1 sample per frame or 500. The rate is a moving average, so one sparse frame
+    // doesn't wipe a well-sampled history.
+    avg = M > 0.0 ? lerp(avg, n, 0.25) : n;
+    float Mh = min(M, _CacheResolve.x * max(avg, 1.0));
+    float Mn = Mh + n;
+    total = (hTotal * Mh + total * n) / Mn;
+    indirect = (hIndirect * Mh + indirect * n) / Mn;
+
+    _CacheResolved[i] = uint4(PackHalf2(total.r, total.g), PackHalf2(total.b, indirect.r),
+                              PackHalf2(indirect.g, indirect.b), PackHalf2(Mn, avg));
+    _CacheAccum[base + 0u] = 0u;
+    _CacheAccum[base + 1u] = 0u;
+    _CacheAccum[base + 2u] = 0u;
+    _CacheAccum[base + 3u] = 0u;
+    _CacheAccum[base + 4u] = 0u;
+    _CacheAccum[base + 5u] = 0u;
+    _CacheAccum[base + 6u] = 0u;
+    _CacheAccum[base + 7u] = _CacheFrame;
+}
+
+[numthreads(256, 1, 1)]
+void Clear(uint3 tid : SV_DispatchThreadID)
+{
+    uint i = tid.x;
+    if (i >= _CacheCapacity) return;
+    _CacheKeys[i] = 0u;
+    _CacheResolved[i] = uint4(0u, 0u, 0u, 0u);
+    [unroll]
+    for (uint k = 0; k < 8u; k++) _CacheAccum[i * 8u + k] = 0u;
+}

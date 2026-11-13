@@ -185,6 +185,31 @@ namespace UltraRT
             }
         }
 
+        /// <summary>
+        /// Bind this frame's tables (built by the last <see cref="Bind"/>) to another shader that includes
+        /// UltraRTLights.hlsl but does no temporal reuse, e.g. the radiance cache update. Advances no state; the reservoir
+        /// slots get the dummies and history is reported invalid.
+        /// </summary>
+        public void BindTables(CommandBuffer cmd, RayTracingShader shader)
+        {
+            var s = Settings;
+            cmd.SetRayTracingIntParam(shader, IdLightSampling, (int)s.mode);
+            cmd.SetRayTracingIntParam(shader, IdRisCandidates, Mathf.Clamp(s.candidates, 1, 64));
+            cmd.SetRayTracingIntParam(shader, IdBounceCandidates, Mathf.Clamp(s.bounceCandidates, 1, 64));
+            cmd.SetRayTracingIntParam(shader, IdRisLightCount, RisLightCount);
+            cmd.SetRayTracingBufferParam(shader, IdLightAlias, _alias);
+            cmd.SetRayTracingIntParam(shader, IdFillCount, FillLightCount);
+            cmd.SetRayTracingBufferParam(shader, IdFillLights, _fill);
+            cmd.SetRayTracingBufferParam(shader, IdLightRemap, _remap);
+            cmd.SetRayTracingIntParam(shader, IdPrevLightCount, 0);
+            cmd.SetRayTracingBufferParam(shader, IdReservoirPrev, _dummyPrev);
+            cmd.SetRayTracingBufferParam(shader, IdReservoirCur, _dummyCur);
+            cmd.SetRayTracingMatrixParam(shader, IdPrevViewProj, Matrix4x4.identity);
+            cmd.SetRayTracingIntParam(shader, IdRestirHistoryValid, 0);
+            cmd.SetRayTracingVectorParam(shader, IdRestirParams, new Vector4(1f, 1f, 0f, 0f));
+            cmd.SetRayTracingIntParam(shader, IdRestirSpatial, 0);
+        }
+
         private int _prevCountForShader;
 
         private void BuildTables(IList<Light> lights, Vector4[] lightData, int count, Vector3 camPos)
