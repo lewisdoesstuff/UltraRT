@@ -120,6 +120,16 @@ bool LightUnshadowed(uint i) { return _Lights[i * 4 + 3].z > 0.5; }
 // Unshadowed contribution of light i at p, using ULTRAKILL's falloff (StaticSceneOptimizer / Stationary shader):
 // Unity's vertex-light term, the spot cone, and a linear fade from range to 2 * range.
 // Returns false (and c = 0) when the light contributes nothing. L and dist are the shadow-ray direction and length.
+// Relight (docs/relight.md). Zero = the game's own light model (unbound shaders get that).
+//   x: falloff blend, 0 = ULTRAKILL's curve, 1 = physical inverse-square (matched to the game at half the range)
+//   y: fill cut, 0 keeps the game's unshadowed fill lights, 1 removes them (bounce light replaces them)
+//   z: exposure multiplier for lights (0 = 1)
+//   w: ambient cut, 0 keeps the game's flat ambient, 1 removes it
+float4 _Relight;
+
+float RelightExposure() { return _Relight.z > 0.0 ? _Relight.z : 1.0; }
+float RelightAmbientScale() { return 1.0 - saturate(_Relight.w); }
+
 bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float dist, out float3 c)
 {
     L = 0; dist = 0; c = 0;
@@ -141,13 +151,25 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
         float4 l2 = _Lights[i * 4 + 2];
         float4 l3 = _Lights[i * 4 + 3];
         float r = max(l0.w, 1e-6);
-        atten = 1.0 / (1.0 + d2 * 25.0 / (r * r));
-        atten *= saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
-        atten *= saturate(2.0 - d / r);
+        float game = (1.0 / (1.0 + d2 * 25.0 / (r * r))) * saturate(2.0 - d / r);
+        if (_Relight.x > 0.0)
+        {
+            // Physical falloff, equal to the game's at half the range (1/7.25 there), with a smooth window to 2r so
+            // lights still end where the level designers expected. Clamped near the light (0.1 m) to avoid hotspots.
+            float rRef = 0.5 * r;
+            float x = d / (2.0 * r);
+            float window = saturate(1.0 - x * x * x * x);
+            float phys = (1.0 / 7.25) * (rRef * rRef) / max(d2, 0.01) * window * window;
+            game = lerp(game, phys, saturate(_Relight.x));
+        }
+        atten = game * saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
         dist = d;
     }
     if (atten < 1e-3) return false;
-    c = _Lights[i * 4 + 1].rgb * (atten * ndl);
+    float scale = RelightExposure();
+    if (_Lights[i * 4 + 3].z > 0.5) scale *= 1.0 - saturate(_Relight.y); // unshadowed fill light
+    if (scale <= 0.0) return false;
+    c = _Lights[i * 4 + 1].rgb * (atten * ndl * scale);
     return true;
 }
 

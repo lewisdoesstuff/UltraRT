@@ -108,6 +108,7 @@ namespace UltraRT
                 _cmd.SetRayTracingBufferParam(u, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(u, "_LightCount", _lightCount);
             _cmd.SetRayTracingFloatParam(u, "_LightRadius", _lightRadius);
+            _cmd.SetRayTracingVectorParam(u, "_Relight", RelightParams);
             _cmd.SetRayTracingFloatParam(u, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
                 _lightSampling.BindTables(_cmd, u);
                 _emissive.Bind(_cmd, u, _lightSamplingSettings.mode);

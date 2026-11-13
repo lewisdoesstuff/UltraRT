@@ -70,6 +70,7 @@ RWTexture2D<float4> _OutMoments;    // m1, m2, history length, variance
 RWTexture2D<int4>   _OutGeo;
 
 int   _HistoryValid;
+float _UltraRTTonemapWhite; // global, set by the plugin in relight mode
 float _AlphaMin;
 float _MaxHistory;
 float _NormalTol;   // min dot(n, nPrev) for a history tap
@@ -354,6 +355,14 @@ void Composite(uint3 id : SV_DispatchThreadID)
             c = len == 1.0 ? float3(1, 0, 0) : grey.xxx;
             break;
         }
+    }
+    // Optional tone mapping (relight): Reinhard on luminance with a white point, so physical falloff's hotspots
+    // roll off instead of clipping. Global property; 0/unset = off.
+    if (_UltraRTTonemapWhite > 0.0 && _DebugView == 0)
+    {
+        float lum = Luma(c);
+        float w2 = _UltraRTTonemapWhite * _UltraRTTonemapWhite;
+        c *= (1.0 + lum / w2) / (1.0 + lum);
     }
     _Output[id.xy] = float4(saturate(c), 1.0);
 }

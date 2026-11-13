@@ -29,6 +29,7 @@ namespace UltraRT
         {
             ("hybrid", Kind.Hybrid, (int)DenoiserDebugView.Final),
             ("pt-dn", Kind.Denoised, (int)DenoiserDebugView.Final),
+            ("relight", Kind.Denoised, (int)DenoiserDebugView.Final), // full RT with physical falloff (docs/relight.md)
             ("dn-lighting", Kind.Denoised, (int)DenoiserDebugView.FilteredLighting),
             ("dn-variance", Kind.Denoised, (int)DenoiserDebugView.Variance),
             ("dn-history", Kind.Denoised, (int)DenoiserDebugView.HistoryLength),
@@ -173,6 +174,11 @@ namespace UltraRT
                     case "-ultrart-flipy": _flipY = true; break;
                     case "-ultrart-ccw": SceneProxies.FrontCounterClockwise = true; break;
                     case "-ultrart-noscene": _noScene = true; break;
+                    case "-ultrart-relight-falloff": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightFalloff); break;
+                    case "-ultrart-relight-fill": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightFillCut); break;
+                    case "-ultrart-relight-ambient": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightAmbientCut); break;
+                    case "-ultrart-relight-exposure": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightExposure); break;
+                    case "-ultrart-relight-white": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightWhite); break;
                     case "-ultrart-light-radius": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _lightRadius); break;
                     case "-ultrart-nofixtureshadows": _fixtureShadows = false; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
@@ -494,6 +500,13 @@ namespace UltraRT
         private RenderTexture _gSurface, _gReflection, _gSpecular, _gReflDebug;
         private string _capturePose;
         private float _lightRadius = 0.15f;   // -ultrart-light-radius (m)
+
+        // Relight knobs (docs/relight.md): -ultrart-relight-falloff/-fill/-ambient/-exposure/-white
+        private bool _relightActive;
+        private float _relightFalloff = 1f, _relightFillCut = 1f, _relightAmbientCut = 1f, _relightExposure = 1.5f, _relightWhite = 3f;
+        private Vector4 RelightParams => _relightActive
+            ? new Vector4(_relightFalloff, _relightFillCut, _relightExposure, _relightAmbientCut)
+            : Vector4.zero;
         private bool _fixtureShadows = true;  // -ultrart-nofixtureshadows
         private RenderTexture _depthCopy;
         private bool _noDepthMatch;
@@ -637,6 +650,9 @@ namespace UltraRT
             _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : resolve || mode >= CacheDebugModeBase ? 0 : mode);
             _cmd.SetRayTracingFloatParam(shader, "_GIStrength", _giStrength);
             _cmd.SetRayTracingFloatParam(shader, "_LightRadius", _lightRadius);
+            _relightActive = Modes[_mode].name == "relight";
+            _cmd.SetRayTracingVectorParam(shader, "_Relight", RelightParams);
+            _cmd.SetGlobalFloat("_UltraRTTonemapWhite", _relightActive ? _relightWhite : 0f);
             _cmd.SetRayTracingFloatParam(shader, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
 
             if (pt)

@@ -169,7 +169,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, inout uint r
     {
         dist = h.t;
         float3 hp = r.Origin + L * h.t;
-        float3 hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng) + _Ambient.rgb * _BounceAmbient;
+        float3 hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng) + _Ambient.rgb * _BounceAmbient * RelightAmbientScale();
         c = h.emission * _EmissionScale + h.albedo * lerp(1.0, hitLight, h.alpha);
     }
     c = max(c, 0.0); // also drops NaN
@@ -258,13 +258,13 @@ void RayGen()
                 float3 hp = b.Origin + b.Direction * h.t;
                 float3 cached;
                 float3 hitLight = (CacheQueryTotal(hp, h.normal, cached) ? cached : DirectOne(hp, h.normal, PayloadLayer(h), rng))
-                                + _Ambient.rgb * _BounceAmbient;
+                                + _Ambient.rgb * _BounceAmbient * RelightAmbientScale();
                 // Emitters that are sampled directly (EmissiveLights) must not also count when a bounce hits them.
                 indirect = h.emission * (_EmissionScale * _EmissiveBounceWeight) + h.albedo * lerp(1.0, hitLight, h.alpha);
             }
         }
 
-        float3 ambient = _Ambient.rgb * _PrimaryAmbient;
+        float3 ambient = _Ambient.rgb * _PrimaryAmbient * RelightAmbientScale();
         switch (_Mode)
         {
             default:

@@ -1,0 +1,95 @@
+{
+    "Name":  "debug-relight",
+    "Scenarios":  [
+                      {
+                          "Name":  "4-1 B",
+                          "Scene":  "Level 4-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/4-1-approach-b.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              3
+                                          ]
+                      },
+                      {
+                          "Name":  "4-1 A",
+                          "Scene":  "Level 4-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/4-1-approach-a.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              3
+                                          ]
+                      },
+                      {
+                          "Name":  "torch",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-torch-hall.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              3
+                                          ]
+                      },
+                      {
+                          "Name":  "indoor-a",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-indoor-a.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              3
+                                          ]
+                      },
+                      {
+                          "Name":  "indoor-c",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-indoor-c.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              3
+                                          ]
+                      }
+                  ]
+}
