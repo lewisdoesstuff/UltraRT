@@ -40,6 +40,18 @@ namespace UltraRT
         /// <summary>Winding convention for RT back-face culling (-ultrart-ccw flips it).</summary>
         public static bool FrontCounterClockwise;
 
+        /// <summary>Folders searched for ultrart-materials.json (plugin folder, then BepInEx/config). Set by the plugin.</summary>
+        public static string[] MaterialOverrideFolders = new string[0];
+
+        /// <summary>-ultrart-matdump: write the material classification to BepInEx/ultrart/material-classes-SCENE.tsv, and give
+        /// atlas geometry a variant for every class (not only reflective ones) so the "materials" view shows all of them.</summary>
+        public static bool DumpMaterialClasses;
+
+        private readonly MaterialClassifier _classifier;
+        private readonly HashSet<Material> _atlasProxies = new HashSet<Material>();
+        private readonly Dictionary<(Material, MaterialParams, MaterialParams?), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?), Material>();
+        private int _atlasSlotsHook, _atlasSlotsFootstep, _atlasSlotsUnknown;
+
         private readonly ManualLogSource _log;
         private readonly Shader _proxyShader;
         private readonly int _cameraMask;
@@ -90,6 +102,7 @@ namespace UltraRT
             _proxyShader = proxyShader;
             _cameraMask = cameraCullingMask & ~ExcludedLayers;
             _disabledMaterial = new Material(proxyShader) { name = "UltraRT Disabled" };
+            _classifier = new MaterialClassifier(log, MaterialOverrideFolders);
         }
 
         /// <summary>
@@ -118,6 +131,7 @@ namespace UltraRT
                 RayTracingAccelerationStructure.ManagementMode.Manual,
                 RayTracingAccelerationStructure.RayTracingModeMask.Everything, ~0));
 
+            OriginalMaterials.Prune();
             var player = MonoSingleton<NewMovement>.Instance;
             _playerPos = player != null ? player.transform.position : (Vector3?)null;
             var batches = new Dictionary<Mesh, List<MeshRenderer>>();
@@ -152,7 +166,60 @@ namespace UltraRT
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials})");
+            LogMaterialClasses();
         }
+
+        private void LogMaterialClasses()
+        {
+            _log.LogInfo($"Material classes: {_classifier.Summary()}");
+            _log.LogInfo($"Baked (atlas) slots: {_atlasSlotsHook + _atlasSlotsFootstep + _atlasSlotsUnknown} (originals from hook {_atlasSlotsHook}, " +
+                         $"footstep clones {_atlasSlotsFootstep}, unknown {_atlasSlotsUnknown}; captured renderers {OriginalMaterials.CapturedCount}), " +
+                         $"{_atlasVariants.Count} atlas material variants{(DumpMaterialClasses ? " (all classes: -ultrart-matdump)" : "")}");
+            if (!DumpMaterialClasses) return;
+            try
+            {
+                var path = System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "ultrart",
+                    $"material-classes-{UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}.tsv");
+                _classifier.Dump(path);
+                _log.LogInfo($"Material classification written to {path}");
+            }
+            catch (Exception e) { _log.LogWarning($"Material dump failed: {e.Message}"); }
+        }
+
+        /// <summary>
+        /// Baked geometry shares one atlas material, so its reflection parameters come from the source renderer's original
+        /// (dominant) material, as a variant of the atlas proxy per distinct parameter set. Classes without reflections
+        /// keep the plain atlas proxy (no extra shader-table records) unless -ultrart-matdump asks for all of them.
+        /// </summary>
+        private Material AtlasVariant(Material atlasProxy, MeshRenderer source)
+        {
+            Material original = null;
+            if (OriginalMaterials.TryGet(source, out var mats, out var counts, out var how))
+                original = OriginalMaterials.Dominant(mats, counts, m => Traceable(m) && !(m.shader != null && m.shader.name.Contains("Stationary")));
+            if (original == null)
+            {
+                _atlasSlotsUnknown++;
+                _classifier.Count(MaterialParams.None(SurfaceClass.Other, "atlas"));
+                return atlasProxy;
+            }
+            if (how == "hook") _atlasSlotsHook++;
+            else _atlasSlotsFootstep++;
+
+            var p = _classifier.Classify(original, out var secondary);
+            _classifier.Count(p);
+            if (!DumpMaterialClasses && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
+
+            var key = (atlasProxy, p, secondary);
+            if (_atlasVariants.TryGetValue(key, out var v)) return v;
+            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}" };
+            MaterialParams.Apply(v, p, secondary);
+            if (IsTwoSided(atlasProxy)) _twoSidedProxies.Add(v);
+            if (IsSkyWall(atlasProxy)) _skyWallProxies.Add(v);
+            _atlasVariants[key] = v;
+            return v;
+        }
+
+        private bool IsAtlasProxy(Material proxy) => proxy != null && _atlasProxies.Contains(proxy);
 
         /// <summary>Pick up renderers created or loaded since the last scan (Cyber Grind spawns, instantiated props).</summary>
         public int Rescan()
@@ -492,6 +559,19 @@ namespace UltraRT
                 m.SetFloat("_EmissiveIntensity", 1f);
             }
 
+            // Reflection parameters (MaterialClasses.cs). Atlas proxies get theirs per slot (AtlasVariant).
+            if (src.shader != null && src.shader.name.Contains("Stationary"))
+            {
+                MaterialParams.Apply(m, MaterialParams.None(SurfaceClass.Other, "atlas"), null);
+                _atlasProxies.Add(m);
+            }
+            else
+            {
+                var p = _classifier.Classify(src, out var secondary);
+                MaterialParams.Apply(m, p, secondary);
+                _classifier.Count(p);
+            }
+
             _materialCache[src] = m;
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
             if (SourceSkyWall(src)) { _skyWallProxies.Add(m); m.SetFloat("_SkyWall", 1f); }
@@ -573,6 +653,9 @@ namespace UltraRT
             DisposeStatic();
             foreach (var m in _materialCache.Values) if (m != null) Object.Destroy(m);
             _materialCache.Clear();
+            foreach (var m in _atlasVariants.Values) if (m != null) Object.Destroy(m);
+            _atlasVariants.Clear();
+            _atlasProxies.Clear();
             if (_disabledMaterial != null) Object.Destroy(_disabledMaterial);
         }
     }

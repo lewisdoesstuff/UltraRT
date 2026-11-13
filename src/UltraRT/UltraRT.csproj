@@ -39,6 +39,8 @@
     <MakeDir Directories="$(BepInExDir)\plugins\UltraRT" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins\UltraRT" />
     <Copy SourceFiles="$(BundlePath)" DestinationFolder="$(BepInExDir)\plugins\UltraRT" Condition="Exists('$(BundlePath)')" />
+    <!-- Default reflection material overrides; personal ones go in BepInEx\config\ultrart-materials.json (loaded after). -->
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)ultrart-materials.json" DestinationFolder="$(BepInExDir)\plugins\UltraRT" />
     <Warning Text="Shader bundle not built yet: $(BundlePath)" Condition="!Exists('$(BundlePath)')" />
     <Message Importance="high" Text="Deployed $(TargetFileName) -> $(BepInExDir)\plugins\UltraRT" />
   </Target>

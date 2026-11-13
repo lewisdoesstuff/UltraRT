@@ -79,8 +79,9 @@ _denoiser = new Denoiser(cs);
 // every traced frame, after DispatchRays (same command buffer, or one executed earlier)
 var inputs = new DenoiserInputs
 {
-    radiance = _radiance, albedo = _albedo, emission = _emission,
+    radiance = _radiance, albedo = _albedo, emission = _emission, // albedo/emission: unpacked by the reflection resolve
     normalDepth = _normalDepth, instanceId = _instanceId,
+    specular = _specular, // optional (docs/reflections.md): output = albedo * lighting * spec.a + emission + spec.rgb
     viewProj = viewProj, invViewProj = invViewProj,
     camPos = _camera.transform.position,
     // prevViewProj / prevCamPos are optional: the denoiser tracks its own

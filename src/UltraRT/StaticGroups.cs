@@ -79,6 +79,7 @@ namespace UltraRT
         {
             public int Sub, IndexStart, IndexCount, BaseVertex, VMin, VMax;
             public Material Material;
+            public Material BaseMaterial;   // before the per-slot atlas variant (reflection class), for the record log
             public int Part;                // bit 0 two-sided, bit 1 sky wall
             public Group Group;
             public StaticSource Owner;      // first source seen; its ancestors define the grouping keys
@@ -189,6 +190,8 @@ namespace UltraRT
             int coalesced = CoalesceTinyGroups(all);
             var records = new int[Levels];
             for (int l = 0; l < Levels; l++) records[l] = CountRecords(all, l);
+            var baseRecords = new int[Levels]; // without the reflection-class atlas variants
+            for (int l = 0; l < Levels; l++) baseRecords[l] = CountRecords(all, l, useBase: true);
             int level = Levels - 1;
             if (ForceGroupLevel >= 0 && ForceGroupLevel < Levels) level = ForceGroupLevel;
             else for (int l = 0; l < Levels; l++) if (records[l] <= StaticRecordBudget) { level = l; break; }
@@ -213,6 +216,9 @@ namespace UltraRT
                          $"{_watchers.Count} watchers ({WatchModeNames[_watchMode]}), {_toggles.Count} toggle targets, {sources.Count} sources, {coalesced} tiny groups folded, " +
                          $"{flagsMode} combined meshes in flags mode, CPU copy {cpuBytes / (1024.0 * 1024.0):F1} MB, " +
                          $"took {sw.Elapsed.TotalMilliseconds:F0} ms (toggle scan {toggleMs:F0} ms, readback {readMs:F0} ms){(StaticActivation ? "" : " [activation OFF]")}");
+            if (_atlasVariants.Count > 0)
+                _log.LogInfo($"Reflection material variants: {_atlasVariants.Count} atlas variants; static records at level {level}: {records[level]} " +
+                             $"(without variants {baseRecords[level]}; by level {string.Join("/", baseRecords)})");
             foreach (var g in _groups.OrderByDescending(g => g.Slots.Where(l => l != null).Sum(l => l.Sum(s => s.IndexCount))).Take(DumpAtlasVertices ? 40 : 8))
                 _log.LogInfo($"  group '{g.Combined.Name}' / '{g.Name}': {g.Slots.Where(l => l != null).Sum(l => l.Count)} submeshes, " +
                              $"{g.Slots.Where(l => l != null).Sum(l => l.Sum(s => s.IndexCount)) / 3:N0} tris, {g.Parts.Where(p => p != null).Sum(p => p.FullRecords)} records");
@@ -234,7 +240,9 @@ namespace UltraRT
                 Bounds = combined.bounds,
             };
             bool any = false;
-            foreach (var r in sources)
+            // Renderers whose original materials were captured first: a slot's material is decided by the first source
+            // seen, and checkpoint room clones (made after StaticSceneOptimizer ran) have no record of their originals.
+            foreach (var r in sources.OrderBy(r => OriginalMaterials.IsCaptured(r) ? 0 : 1))
             {
                 var src = r.sharedMaterials;
                 for (int i = 0; i < src.Length; i++)
@@ -243,8 +251,10 @@ namespace UltraRT
                     if (sub < 0 || sub >= subCount || c.Slots[sub] != null || !Traceable(src[i])) continue;
                     if (combined.GetTopology(sub) != MeshTopology.Triangles) continue;
                     var pm = Proxy(src[i]);
-                    c.Slots[sub] = new Slot { Sub = sub, Material = pm, Part = (IsTwoSided(pm) ? 1 : 0) | (IsSkyWall(pm) ? 2 : 0) };
-                    c.SubMaterials[sub] = pm;
+                    // Baked geometry: the atlas material says nothing about the surface; use the source's original material.
+                    var mat = IsAtlasProxy(pm) ? AtlasVariant(pm, r) : pm;
+                    c.Slots[sub] = new Slot { Sub = sub, Material = mat, BaseMaterial = pm, Part = (IsTwoSided(pm) ? 1 : 0) | (IsSkyWall(pm) ? 2 : 0) };
+                    c.SubMaterials[sub] = mat;
                     any = true;
                 }
             }
@@ -426,7 +436,7 @@ namespace UltraRT
         }
 
         /// <summary>Records if every group were visible: distinct materials per (group, part); flags mode: every slot.</summary>
-        private int CountRecords(List<Combined> all, int level)
+        private int CountRecords(List<Combined> all, int level, bool useBase = false)
         {
             var set = new HashSet<(Combined, GameObject, int, Material)>();
             int flags = 0;
@@ -435,7 +445,7 @@ namespace UltraRT
                 {
                     if (slot == null) continue;
                     if (c.FlagsMode) flags++;
-                    else set.Add((c, GroupKey(c, slot, level), slot.Part, slot.Material));
+                    else set.Add((c, GroupKey(c, slot, level), slot.Part, useBase ? slot.BaseMaterial : slot.Material));
                 }
             return set.Count + flags;
         }

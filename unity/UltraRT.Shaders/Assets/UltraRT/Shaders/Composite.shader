@@ -29,6 +29,7 @@ Shader "UltraRT/Composite"
             Texture2D<uint4> _UltraRTHybrid;  // packed halves: unshadowed direct rgb, shadowed direct rgb, lit weight
             Texture2D _UltraRTDirect;         // denoised shadowed direct (second denoiser instance)
             Texture2D _UltraRTAlbedo;
+            Texture2D _UltraRTSpecular;     // reflections (Reflections.compute Resolve): rgb added, a keep factor
             Texture2D _UltraRTGameColor;    // copy of the game's colour target at this point (full res)
             SamplerState my_point_clamp_sampler;
             float _UltraRTFlipY;
@@ -75,6 +76,11 @@ Shader "UltraRT/Composite"
                     float3 sh = un.rgb * (shun.x / max(shun.y, 1e-4)); // for the debug view
                     float3 shadow = (shun.x + _UltraRTShadowBias) / (shun.y + _UltraRTShadowBias);
                     float3 result = game * lerp(1.0, shadow, lit) + _UltraRTGIStrength * albedo * bounce * lit;
+                    // Reflections: REFLECTION blend -> lerp(result, refl, RS); additive -> result + RS * refl; other
+                    // specular classes -> result + F * w * refl (metals: partly replaced). The game's own cubemap
+                    // reflection is already in `game` and is not removed (docs/reflections.md).
+                    float4 spec = _UltraRTSpecular.Sample(my_point_clamp_sampler, i.uv);
+                    result = result * spec.a + spec.rgb;
                     if (_UltraRTMode > 1.5)
                     {
                         // Debug: 2 = shadow ratio, 3 = unshadowed direct x0.25, 4 = shadowed direct x0.25, 5 = bounce x0.5

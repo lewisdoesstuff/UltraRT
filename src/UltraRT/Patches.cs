@@ -23,5 +23,16 @@ namespace UltraRT
                 if (__instance != null) PendingHierarchies.Add(__instance.gameObject);
             }
         }
+
+        /// <summary>Record baked level geometry's original materials before they are swapped for the atlas (OriginalMaterials.cs).</summary>
+        [HarmonyPatch(typeof(StaticSceneOptimizer), "SetupMeshes")]
+        private static class StaticSceneOptimizerSetupMeshesPatch
+        {
+            private static void Prefix(StaticSceneOptimizer __instance)
+            {
+                try { if (__instance != null) OriginalMaterials.Capture(__instance.staticMRends); }
+                catch (System.Exception) { /* never break the game's level setup */ }
+            }
+        }
     }
 }

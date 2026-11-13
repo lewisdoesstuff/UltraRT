@@ -15,14 +15,14 @@ namespace UltraRT
 {
     /// <summary>
     /// UltraRT: hardware ray tracing for ULTRAKILL (DX12 only: launch with -force-d3d12).
-    ///   F7 toggle view   F8 next mode   F9 reload shader bundle (also automatic when the file changes)
+    ///   F7 toggle view   F8 next mode   F9 reload shader bundle (also automatic when the file changes)   F4 reflections
     /// Unattended testing (see scripts/run-debugview.ps1):
     ///   -ultrart-scene "Level 1-1"  -ultrart-view N  -ultrart-scale 0.5  -ultrart-capture  -ultrart-quit
     /// </summary>
     [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
     public partial class Plugin : BaseUnityPlugin
     {
-        private enum Kind { Debug, PathTrace, Denoised, Hybrid }
+        private enum Kind { Debug, PathTrace, Denoised, Hybrid, Reflection }
 
         // For Denoised, `mode` is a DenoiserDebugView; the trace itself runs PathTrace mode 0.
         private static readonly (string name, Kind kind, int mode)[] Modes =
@@ -43,6 +43,13 @@ namespace UltraRT
             ("uv", Kind.Debug, 5),
             ("emission", Kind.Debug, 6),
             ("primitive", Kind.Debug, 7),
+            // Reflections (docs/reflections.md). Kind.Reflection traces like pt-dn and shows a Reflections.compute debug view.
+            ("refl", Kind.Reflection, 2),        // filtered reflected radiance
+            ("refl-raw", Kind.Reflection, 1),    // one-ray reflected radiance, unfiltered
+            ("refl-spec", Kind.Reflection, 3),   // what gets added (specW x filtered reflection)
+            ("refl-history", Kind.Reflection, 4),
+            ("materials", Kind.Debug, 8),        // material class colours (striped: REFLECTION materials)
+            ("spec-params", Kind.Debug, 9),      // r smoothness, g metalness, b reflection strength / spec weight
         };
 
         private const int MaxLights = 256;
@@ -104,6 +111,7 @@ namespace UltraRT
             }
 
             _bundlePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", "ultrart.shaders");
+            SceneProxies.MaterialOverrideFolders = new[] { Path.GetDirectoryName(Info.Location) ?? "", Paths.ConfigPath };
             if (!LoadShaders()) return;
 
             if (_useGpuTimer)
@@ -185,6 +193,10 @@ namespace UltraRT
                     case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) InjectEvent = ev; break;
                     case "-ultrart-gputimer-flags": Environment.SetEnvironmentVariable("ULTRART_GPUTIMER_FLAGS", Next()); break;
                     case "-ultrart-ambient": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _primaryAmbient); break;
+                    case "-ultrart-noreflections": _reflSettings.enabled = false; break;
+                    case "-ultrart-refl-strength": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _reflSettings.reflStrength); break;
+                    case "-ultrart-spec-weight": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _reflSettings.specWeight); break;
+                    case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
                 }
             }
             _scale = Mathf.Clamp(_scale, 0.1f, 1f);
@@ -207,10 +219,11 @@ namespace UltraRT
             var proxy = shaders.FirstOrDefault(s => s.name == "UltraRT/Proxy");
             var composite = shaders.FirstOrDefault(s => s.name == "UltraRT/Composite");
             var denoise = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Denoise");
+            var reflections = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Reflections");
             Logger.LogInfo($"Bundle loaded: DebugView={(debug ? "ok" : "MISSING")} PathTrace={(pt ? "ok" : "MISSING")} " +
                            $"proxy={(proxy ? (proxy.isSupported ? "ok" : "UNSUPPORTED") : "MISSING")} Denoise={(denoise ? "ok" : "MISSING")} " +
-                           $"Composite={(composite ? "ok" : "MISSING")}");
-            if (debug == null || pt == null || proxy == null || denoise == null || composite == null) { bundle.Unload(true); return false; }
+                           $"Composite={(composite ? "ok" : "MISSING")} Reflections={(reflections ? "ok" : "MISSING")}");
+            if (debug == null || pt == null || proxy == null || denoise == null || composite == null || reflections == null) { bundle.Unload(true); return false; }
 
             if (_compositeMat != null) Destroy(_compositeMat);
             _compositeMat = new Material(composite) { name = "UltraRT Composite" };
@@ -223,6 +236,8 @@ namespace UltraRT
             _unpackHybrid = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "UnpackHybrid");
             if (_unpackHybrid == null) Logger.LogWarning("UnpackHybrid compute shader missing from bundle");
             if (settings != null) _denoiser.Settings = settings;
+            _reflFilter?.Dispose();
+            _reflFilter = new ReflectionFilter(reflections);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -248,7 +263,8 @@ namespace UltraRT
             UpdateRecorder();
             try
             {
-                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F4)) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
                 if (Input.GetKeyDown(KeyCode.F5)) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
                 if (Input.GetKeyDown(KeyCode.F6)) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
                 if (Input.GetKeyDown(KeyCode.F8)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); }
@@ -285,10 +301,13 @@ namespace UltraRT
             _denoiser?.Reset();
             _denoiserDirect?.Reset();
             _lightSampling?.Reset();
+            _reflFilter?.Reset();
             _emissive?.Clear();
         }
 
         private Denoiser _denoiser;
+        private ReflectionFilter _reflFilter;
+        private readonly ReflectionSettings _reflSettings = new ReflectionSettings();
         private RenderTexture _denoised;
         private RenderTexture _displayed;
         private Kind _lastKind = Kind.Debug;
@@ -396,6 +415,7 @@ namespace UltraRT
         private static readonly int UltraRTDirectId = Shader.PropertyToID("_UltraRTDirect");
 
         private static readonly int UltraRTAlbedoId = Shader.PropertyToID("_UltraRTAlbedo");
+        private static readonly int UltraRTSpecularId = Shader.PropertyToID("_UltraRTSpecular");
         private static readonly int UltraRTShadowBiasId = Shader.PropertyToID("_UltraRTShadowBias");
         private static readonly int UltraRTGIStrengthId = Shader.PropertyToID("_UltraRTGIStrength");
         private static readonly int UltraRTModeId = Shader.PropertyToID("_UltraRTMode");
@@ -453,9 +473,16 @@ namespace UltraRT
             EnsureGBuffer(ref _gNormalDepth, w, h, RenderTextureFormat.ARGBHalf, "UltraRT NormalDepth");
             EnsureGBuffer(ref _gInstanceId, w, h, RenderTextureFormat.RInt, "UltraRT InstanceId");
             EnsureGBuffer(ref _gHybrid, w, h, RenderTextureFormat.ARGBInt, "UltraRT HybridLight");
+            // PathTrace writes albedo + emission + material packed into _gSurface (Unity's 8-UAV limit), and the reflection
+            // into _gReflection. ReflectionFilter's resolve unpacks _gAlbedo / _gEmission and writes _gSpecular.
+            EnsureGBuffer(ref _gSurface, w, h, RenderTextureFormat.ARGBInt, "UltraRT Surface");
+            EnsureGBuffer(ref _gReflection, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Reflection");
+            EnsureGBuffer(ref _gSpecular, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Specular");
+            EnsureGBuffer(ref _gReflDebug, w, h, RenderTextureFormat.ARGB32, "UltraRT Reflection Debug");
         }
 
         private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId, _gHybrid, _gameCopy;
+        private RenderTexture _gSurface, _gReflection, _gSpecular, _gReflDebug;
         private string _capturePose;
         private bool _noScene, _noHook;
         private Material _skyMaterial;
@@ -512,10 +539,12 @@ namespace UltraRT
             var (_, kind, mode) = Modes[_mode];
             bool denoised = kind == Kind.Denoised || kind == Kind.Hybrid;
             bool pt = kind != Kind.Debug;
+            bool resolve = denoised || kind == Kind.Reflection; // modes that read the unpacked surface / filtered reflection
             if (denoised && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid) { _denoiser.Reset(); _denoiserDirect?.Reset(); } // history is stale after other modes
             if (pt && _lastKind == Kind.Debug) _lightSampling.Reset();
+            if (resolve && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid && _lastKind != Kind.Reflection) _reflFilter.Reset();
             _lastKind = kind;
-            if (denoised) _accumulate = false; // the denoiser needs unjittered primary rays
+            if (resolve) _accumulate = false; // the denoiser and the reflection filter need unjittered primary rays
             int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * (pt ? _scale : 1f)));
             int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * (pt ? _scale : 1f)));
             EnsureTargets(w, h);
@@ -564,7 +593,7 @@ namespace UltraRT
             _cmd.SetRayTracingTextureParam(shader, "_Output", _output);
             _cmd.SetRayTracingMatrixParam(shader, "_InvViewProj", invViewProj);
             _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
-            _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : denoised ? 0 : mode);
+            _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : resolve ? 0 : mode);
             _cmd.SetRayTracingFloatParam(shader, "_GIStrength", _giStrength);
 
             if (pt)
@@ -588,8 +617,10 @@ namespace UltraRT
                 _cmd.SetRayTracingFloatParam(shader, "_LightScale", 1f);
                 _cmd.SetRayTracingFloatParam(shader, "_EmissionScale", 1f);
                 _cmd.SetRayTracingTextureParam(shader, "_Radiance", _gRadiance);
-                _cmd.SetRayTracingTextureParam(shader, "_AlbedoOut", _gAlbedo);
-                _cmd.SetRayTracingTextureParam(shader, "_EmissionOut", _gEmission);
+                _cmd.SetRayTracingTextureParam(shader, "_Surface", _gSurface);
+                _cmd.SetRayTracingTextureParam(shader, "_Reflection", _gReflection);
+                _cmd.SetRayTracingVectorParam(shader, "_ReflParams", _reflSettings.ShaderParams);
+                _cmd.SetRayTracingFloatParam(shader, "_ReflMaxRadiance", Mathf.Max(0.01f, _reflSettings.maxRadiance));
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
                 _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
@@ -606,6 +637,20 @@ namespace UltraRT
             _cmd.EndSample(SampleTrace);
 
             _displayed = _output;
+            if (resolve)
+            {
+                // Reflections: filter, then unpack albedo / emission and resolve the specular term (also with reflections off).
+                var reflInputs = new ReflectionInputs
+                {
+                    surface = _gSurface, reflection = _gReflection, normalDepth = _gNormalDepth, instanceId = _gInstanceId,
+                    viewProj = viewProj, invViewProj = invViewProj, camPos = _camera.transform.position,
+                    albedo = _gAlbedo, emission = _gEmission, specular = _gSpecular, debug = _gReflDebug,
+                };
+                _cmd.BeginSample(SampleReflections);
+                _reflFilter.Execute(_cmd, reflInputs, _reflSettings, kind == Kind.Hybrid, kind == Kind.Reflection ? mode : 0);
+                _cmd.EndSample(SampleReflections);
+                if (kind == Kind.Reflection) _displayed = _gReflDebug;
+            }
             if (denoised)
             {
                 if (_denoised == null || _denoised.width != w || _denoised.height != h)
@@ -619,7 +664,7 @@ namespace UltraRT
                 var inputs = new DenoiserInputs
                 {
                     radiance = _gRadiance, albedo = _gAlbedo, emission = _gEmission,
-                    normalDepth = _gNormalDepth, instanceId = _gInstanceId,
+                    normalDepth = _gNormalDepth, instanceId = _gInstanceId, specular = _gSpecular,
                     viewProj = viewProj, invViewProj = invViewProj,
                     camPos = _camera.transform.position,
                 };
@@ -638,6 +683,7 @@ namespace UltraRT
                     _cmd.DispatchCompute(_unpackHybrid, k, Mathf.CeilToInt(w / 8f), Mathf.CeilToInt(h / 8f), 1);
                     var directInputs = inputs;
                     directInputs.radiance = _gShadowed;
+                    directInputs.specular = null;
                     _denoiserDirect.Settings.debugView = DenoiserDebugView.Final;
                     _denoiserDirect.Execute(_cmd, directInputs, _denoisedDirectOut);
                 }
@@ -671,6 +717,7 @@ namespace UltraRT
                 _cmd.SetGlobalTexture(UltraRTHybridId, _gHybrid);
                 _cmd.SetGlobalTexture(UltraRTDirectId, _denoiserDirect?.FilteredLighting != null ? (Texture)_denoiserDirect.FilteredLighting : _gShadowed);
                 _cmd.SetGlobalTexture(UltraRTAlbedoId, _gAlbedo);
+                _cmd.SetGlobalTexture(UltraRTSpecularId, _gSpecular);
                 _cmd.SetGlobalFloat(UltraRTShadowBiasId, _shadowBias);
                 _cmd.SetGlobalFloat(UltraRTGIStrengthId, _giStrength);
             }
@@ -693,7 +740,8 @@ namespace UltraRT
 
         // Debug markers (visible in PIX/RenderDoc). Unity's Recorder reports 0 GPU time in this release player;
         // real GPU timings come from the native timer plugin.
-        private const string SampleBuild = "UltraRT.BuildRTAS", SampleTrace = "UltraRT.DispatchRays", SampleDenoise = "UltraRT.Denoise";
+        private const string SampleBuild = "UltraRT.BuildRTAS", SampleTrace = "UltraRT.DispatchRays", SampleDenoise = "UltraRT.Denoise",
+            SampleReflections = "UltraRT.Reflections";
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
@@ -803,7 +851,7 @@ namespace UltraRT
                     _mode = m;
                     _accumulate = false;
                     yield return null; yield return null;
-                    if (Modes[m].kind == Kind.Denoised)
+                    if (Modes[m].kind == Kind.Denoised || Modes[m].kind == Kind.Reflection)
                         for (int f = 0; f < 60; f++) yield return null; // let temporal history build up
                     yield return new WaitForEndOfFrame();
                     SaveOutput(Path.Combine(_outDir, $"dv-{tag}-{m:00}-{Modes[m].name}.png"));

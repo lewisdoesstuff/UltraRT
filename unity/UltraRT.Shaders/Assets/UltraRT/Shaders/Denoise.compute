@@ -5,7 +5,7 @@
 //   Temporal   reproject + validate + accumulate lighting and luminance moments, estimate variance,
 //              write this frame's packed geometry for next frame's reprojection.
 //   Atrous3/5  one a-trous iteration (3x3 or 5x5 B3-spline taps at _Step spacing), filters variance too.
-//   Composite  albedo * lighting + emission (or a debug view) into the output.
+//   Composite  albedo * lighting * keep + emission + specular (or a debug view) into the output.
 
 #pragma kernel Temporal
 #pragma kernel Atrous3
@@ -299,6 +299,8 @@ Texture2D<float4>   _Filtered;  // final lighting (rgb), variance (a)
 Texture2D<float4>   _Albedo;
 Texture2D<float4>   _Emission;
 Texture2D<float4>   _Moments;   // this frame's m1, m2, history length, variance
+Texture2D<float4>   _Specular;  // optional (Reflections.compute Resolve): rgb added, a = keep factor for the diffuse part
+int                 _HasSpecular;
 RWTexture2D<float4> _Output;
 
 float4 _OutDim;    // output w, h
@@ -323,7 +325,12 @@ void Composite(uint3 id : SV_DispatchThreadID)
     switch (_DebugView)
     {
         default:
-        case 0: c = albedo * lighting + _Emission[s].rgb; break;
+        case 0:
+        {
+            float4 sp = _HasSpecular != 0 ? _Specular[s] : float4(0, 0, 0, 1);
+            c = albedo * lighting * sp.a + _Emission[s].rgb + sp.rgb;
+            break;
+        }
         case 1: c = lighting; break;
         case 2: c = SanitizeRadiance(_Radiance[s].rgb); break;
         case 3:
