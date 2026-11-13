@@ -1,19 +1,44 @@
 {
-  "Name": "short",
-  "Scenarios": [
-    {
-      "Name": "1-1 pose",
-      "Scene": "Level 1-1",
-      "Path": { "Type": "static", "Position": [-7.32, 3.0, 323.24], "Yaw": 63.64, "Pitch": -6.76, "Duration": 6 },
-      "Modes": ["off", "pt-dn"],
-      "Screenshots": [3]
-    },
-    {
-      "Name": "1-1 doors run",
-      "Scene": "Level 1-1",
-      "Path": { "Type": "recording", "File": "../recordings/1-1-doors.json" },
-      "Modes": ["off", "pt-dn"],
-      "Screenshots": [6]
-    }
-  ]
+    "Name":  "short",
+    "Scenarios":  [
+                      {
+                          "Name":  "1-1 pose",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Position":  [
+                                                        -7.32,
+                                                        3.0,
+                                                        323.24
+                                                    ],
+                                       "Yaw":  63.64,
+                                       "Pitch":  -6.76,
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              3
+                                          ]
+                      },
+                      {
+                          "Name":  "1-1 doors run",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "recording",
+                                       "File":  "../recordings/1-1-doors.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              6
+                                          ]
+                      }
+                  ]
 }

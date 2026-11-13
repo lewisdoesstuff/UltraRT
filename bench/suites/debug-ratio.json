@@ -1,0 +1,1 @@
+{ "Name": "debug-ratio", "Scenarios": [ { "Name": "1-1 doors run", "Scene": "Level 1-1", "Path": { "Type": "recording", "File": "../recordings/1-1-doors.json" }, "Modes": ["hybrid"], "Screenshots": [6] } ] }

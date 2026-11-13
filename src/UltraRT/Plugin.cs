@@ -22,11 +22,12 @@ namespace UltraRT
     [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
     public partial class Plugin : BaseUnityPlugin
     {
-        private enum Kind { Debug, PathTrace, Denoised }
+        private enum Kind { Debug, PathTrace, Denoised, Hybrid }
 
         // For Denoised, `mode` is a DenoiserDebugView; the trace itself runs PathTrace mode 0.
         private static readonly (string name, Kind kind, int mode)[] Modes =
         {
+            ("hybrid", Kind.Hybrid, (int)DenoiserDebugView.Final),
             ("pt-dn", Kind.Denoised, (int)DenoiserDebugView.Final),
             ("dn-lighting", Kind.Denoised, (int)DenoiserDebugView.FilteredLighting),
             ("dn-variance", Kind.Denoised, (int)DenoiserDebugView.Variance),
@@ -55,7 +56,7 @@ namespace UltraRT
         private Shader _proxyShader;
 
         private SceneProxies _proxies;
-        private RenderTexture _output, _accum;
+        private RenderTexture _output;
         private ComputeBuffer _lightBuffer;
         private readonly Vector4[] _lightData = new Vector4[MaxLights * 4];
         private readonly uint[] _lightMasks = new uint[MaxLights];
@@ -159,6 +160,9 @@ namespace UltraRT
                     case "-ultrart-flipy": _flipY = true; break;
                     case "-ultrart-ccw": SceneProxies.FrontCounterClockwise = true; break;
                     case "-ultrart-noscene": _noScene = true; break;
+                    case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
+                    case "-ultrart-shadowbias": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _shadowBias); break;
+                    case "-ultrart-gi": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _giStrength); break;
                     case "-ultrart-nohook": _noHook = true; break;
                     case "-ultrart-pose": _capturePose = Next(); break;
                     case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) InjectEvent = ev; break;
@@ -358,6 +362,17 @@ namespace UltraRT
         private static readonly int UltraRTImageId = Shader.PropertyToID("_UltraRTImage");
         private static readonly int UltraRTFlipYId = Shader.PropertyToID("_UltraRTFlipY");
         private static readonly int UltraRTNormalDepthId = Shader.PropertyToID("_UltraRTNormalDepth");
+        private static readonly int UltraRTGameColorId = Shader.PropertyToID("_UltraRTGameColor");
+        private static readonly int UltraRTLightingId = Shader.PropertyToID("_UltraRTLighting");
+        private static readonly int UltraRTHybridId = Shader.PropertyToID("_UltraRTHybrid");
+
+        private static readonly int UltraRTAlbedoId = Shader.PropertyToID("_UltraRTAlbedo");
+        private static readonly int UltraRTShadowBiasId = Shader.PropertyToID("_UltraRTShadowBias");
+        private static readonly int UltraRTGIStrengthId = Shader.PropertyToID("_UltraRTGIStrength");
+        private static readonly int UltraRTModeId = Shader.PropertyToID("_UltraRTMode");
+        private float _shadowBias = 0.1f; // -ultrart-shadowbias: how much of our light a surface needs before RT shadows apply fully
+        private float _giStrength = 0.35f;
+        private int _compositeDebug; // -ultrart-compdebug 1..4: shadow ratio / unshadowed direct / shadowed direct / bounce
         private bool _flipY;
         private int _recordedFrame = -1;
         private Material _compositeMat;
@@ -392,20 +407,18 @@ namespace UltraRT
         {
             if (_output != null && _output.width == w && _output.height == h) return;
             if (_output != null) _output.Release();
-            if (_accum != null) _accum.Release();
-            _output = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32) { enableRandomWrite = true, filterMode = FilterMode.Point, name = "UltraRT Output" };
+            _output = new RenderTexture(w, h, 0, RenderTextureFormat.ARGBHalf) { enableRandomWrite = true, filterMode = FilterMode.Point, name = "UltraRT Output" };
             _output.Create();
-            _accum = new RenderTexture(w, h, 0, RenderTextureFormat.ARGBHalf) { enableRandomWrite = true, filterMode = FilterMode.Point, name = "UltraRT Accum" };
-            _accum.Create();
             _accumFrames = 0;
             EnsureGBuffer(ref _gRadiance, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Radiance");
             EnsureGBuffer(ref _gAlbedo, w, h, RenderTextureFormat.ARGB32, "UltraRT Albedo");
             EnsureGBuffer(ref _gEmission, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Emission");
             EnsureGBuffer(ref _gNormalDepth, w, h, RenderTextureFormat.ARGBHalf, "UltraRT NormalDepth");
             EnsureGBuffer(ref _gInstanceId, w, h, RenderTextureFormat.RInt, "UltraRT InstanceId");
+            EnsureGBuffer(ref _gHybrid, w, h, RenderTextureFormat.ARGBInt, "UltraRT HybridLight");
         }
 
-        private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId;
+        private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId, _gHybrid, _gameCopy;
         private string _capturePose;
         private bool _noScene, _noHook;
         private Material _skyMaterial;
@@ -460,9 +473,9 @@ namespace UltraRT
         private void Trace()
         {
             var (_, kind, mode) = Modes[_mode];
-            bool denoised = kind == Kind.Denoised;
+            bool denoised = kind == Kind.Denoised || kind == Kind.Hybrid;
             bool pt = kind != Kind.Debug;
-            if (denoised && _lastKind != Kind.Denoised) _denoiser.Reset(); // history is stale after other modes
+            if (denoised && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid) _denoiser.Reset(); // history is stale after other modes
             _lastKind = kind;
             if (denoised) _accumulate = false; // the denoiser needs unjittered primary rays
             int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * (pt ? _scale : 1f)));
@@ -512,13 +525,14 @@ namespace UltraRT
             _cmd.SetRayTracingTextureParam(shader, "_Output", _output);
             _cmd.SetRayTracingMatrixParam(shader, "_InvViewProj", invViewProj);
             _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
-            _cmd.SetRayTracingIntParam(shader, "_Mode", denoised ? 0 : mode);
+            _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : denoised ? 0 : mode);
+            _cmd.SetRayTracingFloatParam(shader, "_GIStrength", _giStrength);
 
             if (pt)
             {
                 GatherLights();
                 var ambient = RenderSettings.ambientLight;
-                _cmd.SetRayTracingTextureParam(shader, "_Accum", _accum);
+
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
@@ -537,6 +551,7 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_EmissionOut", _gEmission);
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
+                _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
             }
             else
             {
@@ -578,6 +593,32 @@ namespace UltraRT
             // Composite into the camera's current target without changing render-target bindings.
             _gpu?.Begin(_cmd, SlotBlit);
             _cmd.SetGlobalTexture(UltraRTImageId, _displayed);
+            // Hybrid: keep the game's shaded colour and apply the RT/game lighting ratio. Needs a copy of the game's
+            // colour target as it is right now (opaques + sky drawn), since the composite draws into it.
+            var gameTex = kind == Kind.Hybrid ? MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex : null;
+            bool ratio = gameTex != null && _denoiser.FilteredLighting != null;
+            if (ratio)
+            {
+                if (_gameCopy == null || _gameCopy.width != gameTex.width || _gameCopy.height != gameTex.height || _gameCopy.format != gameTex.format)
+                {
+                    if (_gameCopy != null) _gameCopy.Release();
+                    var desc = gameTex.descriptor;
+                    desc.depthBufferBits = 0;
+                    desc.msaaSamples = 1;
+                    desc.enableRandomWrite = false;
+                    _gameCopy = new RenderTexture(desc) { name = "UltraRT GameColor", filterMode = FilterMode.Point };
+                    _gameCopy.Create();
+                }
+                _cmd.CopyTexture(gameTex, _gameCopy);
+                _cmd.SetGlobalTexture(UltraRTGameColorId, _gameCopy);
+                _cmd.SetGlobalTexture(UltraRTLightingId, _denoiser.FilteredLighting);
+                _cmd.SetGlobalTexture(UltraRTHybridId, _gHybrid);
+
+                _cmd.SetGlobalTexture(UltraRTAlbedoId, _gAlbedo);
+                _cmd.SetGlobalFloat(UltraRTShadowBiasId, _shadowBias);
+                _cmd.SetGlobalFloat(UltraRTGIStrengthId, _giStrength);
+            }
+            _cmd.SetGlobalFloat(UltraRTModeId, ratio ? (_compositeDebug > 0 ? 1f + _compositeDebug : 1f) : 0f);
             _cmd.SetGlobalTexture(UltraRTNormalDepthId, pt ? (Texture)_gNormalDepth : Texture2D.whiteTexture);
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);

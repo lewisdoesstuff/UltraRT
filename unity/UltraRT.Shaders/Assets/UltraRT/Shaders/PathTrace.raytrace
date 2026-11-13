@@ -6,17 +6,19 @@
 #include "UltraRTCommon.hlsl"
 
 RaytracingAccelerationStructure _Scene;
-RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission)
-RWTexture2D<float4> _Accum;       // progressive accumulation of _Output
+RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission); also the accumulation history (ARGBHalf)
+// NOTE: Unity ray tracing shaders support at most 8 UAVs. Currently 7: keep it that way (ReSTIR needs one).
 RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by albedo)
 RWTexture2D<float4> _AlbedoOut;
 RWTexture2D<float4> _EmissionOut;
 RWTexture2D<float4> _NormalDepth; // xyz world normal, w = hit distance (< 0 = sky)
 RWTexture2D<int>    _InstanceId;  // -1 = sky
+RWTexture2D<uint4>  _HybridLight;  // hybrid: packed halves: unshadowed direct rgb, shadowed direct rgb, lit weight
 
 float4x4 _InvViewProj;
 float4   _CamPos;
-int      _Mode;          // 0 full, 1 direct only, 2 indirect only
+int      _Mode;          // 0 full, 1 direct only, 2 indirect only, 3 hybrid numerator
+float    _GIStrength;    // hybrid: how much of the RT bounce to add on top of the game's fills
 uint     _FrameIndex;
 uint     _AccumFrames;   // frames already accumulated (0 = reset)
 
@@ -131,6 +133,39 @@ float3 DirectOne(float3 p, float3 n, uint layer, inout uint rng)
     return LightFrom(i, p, n, layer) * (_LightCount * _LightScale);
 }
 
+// The game's lighting at a point: same lights and falloff, but no shadows (the game has none) and its full ambient.
+// Used as the denominator of the ratio composite: game colour * (RT lighting / game lighting).
+float3 UnshadowedFrom(int i, float3 p, float3 n, uint layer)
+{
+    float4 l0 = _Lights[i * 4];
+    float4 l1 = _Lights[i * 4 + 1];
+    if (((_LightMasks[i] >> layer) & 1u) == 0u) return 0;
+    bool local = l0.w != 0.0;
+    float3 toL = local ? l0.xyz - p : l0.xyz;
+    float d2 = max(dot(toL, toL), 1e-6);
+    float d = sqrt(d2);
+    float3 L = toL / d;
+    float ndl = dot(n, L);
+    if (ndl <= 0.0) return 0;
+    float atten = 1.0;
+    if (local)
+    {
+        float4 l2 = _Lights[i * 4 + 2];
+        float4 l3 = _Lights[i * 4 + 3];
+        float r = max(l0.w, 1e-6);
+        atten = 1.0 / (1.0 + d2 * 25.0 / (r * r));
+        atten *= saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
+        atten *= saturate(2.0 - d / r);
+    }
+    return l1.rgb * (atten * ndl);
+}
+
+float3 UnshadowedAll(float3 p, float3 n, uint layer)
+{
+    float3 sum = 0;
+    for (int i = 0; i < _LightCount; i++) sum += UnshadowedFrom(i, p, n, layer);
+    return sum * _LightScale;
+}
 // ---------------------------------------------------------------- ray generation
 
 [shader("raygeneration")]
@@ -164,6 +199,7 @@ void RayGen()
         emission = 0;
         c = lighting;
         _NormalDepth[id] = float4(0, 0, 0, -1);
+        _HybridLight[id] = uint4(0, 0, 0, 0);
         _InstanceId[id] = -1;
     }
     else
@@ -204,12 +240,19 @@ void RayGen()
             case 0: lighting = direct + indirect + ambient; break;
             case 1: lighting = direct + ambient; break;
             case 2: lighting = indirect; break;
+            // Hybrid: shadows come from _DirectLight/_GameLighting as a ratio; the denoised bounce is added on top.
+            case 3: lighting = indirect; break; // hybrid: only the bounce goes through the denoiser
         }
         lighting = lerp(1.0, lighting, p.alpha); // fullbright surfaces ignore lighting, like the game
         albedo = p.albedo;
         emission = p.emission * _EmissionScale;
         c = albedo * lighting + emission;
         _NormalDepth[id] = float4(n, p.t);
+        float3 un = UnshadowedAll(pos, n, layer);
+        _HybridLight[id] = uint4(f32tof16(un.r) | (f32tof16(un.g) << 16),
+                                 f32tof16(un.b) | (f32tof16(direct.r) << 16),
+                                 f32tof16(direct.g) | (f32tof16(direct.b) << 16),
+                                 f32tof16(p.alpha));
         _InstanceId[id] = (int)p.instance;
     }
 
@@ -219,10 +262,10 @@ void RayGen()
 
     if (_AccumFrames > 0)
     {
-        float4 prev = _Accum[id];
+        float4 prev = _Output[id];
         c = lerp(prev.rgb, c, 1.0 / (float)(_AccumFrames + 1));
     }
-    _Accum[id] = float4(c, 1.0);
+
     _Output[id] = float4(c, 1.0);
 }
 

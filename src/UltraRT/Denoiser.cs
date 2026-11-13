@@ -129,6 +129,9 @@ namespace UltraRT
         /// <summary>Forget all history (scene load, teleport, respawn, camera cut, shader reload).</summary>
         public void Reset() => _historyValid = false;
 
+        /// <summary>The filtered, demodulated lighting (ARGBHalf, trace resolution) from the last Execute. For the ratio composite.</summary>
+        public RenderTexture FilteredLighting { get; private set; }
+
         /// <summary>
         /// Records the denoiser into <paramref name="cmd"/> and writes albedo * lighting + emission (or the
         /// selected debug view) to <paramref name="output"/> (ARGB32, enableRandomWrite; any size, nearest upscale).
@@ -202,6 +205,8 @@ namespace UltraRT
                 }
                 filtered = src;
             }
+
+            FilteredLighting = filtered;
 
             // 3. Composite.
             cmd.SetComputeVectorParam(cs, IdOutDim, new Vector4(output.width, output.height, 0, 0));
