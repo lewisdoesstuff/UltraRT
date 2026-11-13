@@ -1,19 +1,23 @@
 // Lighting pass: primary hit, shadowed direct light using ULTRAKILL's own light model, and one diffuse
 // bounce that picks up emissive surfaces plus one shadowed light sample at the bounce.
 // Writes a composited image plus demodulated G-buffer channels for the denoiser.
+// Glossy and REFLECTION surfaces also trace one reflection ray (docs/reflections.md).
 #pragma max_recursion_depth 1
 
 #include "UltraRTCommon.hlsl"
+#include "UltraRTMaterial.hlsl"
 
 RaytracingAccelerationStructure _Scene;
-RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission); also the accumulation history (ARGBHalf)
-// NOTE: Unity ray tracing shaders support at most 8 UAVs. Currently 7: keep it that way (ReSTIR needs one).
+// NOTE: Unity ray tracing shaders support at most 8 UAVs; a 9th makes DispatchRays fail silently. This shader binds
+// exactly 8: the 7 below plus _ReservoirCur (UltraRTLights.hlsl). Albedo and emission share _Surface to make room for
+// _Reflection. Add outputs only by packing.
+RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission + reflections); also the accumulation history (ARGBHalf)
 RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by albedo)
-RWTexture2D<float4> _AlbedoOut;
-RWTexture2D<float4> _EmissionOut;
+RWTexture2D<uint4>  _Surface;     // packed albedo, emission and reflection material (UltraRTMaterial.hlsl, PackSurface)
 RWTexture2D<float4> _NormalDepth; // xyz world normal, w = hit distance (< 0 = sky)
 RWTexture2D<int>    _InstanceId;  // -1 = sky
 RWTexture2D<uint4>  _HybridLight;  // hybrid: packed halves: unshadowed direct rgb, shadowed direct rgb, lit weight
+RWTexture2D<float4> _Reflection;  // rgb reflected radiance; a: reflection hit distance (sky: 1000), -1 = not traced
 
 float4x4 _InvViewProj;
 float4   _CamPos;
@@ -43,6 +47,10 @@ float    _PrimaryAmbient; // how much of _Ambient to add at the primary hit (art
 float    _BounceAmbient;  // how much of _Ambient to add at the bounce hit (stand-in for further bounces)
 float    _LightScale;
 float    _EmissionScale;
+// Reflections: x enabled, y global specular weight, z global reflection strength, w minimum weight (luminance of the
+// specular term) worth a ray. Pixels below it skip the ray, so the cost follows glossy coverage.
+float4   _ReflParams;
+float    _ReflMaxRadiance; // firefly clamp (luminance) for glossy reflections; mirrors are not clamped
 
 // ---------------------------------------------------------------- rng
 
@@ -62,6 +70,40 @@ float3 CosineHemisphere(float3 n, float u1, float u2)
     float3 t = abs(n.y) < 0.999 ? normalize(cross(n, float3(0, 1, 0))) : float3(1, 0, 0);
     float3 b = cross(n, t);
     return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(0.0, 1.0 - u1)));
+}
+
+// GGX distribution of visible normals (Heitz 2018), tangent space with z = normal. Ve: view direction (towards the eye).
+float3 SampleGgxVndf(float3 Ve, float alpha, float u1, float u2)
+{
+    float3 Vh = normalize(float3(alpha * Ve.x, alpha * Ve.y, Ve.z));
+    float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+    float3 T1 = lensq > 0.0 ? float3(-Vh.y, Vh.x, 0.0) * rsqrt(lensq) : float3(1.0, 0.0, 0.0);
+    float3 T2 = cross(Vh, T1);
+    float r = sqrt(u1);
+    float phi = 6.28318530718 * u2;
+    float t1 = r * cos(phi);
+    float t2 = r * sin(phi);
+    float s = 0.5 * (1.0 + Vh.z);
+    t2 = (1.0 - s) * sqrt(max(0.0, 1.0 - t1 * t1)) + s * t2;
+    float3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
+    return normalize(float3(alpha * Nh.x, alpha * Nh.y, max(1e-6, Nh.z)));
+}
+
+// Reflection direction for roughness r: the exact mirror direction below 0.03, else a GGX (alpha = r^2) VNDF sample.
+// The estimator is the plain radiance along that direction: the Fresnel term is applied by the composite, and the
+// G2/G1 factor of VNDF sampling is taken as 1. Samples that end up below the surface fall back to the mirror direction.
+float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng)
+{
+    float3 mirror = reflect(dir, n);
+    if (roughness < 0.03) return mirror;
+    float3 t = abs(n.y) < 0.999 ? normalize(cross(n, float3(0, 1, 0))) : float3(1, 0, 0);
+    float3 b = cross(n, t);
+    float3 V = -dir;
+    float3 Ve = float3(dot(V, t), dot(V, b), max(dot(V, n), 1e-4));
+    float3 h = SampleGgxVndf(Ve, max(roughness * roughness, 1e-3), Rand(rng), Rand(rng));
+    float3 H = normalize(t * h.x + b * h.y + n * h.z);
+    float3 L = reflect(dir, H);
+    return dot(L, n) > 1e-3 ? L : mirror;
 }
 
 // ---------------------------------------------------------------- lights
@@ -101,6 +143,43 @@ float3 UnshadowedAll(float3 p, float3 n, uint layer)
     for (int i = 0; i < _LightCount; i++) sum += UnshadowedFrom(i, p, n, layer);
     return sum * _LightScale;
 }
+// ---------------------------------------------------------------- reflections
+
+// Radiance arriving along one reflection ray, shaded like the bounce: the hit's albedo x (one-sample direct light +
+// ambient) + its emission (in full: emissive light sampling only covers the diffuse lobe), or the sky. Sky walls
+// report a miss, so they reflect as sky too. dist: hit distance, or 1000 for the sky (the virtual image point).
+float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, inout uint rng, out float dist)
+{
+    RayDesc r;
+    r.Origin = pos + n * 0.02;
+    r.Direction = L;
+    r.TMin = 0.0;
+    r.TMax = 1.0e4;
+    RayPayload h = (RayPayload)0;
+    h.t = -1.0;
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, r, h);
+    float3 c;
+    if (h.t < 0.0)
+    {
+        dist = 1000.0;
+        c = SkyRadiance(L);
+    }
+    else
+    {
+        dist = h.t;
+        float3 hp = r.Origin + L * h.t;
+        float3 hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng) + _Ambient.rgb * _BounceAmbient;
+        c = h.emission * _EmissionScale + h.albedo * lerp(1.0, hitLight, h.alpha);
+    }
+    c = max(c, 0.0); // also drops NaN
+    if (glossy)
+    {
+        float l = dot(c, float3(0.2126, 0.7152, 0.0722));
+        if (l > _ReflMaxRadiance) c *= _ReflMaxRadiance / l;
+    }
+    return c;
+}
+
 // ---------------------------------------------------------------- ray generation
 
 [shader("raygeneration")]
@@ -136,6 +215,8 @@ void RayGen()
         _NormalDepth[id] = float4(0, 0, 0, -1);
         _HybridLight[id] = uint4(0, 0, 0, 0);
         _InstanceId[id] = -1;
+        _Surface[id] = PackSurface(albedo, emission, 0u, 0u);
+        _Reflection[id] = float4(0, 0, 0, -1);
         RestirWriteEmpty(id, dim);
     }
     else
@@ -186,6 +267,29 @@ void RayGen()
         albedo = p.albedo;
         emission = p.emission * _EmissionScale;
         c = albedo * lighting + emission;
+
+        // One reflection ray where the specular term is worth it (the same weights the composites use).
+        SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
+        float4 refl = float4(0, 0, 0, -1);
+        if (_ReflParams.x > 0.5 && mat.mode != ULTRART_REFL_NONE && _Mode != 2)
+        {
+            float NdotV = saturate(dot(n, -ray.Direction));
+            float3 specW;
+            float keep;
+            SpecularTerms(mat, albedo, NdotV, _ReflParams.yz, _Mode == 3, specW, keep);
+            if (dot(specW, float3(0.2126, 0.7152, 0.0722)) >= _ReflParams.w)
+            {
+                float3 L = ReflectionDirection(n, ray.Direction, mat.roughness, rng);
+                float dist;
+                float3 lr = TraceReflection(pos, n, L, mat.roughness >= 0.03, rng, dist);
+                refl = float4(lr, dist);
+                // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered
+                // reflection in Reflections.compute instead.
+                if (_Mode <= 1) c = albedo * lighting * keep + emission + specW * lr;
+            }
+        }
+        _Reflection[id] = refl;
+        _Surface[id] = PackSurface(albedo, emission, p.material, p.flags);
         _NormalDepth[id] = float4(n, p.t);
         float3 un = g_DirectUnshadowed; // same samples as `direct`, without visibility
         _HybridLight[id] = uint4(f32tof16(un.r) | (f32tof16(un.g) << 16),
@@ -196,8 +300,6 @@ void RayGen()
     }
 
     _Radiance[id] = float4(lighting, 1.0);
-    _AlbedoOut[id] = float4(albedo, 1.0);
-    _EmissionOut[id] = float4(emission, 1.0);
 
     if (_AccumFrames > 0)
     {

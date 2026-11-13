@@ -2,13 +2,15 @@
 #pragma max_recursion_depth 1
 
 #include "UltraRTCommon.hlsl"
+#include "UltraRTMaterial.hlsl"
 
 RaytracingAccelerationStructure _Scene;
 RWTexture2D<float4> _Output;
 
 float4x4 _InvViewProj;   // inverse(projection * view), OpenGL-style clip space
 float4   _CamPos;
-int      _Mode;          // 0 lit albedo, 1 albedo, 2 normals, 3 depth, 4 instance, 5 uv, 6 emission, 7 primitive
+int      _Mode;          // 0 lit albedo, 1 albedo, 2 normals, 3 depth, 4 instance, 5 uv, 6 emission, 7 primitive,
+                         // 8 material class, 9 reflection parameters
 float    _DepthScale;
 
 [shader("raygeneration")]
@@ -47,9 +49,28 @@ void RayGen()
             case 2: c = p.normal * 0.5 + 0.5; if (p.flags & 1) c *= float3(1, 0.4, 0.4); break;
             case 3: c = (float3)saturate(1.0 - p.t / _DepthScale); break;
             case 4: c = HashColor(p.instance + 1); break;
-            case 5: c = float3(frac(p.uv), 0); break;
+            case 5: c = float3(frac(PayloadUV(p)), 0); break;
             case 6: c = p.emission; break;
             case 7: c = HashColor(p.primitive * 7919u + p.instance); break;
+            case 8:
+            {
+                // Class colour, shaded a little so geometry stays readable. REFLECTION materials (blend/additive) get
+                // diagonal white stripes; plain specular classes are drawn brighter than classes without RT specular.
+                SurfaceMaterial m = MaterialFromPayload(p.material, p.flags);
+                float shade = 0.35 + 0.65 * saturate(dot(p.normal, -ray.Direction));
+                c = ClassColor(m.cls) * shade * (m.mode == ULTRART_REFL_NONE ? 0.45 : 1.0);
+                if (m.mode >= ULTRART_REFL_BLEND && ((id.x + id.y) / 4u) % 2u == 0u) c = lerp(c, 1.0, 0.6);
+                break;
+            }
+            case 9:
+            {
+                // r: smoothness (1 - roughness) where specular, g: metalness, b: reflection strength (REFLECTION) or
+                // specular weight (specular classes).
+                SurfaceMaterial m = MaterialFromPayload(p.material, p.flags);
+                bool spec = m.mode != ULTRART_REFL_NONE;
+                c = float3(spec ? 1.0 - m.roughness : 0.0, m.metalness, m.mode >= ULTRART_REFL_BLEND ? m.reflStrength : (spec ? m.weight : 0.0));
+                break;
+            }
         }
     }
     _Output[id] = float4(c, 1.0);

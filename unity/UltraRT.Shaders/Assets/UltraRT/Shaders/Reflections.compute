@@ -1,0 +1,309 @@
+// UltraRT reflections: temporal accumulation and a roughness-scaled spatial filter for the one-ray reflection signal,
+// then the resolve that unpacks PathTrace's packed _Surface for the denoiser and composites. See docs/reflections.md.
+//
+// Passes (8x8 thread groups, trace resolution, driven by src/UltraRT/ReflectionFilter.cs):
+//   Temporal  reproject the history (virtual image point first, then the surface point), clip it to the current 3x3
+//             neighbourhood, blend. Writes this frame's history and packed geometry.
+//   Spatial   5x5 edge-aware blur, step 1 or 2 by roughness, skipped below _SpatialMinRoughness. Display only: the
+//             history stays unblurred.
+//   Resolve   _Surface -> albedo + emission textures, and the specular term: rgb = specW * reflection, a = keep
+//             (final = colour * keep + rgb). Optional debug view.
+
+#pragma kernel Temporal
+#pragma kernel Spatial
+#pragma kernel Resolve
+
+#include "UltraRTMaterial.hlsl"
+
+float4   _Dim;          // w, h, 1/w, 1/h
+float4   _CamPos;
+float4x4 _InvViewProj;
+float4x4 _PrevViewProj; // viewProj of the frame that wrote the history
+
+float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
+
+float3 PrimaryDir(uint2 id)
+{
+    float2 ndc = ((float2)id + 0.5) * _Dim.zw * 2.0 - 1.0;
+    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
+    return normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+}
+
+// Packed geometry, as in Denoise.compute: xyz = asint(world position), w = bit 31 valid | instance & 0x7F << 24 |
+// 12-bit octahedral normal x2.
+float2 OctWrap(float2 v) { return (1.0 - abs(v.yx)) * (v >= 0.0 ? 1.0 : -1.0); }
+float2 OctEncode(float3 n)
+{
+    n /= abs(n.x) + abs(n.y) + abs(n.z);
+    n.xy = n.z >= 0.0 ? n.xy : OctWrap(n.xy);
+    return n.xy * 0.5 + 0.5;
+}
+float3 OctDecode(float2 f)
+{
+    f = f * 2.0 - 1.0;
+    float3 n = float3(f, 1.0 - abs(f.x) - abs(f.y));
+    float t = saturate(-n.z);
+    n.xy += n.xy >= 0.0 ? -t : t;
+    return normalize(n);
+}
+int4 PackGeo(float3 pos, float3 n, int instance)
+{
+    uint2 q = (uint2)round(saturate(OctEncode(n)) * 4095.0);
+    uint w = 0x80000000u | (((uint)instance & 0x7Fu) << 24) | (q.y << 12) | q.x;
+    return int4(asint(pos), asint(w));
+}
+bool GeoValid(int4 g) { return ((uint)g.w >> 31) != 0; }
+uint GeoInstance(int4 g) { return ((uint)g.w >> 24) & 0x7Fu; }
+float3 GeoPos(int4 g) { return asfloat(g.xyz); }
+float3 GeoNormal(int4 g)
+{
+    uint w = (uint)g.w;
+    return OctDecode(float2(w & 0xFFFu, (w >> 12) & 0xFFFu) / 4095.0);
+}
+
+// ---------------------------------------------------------------- temporal
+
+Texture2D<float4>   _Reflection;  // PathTrace: rgb radiance, a hit distance (-1 = not traced)
+Texture2D<uint4>    _Surface;     // PathTrace: packed albedo / emission / material
+Texture2D<float4>   _NormalDepth; // xyz normal, w ray t (< 0 = sky)
+Texture2D<int>      _InstanceId;
+Texture2D<int4>     _PrevGeo;
+Texture2D<float4>   _HistIn;      // rgb reflection, a history length (-1 = not traced)
+RWTexture2D<float4> _HistOut;
+RWTexture2D<int4>   _GeoOut;
+
+int    _HistoryValid;
+float2 _AlphaMin;   // minimum blend factor: x mirror (roughness 0), y rough (roughness >= 0.5)
+float2 _ClampSigma; // neighbourhood clip half-size in standard deviations: x mirror, y rough
+float  _MaxHistory;
+float  _NormalTol;
+float  _PlaneTol;
+
+float3 Sanitize(float3 c) { return min(max(c, 0.0), 65000.0); }
+
+// Bilinear history fetch at world point `target` (projected with the previous viewProj), each tap validated against
+// the current surface (pos, n, inst7): same instance, similar normal, on the same plane, and traced last frame.
+bool FetchHistory(float3 target, float3 pos, float3 n, uint inst7, float planeTol, out float3 color, out float len)
+{
+    color = 0;
+    len = 0;
+    float4 pc = mul(_PrevViewProj, float4(target, 1.0));
+    if (pc.w <= 1e-5) return false;
+    float2 pp = (pc.xy / pc.w * 0.5 + 0.5) * _Dim.xy - 0.5;
+    int2 base = (int2)floor(pp);
+    float2 f = pp - (float2)base;
+    int2 dim = (int2)_Dim.xy;
+    float wSum = 0;
+    [unroll] for (int k = 0; k < 4; k++)
+    {
+        int2 o = int2(k & 1, k >> 1);
+        int2 q = base + o;
+        if (any(q < 0) || any(q >= dim)) continue;
+        int4 g = _PrevGeo[q];
+        if (!GeoValid(g) || GeoInstance(g) != inst7) continue;
+        if (dot(n, GeoNormal(g)) < _NormalTol) continue;
+        if (abs(dot(GeoPos(g) - pos, n)) > planeTol) continue;
+        float4 h = _HistIn[q];
+        if (h.a < 0.0) continue;
+        float w = (o.x ? f.x : 1.0 - f.x) * (o.y ? f.y : 1.0 - f.y);
+        color += w * h.rgb;
+        len += w * h.a;
+        wSum += w;
+    }
+    if (wSum < 1e-3) return false;
+    color /= wSum;
+    len /= wSum;
+    return true;
+}
+
+[numthreads(8, 8, 1)]
+void Temporal(uint3 id : SV_DispatchThreadID)
+{
+    int2 dim = (int2)_Dim.xy;
+    if (any((int2)id.xy >= dim)) return;
+
+    float4 nd = _NormalDepth[id.xy];
+    float t = nd.w;
+    if (t < 0.0)
+    {
+        _HistOut[id.xy] = float4(0, 0, 0, -1);
+        _GeoOut[id.xy] = 0;
+        return;
+    }
+    float3 dir = PrimaryDir(id.xy);
+    float3 pos = _CamPos.xyz + dir * t;
+    int4 geo = PackGeo(pos, normalize(nd.xyz), _InstanceId[id.xy]);
+    _GeoOut[id.xy] = geo;
+
+    float4 cur = _Reflection[id.xy];
+    if (cur.a < 0.0)
+    {
+        _HistOut[id.xy] = float4(0, 0, 0, -1);
+        return;
+    }
+    float3 n = GeoNormal(geo);
+    uint inst7 = GeoInstance(geo);
+    float r = SurfaceMat(_Surface[id.xy]).roughness;
+    float3 rad = Sanitize(cur.rgb);
+
+    // 3x3 statistics of the current (noisy) reflection, over traced pixels at a similar depth.
+    float3 m1 = 0, m2 = 0;
+    float cnt = 0;
+    [unroll] for (int dy = -1; dy <= 1; dy++)
+    [unroll] for (int dx = -1; dx <= 1; dx++)
+    {
+        int2 q = clamp((int2)id.xy + int2(dx, dy), 0, dim - 1);
+        float4 v = _Reflection[q];
+        float tq = _NormalDepth[q].w;
+        if (v.a < 0.0 || tq < 0.0 || abs(tq - t) > 0.1 * t) continue;
+        float3 c = Sanitize(v.rgb);
+        m1 += c;
+        m2 += c * c;
+        cnt += 1.0;
+    }
+    m1 /= max(cnt, 1.0);
+    m2 /= max(cnt, 1.0);
+    float3 sd = sqrt(max(0.0, m2 - m1 * m1));
+
+    // Reprojection. Mirror-like reflections move with the virtual image point (the reflected hit seen through the
+    // surface: pos + dir * hit distance, exact for planar mirrors); rough ones with the surface. Try the better one
+    // first and fall back to the other.
+    float3 hist = 0;
+    float len = 0;
+    bool found = false;
+    if (_HistoryValid != 0)
+    {
+        float planeTol = _PlaneTol * t + 0.01;
+        float3 virt = _CamPos.xyz + dir * (t + cur.a);
+        bool virtualFirst = r < 0.5;
+        found = FetchHistory(virtualFirst ? virt : pos, pos, n, inst7, planeTol, hist, len);
+        if (!found) found = FetchHistory(virtualFirst ? pos : virt, pos, n, inst7, planeTol, hist, len);
+    }
+
+    float rs = saturate(r * 2.0);
+    if (found)
+    {
+        float3 ext = lerp(_ClampSigma.x, _ClampSigma.y, rs) * sd + 0.01 * m1 + 1e-3;
+        hist = clamp(hist, m1 - ext, m1 + ext);
+    }
+    else len = 0;
+
+    float newLen = min(len + 1.0, _MaxHistory);
+    float alpha = max(1.0 / newLen, lerp(_AlphaMin.x, _AlphaMin.y, rs));
+    _HistOut[id.xy] = float4(lerp(hist, rad, alpha), newLen);
+}
+
+// ---------------------------------------------------------------- spatial
+
+Texture2D<float4>   _SpatialIn; // temporal output
+Texture2D<int4>     _Geo;       // this frame's packed geometry
+RWTexture2D<float4> _SpatialOut;
+
+float _PixelAngle;           // world-space size of one trace pixel at distance 1
+float _PhiDepth;
+float _SpatialMinRoughness;  // below this, no spatial filter (mirrors stay sharp)
+
+float B3(int o) { return o == 0 ? 0.375 : (abs(o) == 1 ? 0.25 : 0.0625); }
+
+[numthreads(8, 8, 1)]
+void Spatial(uint3 id : SV_DispatchThreadID)
+{
+    int2 dim = (int2)_Dim.xy;
+    if (any((int2)id.xy >= dim)) return;
+    float4 c = _SpatialIn[id.xy];
+    int4 g = _Geo[id.xy];
+    if (c.a < 0.0 || !GeoValid(g))
+    {
+        _SpatialOut[id.xy] = c;
+        return;
+    }
+    float r = SurfaceMat(_Surface[id.xy]).roughness;
+    if (r < _SpatialMinRoughness)
+    {
+        _SpatialOut[id.xy] = c;
+        return;
+    }
+
+    float3 pos = GeoPos(g);
+    float3 n = GeoNormal(g);
+    float t = distance(pos, _CamPos.xyz);
+    int step = r > 0.35 ? 2 : 1;
+    float depthScale = t * _PixelAngle * _PhiDepth;
+
+    float wc = B3(0) * B3(0);
+    float3 sum = c.rgb * wc;
+    float sumW = wc;
+    [unroll] for (int dy = -2; dy <= 2; dy++)
+    [unroll] for (int dx = -2; dx <= 2; dx++)
+    {
+        if (dx == 0 && dy == 0) continue;
+        int2 q = (int2)id.xy + int2(dx, dy) * step;
+        if (any(q < 0) || any(q >= dim)) continue;
+        float4 cq = _SpatialIn[q];
+        int4 gq = _Geo[q];
+        if (cq.a < 0.0 || !GeoValid(gq)) continue;
+        float rq = FromUnorm8(_Surface[q].w);
+        float stepLen = length(float2(dx, dy)) * step;
+        float wz = exp(-abs(dot(GeoPos(gq) - pos, n)) / (depthScale * stepLen + t * 1e-3));
+        float wn = pow(saturate(dot(n, GeoNormal(gq))), 32.0);
+        float wr = saturate(1.0 - abs(rq - r) * 4.0);
+        float w = B3(dx) * B3(dy) * wz * wn * wr;
+        sum += cq.rgb * w;
+        sumW += w;
+    }
+    _SpatialOut[id.xy] = float4(sum / sumW, c.a);
+}
+
+// ---------------------------------------------------------------- resolve
+
+Texture2D<float4>   _Filtered;    // filtered reflection (or the raw one when filtering is off); a < 0 = not traced
+RWTexture2D<float4> _AlbedoOut;   // ARGB32: the denoiser's and hybrid composite's albedo
+RWTexture2D<float4> _EmissionOut; // ARGBHalf
+RWTexture2D<float4> _SpecularOut; // ARGBHalf: rgb specW * reflection, a keep
+RWTexture2D<float4> _DebugOut;    // ARGB32, written when _DebugView != 0
+
+int    _Enabled;
+int    _Hybrid;
+int    _DebugView;   // 1 raw reflection, 2 filtered reflection, 3 specular contribution, 4 history length
+float4 _ReflParams;  // as PathTrace: y global specular weight, z global reflection strength
+
+float3 Heat(float x)
+{
+    x = saturate(x);
+    return saturate(float3(1.5 - abs(4.0 * x - 3.0), 1.5 - abs(4.0 * x - 2.0), 1.5 - abs(4.0 * x - 1.0)));
+}
+
+[numthreads(8, 8, 1)]
+void Resolve(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_Dim.xy)) return;
+    uint4 sf = _Surface[id.xy];
+    float3 albedo = SurfaceAlbedo(sf);
+    _AlbedoOut[id.xy] = float4(albedo, 1.0);
+    _EmissionOut[id.xy] = float4(SurfaceEmission(sf), 1.0);
+
+    float4 spec = float4(0, 0, 0, 1);
+    float4 nd = _NormalDepth[id.xy];
+    float4 refl = _Filtered[id.xy];
+    if (_Enabled != 0 && nd.w >= 0.0 && refl.a >= 0.0)
+    {
+        float NdotV = saturate(dot(normalize(nd.xyz), -PrimaryDir(id.xy)));
+        float3 specW;
+        float keep;
+        SpecularTerms(SurfaceMat(sf), albedo, NdotV, _ReflParams.yz, _Hybrid != 0, specW, keep);
+        spec = float4(specW * refl.rgb, keep);
+    }
+    _SpecularOut[id.xy] = spec;
+
+    if (_DebugView != 0)
+    {
+        float4 raw = _Reflection[id.xy];
+        float3 c = 0.04; // not traced
+        if (nd.w < 0.0) c = float3(0.05, 0.0, 0.08);
+        else if (_DebugView == 1) { if (raw.a >= 0.0) c = raw.rgb; }
+        else if (_DebugView == 2) { if (refl.a >= 0.0) c = refl.rgb; }
+        else if (_DebugView == 3) c = spec.rgb;
+        else if (_DebugView == 4) { if (refl.a >= 0.0) c = Heat(refl.a / max(_MaxHistory, 1.0)); }
+        _DebugOut[id.xy] = float4(saturate(c), 1.0);
+    }
+}

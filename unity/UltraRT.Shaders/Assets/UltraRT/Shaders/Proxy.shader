@@ -15,6 +15,23 @@ Shader "UltraRT/Proxy"
         _BlendTex ("Blend atlas", 2D) = "white" {}
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
+
+        // Reflections (MaterialClasses.cs, docs/reflections.md). Mode: 0 none, 1 specular, 2 blend, 3 additive.
+        _Roughness ("Roughness", Float) = 1
+        _Metalness ("Metalness", Float) = 0
+        _F0 ("F0", Float) = 0.02
+        _SpecWeight ("Specular weight", Float) = 0
+        _ReflMode ("Reflection mode", Float) = 0
+        _ReflStrength ("Reflection strength", Float) = 0
+        _MatClass ("Material class", Float) = 21
+        // VERTEX_BLENDING: the secondary set applies where the blend weight is < 0.5 (vertex colour r; atlas |normal.w| - 1).
+        _Secondary ("Has secondary", Float) = 0
+        _Roughness2 ("Roughness 2", Float) = 1
+        _Metalness2 ("Metalness 2", Float) = 0
+        _F02 ("F0 2", Float) = 0.02
+        _SpecWeight2 ("Specular weight 2", Float) = 0
+        _ReflMode2 ("Reflection mode 2", Float) = 0
+        _MatClass2 ("Material class 2", Float) = 21
     }
 
     SubShader
@@ -44,6 +61,7 @@ Shader "UltraRT/Proxy"
 
             #include "UnityRayTracingMeshUtils.cginc"
             #include "UltraRTCommon.hlsl"
+            #include "UltraRTMaterial.hlsl"
 
             Texture2D _MainTex;
             float4 _MainTex_ST;
@@ -60,6 +78,8 @@ Shader "UltraRT/Proxy"
             float _AtlasMode;
             float _SkyWall;
             float _AlphaTest;
+            float _Roughness, _Metalness, _F0, _SpecWeight, _ReflMode, _ReflStrength, _MatClass;
+            float _Secondary, _Roughness2, _Metalness2, _F02, _SpecWeight2, _ReflMode2, _MatClass2;
 
             float2 FetchUV(uint3 tri, float3 b)
             {
@@ -70,10 +90,12 @@ Shader "UltraRT/Proxy"
             }
 
             // Surface colour (alpha = coverage) at a hit; litWeight 0 = fullbright.
-            float4 SampleAlbedo(uint3 tri, float3 b, float2 uv, out float litWeight)
+            // blendWeight: < 0.5 selects the secondary material (VERTEX_BLENDING); 1 when the surface doesn't blend.
+            float4 SampleAlbedo(uint3 tri, float3 b, float2 uv, out float litWeight, out float blendWeight)
             {
                 float4 albedo;
                 litWeight = 1.0; // 0 = fullbright (game: lerp(1, lighting, vertexColor.a))
+                blendWeight = 1.0;
                 if (_AtlasMode > 0.5)
                 {
                     // StaticSceneOptimizer geometry. Atlas rects (xMin, yMin, xMax, yMax) are constant per face.
@@ -92,6 +114,7 @@ Shader "UltraRT/Proxy"
                     {
                         float4 blendTex = _BlendTex.SampleLevel(my_point_repeat_sampler, lerp(blendRect.xy, blendRect.zw, f), 0);
                         tex = lerp(blendTex, mainTex, blendW);
+                        blendWeight = blendW;
                     }
 
                     float4 vc = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeColor) * b.x
@@ -103,6 +126,11 @@ Shader "UltraRT/Proxy"
                 else
                 {
                     albedo = _MainTex.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0) * _Color;
+                    // ULTRAKILL VERTEX_BLENDING: vertex colour r < 0.5 is the secondary surface. Missing colours read as white.
+                    if (_Secondary > 0.5)
+                        blendWeight = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeColor).r * b.x
+                                    + UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeColor).r * b.y
+                                    + UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeColor).r * b.z;
                 }
                 return albedo;
             }
@@ -114,8 +142,8 @@ Shader "UltraRT/Proxy"
                 if (_AlphaTest < 0.5) return;
                 uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
-                float litWeight;
-                if (SampleAlbedo(tri, b, FetchUV(tri, b), litWeight).a < _Cutoff) IgnoreHit();
+                float litWeight, blendWeight;
+                if (SampleAlbedo(tri, b, FetchUV(tri, b), litWeight, blendWeight).a < _Cutoff) IgnoreHit();
             }
 
             [shader("closesthit")]
@@ -144,8 +172,8 @@ Shader "UltraRT/Proxy"
                 if (dot(n, WorldRayDirection()) > 0.0) n = -n; // treat everything as two-sided for now
 
                 float2 uv = FetchUV(tri, b);
-                float litWeight;
-                float4 albedo = SampleAlbedo(tri, b, uv, litWeight);
+                float litWeight, blendWeight;
+                float4 albedo = SampleAlbedo(tri, b, uv, litWeight, blendWeight);
 
                 float3 emission = 0;
                 if (_EmissiveIntensity > 0.0)
@@ -162,10 +190,17 @@ Shader "UltraRT/Proxy"
                 p.t = RayTCurrent();
                 p.emission = emission;
                 p.instance = InstanceIndex();
-                p.uv = uv;
+                p.uvHalf = f32tof16(uv.x) | (f32tof16(uv.y) << 16);
                 p.primitive = PrimitiveIndex();
+
+                // Reflection material: constant per proxy material, or the secondary set on VERTEX_BLENDING surfaces.
+                bool second = _Secondary > 0.5 && blendWeight < 0.5;
+                p.material = second ? PackMaterialWord(_Roughness2, _Metalness2, _F02, _SpecWeight2)
+                                    : PackMaterialWord(_Roughness, _Metalness, _F0, _SpecWeight);
+                uint mode = (uint)(second ? _ReflMode2 : _ReflMode);
+                uint cls = (uint)(second ? _MatClass2 : _MatClass);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer.
-                p.flags = flags | ((InstanceID() & 0xFFu) << 8);
+                p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength, cls);
             }
             ENDHLSL
         }

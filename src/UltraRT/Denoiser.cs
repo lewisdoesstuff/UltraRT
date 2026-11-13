@@ -55,6 +55,7 @@ namespace UltraRT
         public RenderTexture emission;    // ARGBHalf
         public RenderTexture normalDepth; // ARGBHalf, xyz world normal, w ray t (< 0 = sky)
         public RenderTexture instanceId;  // RInt, -1 = sky
+        public RenderTexture specular;    // optional ARGBHalf (reflections): rgb added, a = keep factor of the diffuse part
         public Matrix4x4 viewProj, invViewProj, prevViewProj;
         public Vector3 camPos, prevCamPos;
     }
@@ -115,7 +116,9 @@ namespace UltraRT
             IdMoments = Shader.PropertyToID("_Moments"),
             IdOutput = Shader.PropertyToID("_Output"),
             IdOutDim = Shader.PropertyToID("_OutDim"),
-            IdDebugView = Shader.PropertyToID("_DebugView");
+            IdDebugView = Shader.PropertyToID("_DebugView"),
+            IdSpecular = Shader.PropertyToID("_Specular"),
+            IdHasSpecular = Shader.PropertyToID("_HasSpecular");
 
         public Denoiser(ComputeShader shader)
         {
@@ -133,7 +136,7 @@ namespace UltraRT
         public RenderTexture FilteredLighting { get; private set; }
 
         /// <summary>
-        /// Records the denoiser into <paramref name="cmd"/> and writes albedo * lighting + emission (or the
+        /// Records the denoiser into <paramref name="cmd"/> and writes albedo * lighting * spec.a + emission + spec.rgb (or the
         /// selected debug view) to <paramref name="output"/> (ARGB32, enableRandomWrite; any size, nearest upscale).
         /// </summary>
         public void Execute(CommandBuffer cmd, in DenoiserInputs inputs, RenderTexture output)
@@ -216,6 +219,8 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kComposite, IdEmission, inputs.emission);
             cmd.SetComputeTextureParam(cs, _kComposite, IdRadiance, inputs.radiance);
             cmd.SetComputeTextureParam(cs, _kComposite, IdMoments, _moments[_cur]);
+            cmd.SetComputeTextureParam(cs, _kComposite, IdSpecular, inputs.specular != null ? (Texture)inputs.specular : Texture2D.blackTexture);
+            cmd.SetComputeIntParam(cs, IdHasSpecular, inputs.specular != null ? 1 : 0);
             cmd.SetComputeTextureParam(cs, _kComposite, IdOutput, output);
             cmd.DispatchCompute(cs, _kComposite, Mathf.CeilToInt(output.width / 8f), Mathf.CeilToInt(output.height / 8f), 1);
 
