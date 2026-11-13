@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>UltraRT</AssemblyName>
+    <RootNamespace>UltraRT</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <!-- Game location: override with the ULTRAKILL_DIR env var or /p:GameDir=... -->
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == '' and '$(ULTRAKILL_DIR)' != ''">$(ULTRAKILL_DIR)</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\ULTRAKILL</GameDir>
+    <ManagedDir>$(GameDir)\ULTRAKILL_Data\Managed</ManagedDir>
+    <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
+    <BundlePath>$(MSBuildThisFileDirectory)..\..\unity\UltraRT.Shaders\Build\ultrart.shaders</BundlePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx" HintPath="$(BepInExDir)\core\BepInEx.dll" Private="false" />
+    <Reference Include="Assembly-CSharp" HintPath="$(ManagedDir)\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(ManagedDir)\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(ManagedDir)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.AssetBundleModule" HintPath="$(ManagedDir)\UnityEngine.AssetBundleModule.dll" Private="false" />
+    <Reference Include="UnityEngine.ImageConversionModule" HintPath="$(ManagedDir)\UnityEngine.ImageConversionModule.dll" Private="false" />
+    <Reference Include="UnityEngine.ScreenCaptureModule" HintPath="$(ManagedDir)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
+    <Reference Include="UnityEngine.InputLegacyModule" HintPath="$(ManagedDir)\UnityEngine.InputLegacyModule.dll" Private="false" />
+  </ItemGroup>
+
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="Exists('$(BepInExDir)')">
+    <MakeDir Directories="$(BepInExDir)\plugins\UltraRT" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins\UltraRT" />
+    <Copy SourceFiles="$(BundlePath)" DestinationFolder="$(BepInExDir)\plugins\UltraRT" Condition="Exists('$(BundlePath)')" />
+    <Warning Text="Shader bundle not built yet: $(BundlePath)" Condition="!Exists('$(BundlePath)')" />
+    <Message Importance="high" Text="Deployed $(TargetFileName) -> $(BepInExDir)\plugins\UltraRT" />
+  </Target>
+
+</Project>

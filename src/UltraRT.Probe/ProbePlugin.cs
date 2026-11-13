@@ -15,7 +15,8 @@ using Debug = UnityEngine.Debug;
 namespace UltraRT.Probe
 {
     /// <summary>
-    /// Feasibility probe for a ray/path tracing mod. Driven by command-line args so it can run unattended:
+    /// Feasibility probe for a ray/path tracing mod. Does nothing unless -ultrart-probe is passed.
+    /// Driven by command-line args so it can run unattended:
     ///   -ultrart-scene "Level 1-1"   load this level once the main menu is up
     ///   -ultrart-settle 6            seconds to wait after the level loads before measuring
     ///   -ultrart-bench 10            seconds per benchmark pass
@@ -35,6 +36,9 @@ namespace UltraRT.Probe
 
         private void Awake()
         {
+            // Only active when explicitly asked for, so it doesn't fight the main UltraRT plugin over -ultrart-scene.
+            if (!Environment.GetCommandLineArgs().Any(x => x.Equals("-ultrart-probe", StringComparison.OrdinalIgnoreCase)))
+                return;
             ParseArgs();
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);

@@ -14,7 +14,7 @@ $exe = Join-Path $GameDir 'ULTRAKILL.exe'
 $outDir = Join-Path $GameDir 'BepInEx\ultrart'
 $started = Get-Date
 
-$gameArgs = @("-force-$Api", '-ultrart-scene', "`"$Scene`"", '-ultrart-settle', $Settle, '-ultrart-bench', $Bench, '-ultrart-quit')
+$gameArgs = @("-force-$Api", '-ultrart-probe', '-ultrart-off', '-ultrart-scene', "`"$Scene`"", '-ultrart-settle', $Settle, '-ultrart-bench', $Bench, '-ultrart-quit')
 $p = Start-Process $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir -PassThru
 if (-not $p.WaitForExit($TimeoutSec * 1000)) {
     Stop-Process -Id $p.Id -Force

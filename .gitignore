@@ -3,3 +3,12 @@ obj/
 *.user
 .vs/
 .idea/
+
+# Unity shader-bundle project
+unity/*/[Ll]ibrary/
+unity/*/[Tt]emp/
+unity/*/[Ll]ogs/
+unity/*/[Uu]ser[Ss]ettings/
+unity/*/[Bb]uild/
+unity/*/*.csproj
+unity/*/*.sln
