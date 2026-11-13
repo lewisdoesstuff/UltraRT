@@ -44,13 +44,13 @@ void RayGen()
         switch (_Mode)
         {
             default:
-            case 0: c = p.albedo * (0.25 + 0.75 * saturate(dot(p.normal, -ray.Direction))) + p.emission; break;
+            case 0: c = p.albedo * (0.25 + 0.75 * saturate(dot(p.normal, -ray.Direction))) + PayloadEmission(p); break;
             case 1: c = p.albedo; break;
             case 2: c = p.normal * 0.5 + 0.5; if (p.flags & 1) c *= float3(1, 0.4, 0.4); break;
             case 3: c = (float3)saturate(1.0 - p.t / _DepthScale); break;
             case 4: c = HashColor(p.instance + 1); break;
             case 5: c = float3(frac(PayloadUV(p)), 0); break;
-            case 6: c = p.emission; break;
+            case 6: c = PayloadEmission(p); break;
             case 7: c = HashColor(p.primitive * 7919u + p.instance); break;
             case 8:
             {

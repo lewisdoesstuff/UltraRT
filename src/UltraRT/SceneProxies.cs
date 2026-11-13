@@ -91,14 +91,25 @@ namespace UltraRT
             public bool TwoSided;
             public uint Mask = GeometryMask;
             public bool Visible;
+
+            // Motion vectors (MotionVectors.cs). CurM / PrevM: the matrix that drives the instance this frame and last
+            // frame (rigid: the proxy's localToWorld; skinned: the root bone's position and rotation).
+            public int Slot;
+            public Matrix4x4 CurM, PrevM;
+            public bool Moved;
+            public Transform Root;
+            public int SkinBase = -1, SkinVerts, SkinGen;
+            public bool SkinPrevValid;
         }
 
         public RayTracingAccelerationStructure Rtas { get; private set; }
         public int SkinnedCount { get; private set; }
+        public MotionVectors Motion { get; }
 
-        public SceneProxies(ManualLogSource log, Shader proxyShader, int cameraCullingMask)
+        public SceneProxies(ManualLogSource log, Shader proxyShader, int cameraCullingMask, ComputeShader motionCopy = null)
         {
             _log = log;
+            Motion = new MotionVectors(motionCopy);
             _proxyShader = proxyShader;
             _cameraMask = cameraCullingMask & ~ExcludedLayers;
             _disabledMaterial = new Material(proxyShader) { name = "UltraRT Disabled" };
@@ -317,6 +328,7 @@ namespace UltraRT
         private void AddDynamic(Renderer source, Renderer proxy, RayTracingSubMeshFlags[] flags)
         {
             var ss = source as SkinnedMeshRenderer;
+            int slot = Motion.AllocSlot();
             var entry = new DynamicProxy
             {
                 Source = source,
@@ -327,7 +339,10 @@ namespace UltraRT
                 SkinnedProxy = proxy as SkinnedMeshRenderer,
                 BlendShapes = ss != null && ss.sharedMesh != null ? ss.sharedMesh.blendShapeCount : 0,
                 Flags = flags,
-                Id = (uint)OriginalLayer(source.gameObject.layer),
+                Id = (uint)OriginalLayer(source.gameObject.layer) | ((uint)slot << 8),
+                Slot = slot,
+                Root = ss != null ? (ss.rootBone != null ? ss.rootBone : ss.transform) : null,
+                SkinVerts = ss != null && ss.sharedMesh != null ? ss.sharedMesh.vertexCount : 0,
                 TwoSided = source.sharedMaterials.Any(m => Traceable(m) && SourceTwoSided(m)),
                 Mask = source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? FixtureMask : GeometryMask,
             };
@@ -392,6 +407,8 @@ namespace UltraRT
             p.shadowCastingMode = ShadowCastingMode.Off;
             p.receiveShadows = false;
             p.rayTracingMode = RayTracingMode.DynamicGeometry;
+            // Readable as a ByteAddressBuffer, so MotionCopy.compute can keep the previous pose (motion vectors).
+            p.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
             // If Unity stops skinning never-rendered renderers, the NoDraw pass keeps them "visible" at the cost of an empty draw.
             p.forceRenderingOff = !SkinnedProxiesVisible;
             return p;
@@ -433,11 +450,29 @@ namespace UltraRT
                 {
                     // DynamicGeometry instances are re-read on Build(); only blend shapes need copying.
                     for (int i = 0; i < d.BlendShapes; i++) d.SkinnedProxy.SetBlendShapeWeight(i, d.SkinnedSource.GetBlendShapeWeight(i));
+                    // Skinned: root motion as a matrix, the pose itself from last frame's copy (RecordMotionCopies).
+                    var m = MotionMatrix(d);
+                    d.PrevM = d.CurM;
+                    d.CurM = m;
+                    bool pose = d.SkinPrevValid && d.SkinGen == Motion.Generation;
+                    Motion.SetMotion(d.Slot, d.PrevM * m.inverse, pose ? d.SkinBase : -1);
                 }
                 else if (d.SourceTransform.hasChanged)
                 {
                     Rtas.UpdateInstanceTransform(d.Proxy);
                     d.SourceTransform.hasChanged = false; // Unity never clears this itself
+                    var m = MotionMatrix(d);
+                    d.PrevM = d.CurM;
+                    d.CurM = m;
+                    Motion.SetMotion(d.Slot, d.PrevM * m.inverse, -1);
+                    d.Moved = true;
+                }
+                else if (d.Moved)
+                {
+                    // Stopped: no motion since last frame.
+                    d.PrevM = d.CurM;
+                    Motion.SetIdentity(d.Slot);
+                    d.Moved = false;
                 }
             }
 
@@ -453,6 +488,8 @@ namespace UltraRT
                     if (!d.Visible && d.Source != null && d.Source.enabled && d.SourceObject.activeInHierarchy) Evaluate(d);
                 }
             }
+
+            Motion.Upload(); // motion slots changed above, before this frame's trace
         }
 
         private int _pollCursor;
@@ -466,13 +503,79 @@ namespace UltraRT
                 Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: FrontCounterClockwise, mask: d.Mask, id: d.Id);
                 d.SourceTransform.hasChanged = false;
                 _active.Add(d);
+                // Newly in the RTAS: no motion history (it appears where it is).
+                d.CurM = d.PrevM = MotionMatrix(d);
+                d.Moved = false;
+                d.SkinPrevValid = false;
+                if (d.SkinnedProxy != null && d.SkinBase < 0) d.SkinBase = Motion.AllocSkin(d.SkinVerts);
+                Motion.SetIdentity(d.Slot);
             }
             else
             {
                 if (d.Proxy != null) Rtas.RemoveInstance(d.Proxy);
                 _active.Remove(d);
+                Motion.FreeSkin(d.SkinBase, d.SkinVerts);
+                d.SkinBase = -1;
+                d.SkinPrevValid = false;
             }
             d.Visible = visible;
+        }
+
+        /// <summary>
+        /// The transform that moves an instance, as a matrix. Rigid proxies: exactly the instance transform. Skinned:
+        /// the root bone's position and rotation; Unity's instance matrix for a skinned mesh differs from it at most by
+        /// a constant (scale), which cancels in M_prev * M_cur^-1.
+        /// </summary>
+        private static Matrix4x4 MotionMatrix(DynamicProxy d)
+        {
+            if (d.SkinnedProxy != null)
+                return d.Root != null ? Matrix4x4.TRS(d.Root.position, d.Root.rotation, Vector3.one) : Matrix4x4.identity;
+            return d.Proxy != null ? d.Proxy.transform.localToWorldMatrix : Matrix4x4.identity;
+        }
+
+        /// <summary>
+        /// After the frame's DispatchRays: copy each active skinned proxy's pose (this frame's skin) into its region of the
+        /// previous-pose buffer, for next frame's hit shader.
+        /// </summary>
+        public void RecordMotionCopies(CommandBuffer cmd)
+        {
+            if (!Motion.CanCopySkin) return;
+            foreach (var d in _active)
+            {
+                if (d.SkinnedProxy == null || d.SkinBase < 0) continue;
+                bool ok = Motion.RecordCopy(cmd, d.SkinnedProxy, d.SkinBase, d.SkinVerts, out var vb);
+                d.SkinPrevValid = ok;
+                d.SkinGen = Motion.Generation;
+                if (ok && MotionProbe && _probeCount < 6 && ++_probeFrames % 97 == 0) { _probeCount++; ProbeSkinSpace(cmd, d, vb); }
+            }
+        }
+
+        /// <summary>-ultrart-motion-probe: log which space Unity's skinned vertex buffer is in (checks MotionMatrix's assumption).</summary>
+        public static bool MotionProbe;
+        private int _probeFrames, _probeCount;
+
+        private void ProbeSkinSpace(CommandBuffer cmd, DynamicProxy d, GraphicsBuffer vb)
+        {
+            var smr = d.SkinnedSource;
+            var baked = new Mesh();
+            smr.BakeMesh(baked, true);
+            var v0 = baked.vertexCount > 0 ? baked.vertices[0] : Vector3.zero;
+            Object.Destroy(baked);
+            var world = smr.transform.TransformPoint(v0);
+            var root = d.Root;
+            string name = smr.name;
+            var rootNoScale = Matrix4x4.TRS(root.position, root.rotation, Vector3.one).inverse.MultiplyPoint3x4(world);
+            var rootLocal = root.InverseTransformPoint(world);
+            var smrLocal = smr.transform.InverseTransformPoint(world);
+            var log = _log;
+            int stride = vb.stride;
+            cmd.RequestAsyncReadback(vb, 12, 0, r =>
+            {
+                if (r.hasError) { log.LogWarning("Motion probe: readback failed"); return; }
+                var raw = r.GetData<Vector3>()[0];
+                log.LogInfo($"Motion probe '{name}': raw={raw:F4} world={world:F4} rootNoScale={rootNoScale:F4} rootLocal={rootLocal:F4} " +
+                            $"smrLocal={smrLocal:F4} rootScale={root.lossyScale:F3} smrScale={smr.transform.lossyScale:F3} root='{root.name}' stride={stride}");
+            });
         }
 
         private Material ProxyOrDisabled(Material src) => Traceable(src) ? Proxy(src) : _disabledMaterial;
@@ -702,6 +805,7 @@ namespace UltraRT
             Rtas = null;
             foreach (var go in _proxyObjects) if (go != null) Object.Destroy(go);
             _proxyObjects.Clear();
+            Motion.Dispose();
             _dynamic.Clear();
             _active.Clear();
             _dirty.Clear();

@@ -16,6 +16,8 @@ namespace UltraRT
         Disocclusion = 5,
         /// <summary>Stability features: red pre-blur strength, green cache seed, blue 3x3 history search, white firefly clamp.</summary>
         SpatialBoost = 6,
+        /// <summary>Motion vectors: object motion as a flow colour (hue direction, saturation speed), camera motion faint.</summary>
+        Motion = 7,
     }
 
     /// <summary>Which radiance cache value matches the denoiser's input (set per frame by the plugin).</summary>
@@ -116,7 +118,7 @@ namespace UltraRT
         public RenderTexture albedo;      // ARGB32
         public RenderTexture emission;    // ARGBHalf
         public RenderTexture normalDepth; // ARGBHalf, xyz world normal, w ray t (< 0 = sky)
-        public RenderTexture instanceId;  // RInt, -1 = sky
+        public RenderTexture instanceId;  // RGInt: x instance (-1 = sky), y packed world-space motion (0 = static)
         public RenderTexture specular;    // optional ARGBHalf (reflections): rgb added, a = keep factor of the diffuse part
         public Matrix4x4 viewProj, invViewProj, prevViewProj;
         public Vector3 camPos, prevCamPos;
@@ -327,6 +329,8 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kComposite, IdSpecular, inputs.specular != null ? (Texture)inputs.specular : Texture2D.blackTexture);
             cmd.SetComputeIntParam(cs, IdHasSpecular, inputs.specular != null ? 1 : 0);
             cmd.SetComputeTextureParam(cs, _kComposite, IdBoostInfo, _boostInfo);
+            cmd.SetComputeTextureParam(cs, _kComposite, IdNormalDepth, inputs.normalDepth); // motion debug view
+            cmd.SetComputeTextureParam(cs, _kComposite, IdInstanceId, inputs.instanceId);
             cmd.SetComputeTextureParam(cs, _kComposite, IdOutput, output);
             cmd.DispatchCompute(cs, _kComposite, Mathf.CeilToInt(output.width / 8f), Mathf.CeilToInt(output.height / 8f), 1);
 

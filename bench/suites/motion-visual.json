@@ -1,0 +1,14 @@
+{
+    "Name": "motion-visual",
+    "Scenarios": [
+        {
+            "Name": "0-2 run",
+            "Scene": "Level 0-2",
+            "Path": { "Type": "recording", "File": "../recordings/0-2-run.json" },
+            "Enemies": "active",
+            "ReplayArenas": true,
+            "Modes": ["pt-dn", "hybrid", "motion", "dn-history"],
+            "Screenshots": [12, 20, 28, 40, 52, 65]
+        }
+    ]
+}

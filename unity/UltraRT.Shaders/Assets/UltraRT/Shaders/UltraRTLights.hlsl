@@ -514,17 +514,22 @@ void RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, i
     ReservoirAdd(r, light, bary, w, M, c, L, dist, Rand(rng));
 }
 
+// World-space motion of the primary hit (previous position - current), set by the ray generation shader from the hit's
+// packed motion (docs/denoiser.md). Reprojection and the plane test use pos + motion; the merge evaluates at pos.
+static float3 g_PrimaryMotion = 0;
+
 void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
 {
     if (_RestirHistoryValid == 0) return;
-    float4 pc = mul(_PrevViewProj, float4(pos, 1.0));
+    float3 prevPos = pos + g_PrimaryMotion;
+    float4 pc = mul(_PrevViewProj, float4(prevPos, 1.0));
     if (pc.w <= 1e-6) return;
     float2 pp = (pc.xy / pc.w * 0.5 + 0.5) * (float2)dim;
 
     if (all(pp >= 0.0) && all(pp < (float2)dim))
     {
         uint4 h = _ReservoirPrev[RestirIndex((uint2)pp, dim)];
-        if (RestirMatch(h, pos, n, t)) RestirMerge(r, h, pos, n, layer, rng);
+        if (RestirMatch(h, prevPos, n, t)) RestirMerge(r, h, pos, n, layer, rng);
     }
 
     for (int k = 0; k < _RestirSpatial; k++)
@@ -534,7 +539,7 @@ void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
         float2 q = pp + float2(cos(a), sin(a)) * rad;
         if (any(q < 0.0) || any(q >= (float2)dim)) continue;
         uint4 h = _ReservoirPrev[RestirIndex((uint2)q, dim)];
-        if (RestirMatch(h, pos, n, t)) RestirMerge(r, h, pos, n, layer, rng);
+        if (RestirMatch(h, prevPos, n, t)) RestirMerge(r, h, pos, n, layer, rng);
     }
 }
 

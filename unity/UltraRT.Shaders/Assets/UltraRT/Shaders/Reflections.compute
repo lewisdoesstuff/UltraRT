@@ -14,6 +14,7 @@
 #pragma kernel Resolve
 
 #include "UltraRTMaterial.hlsl"
+#include "UltraRTCommon.hlsl" // UnpackMotion
 
 float4   _Dim;          // w, h, 1/w, 1/h
 float4   _CamPos;
@@ -66,7 +67,7 @@ float3 GeoNormal(int4 g)
 Texture2D<float4>   _Reflection;  // PathTrace: rgb radiance, a hit distance (-1 = not traced)
 Texture2D<uint4>    _Surface;     // PathTrace: packed albedo / emission / material
 Texture2D<float4>   _NormalDepth; // xyz normal, w ray t (< 0 = sky)
-Texture2D<int>      _InstanceId;
+Texture2D<int2>     _InstanceId; // x instance, y packed world-space motion (UltraRTCommon.hlsl)
 Texture2D<int4>     _PrevGeo;
 Texture2D<float4>   _HistIn;      // rgb reflection, a history length (-1 = not traced)
 RWTexture2D<float4> _HistOut;
@@ -132,7 +133,9 @@ void Temporal(uint3 id : SV_DispatchThreadID)
     }
     float3 dir = PrimaryDir(id.xy);
     float3 pos = _CamPos.xyz + dir * t;
-    int4 geo = PackGeo(pos, normalize(nd.xyz), _InstanceId[id.xy]);
+    int2 im = _InstanceId[id.xy];
+    int4 geo = PackGeo(pos, normalize(nd.xyz), im.x);
+    float3 mv = UnpackMotion((uint)im.y); // moving objects: where this point was last frame (docs/denoiser.md)
     _GeoOut[id.xy] = geo;
 
     float4 cur = _Reflection[id.xy];
@@ -176,8 +179,8 @@ void Temporal(uint3 id : SV_DispatchThreadID)
         float planeTol = _PlaneTol * t + 0.01;
         float3 virt = _CamPos.xyz + dir * (t + cur.a);
         bool virtualFirst = r < 0.5;
-        found = FetchHistory(virtualFirst ? virt : pos, pos, n, inst7, planeTol, hist, len);
-        if (!found) found = FetchHistory(virtualFirst ? pos : virt, pos, n, inst7, planeTol, hist, len);
+        found = FetchHistory((virtualFirst ? virt : pos) + mv, pos + mv, n, inst7, planeTol, hist, len);
+        if (!found) found = FetchHistory((virtualFirst ? pos : virt) + mv, pos + mv, n, inst7, planeTol, hist, len);
     }
 
     float rs = saturate(r * 2.0);

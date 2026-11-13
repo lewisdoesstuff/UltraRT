@@ -15,7 +15,7 @@ RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission + 
 RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by albedo)
 RWTexture2D<uint4>  _Surface;     // packed albedo, emission and reflection material (UltraRTMaterial.hlsl, PackSurface)
 RWTexture2D<float4> _NormalDepth; // xyz world normal, w = hit distance (< 0 = sky)
-RWTexture2D<int>    _InstanceId;  // -1 = sky
+RWTexture2D<int2>   _InstanceId;  // RGInt: x InstanceIndex() (-1 = sky), y packed world-space motion (PackMotion, 0 = static)
 RWTexture2D<uint4>  _HybridLight;  // hybrid: packed halves: unshadowed direct rgb, shadowed direct rgb, lit weight
 RWTexture2D<float4> _Reflection;  // rgb reflected radiance; a: reflection hit distance (sky: 1000), -1 = not traced
 
@@ -194,7 +194,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
         float3 hp = r.Origin + L * h.t;
         float footprint = h.t * spread + (t + h.t) * pixelAngle;
         float3 hitLight = ReflectionHitLight(hp, h, footprint, rng);
-        c = h.emission * _EmissionScale + h.albedo * lerp(1.0, hitLight, h.alpha);
+        c = PayloadEmission(h) * _EmissionScale + h.albedo * lerp(1.0, hitLight, h.alpha);
     }
     c = max(c, 0.0); // also drops NaN
     if (glossy)
@@ -231,7 +231,8 @@ void RayGen()
     p.t = -1.0;
     // Hybrid with reflections: ask the hit shader for the game's cubemap term (UltraRTMaterial.hlsl, game cubemap).
     bool wantGameCube = _Mode == 3 && _ReflParams.x > 0.5 && _ReflCache.z > 0.5;
-    if (wantGameCube) p.flags = ULTRART_FLAG_GAMECUBE;
+    p.flags = ULTRART_PAYLOAD_WANT_MOTION; // the hit returns its world-space motion in p.motion
+    if (wantGameCube) p.flags |= ULTRART_FLAG_GAMECUBE;
     TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, ray, p);
 
     float3 c, lighting, albedo, emission;
@@ -243,7 +244,7 @@ void RayGen()
         c = lighting;
         _NormalDepth[id] = float4(0, 0, 0, -1);
         _HybridLight[id] = uint4(0, 0, 0, 0);
-        _InstanceId[id] = -1;
+        _InstanceId[id] = int2(-1, 0);
         _Surface[id] = PackSurface(albedo, emission, 0u, 0u);
         _Reflection[id] = float4(0, 0, 0, -1);
         RestirWriteEmpty(id, dim);
@@ -253,6 +254,8 @@ void RayGen()
         float3 pos = ray.Origin + ray.Direction * p.t;
         float3 n = p.normal;
         uint layer = PayloadLayer(p);
+        uint motion = p.motion;
+        g_PrimaryMotion = UnpackMotion(motion); // ReSTIR temporal reuse reprojects pos + motion
 
         float3 direct = DirectLighting(id, dim, pos, n, p.t, layer, rng);
 
@@ -287,7 +290,7 @@ void RayGen()
                 float3 hitLight = (CacheQueryTotal(hp, h.normal, cached) ? cached : DirectOne(hp, h.normal, PayloadLayer(h), rng))
                                 + _Ambient.rgb * _BounceAmbient * RelightAmbientScale();
                 // Emitters that are sampled directly (EmissiveLights) must not also count when a bounce hits them.
-                indirect = h.emission * (_EmissionScale * _EmissiveBounceWeight) + h.albedo * lerp(1.0, hitLight, h.alpha);
+                indirect = PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight) + h.albedo * lerp(1.0, hitLight, h.alpha);
             }
         }
 
@@ -305,7 +308,7 @@ void RayGen()
         }
         lighting = lerp(1.0, lighting, p.alpha); // fullbright surfaces ignore lighting, like the game
         albedo = p.albedo;
-        emission = p.emission * _EmissionScale;
+        emission = PayloadEmission(p) * _EmissionScale;
         c = albedo * lighting + emission;
 
         // One reflection ray where the specular term is worth it (the same weights the composites use).
@@ -350,7 +353,7 @@ void RayGen()
                                  f32tof16(un.b) | (f32tof16(direct.r) << 16),
                                  f32tof16(direct.g) | (f32tof16(direct.b) << 16),
                                  PackHybridW(p.alpha, gameCube));
-        _InstanceId[id] = (int)p.instance;
+        _InstanceId[id] = int2((int)p.instance, (int)motion);
     }
 
     _Radiance[id] = float4(lighting, 1.0);

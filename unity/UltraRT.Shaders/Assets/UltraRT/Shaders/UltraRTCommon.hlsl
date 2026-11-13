@@ -3,25 +3,41 @@
 
 // Shared between the ray generation shaders and the proxy material's hit shaders. Every hit/miss shader of a dispatch
 // must use the same payload size, so it is kept at 64 bytes (16 dwords). Layout:
-//   albedo, alpha, normal, t, emission, instance  as named
+//   albedo, alpha, normal, t, instance  as named
+//   emissionHalf  emission rgb as 3 halves (PayloadEmission; every consumer stores it as half anyway)
+//   motion     packed world-space motion of the hit (PackMotion) when the caller set ULTRART_PAYLOAD_WANT_MOTION, else 0
 //   material   packed roughness / metalness / f0 / specular weight (UltraRTMaterial.hlsl, PackMaterialWord)
 //   uvHalf     half(uv.x) | half(uv.y) << 16: debug views only (was float2 uv)
 //   primitive  PrimitiveIndex(): debug views only
 //   flags      bit 0: vertex normals missing (geometric normal used); bits 1-2: reflection mode; bits 8-15: original
-//              layer; bits 16-23: reflection strength (unorm8); bits 24-28: material class (see UltraRTMaterial.hlsl)
+//              layer; bits 16-23: reflection strength (unorm8); bits 24-28: material class (see UltraRTMaterial.hlsl).
+//              In (ray gen -> hit): bit 30 = ULTRART_PAYLOAD_WANT_MOTION, bit 31 = ULTRART_FLAG_GAMECUBE (UltraRTMaterial.hlsl)
 struct RayPayload
 {
     float3 albedo;
     float  alpha;      // lit weight: 0 = fullbright surface, 1 = fully lit (game: lerp(1, lighting, vertexColor.a))
     float3 normal;     // world space, facing the ray
     float  t;          // hit distance, < 0 on miss
-    float3 emission;
+    uint2  emissionHalf;
+    uint   motion;
     uint   instance;
     uint   material;
     uint   uvHalf;
     uint   primitive;
     uint   flags;
 };
+
+#define ULTRART_PAYLOAD_WANT_MOTION 0x40000000u // PathTrace's primary ray: return the hit's motion in p.motion
+
+uint2 PackEmissionHalf(float3 e)
+{
+    e = min(e, 65000.0);
+    return uint2(f32tof16(e.r) | (f32tof16(e.g) << 16), f32tof16(e.b));
+}
+float3 PayloadEmission(RayPayload p)
+{
+    return float3(f16tof32(p.emissionHalf.x), f16tof32(p.emissionHalf.x >> 16), f16tof32(p.emissionHalf.y));
+}
 
 uint PayloadLayer(RayPayload p) { return (p.flags >> 8) & 0xFFu; }
 float2 PayloadUV(RayPayload p) { return float2(f16tof32(p.uvHalf), f16tof32(p.uvHalf >> 16)); }
@@ -43,6 +59,29 @@ float3 HashColor(uint x)
 {
     uint h = HashU32(x);
     return float3(h & 0xFF, (h >> 8) & 0xFF, (h >> 16) & 0xFF) / 255.0;
+}
+
+// ---------------------------------------------------------------- motion (docs/denoiser.md, "Motion vectors")
+
+// World-space motion of a surface point: its previous-frame position minus its current one, in one 32-bit word
+// (stored in _InstanceId.y). Shared exponent: 3 x (sign + 8-bit magnitude) | (e + 16) << 27, with |d| <= 2^e.
+// Error <= max|d| / 255 per component (0.4 mm at 10 cm/frame); 0 = static (anything under 10 um).
+uint PackMotion(float3 d)
+{
+    float m = max(abs(d.x), max(abs(d.y), abs(d.z)));
+    if (!(m >= 1e-5)) return 0u; // also NaN
+    int e = clamp((int)ceil(log2(m)), -16, 15);
+    float3 q = clamp(round(d * (255.0 * exp2((float)-e))), -255.0, 255.0);
+    uint3 c = (uint3)abs(q) | ((uint3)(q < 0.0) << 8);
+    return c.x | (c.y << 9) | (c.z << 18) | ((uint)(e + 16) << 27);
+}
+
+float3 UnpackMotion(uint v)
+{
+    if (v == 0u) return 0;
+    uint3 c = uint3(v, v >> 9, v >> 18) & 0x1FFu;
+    float3 s = 1.0 - 2.0 * (float3)((c >> 8) & 1u);
+    return s * (float3)(c & 0xFFu) * (exp2((float)((int)(v >> 27) - 16)) / 255.0);
 }
 
 #endif

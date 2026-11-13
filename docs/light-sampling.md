@@ -56,7 +56,7 @@ Sky pixels write `(0xFFFF, 0, 0, 0)`, and M = 0 is never reused. At 1280x720 eac
 
 **Reprojection.** Uses the same convention as the denoiser:
 1. `pos` is the primary hit, `camPos + dir·t`.
-2. `clip = _PrevViewProj · (pos, 1)` and `pixel = floor((clip.xy/clip.w · 0.5 + 0.5) · dim)`.
+2. `clip = _PrevViewProj · (pos + motion, 1)` and `pixel = floor((clip.xy/clip.w · 0.5 + 0.5) · dim)`. `motion` is the hit's world-space motion (0 for static geometry; docs/denoiser.md, "Motion vectors"); the plane test below also uses `pos + motion`.
 3. Reservoirs can't be blended, so this is a nearest-pixel fetch, not bilinear.
 
 **Validation.** A history reservoir is used only if:

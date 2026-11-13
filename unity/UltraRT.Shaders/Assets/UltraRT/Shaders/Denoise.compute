@@ -63,7 +63,7 @@ float3 GeoNormal(int4 g)
 
 Texture2D<float4>   _Radiance;      // demodulated noisy lighting (rgb)
 Texture2D<float4>   _NormalDepth;   // xyz world normal, w ray t (< 0 = sky)
-Texture2D<int>      _InstanceId;    // -1 = sky
+Texture2D<int2>     _InstanceId;    // x instance (-1 = sky), y packed world-space motion (PackMotion; UltraRTCommon.hlsl)
 Texture2D<int4>     _PrevGeo;       // last frame's packed geometry
 Texture2D<float4>   _HistColor;     // last frame's first a-trous output (rgb)
 Texture2D<float4>   _PrevMoments;   // last frame's moments: m1, m2, history length, variance
@@ -198,8 +198,11 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
 
     float3 pos = gsPos[centerIdx];
     float3 nFull = gsNrm[centerIdx];
-    int instance = _InstanceId[id.xy];
-    int4 geo = PackGeo(pos, nFull, instance);
+    int2 instMotion = _InstanceId[id.xy];
+    int4 geo = PackGeo(pos, nFull, instMotion.x);
+    // Where this surface point was last frame: moving objects carry their world-space motion (skinned meshes per
+    // vertex). Reprojection and the plane tests use it, so history follows enemies, doors and platforms.
+    float3 prevPos = pos + UnpackMotion((uint)instMotion.y);
     _OutGeo[id.xy] = geo;
     float3 n = GeoNormal(geo); // compare quantized against quantized
     uint inst7 = GeoInstance(geo);
@@ -228,7 +231,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     float3 hMom = 0; // m1, m2, length
     float wSum = 0;
     bool searched = false;
-    float4 pc = mul(_PrevViewProj, float4(pos, 1.0));
+    float4 pc = mul(_PrevViewProj, float4(prevPos, 1.0));
     if (_HistoryValid != 0 && pc.w > 1e-5)
     {
         float2 pp = (pc.xy / pc.w * 0.5 + 0.5) * _Dim.xy - 0.5;
@@ -243,7 +246,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
             int4 g = _PrevGeo[q];
             if (!GeoValid(g) || GeoInstance(g) != inst7) continue;
             if (dot(n, GeoNormal(g)) < _NormalTol) continue;
-            if (abs(dot(GeoPos(g) - pos, n)) > planeTol) continue;
+            if (abs(dot(GeoPos(g) - prevPos, n)) > planeTol) continue;
             float w = (o.x ? f.x : 1.0 - f.x) * (o.y ? f.y : 1.0 - f.y);
             hColor += w * _HistColor[q].rgb;
             hMom += w * _PrevMoments[q].xyz;
@@ -266,7 +269,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
                 int4 g = _PrevGeo[q];
                 if (!GeoValid(g) || GeoInstance(g) != inst7) continue;
                 if (dot(n, GeoNormal(g)) < _NormalTol) continue;
-                float pd = abs(dot(GeoPos(g) - pos, n));
+                float pd = abs(dot(GeoPos(g) - prevPos, n));
                 if (pd > planeTol) continue;
                 float2 dq = (float2)q - pp;
                 float score = pd / planeTol + 0.5 * dot(dq, dq);
@@ -474,6 +477,7 @@ Texture2D<float4>   _Moments;   // this frame's m1, m2, history length, variance
 Texture2D<float4>   _Specular;  // optional (Reflections.compute Resolve): rgb added, a = keep factor for the diffuse part
 int                 _HasSpecular;
 Texture2D<float4>   _BoostInfo; // Temporal's _OutBoost (debug view 6)
+// Debug view 7 (motion) also reads _NormalDepth and _InstanceId (declared with the temporal pass).
 RWTexture2D<float4> _Output;
 
 float4 _OutDim;    // output w, h
@@ -534,6 +538,32 @@ void Composite(uint3 id : SV_DispatchThreadID)
             float4 b = _BoostInfo[s];
             float grey = Luma(saturate(albedo * lighting)) * 0.35;
             c = b.a > 0.1 ? float3(1, 1, 1) : grey + float3(b.r, b.g, b.b) * 0.75;
+            break;
+        }
+        case 7:
+        {
+            // Screen-space motion over a dim grey image. Object motion (from the hit's world-space motion, camera held
+            // fixed) as a flow colour: hue = direction, saturation = speed (full at 8 trace px/frame). Camera-only motion
+            // shows as a faint tint of the same colour scheme, so static geometry stays readable.
+            float grey = Luma(saturate(albedo * lighting)) * 0.35;
+            c = grey.xxx;
+            float4 nd = _NormalDepth[s];
+            if (nd.w >= 0.0)
+            {
+                float3 pos = _CamPos.xyz + PrimaryDir((int2)s) * nd.w;
+                float3 mv = UnpackMotion((uint)_InstanceId[s].y);
+                float4 pa = mul(_PrevViewProj, float4(pos, 1.0));
+                float4 pb = mul(_PrevViewProj, float4(pos + mv, 1.0));
+                float2 cur = ((float2)s + 0.5) * _Dim.zw * 2.0 - 1.0;
+                float2 camMv = pa.w > 1e-5 ? (cur - pa.xy / pa.w) * 0.5 * _Dim.xy : 0;  // trace px, current - previous
+                float2 objMv = pa.w > 1e-5 && pb.w > 1e-5 ? (pa.xy / pa.w - pb.xy / pb.w) * 0.5 * _Dim.xy : 0;
+                bool moving = any(mv != 0.0);
+                float2 v = moving ? objMv : camMv;
+                float sp = saturate(length(v) / 8.0);
+                float h = atan2(v.y, v.x) * (0.5 / 3.14159265) + 0.5;
+                float3 hue = saturate(float3(abs(h * 6.0 - 3.0) - 1.0, 2.0 - abs(h * 6.0 - 2.0), 2.0 - abs(h * 6.0 - 4.0)));
+                c = moving ? lerp(float3(1, 1, 1), hue, sp) * max(0.35, sp) : grey + hue * sp * 0.25;
+            }
             break;
         }
     }

@@ -117,6 +117,35 @@ Shader "UltraRT/Proxy"
                 return cube * tint * (add ? m * rs * rs : m * m * rs);
             }
 
+            // Motion vectors (globals, src/UltraRT/MotionVectors.cs; docs/denoiser.md). The instance's custom id carries a
+            // motion slot in bits 8-23 (0 = static). Per slot, 4 float4: rows 0-2 the world-space motion matrix
+            // W = M_prev * M_cur^-1 of the transform that drives the instance; row 3 x = first vertex of the instance's
+            // previous-frame skinned positions in _UltraRTPrevSkin, or -1 (rigid).
+            StructuredBuffer<float4> _UltraRTMotion;
+            StructuredBuffer<float3> _UltraRTPrevSkin; // object space, copied from the skinned vertex buffer after each trace
+
+            // Previous-frame world position of this hit minus the current one, packed (PackMotion).
+            uint HitMotion(uint3 tri, float3 b, float3 p0, float3 p1, float3 p2)
+            {
+                uint slot = InstanceID() >> 8;
+                if (slot == 0u) return 0u;
+                float4 r0 = _UltraRTMotion[slot * 4u];
+                float4 r1 = _UltraRTMotion[slot * 4u + 1u];
+                float4 r2 = _UltraRTMotion[slot * 4u + 2u];
+                float skin = _UltraRTMotion[slot * 4u + 3u].x;
+                float3 objCur = p0 * b.x + p1 * b.y + p2 * b.z;
+                float3 objPrev = objCur;
+                if (skin >= 0.0)
+                {
+                    uint s = (uint)skin;
+                    objPrev = _UltraRTPrevSkin[s + tri.x] * b.x + _UltraRTPrevSkin[s + tri.y] * b.y + _UltraRTPrevSkin[s + tri.z] * b.z;
+                }
+                float3x4 o2w = ObjectToWorld3x4();
+                float4 w = float4(mul(o2w, float4(objPrev, 1.0)), 1.0); // previous pose under the current transform
+                float3 wPrev = float3(dot(r0, w), dot(r1, w), dot(r2, w));
+                return PackMotion(wPrev - mul(o2w, float4(objCur, 1.0)));
+            }
+
             float2 FetchUV(uint3 tri, float3 b)
             {
                 float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
@@ -188,6 +217,7 @@ Shader "UltraRT/Proxy"
                 bool wantGameCube = (p.flags & ULTRART_FLAG_GAMECUBE) != 0u; // request from the ray gen (hybrid primary rays)
                 // The game draws these as the sky (by view direction): the ray "escapes" here.
                 if (_SkyWall > 0.5) { p.t = -1.0; return; }
+                bool wantMotion = (p.flags & ULTRART_PAYLOAD_WANT_MOTION) != 0u;
 
                 uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
@@ -225,10 +255,11 @@ Shader "UltraRT/Proxy"
                 p.alpha = litWeight;
                 p.normal = n;
                 p.t = RayTCurrent();
-                p.emission = emission;
+                p.emissionHalf = PackEmissionHalf(emission);
                 p.instance = InstanceIndex();
                 p.uvHalf = f32tof16(uv.x) | (f32tof16(uv.y) << 16);
                 p.primitive = PrimitiveIndex();
+                p.motion = wantMotion ? HitMotion(tri, b, p0, p1, p2) : 0u;
 
                 // Reflection material: constant per proxy material, or the secondary set on VERTEX_BLENDING surfaces.
                 bool second = _Secondary > 0.5 && blendWeight < 0.5;
@@ -242,7 +273,7 @@ Shader "UltraRT/Proxy"
                 float specWeight = second ? _SpecWeight2 : _SpecWeight * mask;
                 p.material = second ? PackMaterialWord(_Roughness2, _Metalness2, _F02, specWeight)
                                     : PackMaterialWord(_Roughness, _Metalness, _F0, specWeight);
-                // InstanceID() is the custom id we pass to AddInstance: the source object's original layer.
+                // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls);
 
                 // Hybrid primary hits: the game's cubemap term for the composite to remove. uvHalf / primitive are debug-only
