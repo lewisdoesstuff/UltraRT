@@ -30,8 +30,19 @@ namespace UltraRT
         /// <summary>The spatial pass only blurs reflections at least this rough.</summary>
         public float spatialMinRoughness = 0.08f;
 
+        /// <summary>-ultrart-refl-cache off|auto|always: radiance cache at reflection hits. Auto (1) uses it where the
+        /// reflection footprint covers <see cref="cacheFootprint"/> of a cache cell, else 1-sample direct + cached indirect.</summary>
+        public int cacheShading = 1;
+        public float cacheFootprint = 0.5f;
+        /// <summary>Hybrid: remove the game's own REFLECTION cubemap term where ours applies (-ultrart-refl-keepcube: off).</summary>
+        public bool replaceGameCube = true;
+        /// <summary>Hybrid cube removal: cap on the keep factor divided by what the game left of the lit colour.</summary>
+        public float maxCubeKeep = 4f;
+
         /// <summary>The shaders' _ReflParams: x enabled, y spec weight, z refl strength, w threshold.</summary>
         public Vector4 ShaderParams => new Vector4(enabled ? 1f : 0f, specWeight, reflStrength, threshold);
+        /// <summary>PathTrace's _ReflCache: x cache mode, y footprint threshold (cells), z replace the game cubemap.</summary>
+        public Vector4 CacheParams => new Vector4(Mathf.Clamp(cacheShading, 0, 2), Mathf.Max(0f, cacheFootprint), replaceGameCube ? 1f : 0f, 0f);
     }
 
     public struct ReflectionInputs
@@ -134,6 +145,7 @@ namespace UltraRT
             cmd.SetComputeIntParam(cs, "_Hybrid", hybrid ? 1 : 0);
             cmd.SetComputeIntParam(cs, "_DebugView", debugView);
             cmd.SetComputeVectorParam(cs, "_ReflParams", s.ShaderParams);
+            cmd.SetComputeFloatParam(cs, "_MaxCubeKeep", Mathf.Max(1f, s.maxCubeKeep));
             cmd.SetComputeTextureParam(cs, _kResolve, "_Surface", inp.surface);
             cmd.SetComputeTextureParam(cs, _kResolve, "_NormalDepth", inp.normalDepth);
             cmd.SetComputeTextureParam(cs, _kResolve, "_Reflection", inp.reflection);

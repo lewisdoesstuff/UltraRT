@@ -28,7 +28,7 @@ Shader "UltraRT/Composite"
             Texture2D _UltraRTGameDepth;    // copy of the game's depth buffer (raw device depth)
             float4 _UltraRTDepthParams;     // x: 1/P00, y: 1/P11 (view ray from uv), z: enabled
             Texture2D _UltraRTLighting;     // denoised bounce (demodulated, HDR)
-            Texture2D<uint4> _UltraRTHybrid;  // packed halves: unshadowed direct rgb, shadowed direct rgb, lit weight
+            Texture2D<uint4> _UltraRTHybrid;  // packed halves: unshadowed direct rgb, shadowed direct rgb; w: lit weight unorm8 | game cubemap term rgb unorm8 << 8
             Texture2D _UltraRTDirect;         // denoised shadowed direct (second denoiser instance)
             Texture2D _UltraRTAlbedo;
             Texture2D _UltraRTSpecular;     // reflections (Reflections.compute Resolve): rgb added, a keep factor
@@ -111,17 +111,20 @@ Shader "UltraRT/Composite"
                     uint w, h;
                     _UltraRTHybrid.GetDimensions(w, h);
                     uint4 pk = _UltraRTHybrid.Load(int3(min(uint2(i.uv * float2(w, h)), uint2(w - 1, h - 1)), 0)); // i.uv: chosen trace texel centre
-                    float4 un = float4(f16tof32(pk.x), f16tof32(pk.x >> 16), f16tof32(pk.y), f16tof32(pk.w)); // rgb unshadowed, a lit weight
+                    float4 un = float4(f16tof32(pk.x), f16tof32(pk.x >> 16), f16tof32(pk.y), (pk.w & 0xFFu) * (1.0 / 255.0)); // rgb unshadowed, a lit weight
+                    // The game's own cubemap reflection where ours replaces it (0 elsewhere; UltraRTMaterial.hlsl): removed
+                    // before the shadow ratio, which only applies to the lit part. Reconstructed at trace resolution.
+                    float3 gameCube = float3((pk.w >> 8) & 0xFFu, (pk.w >> 16) & 0xFFu, pk.w >> 24) * (1.0 / 255.0);
                     float2 shun = _UltraRTDirect.Sample(my_point_clamp_sampler, i.uv).rg; // denoised luminance: shadowed, unshadowed
                     float3 bounce = _UltraRTLighting.Sample(my_point_clamp_sampler, i.uv).rgb;
                     float3 albedo = _UltraRTAlbedo.Sample(my_point_clamp_sampler, i.uv).rgb;
                     float lit = un.a;
                     float3 sh = un.rgb * (shun.x / max(shun.y, 1e-4)); // for the debug view
                     float3 shadow = (shun.x + _UltraRTShadowBias) / (shun.y + _UltraRTShadowBias);
-                    float3 result = game * lerp(1.0, shadow, lit) + _UltraRTGIStrength * albedo * bounce * lit;
-                    // Reflections: REFLECTION blend -> lerp(result, refl, RS); additive -> result + RS * refl; other
-                    // specular classes -> result + F * w * refl (metals: partly replaced). The game's own cubemap
-                    // reflection is already in `game` and is not removed (docs/reflections.md).
+                    float3 result = max(game - gameCube, 0.0) * lerp(1.0, shadow, lit) + _UltraRTGIStrength * albedo * bounce * lit;
+                    // Reflections: REFLECTION blend -> lerp(result, refl, RS); additive -> result + RS^2 * refl; other
+                    // specular classes -> result + F * w * refl (metals: partly replaced). Where the game's cubemap was
+                    // removed, spec.a also undoes its (1 - RS) on the lit colour (docs/reflections.md).
                     float4 spec = _UltraRTSpecular.Sample(my_point_clamp_sampler, i.uv);
                     result = result * spec.a + spec.rgb;
                     if (_UltraRTMode > 1.5)

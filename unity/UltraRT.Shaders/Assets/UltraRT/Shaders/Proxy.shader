@@ -32,6 +32,12 @@ Shader "UltraRT/Proxy"
         _SpecWeight2 ("Specular weight 2", Float) = 0
         _ReflMode2 ("Reflection mode 2", Float) = 0
         _MatClass2 ("Material class 2", Float) = 21
+        // The game's own REFLECTION cubemap (ULTRAKILL/Master; GameReflection in MaterialClasses.cs), reconstructed for the
+        // hybrid composite so it can be replaced. x: 0 none, 1 blend, 2 additive; y _ReflectionStrength;
+        // z _LightingContribution; w _ColorContribution. Atlas proxies keep 0 (the baked shader has no cubemap).
+        _GameRefl ("Game reflection", Vector) = (0,0,0,0)
+        _GameCube ("Game cubemap", Cube) = "" {}
+        _GameReflMask ("Game reflection mask", 2D) = "white" {}
     }
 
     SubShader
@@ -80,6 +86,36 @@ Shader "UltraRT/Proxy"
             float _AlphaTest;
             float _Roughness, _Metalness, _F0, _SpecWeight, _ReflMode, _ReflStrength, _MatClass;
             float _Secondary, _Roughness2, _Metalness2, _F02, _SpecWeight2, _ReflMode2, _MatClass2;
+            float4 _GameRefl;
+            TextureCube _GameCube;
+            Texture2D _GameReflMask;
+            SamplerState my_linear_clamp_sampler;
+
+            float3 WorldNormalAt(uint v)
+            {
+                return normalize(mul(UnityRayTracingFetchVertexAttribute3(v, kVertexAttributeNormal), (float3x3)WorldToObject3x4()));
+            }
+
+            // The game's cubemap term C at this hit (UltraRTMaterial.hlsl: game = lit * k + C). The game computes the
+            // reflection vector per vertex (reflect(-V, N) from the camera) and interpolates it, so do the same with the
+            // triangle's vertices; the camera is the primary ray's origin. Its 3-tap filtered cube fetch is approximated
+            // by one bilinear fetch.
+            float3 GameCubeTerm(uint3 tri, float3 b, float3 p0, float3 p1, float3 p2, bool geoNormal, float3 nGeo, float m, out float k)
+            {
+                float3 cam = WorldRayOrigin();
+                float3x4 o2w = ObjectToWorld3x4();
+                float3 w0 = mul(o2w, float4(p0, 1.0)), w1 = mul(o2w, float4(p1, 1.0)), w2 = mul(o2w, float4(p2, 1.0));
+                float3 n0 = nGeo, n1 = nGeo, n2 = nGeo;
+                if (!geoNormal) { n0 = WorldNormalAt(tri.x); n1 = WorldNormalAt(tri.y); n2 = WorldNormalAt(tri.z); }
+                float3 r = reflect(normalize(w0 - cam), n0) * b.x + reflect(normalize(w1 - cam), n1) * b.y
+                         + reflect(normalize(w2 - cam), n2) * b.z;
+                float3 cube = _GameCube.SampleLevel(my_linear_clamp_sampler, r, 0).rgb;
+                float rs = _GameRefl.y;
+                float3 tint = lerp(1.0, _Color.rgb, _GameRefl.w);
+                bool add = _GameRefl.x > 1.5;
+                k = add ? 1.0 : saturate(1.0 - m * rs);
+                return cube * tint * (add ? m * rs * rs : m * m * rs);
+            }
 
             float2 FetchUV(uint3 tri, float3 b)
             {
@@ -149,6 +185,7 @@ Shader "UltraRT/Proxy"
             [shader("closesthit")]
             void ClosestHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
             {
+                bool wantGameCube = (p.flags & ULTRART_FLAG_GAMECUBE) != 0u; // request from the ray gen (hybrid primary rays)
                 // The game draws these as the sky (by view direction): the ray "escapes" here.
                 if (_SkyWall > 0.5) { p.t = -1.0; return; }
 
@@ -195,12 +232,29 @@ Shader "UltraRT/Proxy"
 
                 // Reflection material: constant per proxy material, or the secondary set on VERTEX_BLENDING surfaces.
                 bool second = _Secondary > 0.5 && blendWeight < 0.5;
-                p.material = second ? PackMaterialWord(_Roughness2, _Metalness2, _F02, _SpecWeight2)
-                                    : PackMaterialWord(_Roughness, _Metalness, _F0, _SpecWeight);
                 uint mode = (uint)(second ? _ReflMode2 : _ReflMode);
                 uint cls = (uint)(second ? _MatClass2 : _MatClass);
+                // The game's _ReflectionMask (r, sampled at the main texture's uv) limits where its cubemap shows, e.g. the
+                // glass of the shop terminal: ours follows it (strength for blend/additive, specular weight otherwise).
+                float mask = 1.0;
+                if (_GameRefl.x > 0.5)
+                    mask = _GameReflMask.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0).r;
+                float specWeight = second ? _SpecWeight2 : _SpecWeight * mask;
+                p.material = second ? PackMaterialWord(_Roughness2, _Metalness2, _F02, specWeight)
+                                    : PackMaterialWord(_Roughness, _Metalness, _F0, specWeight);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer.
-                p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength, cls);
+                p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls);
+
+                // Hybrid primary hits: the game's cubemap term for the composite to remove. uvHalf / primitive are debug-only
+                // otherwise; PathTrace's primary rays never read them.
+                if (wantGameCube && _GameRefl.x > 0.5)
+                {
+                    float k;
+                    float3 c = GameCubeTerm(tri, b, p0, p1, p2, (flags & 1u) != 0u, n, mask, k);
+                    p.uvHalf = f32tof16(c.r) | (f32tof16(c.g) << 16);
+                    p.primitive = f32tof16(c.b) | (Unorm8(k) << 16) | (Unorm8(_GameRefl.z) << 24);
+                    p.flags |= ULTRART_FLAG_GAMECUBE;
+                }
             }
             ENDHLSL
         }

@@ -9,10 +9,16 @@
 //   flags:    bit 0 geometric normal | reflection mode 2 << 1 | layer 8 << 8 | reflection strength 8 << 16 | class 5 << 24
 //
 // Surface G-buffer (_Surface, RWTexture2D<uint4>; replaces the old _AlbedoOut + _EmissionOut, freeing one UAV):
-//   x: albedo rgb unorm8 x3 | class 5 << 24 | reflection mode 2 << 29 | bit 31 unused
+//   x: albedo rgb unorm8 x3 | class 5 << 24 | reflection mode 2 << 29 | bit 31 game cubemap removed (hybrid)
 //   y: half(emission.r) | half(emission.g) << 16
-//   z: half(emission.b) | reflection strength 8 << 16 | bits 24-31 unused
+//   z: half(emission.b) | reflection strength 8 << 16 | game cubemap keep factor unorm8 << 24 (valid with x bit 31)
 //   w: the payload's material word
+//
+// Game cubemap (hybrid, docs/reflections.md): ULTRAKILL/Master's REFLECTION term is, per pixel (mask m, strength RS),
+//   blend (_CubeMode 0): saturate(lit * (1 - m RS) + m^2 RS cube tint)      additive: saturate(lit + m RS^2 cube tint)
+// i.e. game = lit * k + C. The proxy hit shader reconstructs C and k for primary rays; PathTrace stores C in
+// _HybridLight.w and k here; the composite subtracts C and Resolve divides the keep factor by k.
+#define ULTRART_FLAG_GAMECUBE 0x80000000u // payload flags (hit -> ray gen): C and k are in uvHalf / primitive; also the request bit (ray gen -> hit)
 
 #define ULTRART_REFL_NONE     0u
 #define ULTRART_REFL_SPECULAR 1u // GGX lobe weighted by Fresnel and the specular weight
@@ -78,6 +84,19 @@ float3 SurfaceAlbedo(uint4 s) { return float3(FromUnorm8(s.x), FromUnorm8(s.x >>
 float3 SurfaceEmission(uint4 s) { return float3(f16tof32(s.y), f16tof32(s.y >> 16), f16tof32(s.z)); }
 SurfaceMaterial SurfaceMat(uint4 s) { return UnpackMaterial(s.w, (s.x >> 29) & 3u, FromUnorm8(s.z >> 16), (s.x >> 24) & 0x1Fu); }
 
+// Game cubemap removal (hybrid): k = what the game left of the lit colour (1 - m RS for blend, 1 for additive).
+uint4 SurfaceSetGameCube(uint4 s, float k) { return uint4(s.x | 0x80000000u, s.y, s.z | (Unorm8(k) << 24), s.w); }
+bool SurfaceHasGameCube(uint4 s) { return (s.x >> 31) != 0u; }
+float SurfaceGameCubeKeep(uint4 s) { return FromUnorm8(s.z >> 24); }
+
+// _HybridLight.w: lit weight unorm8 | game cubemap term C (rgb unorm8, 0 when not removed) << 8.
+uint PackHybridW(float litWeight, float3 gameCube)
+{
+    return Unorm8(litWeight) | (Unorm8(gameCube.r) << 8) | (Unorm8(gameCube.g) << 16) | (Unorm8(gameCube.b) << 24);
+}
+float HybridLitWeight(uint w) { return FromUnorm8(w); }
+float3 HybridGameCube(uint w) { return float3(FromUnorm8(w >> 8), FromUnorm8(w >> 16), FromUnorm8(w >> 24)); }
+
 // Specular terms shared by the ray generation shader (non-denoised output) and Reflections.compute (resolve):
 //   final = diffuse * keep + specW * Lrefl
 // where diffuse is the colour without reflections (albedo * lighting + emission's lit part, or the game's colour in
@@ -86,7 +105,8 @@ SurfaceMaterial SurfaceMat(uint4 s) { return UnpackMaterial(s.w, (s.x >> 29) & 3
 //     Full RT: energy-conserving blend: keep = 1 - w * lerp(luma(F), 1, metalness).
 //     Hybrid:  dielectrics add on top (keep = 1); metals blend by w * metalness, so the game's flat metal is partly
 //              replaced rather than brightened.
-//   BLEND / ADD: the game's REFLECTION model with RT radiance instead of its cubemap, no Fresnel (matches the game).
+//   BLEND / ADD: the game's REFLECTION model with RT radiance instead of its cubemap, no Fresnel (matches the game:
+//     blend lerp(colour, refl, RS); additive colour + RS^2 * refl, since the game scales its cube sample by RS twice).
 void SpecularTerms(SurfaceMaterial m, float3 albedo, float NdotV, float2 params, bool hybrid, out float3 specW, out float keep)
 {
     specW = 0;
@@ -109,7 +129,7 @@ void SpecularTerms(SurfaceMaterial m, float3 albedo, float NdotV, float2 params,
     }
     else if (m.mode == ULTRART_REFL_ADD)
     {
-        specW = (m.reflStrength * params.y).xxx;
+        specW = (m.reflStrength * m.reflStrength * params.y).xxx;
     }
 }
 

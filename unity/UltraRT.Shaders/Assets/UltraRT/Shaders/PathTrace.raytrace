@@ -51,6 +51,9 @@ float    _EmissionScale;
 // specular term) worth a ray. Pixels below it skip the ray, so the cost follows glossy coverage.
 float4   _ReflParams;
 float    _ReflMaxRadiance; // firefly clamp (luminance) for glossy reflections; mirrors are not clamped
+// Reflections v2 (docs/reflections.md): x radiance cache at reflection hits (0 off, 1 by footprint, 2 always),
+// y footprint threshold (fraction of a cache cell), z hybrid: replace the game's cubemap (0/1). Unbound = all off.
+float4   _ReflCache;
 
 // ---------------------------------------------------------------- rng
 
@@ -146,10 +149,30 @@ float3 UnshadowedAll(float3 p, float3 n, uint layer)
 }
 // ---------------------------------------------------------------- reflections
 
-// Radiance arriving along one reflection ray, shaded like the bounce: the hit's albedo x (one-sample direct light +
-// ambient) + its emission (in full: emissive light sampling only covers the diffuse lobe), or the sky. Sky walls
-// report a miss, so they reflect as sky too. dist: hit distance, or 1000 for the sky (the virtual image point).
-float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, inout uint rng, out float dist)
+// Lighting arriving at a reflection hit. With the radiance cache, a hit whose reflection footprint (lobe spread plus
+// the pixel's footprint at the virtual image distance) covers at least _ReflCache.y of a cache cell reads the cell's
+// total lighting: no shadow ray, no light-selection speckle, and multi-bounce light. Smaller footprints (mirrors, sharp
+// glossy) keep the 1-sample direct light, for sharp shadows in the reflection, plus the cell's indirect light. A missing
+// or unconverged cell falls back to the old estimate (direct + ambient only). Hybrid scales the indirect part by
+// _GIStrength, like the bounce it adds to the game's colour.
+float3 ReflectionHitLight(float3 hp, RayPayload h, float footprint, inout uint rng)
+{
+    float3 total, indirect;
+    bool cached = _ReflCache.x > 0.5 && CacheLookup(hp, h.normal, total, indirect);
+    float giW = _Mode == 3 ? _GIStrength : 1.0;
+    float3 light;
+    if (cached && (_ReflCache.x > 1.5 || footprint >= CacheCellSize(CacheLevel(hp)) * _ReflCache.y))
+        light = total - indirect * (1.0 - giW);
+    else
+        light = DirectOne(hp, h.normal, PayloadLayer(h), rng) + (cached ? indirect * giW : 0.0);
+    return light + _Ambient.rgb * _BounceAmbient * RelightAmbientScale();
+}
+
+// Radiance arriving along one reflection ray: the hit's albedo x lighting (ReflectionHitLight) + its emission (in
+// full: emissive light sampling only covers the diffuse lobe), or the sky. Sky walls report a miss, so they reflect as
+// sky too. dist: hit distance, or 1000 for the sky (the virtual image point). spread: lobe spread (radians, roughly
+// alpha); pixelAngle: one trace pixel's angle; t: primary hit distance (for the footprint).
+float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread, float pixelAngle, float t, inout uint rng, out float dist)
 {
     RayDesc r;
     r.Origin = pos + n * 0.02;
@@ -169,7 +192,8 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, inout uint r
     {
         dist = h.t;
         float3 hp = r.Origin + L * h.t;
-        float3 hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng) + _Ambient.rgb * _BounceAmbient * RelightAmbientScale();
+        float footprint = h.t * spread + (t + h.t) * pixelAngle;
+        float3 hitLight = ReflectionHitLight(hp, h, footprint, rng);
         c = h.emission * _EmissionScale + h.albedo * lerp(1.0, hitLight, h.alpha);
     }
     c = max(c, 0.0); // also drops NaN
@@ -205,6 +229,9 @@ void RayGen()
 
     RayPayload p = (RayPayload)0;
     p.t = -1.0;
+    // Hybrid with reflections: ask the hit shader for the game's cubemap term (UltraRTMaterial.hlsl, game cubemap).
+    bool wantGameCube = _Mode == 3 && _ReflParams.x > 0.5 && _ReflCache.z > 0.5;
+    if (wantGameCube) p.flags = ULTRART_FLAG_GAMECUBE;
     TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, ray, p);
 
     float3 c, lighting, albedo, emission;
@@ -294,7 +321,10 @@ void RayGen()
             {
                 float3 L = ReflectionDirection(n, ray.Direction, mat.roughness, rng);
                 float dist;
-                float3 lr = TraceReflection(pos, n, L, mat.roughness >= 0.03, rng, dist);
+                // One trace pixel's angle, for the cache footprint test (from the neighbouring pixel's ray).
+                float4 farN = mul(_InvViewProj, float4(ndc + float2(2.0 / (float)dim.x, 0.0), 1.0, 1.0));
+                float pixelAngle = length(normalize(farN.xyz / farN.w - _CamPos.xyz) - ray.Direction);
+                float3 lr = TraceReflection(pos, n, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, p.t, rng, dist);
                 refl = float4(lr, dist);
                 // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered
                 // reflection in Reflections.compute instead.
@@ -302,13 +332,24 @@ void RayGen()
             }
         }
         _Reflection[id] = refl;
-        _Surface[id] = PackSurface(albedo, emission, p.material, p.flags);
+        // Game cubemap (hybrid): replaced only where we apply a reflection of our own; elsewhere the game's stays.
+        uint4 surface = PackSurface(albedo, emission, p.material, p.flags);
+        float3 gameCube = 0;
+        if (wantGameCube && (p.flags & ULTRART_FLAG_GAMECUBE) != 0u && mat.mode != ULTRART_REFL_NONE)
+        {
+            gameCube = float3(f16tof32(p.uvHalf), f16tof32(p.uvHalf >> 16), f16tof32(p.primitive));
+            float lightContribution = FromUnorm8(p.primitive >> 24);
+            if (lightContribution > 0.0) // the game tints it by its vertex lighting (2 * ambient + unshadowed lights)
+                gameCube *= lerp(1.0, UnshadowedAll(pos, n, layer) + _Ambient.rgb, lightContribution);
+            surface = SurfaceSetGameCube(surface, FromUnorm8(p.primitive >> 16));
+        }
+        _Surface[id] = surface;
         _NormalDepth[id] = float4(n, p.t);
         float3 un = g_DirectUnshadowed; // same samples as `direct`, without visibility
         _HybridLight[id] = uint4(f32tof16(un.r) | (f32tof16(un.g) << 16),
                                  f32tof16(un.b) | (f32tof16(direct.r) << 16),
                                  f32tof16(direct.g) | (f32tof16(direct.b) << 16),
-                                 f32tof16(p.alpha));
+                                 PackHybridW(p.alpha, gameCube));
         _InstanceId[id] = (int)p.instance;
     }
 
