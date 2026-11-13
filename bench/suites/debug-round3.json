@@ -1,0 +1,62 @@
+{
+    "Name":  "debug-round3",
+    "Scenarios":  [
+                      {
+                          "Name":  "start",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Position":  [
+                                                        -2,
+                                                        -0.5,
+                                                        283.5
+                                                    ],
+                                       "Yaw":  0,
+                                       "Pitch":  12,
+                                       "Duration":  4
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "cerberus",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-cerberus.json",
+                                       "Duration":  4
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "wall-hotspot",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-wall-hotspot.json",
+                                       "Duration":  4
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      }
+                  ]
+}

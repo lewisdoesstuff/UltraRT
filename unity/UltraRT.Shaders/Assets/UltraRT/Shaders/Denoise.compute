@@ -360,9 +360,16 @@ void Composite(uint3 id : SV_DispatchThreadID)
     // roll off instead of clipping. Global property; 0/unset = off.
     if (_UltraRTTonemapWhite > 0.0 && _DebugView == 0)
     {
+        // Shoulder only: values up to the knee (normal surface colours, fullbright/emissive art) are untouched;
+        // luminance above it rolls off smoothly so that _UltraRTTonemapWhite maps to 1.
+        const float knee = 0.75;
         float lum = Luma(c);
-        float w2 = _UltraRTTonemapWhite * _UltraRTTonemapWhite;
-        c *= (1.0 + lum / w2) / (1.0 + lum);
+        if (lum > knee)
+        {
+            float x = lum - knee, room = 1.0 - knee, range = max(_UltraRTTonemapWhite - knee, 1e-3);
+            float mapped = knee + room * x * (1.0 + x / (range * range) * room) / (x + room);
+            c *= mapped / lum;
+        }
     }
     _Output[id.xy] = float4(saturate(c), 1.0);
 }

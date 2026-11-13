@@ -57,18 +57,49 @@ Shader "UltraRT/Composite"
                 return o;
             }
 
+            float RtViewZ(float2 uv, float t)
+            {
+                float2 ndc = uv * 2.0 - 1.0;
+                return t / length(float3(ndc.x * _UltraRTDepthParams.x, ndc.y * _UltraRTDepthParams.y, 1.0));
+            }
+
             float4 frag(v2f i) : SV_Target
             {
-                float rtT = _UltraRTNormalDepth.Sample(my_point_clamp_sampler, i.uv).w;
-                if (rtT < 0.0) discard;
+                float2 screenUV = i.uv;
+                float gameViewZ = 0.0;
                 if (_UltraRTDepthParams.z > 0.5)
                 {
-                    // Where the game drew something closer than our ray hit (an object the traced scene doesn't have:
-                    // glow quads, decals, effects), keep the game's pixel untouched.
-                    float2 ndc = i.uv * 2.0 - 1.0;
-                    float rtViewZ = rtT / length(float3(ndc.x * _UltraRTDepthParams.x, ndc.y * _UltraRTDepthParams.y, 1.0));
-                    float gameViewZ = LinearEyeDepth(_UltraRTGameDepth.Sample(my_point_clamp_sampler, i.uv).r);
-                    if (gameViewZ < rtViewZ * 0.97 - 0.05) discard;
+                    // Depth-guided upsampling: the RT buffers are lower resolution than the screen. At silhouettes the
+                    // nearest trace texel may belong to the background (or vice versa), giving dark/bright rims. Pick the
+                    // one of the 2x2 nearest trace texels whose hit depth best matches the game's depth at this pixel,
+                    // and read every RT buffer from it.
+                    gameViewZ = LinearEyeDepth(_UltraRTGameDepth.Sample(my_point_clamp_sampler, i.uv).r);
+                    uint tw, th;
+                    _UltraRTNormalDepth.GetDimensions(tw, th);
+                    float2 dim = float2(tw, th);
+                    float2 base = floor(i.uv * dim - 0.5);
+                    float bestErr = 1e30;
+                    float2 bestUV = i.uv;
+                    [unroll] for (int k = 0; k < 4; k++)
+                    {
+                        float2 texel = clamp(base + float2(k & 1, k >> 1), 0.0, dim - 1.0);
+                        float2 tuv = (texel + 0.5) / dim;
+                        float tt = _UltraRTNormalDepth.SampleLevel(my_point_clamp_sampler, tuv, 0).w;
+                        float err = tt < 0.0 ? 1e20 : abs(RtViewZ(tuv, tt) - gameViewZ);
+                        if (err < bestErr) { bestErr = err; bestUV = tuv; }
+                    }
+                    i.uv = bestUV;
+                }
+
+                float rtT = _UltraRTNormalDepth.Sample(my_point_clamp_sampler, i.uv).w;
+                if (rtT < 0.0) discard;
+                // Keep the game's pixel untouched where its depth disagrees with our hit:
+                //  - game closer: an object the traced scene doesn't have (glow quads, decals, effects);
+                //  - ours closer: an object we trace but the game doesn't draw (hidden/unused renderers).
+                if (_UltraRTDepthParams.z > 0.5)
+                {
+                    float rtViewZ = RtViewZ(screenUV, rtT);
+                    if (abs(gameViewZ - rtViewZ) > rtViewZ * 0.03 + 0.05) discard;
                 }
 
                 if (_UltraRTMode > 0.5)
@@ -76,10 +107,10 @@ Shader "UltraRT/Composite"
                     // Hybrid: game colour with ray-traced shadows (as a ratio of our own lights, shadowed vs not) plus
                     // a scaled, denoised bounce. Where our lights barely reach a surface (the game lit it some other way,
                     // e.g. baked vertex light data), the ratio tends to 1 and the game's look is kept.
-                    float3 game = _UltraRTGameColor.Sample(my_point_clamp_sampler, i.uv).rgb;
+                    float3 game = _UltraRTGameColor.Sample(my_point_clamp_sampler, screenUV).rgb;
                     uint w, h;
                     _UltraRTHybrid.GetDimensions(w, h);
-                    uint4 pk = _UltraRTHybrid.Load(int3(min(uint2(i.uv * float2(w, h)), uint2(w - 1, h - 1)), 0));
+                    uint4 pk = _UltraRTHybrid.Load(int3(min(uint2(i.uv * float2(w, h)), uint2(w - 1, h - 1)), 0)); // i.uv: chosen trace texel centre
                     float4 un = float4(f16tof32(pk.x), f16tof32(pk.x >> 16), f16tof32(pk.y), f16tof32(pk.w)); // rgb unshadowed, a lit weight
                     float2 shun = _UltraRTDirect.Sample(my_point_clamp_sampler, i.uv).rg; // denoised luminance: shadowed, unshadowed
                     float3 bounce = _UltraRTLighting.Sample(my_point_clamp_sampler, i.uv).rgb;

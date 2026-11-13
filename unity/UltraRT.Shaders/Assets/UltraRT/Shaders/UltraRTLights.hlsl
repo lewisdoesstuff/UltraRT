@@ -160,6 +160,9 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
             float x = d / (2.0 * r);
             float window = saturate(1.0 - x * x * x * x);
             float phys = (1.0 / 7.25) * (rRef * rRef) / max(d2, 0.01) * window * window;
+            // Never more than 3x the game's own brightness: inverse-square near a light (e.g. one carried right next to
+            // the camera) would otherwise blow surfaces out to white.
+            phys = min(phys, 3.0 * game + 0.05);
             game = lerp(game, phys, saturate(_Relight.x));
         }
         atten = game * saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
