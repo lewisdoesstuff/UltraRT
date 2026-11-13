@@ -1,0 +1,243 @@
+// Radiance cache update: sparse multi-bounce paths that write into the world-space hash grid (UltraRTCache.hlsl),
+// plus a debug view of the cache. A separate .raytrace so PathTrace keeps its 8-UAV budget.
+// UAVs: _CacheKeys, _CacheAccum, _CacheDebugOut (+ _ReservoirCur, declared by UltraRTLights.hlsl but never used here).
+// See docs/radiance-cache.md.
+#pragma max_recursion_depth 1
+
+#define ULTRART_CACHE_WRITE
+#include "UltraRTCommon.hlsl"
+
+RaytracingAccelerationStructure _Scene;
+float4x4 _InvViewProj;
+float4   _CamPos;
+uint     _FrameIndex;
+float    _LightScale;
+float    _EmissionScale;
+
+float4   _SkyColor;
+Texture2D _SkyTex;
+SamplerState sampler_linear_repeat_SkyTex;
+float4   _SkyTint;
+float4   _SkyParams;
+
+// Update parameters.
+float4   _CacheTrace;     // xy trace resolution (pixels), z pixels per update path along each axis (stride), w bounces
+float4   _CacheUpdate;    // x feedback (damping of the cached tail), y max albedo, z max sample value, w unused
+int      _CacheCandidates; // RIS candidates per path vertex
+
+RWTexture2D<float4> _CacheDebugOut;
+int      _CacheDebug;     // 1 radiance, 2 lighting, 3 indirect, 4 cells, 5 samples
+
+// ---------------------------------------------------------------- shared helpers (as in PathTrace.raytrace)
+
+uint Pcg(inout uint s)
+{
+    s = s * 747796405u + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+
+float Rand(inout uint s) { return Pcg(s) * (1.0 / 4294967296.0); }
+
+float3 CosineHemisphere(float3 n, float u1, float u2)
+{
+    float r = sqrt(u1);
+    float phi = 6.28318530718 * u2;
+    float3 t = abs(n.y) < 0.999 ? normalize(cross(n, float3(0, 1, 0))) : float3(1, 0, 0);
+    float3 b = cross(n, t);
+    return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(0.0, 1.0 - u1)));
+}
+
+float3 SkyRadiance(float3 d)
+{
+    if (_SkyParams.x < 0.5) return _SkyColor.rgb;
+    float s = sin(_SkyParams.y), c = cos(_SkyParams.y);
+    d = float3(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
+    float2 uv = float2(atan2(d.x, d.z) * (0.5 / 3.14159265) + 0.5, asin(clamp(d.y, -1.0, 1.0)) * (1.0 / 3.14159265) + 0.5);
+    return _SkyTex.SampleLevel(sampler_linear_repeat_SkyTex, uv, 0).rgb * _SkyTint.rgb;
+}
+
+#include "UltraRTLights.hlsl"
+#include "UltraRTCache.hlsl"
+
+// Direct light at a path vertex: fill lights plus RIS over _CacheCandidates (lights and emissive triangles), one shadow ray.
+// Like DirectOne, with more candidates: these paths are sparse, so candidates are cheap.
+float3 CacheDirect(float3 p, float3 n, uint layer, inout uint rng)
+{
+    float3 sum = FillLighting(p, n, layer);
+    Reservoir r = RisCandidates(p, n, layer, _CacheCandidates, rng);
+    float W = ReservoirW(r);
+    if (W > 0.0 && SampleVisible(r, p, n)) sum += r.c * W;
+    return sum * _LightScale;
+}
+
+bool TracePrimary(float2 pixel, float2 dim, out RayDesc ray, out RayPayload p)
+{
+    float2 ndc = pixel / dim * 2.0 - 1.0;
+    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
+    farPt.xyz /= farPt.w;
+    ray.Origin = _CamPos.xyz;
+    ray.Direction = normalize(farPt.xyz - _CamPos.xyz);
+    ray.TMin = 0.0;
+    ray.TMax = 1.0e5;
+    p = (RayPayload)0;
+    p.t = -1.0;
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, ray, p);
+    return p.t >= 0.0;
+}
+
+// ---------------------------------------------------------------- update
+
+#define CACHE_MAX_BOUNCES 4
+
+// One path per stride x stride block of trace pixels, from a random pixel in the block. At each of the first `bounces`
+// vertices: direct light (RIS) and one cosine bounce. The vertex after the last bounce takes its lighting from the cache
+// (times the feedback factor: infinite bounces, damped), or from one direct sample on a cache miss. Each vertex then
+// adds its path estimate to its cell: total = direct + incoming, indirect = incoming, where
+//   incoming_i = emission_{i+1} + albedo_{i+1} * lerp(1, total_{i+1}, litWeight_{i+1})   (sky radiance on a miss).
+[shader("raygeneration")]
+void UpdateRayGen()
+{
+    uint2 id = DispatchRaysIndex().xy;
+    uint rng = HashU32(id.x * 7919u + id.y * 104729u + _FrameIndex * 15485863u + 0x5bd1e995u) | 1u;
+
+    float2 dim = _CacheTrace.xy;
+    float stride = _CacheTrace.z;
+    float2 pixel = min(((float2)id + float2(Rand(rng), Rand(rng))) * stride, dim - 0.5);
+    if (any((float2)id * stride >= dim)) return;
+
+    RayDesc ray;
+    RayPayload p;
+    if (!TracePrimary(pixel, dim, ray, p)) return;
+
+    int bounces = clamp((int)_CacheTrace.w, 1, CACHE_MAX_BOUNCES);
+    float feedback = _CacheUpdate.x;
+    float albedoMax = _CacheUpdate.y;
+
+    float3 pos = ray.Origin + ray.Direction * p.t;
+    float3 n = p.normal;
+    uint layer = PayloadLayer(p);
+
+    // Per vertex: cell slot, direct light, and incoming = a + b * total(next vertex).
+    uint   slot[CACHE_MAX_BOUNCES];
+    float3 direct[CACHE_MAX_BOUNCES];
+    float3 a[CACHE_MAX_BOUNCES];
+    float3 b[CACHE_MAX_BOUNCES];
+    int count = 0;
+    float3 tail = 0;
+
+    [unroll]
+    for (int i = 0; i < CACHE_MAX_BOUNCES; i++)
+    {
+        slot[i] = ULTRART_CACHE_NONE; direct[i] = 0; a[i] = 0; b[i] = 0;
+    }
+
+    [unroll]
+    for (int v = 0; v < CACHE_MAX_BOUNCES; v++)
+    {
+        if (v >= bounces) break;
+        slot[v] = CacheInsert(pos, n);
+        direct[v] = CacheDirect(pos, n, layer, rng);
+        count = v + 1;
+
+        RayDesc br;
+        br.Origin = pos + n * 0.02;
+        br.Direction = CosineHemisphere(n, Rand(rng), Rand(rng));
+        br.TMin = 0.0;
+        br.TMax = 1.0e4;
+        RayPayload h = (RayPayload)0;
+        h.t = -1.0;
+        TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, br, h);
+        if (h.t < 0.0)
+        {
+            a[v] = SkyRadiance(br.Direction);
+            break;
+        }
+
+        float3 hp = br.Origin + br.Direction * h.t;
+        float3 alb = min(h.albedo, albedoMax);
+        // Emitters sampled as lights (EmissiveLights) are not counted again when hit (_EmissiveBounceWeight = 0).
+        a[v] = h.emission * (_EmissionScale * _EmissiveBounceWeight) + alb * (1.0 - h.alpha);
+        b[v] = alb * h.alpha;
+
+        if (v + 1 >= bounces)
+        {
+            float3 cached;
+            if (CacheQueryTotal(hp, h.normal, cached)) tail = cached * feedback;
+            else if (feedback > 0.0) tail = CacheDirect(hp, h.normal, PayloadLayer(h), rng);
+            break;
+        }
+        pos = hp;
+        n = h.normal;
+        layer = PayloadLayer(h);
+    }
+
+    float maxValue = _CacheUpdate.z;
+    float3 next = tail;
+    [unroll]
+    for (int k = CACHE_MAX_BOUNCES - 1; k >= 0; k--)
+    {
+        if (k >= count) continue;
+        float3 incoming = a[k] + b[k] * next;
+        float3 total = direct[k] + incoming;
+        CacheAccumulate(slot[k], total, incoming, maxValue);
+        next = total;
+    }
+}
+
+// ---------------------------------------------------------------- debug view
+
+float3 Heat(float x)
+{
+    x = saturate(x);
+    return saturate(float3(1.5 - abs(x * 4.0 - 3.0), 1.5 - abs(x * 4.0 - 2.0), 1.5 - abs(x * 4.0 - 1.0)));
+}
+
+// Writes over PathTrace's output (same size, pixel centres). Misses are a dark magenta checker.
+[shader("raygeneration")]
+void DebugRayGen()
+{
+    uint2 id = DispatchRaysIndex().xy;
+    uint2 dimu = DispatchRaysDimensions().xy;
+    RayDesc ray;
+    RayPayload p;
+    if (!TracePrimary((float2)id + 0.5, (float2)dimu, ray, p)) return; // sky: the composite keeps the game's sky
+
+    float3 pos = ray.Origin + ray.Direction * p.t;
+    float3 n = p.normal;
+    float3 missColor = ((id.x / 8u + id.y / 8u) & 1u) != 0u ? float3(0.25, 0.0, 0.25) : float3(0.12, 0.0, 0.12);
+    float shade = 0.4 + 0.6 * saturate(dot(n, -ray.Direction));
+
+    float lf = CacheLevelF(pos);
+    int level = min((int)lf, ULTRART_CACHE_MAX_LEVEL);
+    uint bucket, check, slot;
+    CacheKey(pos, n, level, bucket, check);
+    bool found = CacheFind(bucket, check, slot);
+    float3 total = 0, indirect = 0;
+    float M = 0;
+    if (found) CacheDecode(_CacheResolved[slot], total, indirect, M);
+
+    float3 c;
+    switch (_CacheDebug)
+    {
+        default:
+        case 1: c = found ? p.albedo * lerp(1.0, total, p.alpha) + p.emission * _EmissionScale : missColor; break;
+        case 2: c = found ? total : missColor; break;
+        case 3: c = found ? indirect : missColor; break;
+        case 4:
+        {
+            // Hash colour per cell, darker on odd levels so LOD rings show; misses (not in the table) are grey.
+            float3 hc = HashColor(check);
+            c = (found ? hc : float3(0.3, 0.3, 0.3)) * shade * ((level & 1) != 0 ? 0.6 : 1.0);
+            break;
+        }
+        case 5: c = found ? Heat(log2(1.0 + M) / 10.0) * shade : missColor; break; // 1 .. ~1000 samples
+    }
+    _CacheDebugOut[id] = float4(c, 1.0);
+}
+
+[shader("miss")]
+void Miss(inout RayPayload p : SV_RayPayload)
+{
+    p.t = -1.0;
+}

@@ -50,6 +50,8 @@ namespace UltraRT
             ("refl-history", Kind.Reflection, 4),
             ("materials", Kind.Debug, 8),        // material class colours (striped: REFLECTION materials)
             ("spec-params", Kind.Debug, 9),      // r smoothness, g metalness, b reflection strength / spec weight
+            ("cache", Kind.PathTrace, CacheDebugModeBase + (int)RadianceCacheDebug.Radiance),     // Plugin.Cache.cs
+            ("cache-cells", Kind.PathTrace, CacheDebugModeBase + (int)RadianceCacheDebug.Cells),
         };
 
         private const int MaxLights = 256;
@@ -92,6 +94,7 @@ namespace UltraRT
         private void Awake()
         {
             ParseArgs();
+            ParseCacheArgs();
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);
 
@@ -238,6 +241,7 @@ namespace UltraRT
             if (settings != null) _denoiser.Settings = settings;
             _reflFilter?.Dispose();
             _reflFilter = new ReflectionFilter(reflections);
+            LoadCacheShaders(bundle);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -269,6 +273,7 @@ namespace UltraRT
                 if (Input.GetKeyDown(KeyCode.F6)) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
                 if (Input.GetKeyDown(KeyCode.F8)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
+                CacheHotkeys();
             }
             catch (InvalidOperationException) { /* legacy input disabled */ }
 
@@ -303,6 +308,7 @@ namespace UltraRT
             _lightSampling?.Reset();
             _reflFilter?.Reset();
             _emissive?.Clear();
+            _radianceCache?.Reset();
         }
 
         private Denoiser _denoiser;
@@ -593,7 +599,7 @@ namespace UltraRT
             _cmd.SetRayTracingTextureParam(shader, "_Output", _output);
             _cmd.SetRayTracingMatrixParam(shader, "_InvViewProj", invViewProj);
             _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
-            _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : resolve ? 0 : mode);
+            _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : resolve || mode >= CacheDebugModeBase ? 0 : mode);
             _cmd.SetRayTracingFloatParam(shader, "_GIStrength", _giStrength);
 
             if (pt)
@@ -624,6 +630,7 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
                 _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
+                TraceRadianceCache(shader, w, h, invViewProj, ambient);
             }
             else
             {
@@ -635,6 +642,7 @@ namespace UltraRT
             _cmd.DispatchRays(shader, "RayGen", (uint)w, (uint)h, 1);
             _gpu?.End(_cmd, SlotDispatch);
             _cmd.EndSample(SampleTrace);
+            if (kind == Kind.PathTrace) TraceCacheDebug(mode);
 
             _displayed = _output;
             if (resolve)
@@ -735,7 +743,7 @@ namespace UltraRT
 
             _frameIndex++;
             if (pt && _accumulate) _accumFrames++;
-            if (_tracedFrames++ == 0) Logger.LogInfo($"First trace OK: {w}x{h}, instances={_proxies.Rtas.GetInstanceCount()}, lights={_lightCount}");
+            if (_tracedFrames++ == 0) Logger.LogInfo($"First trace OK: {w}x{h}, instances={_proxies.Rtas.GetInstanceCount()}, lights={_lightCount}, cache={(_radianceCache?.Active == true ? $"{_cacheSettings.mode} {_radianceCache.Capacity} slots {_radianceCache.GpuBytes >> 20} MB" : "off")}");
         }
 
         // Debug markers (visible in PIX/RenderDoc). Unity's Recorder reports 0 GPU time in this release player;
@@ -745,8 +753,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCount = 5;
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotCount = 6;
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

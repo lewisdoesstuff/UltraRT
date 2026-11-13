@@ -109,6 +109,7 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 // ---------------------------------------------------------------- lights
 
 #include "UltraRTLights.hlsl"
+#include "UltraRTCache.hlsl" // radiance cache lookups (read-only: no UAVs)
 
 // The game's lighting at a point: same lights and falloff, but no shadows (the game has none) and its full ambient.
 // Used as the denominator of the ratio composite: game colour * (RT lighting / game lighting).
@@ -228,7 +229,16 @@ void RayGen()
         float3 direct = DirectLighting(id, dim, pos, n, p.t, layer, rng);
 
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
+        // Radiance cache (docs/radiance-cache.md): mode 2 reads the indirect light at the primary hit and skips the bounce
+        // ray; mode 1 takes the lighting at the bounce hit from the cache (all further bounces, no shadow ray).
         float3 indirect = 0;
+        bool cachedPrimary = false;
+        if (_CacheMode == 2)
+        {
+            float u1 = Rand(rng), u2 = Rand(rng);
+            cachedPrimary = CacheQueryIndirect(pos, n, u1, u2, indirect);
+        }
+        if (!cachedPrimary)
         {
             RayDesc b;
             b.Origin = pos + n * 0.02;
@@ -245,7 +255,9 @@ void RayGen()
             else
             {
                 float3 hp = b.Origin + b.Direction * h.t;
-                float3 hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng) + _Ambient.rgb * _BounceAmbient;
+                float3 cached;
+                float3 hitLight = (CacheQueryTotal(hp, h.normal, cached) ? cached : DirectOne(hp, h.normal, PayloadLayer(h), rng))
+                                + _Ambient.rgb * _BounceAmbient;
                 // Emitters that are sampled directly (EmissiveLights) must not also count when a bounce hits them.
                 indirect = h.emission * (_EmissionScale * _EmissiveBounceWeight) + h.albedo * lerp(1.0, hitLight, h.alpha);
             }

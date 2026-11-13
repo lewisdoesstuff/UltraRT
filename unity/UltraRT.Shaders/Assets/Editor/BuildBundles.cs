@@ -32,6 +32,8 @@ namespace UltraRT.Editor
                 assetBundleName = BundleName,
                 assetNames = new[]
                 {
+                    "Assets/UltraRT/Shaders/CacheResolve.compute",
+                    "Assets/UltraRT/Shaders/CacheUpdate.raytrace",
                     "Assets/UltraRT/Shaders/Composite.shader",
                     "Assets/UltraRT/Shaders/DebugView.raytrace",
                     "Assets/UltraRT/Shaders/Denoise.compute",
