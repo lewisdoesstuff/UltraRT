@@ -3,6 +3,8 @@
 param(
     [string] $Scene = 'Level 1-1',
     [double] $Scale = 0.5,
+    [switch] $GpuTimer,
+    [string[]] $Extra = @(),
     [string] $GameDir = $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }),
     [int] $TimeoutSec = 240
 )
@@ -13,6 +15,8 @@ $outDir = Join-Path $GameDir 'BepInEx\ultrart'
 $started = Get-Date
 
 $gameArgs = @('-force-d3d12', '-ultrart-scene', "`"$Scene`"", '-ultrart-scale', $Scale.ToString([Globalization.CultureInfo]::InvariantCulture), '-ultrart-capture', '-ultrart-quit')
+if ($Extra) { $gameArgs += @($Extra | Where-Object { $_ }) }
+if ($GpuTimer) { $gameArgs += '-ultrart-gputimer' }
 $p = Start-Process $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir -PassThru
 if (-not $p.WaitForExit($TimeoutSec * 1000)) {
     Stop-Process -Id $p.Id -Force

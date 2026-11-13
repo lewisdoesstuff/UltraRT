@@ -95,6 +95,15 @@ namespace UltraRT
             _bundlePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", "ultrart.shaders");
             if (!LoadShaders()) return;
 
+            if (_useGpuTimer)
+            {
+                // Opt-in dev tool: the native DLL registers itself with Unity through an internal routine.
+                var nativePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", GpuTimer.DllName);
+                if (GpuTimer.TryCreate(nativePath, out _gpu, out var gpuError)) Logger.LogInfo($"GPU timer: {_gpu.Status}");
+                else Logger.LogWarning($"GPU timer unavailable: {gpuError}");
+                _cmdPost = new CommandBuffer { name = "UltraRT Post" };
+            }
+
             Patches.Apply(Info.Metadata.GUID);
             _cmd = new CommandBuffer { name = "UltraRT" };
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
@@ -132,6 +141,10 @@ namespace UltraRT
                     case "-ultrart-dumpverts": SceneProxies.DumpAtlasVertices = true; break;
                     case "-ultrart-skinned-visible": SceneProxies.SkinnedProxiesVisible = true; break;
                     case "-ultrart-spawn-test": _spawnTest = true; break;
+                    case "-ultrart-gputimer": _useGpuTimer = true; break;
+                    case "-ultrart-nostatic": SceneProxies.SkipStaticBatches = true; break;
+                    case "-ultrart-nomerge": SceneProxies.NoSubmeshMerge = true; break;
+                    case "-ultrart-gputimer-flags": Environment.SetEnvironmentVariable("ULTRART_GPUTIMER_FLAGS", Next()); break;
                     case "-ultrart-ambient": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _primaryAmbient); break;
                 }
             }
@@ -386,8 +399,11 @@ namespace UltraRT
             var invViewProj = viewProj.inverse;
 
             _cmd.Clear();
+            _gpu?.Begin(_cmd, SlotTotal);
             _cmd.BeginSample(SampleBuild);
+            _gpu?.Begin(_cmd, SlotRtas);
             _cmd.BuildRayTracingAccelerationStructure(_proxies.Rtas);
+            _gpu?.End(_cmd, SlotRtas);
             _cmd.EndSample(SampleBuild);
 
             var shader = pt ? _ptShader : _debugShader;
@@ -426,7 +442,9 @@ namespace UltraRT
             }
 
             _cmd.BeginSample(SampleTrace);
+            _gpu?.Begin(_cmd, SlotDispatch);
             _cmd.DispatchRays(shader, "RayGen", (uint)w, (uint)h, 1);
+            _gpu?.End(_cmd, SlotDispatch);
             _cmd.EndSample(SampleTrace);
 
             _displayed = _output;
@@ -448,13 +466,26 @@ namespace UltraRT
                     camPos = _camera.transform.position,
                 };
                 _cmd.BeginSample(SampleDenoise);
+                _gpu?.Begin(_cmd, SlotDenoise);
                 _denoiser.Execute(_cmd, inputs, _denoised);
+                _gpu?.End(_cmd, SlotDenoise);
                 _cmd.EndSample(SampleDenoise);
                 _displayed = _denoised;
             }
 
+            _gpu?.Begin(_cmd, SlotBlit);
             Graphics.ExecuteCommandBuffer(_cmd);
             Graphics.Blit(_displayed, (RenderTexture)null);
+            if (_gpu != null)
+            {
+                // Blit isn't part of _cmd, so the bracket closes in a second buffer queued after it.
+                _cmdPost.Clear();
+                _gpu.End(_cmdPost, SlotBlit);
+                _gpu.End(_cmdPost, SlotTotal);
+                _gpu.EndFrame(_cmdPost);
+                Graphics.ExecuteCommandBuffer(_cmdPost);
+                SampleGpuTimings();
+            }
 
             _frameIndex++;
             if (pt && _accumulate) _accumFrames++;
@@ -464,6 +495,38 @@ namespace UltraRT
         // Debug markers (visible in PIX/RenderDoc). Unity's Recorder reports 0 GPU time in this release player;
         // real GPU timings come from the native timer plugin.
         private const string SampleBuild = "UltraRT.BuildRTAS", SampleTrace = "UltraRT.DispatchRays", SampleDenoise = "UltraRT.Denoise";
+
+        // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
+
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCount = 5;
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit" };
+        private bool _useGpuTimer;
+        private GpuTimer _gpu;
+        private CommandBuffer _cmdPost;
+        private long _lastResolved;
+        private readonly double[] _gpuSum = new double[SlotCount];
+        private readonly int[] _gpuN = new int[SlotCount];
+
+        /// <summary>Accumulate each newly resolved frame's per-slot timings (values lag 2-4 frames).</summary>
+        private void SampleGpuTimings()
+        {
+            long resolved = _gpu.ResolvedFrames;
+            if (resolved == _lastResolved) return;
+            _lastResolved = resolved;
+            for (int s = 0; s < SlotCount; s++)
+                if (_gpu.TryGetMs(s, out var ms) && ms > 0f) { _gpuSum[s] += ms; _gpuN[s]++; }
+        }
+
+        /// <summary>Averages since the last call, then resets. Empty if the timer is off.</summary>
+        private string TakeGpuSummary()
+        {
+            if (_gpu == null) return "";
+            var parts = Enumerable.Range(0, SlotCount).Where(s => _gpuN[s] > 0)
+                .Select(s => $"{SlotNames[s]}={_gpuSum[s] / _gpuN[s]:F3}").ToArray(); // materialise before clearing
+            Array.Clear(_gpuSum, 0, SlotCount);
+            Array.Clear(_gpuN, 0, SlotCount);
+            return "GPU ms: " + string.Join(" ", parts);
+        }
 
         private static bool Approximately(Matrix4x4 a, Matrix4x4 b)
         {
@@ -594,6 +657,7 @@ namespace UltraRT
         private IEnumerator Measure(string label, StringBuilder report, float seconds = 4f)
         {
             yield return new WaitForSecondsRealtime(0.5f);
+            if (_gpu != null) TakeGpuSummary(); // discard warm-up samples
             var dts = new List<float>(4096);
             float end = Time.realtimeSinceStartup + seconds;
             while (Time.realtimeSinceStartup < end)
@@ -603,9 +667,14 @@ namespace UltraRT
             }
             dts.Sort();
             float avg = dts.Average();
-            var line = $"{label,-28} avg {avg:F3} ms ({1000f / avg:F0} fps)  p50 {dts[dts.Count / 2]:F3}  p99 {dts[(int)(dts.Count * 0.99)]:F3}";
+            var line = $"{label,-28} avg {avg:F3} ms ({1000f / avg:F0} fps)  p50 {dts[dts.Count / 2]:F3}  p99 {dts[(int)(dts.Count * 0.99)]:F3}  {TakeGpuSummary()}";
             report.AppendLine(line);
             Logger.LogInfo(line);
+            if (_gpu != null)
+            {
+                var raw = string.Join(" ", Enumerable.Range(0, SlotCount).Select(s => _gpu.TryGetMs(s, out var v) ? $"{SlotNames[s]}={v:F4}" : $"{SlotNames[s]}=n/a"));
+                Logger.LogInfo($"GPU timer status: ready={_gpu.IsReady} resolved={_gpu.ResolvedFrames} dropped={_gpu.DroppedFrames} raw[{raw}] '{_gpu.Status}'");
+            }
         }
 
         private void SaveOutput(string path)

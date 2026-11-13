@@ -1,4 +1,4 @@
-// UltraRT.Native: D3D12 timestamp queries recorded into Unity's own command list.
+﻿// UltraRT.Native: D3D12 timestamp queries recorded into Unity's own command list.
 //
 // Flow (see docs/gpu-timer.md):
 //   main thread    UltraRT_Init()  -> registers this DLL with Unity -> Unity calls UnityPluginLoad(interfaces)
@@ -12,6 +12,7 @@
 #include <dxgi.h> // IDXGISwapChain, referenced by IUnityGraphicsD3D12v7
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "IUnityInterface.h"
 #include "IUnityGraphics.h"
@@ -156,14 +157,7 @@ namespace
         if (FAILED(hr)) { SetStatus("readback Map failed (hr=0x%08X)", (unsigned)hr); return false; }
         s_Mapped = static_cast<const UINT64*>(p);
 
-        // EndQuery/ResolveQueryData touch no bound state: no flush, no worker sync, no state invalidation.
-        // Only affects later events; this first event ran with Unity's defaults, which is also fine.
-        UnityD3D12PluginEventConfig cfg = {};
-        cfg.graphicsQueueAccess = kUnityD3D12GraphicsQueueAccess_DontCare;
-        cfg.flags = 0;
-        cfg.ensureActiveRenderTextureIsBound = false;
-        for (int id = kEventBegin; id <= kEventResolve; id++) s_D3D.ConfigureEvent(id, &cfg);
-
+        // Event configuration happens at device initialization (main thread), see ConfigureEvents().
         memset(s_Frames, 0, sizeof s_Frames);
         s_RtFailed = false;
         s_RtInit = true;
@@ -310,6 +304,23 @@ namespace
         }
     }
 
+    // Event flags: default SyncWorkerThreads | ModifiesCommandBuffersState. With native graphics jobs (enabled in
+    // ULTRAKILL's boot.config) Unity may not expose its command list to plugin events without syncing workers.
+    // Override for experiments with the ULTRART_GPUTIMER_FLAGS environment variable (decimal or 0x hex).
+    UINT32 s_EventFlags = kUnityD3D12EventConfigFlag_SyncWorkerThreads | kUnityD3D12EventConfigFlag_ModifiesCommandBuffersState;
+
+    void ConfigureEvents()
+    {
+        char buf[32] = {};
+        if (GetEnvironmentVariableA("ULTRART_GPUTIMER_FLAGS", buf, sizeof buf) > 0)
+            s_EventFlags = (UINT32)strtoul(buf, nullptr, 0);
+        UnityD3D12PluginEventConfig cfg = {};
+        cfg.graphicsQueueAccess = kUnityD3D12GraphicsQueueAccess_DontCare;
+        cfg.flags = s_EventFlags;
+        cfg.ensureActiveRenderTextureIsBound = false;
+        for (int id = kEventBegin; id <= kEventResolve; id++) s_D3D.ConfigureEvent(id, &cfg);
+    }
+
     void UNITY_INTERFACE_API OnGraphicsDeviceEvent(UnityGfxDeviceEventType type)
     {
         if (type == kUnityGfxDeviceEventInitialize)
@@ -334,7 +345,11 @@ namespace
                           v6->ConfigureEvent, v6->CommandRecordingState, 6 };
                 s_HaveD3D = true;
             }
-            if (s_HaveD3D) SetStatus("D3D12 interface v%d acquired; waiting for first render event", s_D3D.version);
+            if (s_HaveD3D)
+            {
+                ConfigureEvents();
+                SetStatus("D3D12 interface v%d acquired, event flags 0x%X; waiting for first render event", s_D3D.version, s_EventFlags);
+            }
             else SetStatus("IUnityGraphicsD3D12v6/v7 not available");
         }
         else if (type == kUnityGfxDeviceEventShutdown)

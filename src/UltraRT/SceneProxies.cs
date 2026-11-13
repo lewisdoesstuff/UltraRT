@@ -32,6 +32,10 @@ namespace UltraRT
         /// <summary>Set by -ultrart-skinned-visible: let skinned proxies "render" (via the no-op pass) so Unity keeps skinning them.</summary>
         public static bool SkinnedProxiesVisible;
 
+        /// <summary>Experiment (-ultrart-nostatic): leave static batches out of the RTAS.</summary>
+        public static bool SkipStaticBatches;
+        private int _staticRecords, _staticSlots;
+
         private readonly ManualLogSource _log;
         private readonly Shader _proxyShader;
         private readonly int _cameraMask;
@@ -109,10 +113,12 @@ namespace UltraRT
             var stats = new ScanStats();
             // Include inactive objects: ULTRAKILL keeps most enemies and room contents disabled until triggered.
             ScanRenderers(batches, stats);
-            foreach (var kv in batches) AddStaticBatch(kv.Key, kv.Value);
+            if (!SkipStaticBatches) foreach (var kv in batches) AddStaticBatch(kv.Key, kv.Value);
 
             SyncDynamic(force: true);
             Rtas.Build();
+            int records = _staticRecords + _active.Sum(d => d.Flags.Count(f => f != RayTracingSubMeshFlags.Disabled));
+            _log.LogInfo($"Shader-table hit records (enabled submeshes): {records} (static batches {_staticRecords}, total submesh slots {_staticSlots + _active.Sum(d => d.Flags.Length)})");
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh}; " +
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count}");
@@ -246,12 +252,115 @@ namespace UltraRT
                 if (tex != null) _log.LogInfo($"Atlas _MainTex '{tex.name}' {tex.width}x{tex.height} filter={tex.filterMode} wrap={tex.wrapMode} type={tex.GetType().Name}");
             }
 
+            // Unity rebuilds the shader table every dispatch, one record per enabled submesh. Combined meshes have
+            // hundreds of submeshes sharing a handful of materials, so merge them by material (~0.5 ms/frame saved).
+            var mesh = combined;
+            if (!NoSubmeshMerge && TryMergeByMaterial(combined, mats, flags, out var merged, out var mergedMats))
+            {
+                mesh = merged;
+                mats = mergedMats;
+                flags = Enumerable.Repeat(RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.ClosestHitOnly, mats.Length).ToArray();
+                _ownedMeshes.Add(merged);
+            }
+
             // Combined vertices live in the batch root's space, or world space if there is no root.
             // All sources of one combined mesh share a layer in practice (StaticSceneOptimizer: one per material).
             var root = StaticBatchRoot?.GetValue(sources[0]) as Transform;
-            var proxy = CreateMeshProxy($"{combined.name} [UltraRT]", root, combined, mats);
+            var proxy = CreateMeshProxy($"{combined.name} [UltraRT]", root, mesh, mats);
             uint id = (uint)OriginalLayer(sources[0].gameObject.layer);
             Rtas.AddInstance(proxy, flags, enableTriangleCulling: false, id: id);
+            _staticRecords += flags.Count(f => f != RayTracingSubMeshFlags.Disabled);
+            _staticSlots += flags.Length;
+        }
+
+        /// <summary>Experiment (-ultrart-nomerge): keep static batches' original submesh layout.</summary>
+        public static bool NoSubmeshMerge;
+        private readonly List<Mesh> _ownedMeshes = new List<Mesh>();
+
+        /// <summary>
+        /// Copies a (non-readable) combined mesh via GPU readback into a new GPU-only mesh with one submesh per
+        /// material, dropping disabled submeshes. Vertex data is copied verbatim, so the hit shader sees the same layout.
+        /// </summary>
+        private bool TryMergeByMaterial(Mesh src, Material[] mats, RayTracingSubMeshFlags[] flags, out Mesh merged, out Material[] mergedMats)
+        {
+            merged = null;
+            mergedMats = null;
+            try
+            {
+                var groups = new Dictionary<Material, List<int>>();
+                var order = new List<Material>();
+                for (int i = 0; i < src.subMeshCount; i++)
+                {
+                    if (flags[i] == RayTracingSubMeshFlags.Disabled || src.GetTopology(i) != MeshTopology.Triangles) continue;
+                    if (!groups.TryGetValue(mats[i], out var list)) { groups[mats[i]] = list = new List<int>(); order.Add(mats[i]); }
+                    list.Add(i);
+                }
+                if (order.Count == 0 || order.Count == src.subMeshCount) return false;
+
+                // Indices (absolute: baseVertex folded in).
+                bool wide = src.indexFormat == IndexFormat.UInt32;
+                int totalIndices = 0;
+                for (int i = 0; i < src.subMeshCount; i++) totalIndices += (int)src.GetIndexCount(i);
+                var srcIdx = new uint[0];
+                using (var ib = src.GetIndexBuffer())
+                {
+                    if (wide) { srcIdx = new uint[ib.count]; ib.GetData(srcIdx); }
+                    else
+                    {
+                        var packed = new uint[(ib.count + 1) / 2];
+                        ib.GetData(packed, 0, 0, packed.Length); // 16-bit buffer read as 32-bit words
+                        srcIdx = new uint[ib.count];
+                        for (int k = 0; k < ib.count; k++) srcIdx[k] = (packed[k >> 1] >> ((k & 1) * 16)) & 0xFFFF;
+                    }
+                }
+
+                var newIdx = new List<int>(totalIndices);
+                var descs = new List<SubMeshDescriptor>(order.Count);
+                foreach (var m in order)
+                {
+                    int start = newIdx.Count;
+                    foreach (int sub in groups[m])
+                    {
+                        var d = src.GetSubMesh(sub);
+                        for (int k = 0; k < d.indexCount; k++) newIdx.Add((int)srcIdx[d.indexStart + k] + d.baseVertex);
+                    }
+                    descs.Add(new SubMeshDescriptor(start, newIdx.Count - start, MeshTopology.Triangles));
+                }
+
+                var dst = new Mesh { name = src.name + " [UltraRT merged]", indexFormat = IndexFormat.UInt32 };
+                dst.SetVertexBufferParams(src.vertexCount, src.GetVertexAttributes());
+                for (int s = 0; s < src.vertexBufferCount; s++)
+                {
+                    int stride = src.GetVertexBufferStride(s);
+                    using (var vb = src.GetVertexBuffer(s))
+                    {
+                        var words = new uint[src.vertexCount * stride / 4];
+                        vb.GetData(words, 0, 0, words.Length);
+                        var bytes = new byte[words.Length * 4];
+                        Buffer.BlockCopy(words, 0, bytes, 0, bytes.Length);
+                        dst.SetVertexBufferData(bytes, 0, 0, bytes.Length, s, MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices);
+                    }
+                }
+                const MeshUpdateFlags quiet = MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontNotifyMeshUsers;
+                dst.SetIndexBufferParams(newIdx.Count, IndexFormat.UInt32);
+                dst.SetIndexBufferData(newIdx, 0, 0, newIdx.Count, quiet);
+                dst.subMeshCount = descs.Count;
+                for (int i = 0; i < descs.Count; i++) dst.SetSubMesh(i, descs[i], quiet);
+                dst.bounds = src.bounds;
+                dst.UploadMeshData(true); // GPU only, like the source
+
+                merged = dst;
+                mergedMats = order.ToArray();
+                _log.LogInfo($"Merged '{src.name}': {src.subMeshCount} submeshes -> {descs.Count} ({newIdx.Count / 3:N0} tris)");
+                return true;
+            }
+            catch (Exception e)
+            {
+                _log.LogWarning($"Submesh merge failed for '{src.name}', using it as-is: {e.Message}");
+                if (merged != null) Object.Destroy(merged);
+                merged = null;
+                return false;
+            }
         }
 
         private MeshRenderer CreateMeshProxy(string name, Transform parent, Mesh mesh, Material[] materials)
@@ -473,6 +582,8 @@ namespace UltraRT
             _dynamic.Clear();
             _active.Clear();
             _dirty.Clear();
+            foreach (var mesh in _ownedMeshes) if (mesh != null) Object.Destroy(mesh);
+            _ownedMeshes.Clear();
             foreach (var m in _materialCache.Values) if (m != null) Object.Destroy(m);
             _materialCache.Clear();
             if (_disabledMaterial != null) Object.Destroy(_disabledMaterial);

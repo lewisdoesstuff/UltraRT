@@ -1,8 +1,9 @@
-# Builds the shader bundle (Unity batch mode) and the BepInEx plugins, deploying both into the game.
+﻿# Builds the shader bundle (Unity batch mode) and the BepInEx plugins, deploying both into the game.
 # Usage: .\scripts\build.ps1 [-SkipShaders] [-SkipPlugins]
 param(
     [switch] $SkipShaders,
     [switch] $SkipPlugins,
+    [switch] $SkipNative,
     [string] $UnityExe = $(if ($env:UNITY_2022_3_29) { $env:UNITY_2022_3_29 } else { 'C:\Program Files\Unity\Hub\Editor\2022.3.29f1\Editor\Unity.exe' })
 )
 
@@ -45,9 +46,8 @@ if (-not $SkipPlugins) {
     }
 }
 
-# ==================== BEGIN UltraRT.Native (GPU timer) - added by the gpu-timer branch, merge into params ====================
-# TODO(integrator): replace the env-var check with a [switch] $SkipNative parameter.
-if ($env:ULTRART_SKIP_NATIVE -ne '1') {
+# Native GPU timer DLL (opt-in at runtime with -ultrart-gputimer).
+if (-not $SkipNative) {
     & (Join-Path $root 'native\UltraRT.Native\build.ps1')
     $nativeDll = Join-Path $root 'native\UltraRT.Native\bin\UltraRT.Native.dll'
     $pluginDir = Join-Path $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }) 'BepInEx\plugins\UltraRT'
@@ -57,4 +57,3 @@ if ($env:ULTRART_SKIP_NATIVE -ne '1') {
         catch { Write-Warning "UltraRT.Native.dll not deployed (game running?): $($_.Exception.Message)" }
     }
 }
-# ==================== END UltraRT.Native ====================
