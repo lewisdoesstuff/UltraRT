@@ -144,6 +144,7 @@
                       {
                           "Name":  "8-3 portals sweep (must be last: leaving 8-3 hangs the game on DX12)",
                           "Scene":  "Level 8-3",
+                          "RandomPicks":  { "False Starts":  "1-1" },
                           "Path":  {
                                        "Type":  "sweep",
                                        "Yaw":  631.03,

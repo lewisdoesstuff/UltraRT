@@ -20,7 +20,7 @@ Each run launches the game on DX12 and plays every scenario in `bench/suites/<su
 | Type | Fields | Use |
 |---|---|---|
 | `spawn` | `Duration` | hold the level's spawn pose |
-| `static` | `Position` [x,y,z], `Yaw`, `Pitch`, `Duration` | hold a given pose |
+| `static` | `Position` [x,y,z], `Yaw`, `Pitch`, `Duration`, `Approach` | hold a given pose (see "Poses deep in a level") |
 | `sweep` | `YawSpeed` (deg/s), `PitchAmplitude`, `Duration`, optional `Position` | spin in place; stresses reprojection |
 | `recording` | `File` (relative to the suite), optional `Start`/`End` seconds | replay a recorded flythrough or run |
 
@@ -39,3 +39,47 @@ A recording stores the player's position and look angles at 60 Hz, plus every ar
 Replays are *statistically* repeatable, not identical. Enemy AI, physics and gore still vary between runs, even with a fixed seed. Raw keyboard/mouse replay would drift after a few seconds for the same reason, so we record the resulting path instead.
 
 Recording itself doesn't enable cheats or block saves. It's just normal play.
+
+## Poses deep in a level
+ULTRAKILL keeps most of a level switched off and turns rooms on as doors open and arenas finish. Teleporting straight to a pose therefore lands in an unloaded area (black silhouettes, missing geometry). `Path.Load` says how a `static` or `sweep` scenario gets the level ready:
+
+| Load | What it does | Needs |
+|---|---|---|
+| `approach-fast` | Fast-forwards the whole route: the game runs at `FastTimeScale` (default 6) and the player moves once per physics step, so triggers fire as in real time. Loads the same renderers as `approach` on every pose checked. | `Approach` |
+| `checkpoint` | Jumps to the last checkpoint on the route and restores its rooms the way the game's own teleport cheat does (the checkpoint's rooms, its doors, its restart event). Then fast-forwards the rest of the route. Quickest for poses late in a level, but the level is in respawn state: the room you came from, behind the checkpoint, is not loaded (4-1 indoor B loses 21 renderers of the previous hallway). If the route never reached a checkpoint, the whole route is fast-forwarded. | `Approach` |
+| `approach` | Walks the whole route in real time at `ApproachSpeed`. Slow; the reference the others are checked against. | `Approach` |
+| `areas` | Re-applies the object on/off diff saved with the pose. Not enough in levels that clone their rooms (8-3). | `Areas` |
+| `none` | Teleports only. | |
+
+The default, `auto`, is `approach-fast` when the scenario has an `Approach`. Set `"Load": "checkpoint"` on a scenario after checking it with `-ValidateLoad`. `-Load <name>` on `bench.ps1` forces one method for a whole run. Enemies are killed as they spawn on the way (`ApproachKillEnemies`), because finished arenas are what open doors.
+
+The summary lists how each pose was loaded and how long it took.
+
+### Saving a pose
+Press **F11** in normal play. It appends the pose to `BepInEx\ultrart\poses.jsonl` and saves two files next to the recordings: the route walked since the level loaded (`approach_*.json`) and the area diff (`areas_*.json`). The route also records every checkpoint you activated, so the benchmark knows exactly where to jump. Older routes have no checkpoint list; for those the last checkpoint the route passed through is used.
+
+Copy the approach file into `bench/recordings/` and use it:
+```json
+{ "Name": "4-1 indoor A", "Scene": "Level 4-1",
+  "Path": { "Type": "static", "Approach": "../recordings/4-1-approach-a.json", "Duration": 8 },
+  "Modes": ["off", "hybrid", "pt-dn"], "Screenshots": [4] }
+```
+Without `Position`, the pose is the route's last sample.
+
+### Random rooms
+Some levels pick rooms at random: 8-3 shows one of four "false start" rooms. In benchmarks every such picker is seeded from the scenario `Seed` and its own name, so the pick repeats from run to run. To force a pick, name the picker and the entry:
+```json
+"RandomPicks": { "False Starts": "1-1" }
+```
+The plugin log lists each picker and its entries (`random pick ... entries: ...`).
+
+### Checking a load method
+```powershell
+.\scripts\bench.ps1 -Suite poses -ValidateLoad -TimeoutSec 3600
+.\scripts\bench.ps1 -Suite poses-8-3 -ValidateLoad -ValidateMethods 'approach,checkpoint,approach-fast@12'
+```
+Instead of measuring, this reaches each distinct pose with every method (a fresh level load each time) and compares against the first method. `validation.json` and `summary.md` report, per pose and method: load time, how many of the level's mesh renderers are on (all, and within 120 m of the camera), which near renderers are missing or extra compared with the reference, and how much a game-only screenshot differs. A load counts as matching when at most 3 near renderers are missing and under 25% of the screenshot differs. Screenshots of every method are saved for a visual check.
+
+The screenshot limit is loose on purpose. Moving geometry is at a different point of its cycle when a load takes a different amount of time (8-3's shifting hallway), and gore differs between any two runs; together they change up to 10%. An unloaded area changes 60% or more.
+
+`bench/suites/poses.json` holds every saved pose; `poses-quick.json` is one per level.

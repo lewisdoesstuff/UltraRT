@@ -1,0 +1,9 @@
+{
+    "Name": "poses-quick",
+    "Scenarios": [
+        { "Name": "0-5 lava", "Scene": "Level 0-5", "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 grass", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-grass-approach.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "4-1 indoor A", "Scene": "Level 4-1", "Path": { "Type": "static", "Approach": "../recordings/4-1-approach-a.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "8-3 portals", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Yaw": 631.03, "Pitch": -4.38, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] }
+    ]
+}

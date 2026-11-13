@@ -77,6 +77,16 @@ namespace UltraRT.Bench
 
         public static void SetPose(CamPose pose) => _pose = pose;
 
+        /// <summary>Move the player right now (from FixedUpdate), so every physics step sees the new position.</summary>
+        public static void SetPoseNow(CamPose pose)
+        {
+            _pose = pose;
+            var nm = Player;
+            if (nm == null) return;
+            nm.transform.position = pose.Position;
+            nm.rb.position = pose.Position;
+        }
+
         public static void ReleaseControl()
         {
             if (!_controlled) return;

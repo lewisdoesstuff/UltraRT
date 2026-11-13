@@ -14,6 +14,11 @@ namespace UltraRT.Bench
         public string Name;
         public string Scene;
         public int Seed = 1;
+        /// <summary>
+        /// Force the level's random room picks: picker object name -> entry object name, e.g. { "False Starts": "1-1" }.
+        /// Pickers not listed are seeded from Seed and their own name. The log lists each picker and its entries.
+        /// </summary>
+        public Dictionary<string, string> RandomPicks;
         /// <summary>Seconds to let the level settle after loading (and RT setup) before anything happens.</summary>
         public float Settle = 3f;
         public PathSpec Path = new PathSpec();
@@ -47,6 +52,17 @@ namespace UltraRT.Bench
         public string Approach;
         // areas: re-apply the object/light/render-settings changes area triggers had made when the pose was saved (F11).
         public string Areas;
+        /// <summary>
+        /// How to get the level into the state the pose needs:
+        /// approach-fast = fast-forward the whole Approach route (same result as walking it);
+        /// checkpoint = jump to the last checkpoint on the route (rooms restored the way the game's teleport cheat
+        /// does), then fast-forward the rest; quickest, but the room behind that checkpoint is not loaded;
+        /// approach = walk the whole route in real time; areas = re-apply the Areas diff; none = just teleport.
+        /// Default (auto): approach-fast when there is an Approach, else areas when there is an Areas file, else none.
+        /// </summary>
+        public string Load = "auto";
+        /// <summary>Game speed while fast-forwarding a route (checkpoint and approach-fast).</summary>
+        public float FastTimeScale = 6f;
         public float ApproachSpeed = 1.5f;
         /// <summary>Kill enemies as they spawn during the approach, so arena completions open doors and load areas.</summary>
         public bool ApproachKillEnemies = true;
@@ -79,8 +95,38 @@ namespace UltraRT.Bench
         public int Instances;
         public int Lights;
         public string Error;
+        /// <summary>How the pose was reached (see PathSpec.Load) and how long that took after the level had settled.</summary>
+        public string Load;
+        public float LoadSeconds;
         public Dictionary<string, ModeStats> Modes = new Dictionary<string, ModeStats>();
         public List<string> Screenshots = new List<string>();
+    }
+
+    // ---------------------------------------------------------------- load validation (-ultrart-bench-validate)
+
+    public sealed class LoadCheck
+    {
+        public string Scenario;
+        public string Scene;
+        public List<LoadCheckMethod> Methods = new List<LoadCheckMethod>();
+    }
+
+    public sealed class LoadCheckMethod
+    {
+        public string Load;
+        public string Detail;
+        public string Error;
+        public float LoadSeconds;
+        /// <summary>Level mesh renderers switched on (enemies, gore and the player excluded); Near = within 120 m of the camera.</summary>
+        public int Renderers, NearRenderers, Lights, Instances;
+        // Against the first method (the reference):
+        public int MissingNear, ExtraNear, Missing, Extra;
+        /// <summary>Game-only screenshot vs the reference: mean absolute difference (0-255) and share of pixels off by more than 32.</summary>
+        public float ImageDiff, ImageDiffPct;
+        public bool Match;
+        public string Screenshot;
+        public List<string> MissingNearSamples = new List<string>();
+        public List<string> ExtraNearSamples = new List<string>();
     }
 
     public sealed class ModeStats

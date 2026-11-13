@@ -1,0 +1,22 @@
+{
+    "Name": "poses",
+    "Scenarios": [
+        { "Name": "0-5 lava", "Scene": "Level 0-5", "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "0-5 b", "Scene": "Level 0-5", "Path": { "Type": "static", "Approach": "../recordings/0-5-b.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "0-5 c", "Scene": "Level 0-5", "Path": { "Type": "static", "Approach": "../recordings/0-5-c.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "0-5 d", "Scene": "Level 0-5", "Path": { "Type": "static", "Approach": "../recordings/0-5-d.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 start", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 grass", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-grass-approach.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 terminal", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-terminal-glancing.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 cerberus", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-cerberus.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 wall hotspot", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-wall-hotspot.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 indoor a", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-a.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 indoor b", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-b.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 torch hall", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-torch-hall.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "1-1 indoor c", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-c.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "4-1 indoor A", "Scene": "Level 4-1", "Path": { "Type": "static", "Approach": "../recordings/4-1-approach-a.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "4-1 indoor B", "Scene": "Level 4-1", "Path": { "Type": "static", "Approach": "../recordings/4-1-approach-b.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "6-2 a", "Scene": "Level 6-2", "Path": { "Type": "static", "Approach": "../recordings/6-2-a.json", "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] },
+        { "Name": "8-3 portals", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Yaw": 631.03, "Pitch": -4.38, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 4 }, "Modes": ["off", "hybrid"], "Screenshots": [2] }
+    ]
+}

@@ -18,6 +18,8 @@ namespace UltraRT.Bench
         /// <summary>Per sample: t, x, y, z, yaw, pitch.</summary>
         public List<float[]> Samples = new List<float[]>();
         public List<ArenaEvent> Arenas = new List<ArenaEvent>();
+        /// <summary>Checkpoints the player activated, in order. A fast pose load jumps to the last one.</summary>
+        public List<ArenaEvent> Checkpoints = new List<ArenaEvent>();
 
         public sealed class ArenaEvent
         {
@@ -163,7 +165,25 @@ namespace UltraRT.Bench
             if (_trace != null) _trace.Arenas.Add(new Recording.ArenaEvent { Time = Time.realtimeSinceStartup - _traceT0, Path = path, Position = new[] { pos.x, pos.y, pos.z } });
         }
 
+        public void OnCheckpointActivated(CheckPoint cp)
+        {
+            if (cp == null) return;
+            var pos = cp.transform.position;
+            var path = GameControl.PathOf(cp.transform);
+            if (_rec != null) _rec.Checkpoints.Add(new Recording.ArenaEvent { Time = Elapsed, Path = path, Position = new[] { pos.x, pos.y, pos.z } });
+            if (_trace != null) _trace.Checkpoints.Add(new Recording.ArenaEvent { Time = Time.realtimeSinceStartup - _traceT0, Path = path, Position = new[] { pos.x, pos.y, pos.z } });
+        }
+
+        /// <summary>The checkpoint a respawn would use right now (null before the first one).</summary>
+        public Recording.ArenaEvent LastCheckpoint => _trace != null && _trace.Checkpoints.Count > 0 ? _trace.Checkpoints[_trace.Checkpoints.Count - 1] : null;
+
         private static string Sanitize(string s) => new string((s ?? "unknown").Select(c => char.IsLetterOrDigit(c) || c == '-' ? c : '_').ToArray());
+
+        [HarmonyPatch(typeof(CheckPoint), nameof(CheckPoint.ActivateCheckPoint))]
+        private static class CheckpointPatch
+        {
+            private static void Postfix(CheckPoint __instance) => Current?.OnCheckpointActivated(__instance);
+        }
 
         [HarmonyPatch(typeof(ActivateArena), nameof(ActivateArena.Activate))]
         private static class ArenaPatch

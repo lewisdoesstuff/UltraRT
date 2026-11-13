@@ -1033,7 +1033,9 @@ namespace UltraRT
     {
         public Action OnUpdate;
         public Action OnGui;
+        public Action OnFixed;
         private void Update() => OnUpdate?.Invoke();
+        private void FixedUpdate() => OnFixed?.Invoke();
         private void OnGUI() => OnGui?.Invoke();
     }
 }

@@ -13,6 +13,12 @@ param(
     [switch] $NoGpuTimer,
     # Unity 2022.3's native D3D12 graphics jobs deadlock when unloading big levels (e.g. leaving 8-3). Legacy jobs don't; same speed.
     [switch] $NativeGfxJobs,
+    # Force one pose-load method for every scenario: checkpoint, approach-fast, approach, areas, none.
+    [string] $Load,
+    # Instead of measuring: reach every pose with each load method and compare the loaded scene (see bench\README.md).
+    [switch] $ValidateLoad,
+    # With -ValidateLoad: comma-separated methods to compare, first one is the reference. "approach-fast@3" = at game speed 3.
+    [string] $ValidateMethods,
     [string[]] $Extra = @(),
     [string] $GameDir = $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }),
     [int] $TimeoutSec = 900
@@ -33,6 +39,9 @@ $gameArgs = @("-force-$Api", '-ultrart-bench', "`"$suitePath`"", '-ultrart-bench
     '-ultrart-bench-tag', $commit, '-ultrart-scale', $Scale.ToString([Globalization.CultureInfo]::InvariantCulture), '-ultrart-quit')
 if (-not $NoGpuTimer) { $gameArgs += '-ultrart-gputimer' }
 if (-not $NativeGfxJobs) { $gameArgs += @('-force-gfx-jobs', 'legacy') }
+if ($Load) { $gameArgs += @('-ultrart-bench-load', $Load) }
+if ($ValidateLoad) { $gameArgs += '-ultrart-bench-validate' }
+if ($ValidateMethods) { $gameArgs += @('-ultrart-bench-validate-methods', $ValidateMethods) }
 if ($Extra) { $gameArgs += @($Extra | Where-Object { $_ }) }
 
 $exe = Join-Path $GameDir 'ULTRAKILL.exe'

@@ -19,11 +19,17 @@ namespace UltraRT
     public partial class Plugin
     {
         private string _benchSuitePath, _benchOut, _benchTag;
+        /// <summary>-ultrart-bench-load: force one PathSpec.Load for every scenario.</summary>
+        private string _benchLoad;
+        /// <summary>-ultrart-bench-validate: compare the pose-load methods instead of measuring.</summary>
+        private bool _benchValidate;
+        private string[] _benchValidateMethods;
         private Recorder _recorder;
 
         private void ParseBenchArgs()
         {
             var a = Environment.GetCommandLineArgs();
+            _benchValidate = a.Any(x => x.Equals("-ultrart-bench-validate", StringComparison.OrdinalIgnoreCase));
             for (int i = 0; i < a.Length - 1; i++)
             {
                 switch (a[i].ToLowerInvariant())
@@ -31,6 +37,8 @@ namespace UltraRT
                     case "-ultrart-bench": _benchSuitePath = a[i + 1]; break;
                     case "-ultrart-bench-out": _benchOut = a[i + 1]; break;
                     case "-ultrart-bench-tag": _benchTag = a[i + 1]; break;
+                    case "-ultrart-bench-load": _benchLoad = a[i + 1]; break;
+                    case "-ultrart-bench-validate-methods": _benchValidateMethods = a[i + 1].Split(','); break;
                 }
             }
         }
@@ -46,6 +54,8 @@ namespace UltraRT
             int patched = BenchSafety.Install(harmony, Logger);
             if (patched < 0) { Logger.LogError("Benchmark aborted: could not install save protection."); return false; }
             BenchSafety.Active = true;
+            PoseLoader.Log = Logger;
+            PoseLoader.InstallDeterminism(harmony);
             Logger.LogInfo($"Benchmark: save/prefs/stats writes blocked ({patched} hooks)");
             _host.StartCoroutine(RunSuite());
             return true;
@@ -75,12 +85,16 @@ namespace UltraRT
             var p = GameControl.CurrentPose();
             string approach = _recorder?.SaveApproach();
             string areas = _recorder?.SaveAreas();
+            // The approach file carries the checkpoints passed; this copy is for the reader.
+            var cp = _recorder?.LastCheckpoint;
             var entry = new
             {
                 Scene = SceneHelper.CurrentScene,
                 Saved = DateTime.Now.ToString("s"),
                 Approach = approach,
                 Areas = areas,
+                Checkpoint = cp?.Path,
+                CheckpointPosition = cp?.Position,
                 Position = new[] { Round(p.Position.x), Round(p.Position.y), Round(p.Position.z) },
                 Yaw = Round(p.Yaw),
                 Pitch = Round(p.Pitch),
@@ -88,7 +102,7 @@ namespace UltraRT
             string file = Path.Combine(_outDir, "poses.jsonl");
             File.AppendAllText(file, JsonConvert.SerializeObject(entry) + Environment.NewLine);
             Logger.LogInfo($"Pose saved: {JsonConvert.SerializeObject(entry)}");
-            Toast($"Pose saved: {entry.Scene} ({entry.Position[0]}, {entry.Position[1]}, {entry.Position[2]}){(areas != null ? " + area state" : "")}{(approach != null ? " + approach" : "")}");
+            Toast($"Pose saved: {entry.Scene} ({entry.Position[0]}, {entry.Position[1]}, {entry.Position[2]}){(areas != null ? " + area state" : "")}{(approach != null ? " + approach" : "")}{(cp != null ? " + checkpoint" : "")}");
 
             float Round(float v) => (float)Math.Round(v, 2);
         }
@@ -156,36 +170,71 @@ namespace UltraRT
             }
             yield return new WaitForSecondsRealtime(2f);
 
+            var checks = new List<LoadCheck>();
+            var validated = new HashSet<string>();
             foreach (var sc in suite.Scenarios)
             {
-                var sr = new ScenarioResult { Name = sc.Name, Scene = sc.Scene };
-                result.Scenarios.Add(sr);
-                Logger.LogInfo($"Benchmark: scenario '{sc.Name}' ({sc.Scene})");
-                IEnumerator run = RunScenario(sc, sr, suiteDir, outDir);
-                while (true)
+                IEnumerator run;
+                ScenarioResult sr = null;
+                LoadCheck check = null;
+                if (_benchValidate)
+                {
+                    // One check per distinct pose: a "pose" and a "sweep" scenario often share one.
+                    if (string.IsNullOrEmpty(sc.Path.Approach)) continue;
+                    string key = sc.Scene + "|" + sc.Path.Approach + "|" + (sc.Path.Position != null ? string.Join(",", sc.Path.Position) : "") + "|" + sc.Path.Yaw + "|" + sc.Path.Pitch;
+                    if (!validated.Add(key)) continue;
+                    check = new LoadCheck { Scenario = sc.Name, Scene = sc.Scene };
+                    checks.Add(check);
+                    Logger.LogInfo($"Benchmark: validating pose load for '{sc.Name}' ({sc.Scene})");
+                    run = ValidateScenario(sc, check, suiteDir, outDir);
+                }
+                else
+                {
+                    sr = new ScenarioResult { Name = sc.Name, Scene = sc.Scene };
+                    result.Scenarios.Add(sr);
+                    Logger.LogInfo($"Benchmark: scenario '{sc.Name}' ({sc.Scene})");
+                    run = RunScenario(sc, sr, suiteDir, outDir);
+                }
+
+                // Run nested enumerators ourselves, so an exception anywhere fails just this scenario.
+                var stack = new Stack<IEnumerator>();
+                stack.Push(run);
+                while (stack.Count > 0)
                 {
                     object current;
                     try
                     {
-                        if (!run.MoveNext()) break;
-                        current = run.Current;
+                        var top = stack.Peek();
+                        if (!top.MoveNext()) { stack.Pop(); continue; }
+                        current = top.Current;
                     }
                     catch (Exception e)
                     {
-                        sr.Error = e.Message;
+                        if (sr != null) sr.Error = e.Message;
+                        if (check != null)
+                        {
+                            if (check.Methods.Count == 0) check.Methods.Add(new LoadCheckMethod { Load = "?" });
+                            check.Methods[check.Methods.Count - 1].Error = e.Message;
+                        }
                         Logger.LogError($"Benchmark: scenario '{sc.Name}' failed: {e}");
+                        foreach (var en in stack) { try { (en as IDisposable)?.Dispose(); } catch { } }
                         break;
                     }
+                    if (current is IEnumerator nested && !(current is CustomYieldInstruction)) { stack.Push(nested); continue; }
                     yield return current;
                 }
+                _host.OnFixed = null;
+                PoseLoader.SetGameSpeed(1f);
                 GameControl.ReleaseControl();
-                File.WriteAllText(Path.Combine(outDir, "results.json"), JsonConvert.SerializeObject(result, Formatting.Indented));
+                if (_benchValidate) File.WriteAllText(Path.Combine(outDir, "validation.json"), JsonConvert.SerializeObject(checks, Formatting.Indented));
+                else File.WriteAllText(Path.Combine(outDir, "results.json"), JsonConvert.SerializeObject(result, Formatting.Indented));
             }
 
             result.Resolution = $"{Screen.width}x{Screen.height}";
-            File.WriteAllText(Path.Combine(outDir, "results.json"), JsonConvert.SerializeObject(result, Formatting.Indented));
-            File.WriteAllText(Path.Combine(outDir, "summary.md"), Summarize(result));
-            Logger.LogInfo($"Benchmark done: {outDir}\n{Summarize(result)}");
+            string summary = _benchValidate ? SummarizeValidation(checks, suite.Name, _benchTag) : Summarize(result);
+            if (!_benchValidate) File.WriteAllText(Path.Combine(outDir, "results.json"), JsonConvert.SerializeObject(result, Formatting.Indented));
+            File.WriteAllText(Path.Combine(outDir, "summary.md"), summary);
+            Logger.LogInfo($"Benchmark done: {outDir}\n{summary}");
 
             if (_quit)
             {
@@ -196,8 +245,11 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- scenario
 
-        private IEnumerator RunScenario(Scenario sc, ScenarioResult sr, string suiteDir, string outDir)
+        /// <summary>Load the scenario's level with its seed, let it settle and switch the bench cheats on.</summary>
+        private IEnumerator LoadLevel(Scenario sc)
         {
+            PoseLoader.Seed = sc.Seed;
+            PoseLoader.Pins = sc.RandomPicks;
             // Seed before the level's own Start()s run (sceneLoaded fires first).
             UnityEngine.Random.InitState(sc.Seed);
             void Seed(Scene s, LoadSceneMode m) { UnityEngine.Random.InitState(sc.Seed); SceneManager.sceneLoaded -= Seed; }
@@ -216,49 +268,290 @@ namespace UltraRT
 
             GameControl.EnableCheats(blindEnemies: sc.Enemies == "blind", disableSpawns: sc.Enemies == "none");
             yield return null;
+        }
 
-            var spawn = GameControl.CurrentPose();
-            if (!string.IsNullOrEmpty(sc.Path.Areas))
+        private sealed class PoseLoad
+        {
+            public CamPose Spawn;
+            public string Method, Detail;
+            public float Seconds;
+        }
+
+        private string ResolveLoad(PathSpec p, string forced = null)
+        {
+            string l = (forced ?? _benchLoad ?? p.Load ?? "auto").ToLowerInvariant();
+            bool hasApproach = !string.IsNullOrEmpty(p.Approach), hasAreas = !string.IsNullOrEmpty(p.Areas);
+            if (l == "auto") return hasApproach ? "approach-fast" : hasAreas ? "areas" : "none";
+            if (l != "checkpoint" && l != "approach" && l != "approach-fast" && l != "areas" && l != "none")
+                throw new ArgumentException($"unknown Load '{l}'");
+            if ((l == "checkpoint" || l == "approach" || l == "approach-fast") && !hasApproach) return hasAreas ? "areas" : "none";
+            if (l == "areas" && !hasAreas) return "none";
+            return l;
+        }
+
+        /// <summary>Bring the level into the state the scenario's pose needs (see PathSpec.Load). Untimed, RT off.</summary>
+        private IEnumerator LoadPose(Scenario sc, string method, string suiteDir, PoseLoad res)
+        {
+            float t0 = Time.realtimeSinceStartup;
+            res.Method = method;
+            res.Spawn = GameControl.CurrentPose();
+            var p = sc.Path;
+            string Resolve(string f) => Path.IsPathRooted(f) ? f : Path.Combine(suiteDir, f);
+
+            if (!string.IsNullOrEmpty(p.Areas) && (method == "areas" || method == "approach"))
             {
                 // Re-apply what the area triggers had switched on/off when the pose was saved (no route needed).
-                var areaFile = Path.IsPathRooted(sc.Path.Areas) ? sc.Path.Areas : Path.Combine(suiteDir, sc.Path.Areas);
-                var (applied, missing) = AreaState.Load(areaFile).Apply();
+                var (applied, missing) = AreaState.Load(Resolve(p.Areas)).Apply();
+                res.Detail = $"area state: {applied} changes, {missing} not found";
                 Logger.LogInfo($"Benchmark: area state applied ({applied} changes, {missing} not found)");
                 yield return new WaitForSecondsRealtime(1f);
             }
-            if (!string.IsNullOrEmpty(sc.Path.Approach))
+            if (method == "checkpoint" || method == "approach" || method == "approach-fast")
             {
-                // Re-walk the recorded route (not timed, RT off) so the game's area triggers fire in order.
-                var approachRec = Recording.Load(Path.IsPathRooted(sc.Path.Approach) ? sc.Path.Approach : Path.Combine(suiteDir, sc.Path.Approach));
-                var approach = approachRec.ToPath();
+                var rec = Recording.Load(Resolve(p.Approach));
+                var route = rec.ToPath();
+                float speed = Mathf.Max(0.1f, p.ApproachSpeed);
+                float gameSpeed = method == "approach" ? 1f : Mathf.Max(1f, p.FastTimeScale);
+                float from = 0f;
                 ApplyBenchMode("off");
-                GameControl.TakeControl(approach.Start);
-                float speed = Mathf.Max(0.1f, sc.Path.ApproachSpeed);
-                float at = 0f;
-                Logger.LogInfo($"Benchmark: approach {approach.Duration:F1}s at {speed}x");
-                float nextKill = 0f;
-                int killed = 0;
-                while (at < approach.Duration)
+
+                if (method == "checkpoint")
                 {
-                    at += Time.unscaledDeltaTime * speed;
-                    GameControl.SetPose(approach.Sample(at));
-                    GameControl.HideCheatPanels();
-                    // Arena completion (all enemies dead) is what opens doors and activates the next areas.
-                    if (sc.Path.ApproachKillEnemies && Time.realtimeSinceStartup >= nextKill)
+                    var pick = PoseLoader.PickCheckpoint(rec);
+                    foreach (var line in PoseLoader.DescribeAll(rec)) Logger.LogInfo("Benchmark:   " + line);
+                    if (pick == null)
                     {
-                        nextKill = Time.realtimeSinceStartup + 0.25f;
-                        var tracker = MonoSingleton<EnemyTracker>.Instance;
-                        if (tracker != null)
-                            foreach (var e in tracker.GetCurrentEnemies().ToList())
-                                if (e != null && !e.dead) { e.InstaKill(); killed++; }
+                        res.Detail = "no checkpoint on the route; whole route fast-forwarded";
+                        Logger.LogInfo($"Benchmark: {res.Detail}");
                     }
-                    yield return null;
+                    else
+                    {
+                        // The rooms the checkpoint switches on run their Start()s next frame (checkpoints clone their
+                        // rooms there); give them a moment before the player moves on.
+                        Logger.LogInfo($"Benchmark: jumping to checkpoint {PoseLoader.Describe(pick.Checkpoint)} ({pick.How}, route time {pick.Time:F1}s of {route.Duration:F1}s)");
+                        string rooms = pick.Checkpoint.toActivate.name;
+                        GameControl.TakeControl(PoseLoader.Jump(pick.Checkpoint));
+                        float until = Time.realtimeSinceStartup + 0.5f;
+                        while (Time.realtimeSinceStartup < until) { GameControl.HideCheatPanels(); yield return null; }
+                        from = Mathf.Clamp(pick.Time, 0f, route.Duration);
+                        res.Detail = $"checkpoint '{rooms}' ({pick.How}), then {route.Duration - from:F1}s of the {route.Duration:F1}s route";
+                    }
+                }
+
+                GameControl.TakeControl(route.Sample(from));
+                Logger.LogInfo($"Benchmark: approach {route.Duration - from:F1}s of route at {speed}x, game speed {gameSpeed}x");
+                int killed = 0;
+                float at = from;
+                float deadline = Time.realtimeSinceStartup + (route.Duration - from) / (speed * gameSpeed) * 4f + 30f;
+                try
+                {
+                    if (gameSpeed > 1f)
+                    {
+                        // Fast-forward: the whole game runs faster and the player moves once per physics step, so
+                        // triggers see the same step size as in the real-time replay.
+                        _host.OnFixed = () =>
+                        {
+                            at += Time.fixedDeltaTime * speed;
+                            GameControl.SetPoseNow(route.Sample(Mathf.Min(at, route.Duration)));
+                        };
+                    }
+                    float nextKill = 0f;
+                    while (at < route.Duration)
+                    {
+                        if (Time.realtimeSinceStartup > deadline) throw new TimeoutException($"approach replay stalled at {at:F1}s of {route.Duration:F1}s");
+                        if (gameSpeed > 1f) PoseLoader.SetGameSpeed(gameSpeed);
+                        else
+                        {
+                            at += Time.unscaledDeltaTime * speed;
+                            GameControl.SetPose(route.Sample(at));
+                        }
+                        GameControl.HideCheatPanels();
+                        // Arena completion (all enemies dead) is what opens doors and activates the next areas.
+                        if (p.ApproachKillEnemies && Time.time >= nextKill)
+                        {
+                            nextKill = Time.time + 0.25f;
+                            killed += KillEnemies();
+                        }
+                        yield return null;
+                    }
+                }
+                finally
+                {
+                    _host.OnFixed = null;
+                    if (gameSpeed > 1f) PoseLoader.SetGameSpeed(1f);
                 }
                 if (killed > 0) Logger.LogInfo($"Benchmark: approach killed {killed} enemies");
-                GameControl.SetPose(approach.Sample(approach.Duration));
-                spawn = approach.Sample(approach.Duration);
+                res.Spawn = route.Sample(route.Duration);
+                GameControl.SetPose(res.Spawn);
                 yield return new WaitForSecondsRealtime(1.5f); // let area activation settle
             }
+            res.Seconds = Time.realtimeSinceStartup - t0;
+            Logger.LogInfo($"Benchmark: pose loaded via {method} in {res.Seconds:F1}s{(res.Detail != null ? $" ({res.Detail})" : "")}");
+        }
+
+        private static int KillEnemies()
+        {
+            int killed = 0;
+            var tracker = MonoSingleton<EnemyTracker>.Instance;
+            if (tracker != null)
+                foreach (var e in tracker.GetCurrentEnemies().ToList())
+                    if (e != null && !e.dead) { e.InstaKill(); killed++; }
+            return killed;
+        }
+
+        // ---------------------------------------------------------------- load validation
+
+        private static readonly string[] ValidateMethods = { "approach", "checkpoint", "approach-fast", "areas", "none" };
+
+        /// <summary>
+        /// -ultrart-bench-validate: reach the scenario's pose with every load method in turn (a fresh level load each)
+        /// and compare what is loaded there against the real-time approach replay.
+        /// </summary>
+        private IEnumerator ValidateScenario(Scenario sc, LoadCheck check, string suiteDir, string outDir)
+        {
+            SceneFingerprint reference = null;
+            Color32[] referenceImage = null;
+            float fastScale = sc.Path.FastTimeScale;
+            foreach (var spec in _benchValidateMethods ?? ValidateMethods)
+            {
+                // "approach-fast@3" = that method at game speed 3.
+                var parts = spec.Split('@');
+                string method = parts[0].Trim().ToLowerInvariant();
+                sc.Path.FastTimeScale = parts.Length > 1 ? float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture) : fastScale;
+                if (ResolveLoad(sc.Path, method) != method) continue; // needs a file this scenario doesn't have
+                var m = new LoadCheckMethod { Load = spec.Trim() };
+                check.Methods.Add(m);
+
+                yield return LoadLevel(sc);
+                var load = new PoseLoad();
+                yield return LoadPose(sc, method, suiteDir, load);
+                m.LoadSeconds = load.Seconds;
+                m.Detail = load.Detail;
+
+                var (path, _) = BuildPath(sc.Path, load.Spawn, suiteDir);
+                var pose = path.Start;
+                ApplyBenchMode("off");
+                GameControl.TakeControl(pose);
+                // Same enemy state for every method: none alive. Then let doors, gore and effects come to rest.
+                float until = Time.realtimeSinceStartup + 3f;
+                while (Time.realtimeSinceStartup < until)
+                {
+                    KillEnemies();
+                    GameControl.SetPose(pose);
+                    GameControl.HideCheatPanels();
+                    yield return null;
+                }
+
+                var fp = SceneFingerprint.Take(GameControl.Cam != null ? GameControl.Cam.transform.position : pose.Position);
+                m.Renderers = fp.Count;
+                m.NearRenderers = fp.NearCount;
+                m.Lights = fp.Lights;
+                m.Instances = (int)(_proxies?.Rtas?.GetInstanceCount() ?? 0);
+
+                yield return new WaitForEndOfFrame();
+                var shot = ScreenCapture.CaptureScreenshotAsTexture();
+                m.Screenshot = $"{Sanitize(sc.Name)}_{check.Methods.Count}_{Sanitize(spec)}.jpg";
+                File.WriteAllBytes(Path.Combine(outDir, m.Screenshot), shot.EncodeToJPG(85));
+                var image = Shrink(shot, 160, 90);
+                Destroy(shot);
+
+                if (reference == null)
+                {
+                    reference = fp;
+                    referenceImage = image;
+                    m.Match = true;
+                }
+                else
+                {
+                    var missingNear = SceneFingerprint.Missing(reference.Near, fp.Renderers);
+                    var extraNear = SceneFingerprint.Missing(fp.Near, reference.Renderers);
+                    m.MissingNear = missingNear.Count;
+                    m.ExtraNear = extraNear.Count;
+                    m.Missing = SceneFingerprint.Missing(reference.Renderers, fp.Renderers).Count;
+                    m.Extra = SceneFingerprint.Missing(fp.Renderers, reference.Renderers).Count;
+                    m.MissingNearSamples = missingNear.Take(12).ToList();
+                    m.ExtraNearSamples = extraNear.Take(12).ToList();
+                    long sum = 0;
+                    int off = 0;
+                    for (int i = 0; i < image.Length; i++)
+                    {
+                        int d = Math.Max(Math.Abs(image[i].r - referenceImage[i].r), Math.Max(Math.Abs(image[i].g - referenceImage[i].g), Math.Abs(image[i].b - referenceImage[i].b)));
+                        sum += d;
+                        if (d > 32) off++;
+                    }
+                    m.ImageDiff = (float)sum / image.Length;
+                    m.ImageDiffPct = 100f * off / image.Length;
+                    m.Match = m.MissingNear <= ValidateMissing && m.ImageDiffPct < ValidateImagePct;
+                }
+                Logger.LogInfo($"Benchmark: validate '{sc.Name}' {method}: {m.LoadSeconds:F1}s, renderers {m.Renderers} (near {m.NearRenderers}), " +
+                               $"missing near {m.MissingNear}, extra near {m.ExtraNear}, image diff {m.ImageDiff:F1} / {m.ImageDiffPct:F1}% -> {(m.Match ? "match" : "DIFFERENT")}");
+                GameControl.ReleaseControl();
+            }
+        }
+
+        /// <summary>Near renderers allowed to be missing: flickering lamps and broken props differ between two identical runs.</summary>
+        private const int ValidateMissing = 3;
+        /// <summary>Share of pixels (at 160x90) that may differ from the reference screenshot. Loose on purpose: gore and moving
+        /// geometry (8-3's shifting hallway) change up to 10% between good loads; an unloaded area changes 60% or more.</summary>
+        private const float ValidateImagePct = 25f;
+
+        /// <summary>Box-filter a screenshot down to w x h so small animated details don't dominate the comparison.</summary>
+        private static Color32[] Shrink(Texture2D src, int w, int h)
+        {
+            var px = src.GetPixels32();
+            int sw = src.width, sh = src.height;
+            var result = new Color32[w * h];
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int x0 = x * sw / w, x1 = Math.Max(x0 + 1, (x + 1) * sw / w), y0 = y * sh / h, y1 = Math.Max(y0 + 1, (y + 1) * sh / h);
+                long r = 0, g = 0, b = 0;
+                int n = 0;
+                // Every 4th pixel is plenty for an average.
+                for (int yy = y0; yy < y1; yy += 4)
+                for (int xx = x0; xx < x1; xx += 4)
+                {
+                    var c = px[yy * sw + xx];
+                    r += c.r; g += c.g; b += c.b; n++;
+                }
+                result[y * w + x] = new Color32((byte)(r / n), (byte)(g / n), (byte)(b / n), 255);
+            }
+            return result;
+        }
+
+        private static string SummarizeValidation(List<LoadCheck> checks, string suite, string tag)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"# UltraRT pose-load validation: {suite}{(string.IsNullOrEmpty(tag) ? "" : $" ({tag})")}");
+            sb.AppendLine();
+            sb.AppendLine("Each pose is reached with every load method on a fresh level load and compared with the real-time approach replay (the first row). " +
+                          "Renderers = the level's mesh renderers that are on (enemies, gore, player excluded); near = within 120 m of the camera. " +
+                          "Missing/extra near = near renderers the reference has and this load lacks, and the reverse. " +
+                          $"Image = game-only screenshot at 160x90: mean difference (0-255) and share of pixels off by more than 32. Match = at most {ValidateMissing} missing near (lamps flicker, props break) and under {ValidateImagePct}% of pixels off (gore and moving geometry such as 8-3's shifting hallway change up to 10% between good loads).");
+            sb.AppendLine();
+            sb.AppendLine("| Pose | Load | Load s | Renderers (near) | RT instances | Lights | Missing near | Extra near | Image diff | Match | Detail |");
+            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
+            foreach (var c in checks)
+                foreach (var m in c.Methods)
+                {
+                    bool first = m == c.Methods[0];
+                    sb.AppendLine($"| {c.Scenario} | {m.Load} | {m.LoadSeconds:F1} | {m.Renderers} ({m.NearRenderers}) | {m.Instances} | {m.Lights} | " +
+                                  (m.Error != null ? $"**failed**: {m.Error} |||||" :
+                                   first ? "- | - | - | reference | |" :
+                                   $"{m.MissingNear} | {m.ExtraNear} | {m.ImageDiff:F1} / {m.ImageDiffPct:F1}% | {(m.Match ? "yes" : "**no**")} | {m.Detail} |"));
+                }
+            return sb.ToString();
+        }
+
+        private IEnumerator RunScenario(Scenario sc, ScenarioResult sr, string suiteDir, string outDir)
+        {
+            yield return LoadLevel(sc);
+
+            var load = new PoseLoad();
+            yield return LoadPose(sc, ResolveLoad(sc.Path), suiteDir, load);
+            sr.Load = load.Method;
+            sr.LoadSeconds = load.Seconds;
+            var spawn = load.Spawn;
             var (path, arenas) = BuildPath(sc.Path, spawn, suiteDir);
             sr.Duration = path.Duration;
             GameControl.TakeControl(path.Start);
@@ -442,6 +735,12 @@ namespace UltraRT
                         $"{Get(m.GpuMs, "total")}/{Get(m.GpuMs, "dispatch")}/{Get(m.GpuMs, "denoise")}";
                     sb.AppendLine($"| {sc.Name} | {kv.Key} | {m.AvgMs:F3} | {m.AvgFps:F0} | {m.Low1Fps:F0} | {m.P99Ms:F3} | {delta} | {gpu} |");
                 }
+            }
+            var loads = r.Scenarios.Where(s => s.Load != null && s.Load != "none").ToList();
+            if (loads.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"Pose loads ({loads.Sum(s => s.LoadSeconds):F0} s in total): " + string.Join("; ", loads.Select(s => $"{s.Name}: {s.Load} {s.LoadSeconds:F1} s")));
             }
             return sb.ToString();
 
