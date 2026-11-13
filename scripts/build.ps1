@@ -44,3 +44,17 @@ if (-not $SkipPlugins) {
         if ($LASTEXITCODE -ne 0) { throw "Build failed: $proj" }
     }
 }
+
+# ==================== BEGIN UltraRT.Native (GPU timer) - added by the gpu-timer branch, merge into params ====================
+# TODO(integrator): replace the env-var check with a [switch] $SkipNative parameter.
+if ($env:ULTRART_SKIP_NATIVE -ne '1') {
+    & (Join-Path $root 'native\UltraRT.Native\build.ps1')
+    $nativeDll = Join-Path $root 'native\UltraRT.Native\bin\UltraRT.Native.dll'
+    $pluginDir = Join-Path $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }) 'BepInEx\plugins\UltraRT'
+    if (Test-Path $pluginDir) {
+        # A running game keeps the DLL loaded (it is never unloaded), so the copy can fail until the game exits.
+        try { Copy-Item $nativeDll $pluginDir -Force; "Deployed UltraRT.Native.dll -> $pluginDir" }
+        catch { Write-Warning "UltraRT.Native.dll not deployed (game running?): $($_.Exception.Message)" }
+    }
+}
+# ==================== END UltraRT.Native ====================
