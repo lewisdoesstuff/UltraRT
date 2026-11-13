@@ -94,6 +94,11 @@ namespace UltraRT
 
         private void Awake()
         {
+            // Starting view mode: BepInEx/config/ooo.lew.ultrart.cfg ([View] DefaultMode), overridden by -ultrart-view.
+            var defaultMode = Config.Bind("View", "DefaultMode", "hybrid",
+                "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.").Value;
+            int dm = Array.FindIndex(Modes, m => m.name.Equals(defaultMode, StringComparison.OrdinalIgnoreCase));
+            if (dm >= 0) _mode = dm;
             ParseArgs();
             ParseCacheArgs();
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
@@ -280,7 +285,9 @@ namespace UltraRT
                 if (Input.GetKeyDown(KeyCode.F4)) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
                 if (Input.GetKeyDown(KeyCode.F5)) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
                 if (Input.GetKeyDown(KeyCode.F6)) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
-                if (Input.GetKeyDown(KeyCode.F8)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); }
+                // Page Up / Page Down cycle view modes (F8 opens ULTRAKILL's console).
+                if (Input.GetKeyDown(KeyCode.PageDown)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
+                if (Input.GetKeyDown(KeyCode.PageUp)) { _mode = (_mode + Modes.Length - 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
                 CacheHotkeys();
             }
