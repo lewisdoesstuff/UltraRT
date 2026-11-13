@@ -133,8 +133,10 @@ namespace UltraRT
         /// <param name="height">Dispatch height.</param>
         /// <param name="viewProj">projectionMatrix * worldToCameraMatrix of this frame (the inverse of _InvViewProj).</param>
         /// <param name="camPos">Camera position, for the importance heuristic.</param>
+        /// <param name="emissiveSetChanged">The active emissive triangles changed this frame (EmissiveLights.SetChanged): shortens
+        /// history like a light-set change.</param>
         public void Bind(CommandBuffer cmd, RayTracingShader shader, int width, int height, Matrix4x4 viewProj, Vector3 camPos,
-                         IList<Light> lights, Vector4[] lightData, int lightCount)
+                         IList<Light> lights, Vector4[] lightData, int lightCount, bool emissiveSetChanged = false)
         {
             var s = Settings;
             lightCount = Mathf.Clamp(lightCount, 0, _maxLights);
@@ -155,7 +157,7 @@ namespace UltraRT
 
             int candidates = Mathf.Clamp(s.candidates, 1, 64);
             float cap = Mathf.Max(1f, s.historyLimit) * candidates;
-            if (s.shortenHistoryOnLightChange && LightSetChanged) cap = candidates;
+            if (s.shortenHistoryOnLightChange && (LightSetChanged || emissiveSetChanged)) cap = candidates;
 
             cmd.SetRayTracingIntParam(shader, IdLightSampling, (int)s.mode);
             cmd.SetRayTracingIntParam(shader, IdRisCandidates, candidates);
@@ -171,7 +173,8 @@ namespace UltraRT
             cmd.SetRayTracingMatrixParam(shader, IdPrevViewProj, _historyValid ? _prevViewProj : viewProj);
             cmd.SetRayTracingIntParam(shader, IdRestirHistoryValid, restir && _historyValid ? 1 : 0);
             cmd.SetRayTracingVectorParam(shader, IdRestirParams,
-                new Vector4(Mathf.Min(cap, 60000f), Mathf.Clamp(s.normalTolerance, -1f, 1f), Mathf.Max(0f, s.planeTolerance), Mathf.Max(0f, s.spatialRadius)));
+                // M is stored as a 12-bit integer in the reservoir (docs/emissive-lights.md).
+                new Vector4(Mathf.Min(cap, 4000f), Mathf.Clamp(s.normalTolerance, -1f, 1f), Mathf.Max(0f, s.planeTolerance), Mathf.Max(0f, s.spatialRadius)));
             cmd.SetRayTracingIntParam(shader, IdRestirSpatial, Mathf.Clamp(s.spatialSamples, 0, 8));
 
             if (restir)

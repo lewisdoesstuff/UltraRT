@@ -6,7 +6,9 @@
 //   _LightSampling 1: RIS. M candidates from an alias table, one shadow ray for the winner.
 //   _LightSampling 2: RIS + temporal reuse (ReSTIR DI, biased 1/M combine). One shadow ray per pixel.
 // Unshadowed fill lights are always evaluated exhaustively (they are few and need no rays).
-// See docs/light-sampling.md.
+// Emissive triangles (EmissiveLights.cs) are a second kind of RIS candidate: a point on a triangle of an emissive
+// surface. In reference mode they get _EmissiveRefSamples extra shadow rays per hit instead.
+// See docs/light-sampling.md and docs/emissive-lights.md.
 //
 // The includer must declare, before this file: RayPayload (UltraRTCommon.hlsl), _Scene, Rand(inout uint)
 // and _LightScale.
@@ -33,15 +35,37 @@ StructuredBuffer<uint>   _FillLights;   // indices of unshadowed fill lights
 // Temporal reuse (only touched when _LightSampling == 2).
 StructuredBuffer<uint>    _LightRemap;     // previous frame's light index -> this frame's index (0xFFFF = gone)
 int       _PrevLightCount;
-// Reservoir per pixel: x light | half(M) << 16, y asuint(W), z oct16x2 normal, w asuint(dot(normal, pos)).
+// Reservoir per pixel (docs/emissive-lights.md, "Reservoir layout"):
+//   x: light code (17 bits: index | emissive flag << 16; 0xFFFF = none) | uint(M) << 20 (12 bits)
+//   y: asuint(W) with its 10 low mantissa bits replaced by the emissive sample's barycentric u (10 bits)
+//   z: oct11x2 normal (22 bits) | barycentric v << 22 (10 bits)
+//   w: asuint(dot(normal, pos)): the surface plane
 StructuredBuffer<uint4>   _ReservoirPrev;
 RWStructuredBuffer<uint4> _ReservoirCur;
 float4x4  _PrevViewProj;    // viewProj of the frame that wrote _ReservoirPrev
 int       _RestirHistoryValid;
-float4    _RestirParams;    // x max history M, y min normal cosine, z plane tolerance (x ray t), w spatial radius (px)
+float4    _RestirParams;    // x max history M (<= 4095), y min normal cosine, z plane tolerance (x ray t), w spatial radius (px)
 int       _RestirSpatial;   // extra neighbour reservoirs taken from the previous frame (0 = temporal only)
 
 #define ULTRART_NO_LIGHT 0xFFFFu
+#define ULTRART_EMISSIVE 0x10000u // light code flag: the low 16 bits index _EmissiveTris
+
+// Emissive triangles (EmissiveLights.cs). Per triangle, 3 x uint4, in the space of its owner (_EmissiveOwners):
+//   [0] asuint(p0.xyz), owner | flags << 16 (bit 0 two-sided, bit 1 flip facing)
+//   [1] asuint((p1 - p0).xyz), half(Le.r) | half(Le.g) << 16
+//   [2] asuint((p2 - p0).xyz), half(Le.b)
+// Le is the triangle's average emitted radiance, before _EmissiveParams.y.
+StructuredBuffer<uint4>  _EmissiveTris;
+StructuredBuffer<float4> _EmissiveOwners;  // 3 rows of localToWorld per owner
+StructuredBuffer<uint4>  _EmissiveAlias;   // as _LightAlias, over the active triangles (values index _EmissiveTris)
+StructuredBuffer<uint>   _EmissiveActive;  // one bit per triangle: its surface is in the RTAS this frame
+int      _EmissiveCount;        // entries in _EmissiveAlias (0 = no emissive candidates)
+int      _EmissiveTriCount;     // triangles in _EmissiveTris
+int      _EmissiveRefSamples;   // reference mode: emissive samples (one shadow ray each) per primary hit
+int      _EmissiveHistoryValid; // 0 when triangle indices changed since the previous frame: drop emissive history
+float4   _EmissiveParams;       // x P(a RIS candidate is emissive), y EmissiveLightScale / pi, z min squared distance
+float    _EmissiveBounceWeight; // weight of hit emission on bounce rays (0 while emissive triangles are sampled directly)
+float    _EmissiveHybridAdd;    // hybrid: emissive direct light added on top of the game's colour (via the bounce channel)
 
 // ---------------------------------------------------------------- light model
 
@@ -105,6 +129,116 @@ float3 LightFrom(uint i, float3 p, float3 n, uint layer)
     return c;
 }
 
+// ---------------------------------------------------------------- emissive triangles
+
+// The point on a triangle: 10-bit stratum centres folded into the triangle, so it is uniform over the triangle's area
+// and exactly reproducible from the 20 bits stored in the reservoir.
+float2 EmissiveBary(uint bary)
+{
+    float2 b = (float2(bary & 0x3FFu, (bary >> 10) & 0x3FFu) + 0.5) * (1.0 / 1024.0);
+    return (b.x + b.y > 1.0) ? 1.0 - b : b;
+}
+
+uint EmissiveRandomBary(inout uint rng)
+{
+    uint u = min((uint)(Rand(rng) * 1024.0), 1023u);
+    uint v = min((uint)(Rand(rng) * 1024.0), 1023u);
+    return u | (v << 10);
+}
+
+bool EmissiveActive(uint tri)
+{
+    return tri < (uint)_EmissiveTriCount && ((_EmissiveActive[tri >> 5] >> (tri & 31u)) & 1u) != 0u;
+}
+
+// Unshadowed contribution at (p, n) of the point `bary` on emissive triangle `tri`, per unit of emitter area:
+// Le * scale * cos(receiver) * cos(emitter) / (pi * max(d^2, min d^2)). `area` is the triangle's world-space area,
+// so the source pdf of a sample in area measure is pdf(tri) / area. L and dist describe the shadow ray.
+bool EmissiveEval(uint tri, uint bary, float3 p, float3 n, out float3 L, out float dist, out float3 c, out float area)
+{
+    L = 0; dist = 0; c = 0; area = 0;
+    uint4 t0 = _EmissiveTris[tri * 3];
+    uint4 t1 = _EmissiveTris[tri * 3 + 1];
+    uint4 t2 = _EmissiveTris[tri * 3 + 2];
+    uint owner = t0.w & 0xFFFFu;
+    uint flags = t0.w >> 16;
+    float4 r0 = _EmissiveOwners[owner * 3];
+    float4 r1 = _EmissiveOwners[owner * 3 + 1];
+    float4 r2 = _EmissiveOwners[owner * 3 + 2];
+    float3x3 m = float3x3(r0.xyz, r1.xyz, r2.xyz);
+    float3 p0 = mul(m, asfloat(t0.xyz)) + float3(r0.w, r1.w, r2.w);
+    float3 e1 = mul(m, asfloat(t1.xyz));
+    float3 e2 = mul(m, asfloat(t2.xyz));
+
+    float3 nc = cross(e1, e2);
+    float len = length(nc);
+    if (len < 1e-10) return false;
+    area = 0.5 * len;
+    float3 nl = nc / len;
+    // Unity's front faces wind clockwise in its left-handed space, which makes cross(e1, e2) the front normal.
+    // A mirroring transform flips it, and so does -ultrart-ccw (flag bit 1).
+    if ((determinant(m) < 0.0) != ((flags & 2u) != 0u)) nl = -nl;
+
+    float2 b = EmissiveBary(bary);
+    float3 x = p0 + e1 * b.x + e2 * b.y;
+    float3 toL = x - p;
+    float d2 = dot(toL, toL);
+    if (d2 < 1e-8) return false;
+    dist = sqrt(d2);
+    L = toL / dist;
+    float cosS = dot(n, L);
+    if (cosS <= 1e-4) return false;
+    float cosL = -dot(nl, L);
+    if ((flags & 1u) != 0u) cosL = abs(cosL);
+    if (cosL <= 1e-4) return false;
+
+    float3 le = float3(f16tof32(t1.w), f16tof32(t1.w >> 16), f16tof32(t2.w));
+    c = le * (_EmissiveParams.y * cosS * cosL / max(d2, _EmissiveParams.z));
+    return true;
+}
+
+// Visibility of an emitter sample: the ray stops just short of the emitter, so the emitter can't shadow itself.
+bool EmissiveVisible(float3 p, float3 n, float3 L, float dist)
+{
+    return Visible(p, n, L, dist * 0.999 - 0.02);
+}
+
+void SampleEmissiveTable(float u, out uint tri, out float pdf)
+{
+    float x = u * (float)_EmissiveCount;
+    uint slot = min((uint)x, (uint)_EmissiveCount - 1u);
+    uint4 e = _EmissiveAlias[slot];
+    bool keep = (x - (float)slot) < asfloat(e.x);
+    tri = keep ? (e.y & 0xFFFFu) : (e.y >> 16);
+    pdf = asfloat(keep ? e.z : e.w);
+}
+
+// Reference mode: `count` emitter samples from the alias table, one shadow ray each. Unbiased but noisy: brute force
+// over every emissive triangle would cost thousands of rays per pixel.
+float3 EmissiveDirect(float3 p, float3 n, int count, inout uint rng, out float3 unshadowed)
+{
+    unshadowed = 0;
+    if (_EmissiveCount <= 0 || count <= 0) return 0;
+    float3 shadowed = 0;
+    for (int k = 0; k < count; k++)
+    {
+        uint tri;
+        float pdf;
+        SampleEmissiveTable(Rand(rng), tri, pdf);
+        uint bary = EmissiveRandomBary(rng);
+        float3 L, c;
+        float dist, area;
+        if (pdf <= 0.0 || !EmissiveEval(tri, bary, p, n, L, dist, c, area)) continue;
+        c *= area / pdf;
+        unshadowed += c;
+        if (EmissiveVisible(p, n, L, dist)) shadowed += c;
+    }
+    unshadowed /= (float)count;
+    return shadowed / (float)count;
+}
+
+// ---------------------------------------------------------------- reference / fill lights
+
 // Reference: every light, one shadow ray each.
 float3 DirectAll(float3 p, float3 n, uint layer)
 {
@@ -129,11 +263,12 @@ float3 FillLighting(float3 p, float3 n, uint layer)
 
 struct Reservoir
 {
-    uint   light;  // ULTRART_NO_LIGHT when nothing was selected
+    uint   light;  // light code: light index, or ULTRART_EMISSIVE | triangle; ULTRART_NO_LIGHT when nothing was selected
+    uint   bary;   // emissive samples: the point on the triangle (EmissiveBary)
     float  wSum;
     float  M;
-    float  pHat;   // target (luminance of the unshadowed contribution) of `light` at this pixel
-    float3 c;      // unshadowed contribution of `light` at this pixel
+    float  pHat;   // target (luminance of the unshadowed contribution) of the sample at this pixel
+    float3 c;      // unshadowed contribution of the sample at this pixel
     float3 L;
     float  dist;
 };
@@ -142,19 +277,21 @@ Reservoir ReservoirEmpty()
 {
     Reservoir r;
     r.light = ULTRART_NO_LIGHT;
+    r.bary = 0;
     r.wSum = 0; r.M = 0; r.pHat = 0;
     r.c = 0; r.L = 0; r.dist = 0;
     return r;
 }
 
 // Weighted reservoir sampling of one stream element (weight w, representing M samples).
-void ReservoirAdd(inout Reservoir r, uint light, float w, float M, float3 c, float3 L, float dist, float u)
+void ReservoirAdd(inout Reservoir r, uint light, uint bary, float w, float M, float3 c, float3 L, float dist, float u)
 {
     r.wSum += w;
     r.M += M;
     if (w > 0.0 && u * r.wSum < w)
     {
         r.light = light;
+        r.bary = bary;
         r.pHat = LightLuminance(c);
         r.c = c; r.L = L; r.dist = dist;
     }
@@ -176,37 +313,65 @@ void SampleLightTable(float u, out uint light, out float pdf)
     pdf = asfloat(keep ? e.z : e.w);
 }
 
-// RIS: `count` candidates from the source pdf (alias table), resampled by the unshadowed contribution.
+// RIS: `count` candidates from the source pdf, resampled by the unshadowed contribution. A candidate is an emitter
+// sample with probability _EmissiveParams.x (alias table over the emissive triangles, then a uniform point on the
+// triangle: pdf in area measure), otherwise a light from the light alias table (pdf over light indices). The domain is
+// the disjoint union of both, so mixing measures is fine as long as each sample uses its own pdf.
 Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rng)
 {
     Reservoir r = ReservoirEmpty();
-    if (_RisLightCount <= 0) return r;
+    float share = _EmissiveCount > 0 ? _EmissiveParams.x : 0.0;
+    if (_RisLightCount <= 0) share = _EmissiveCount > 0 ? 1.0 : 0.0;
+    if (_RisLightCount <= 0 && share <= 0.0) return r;
     for (int k = 0; k < count; k++)
     {
-        uint li;
-        float pdf;
-        SampleLightTable(Rand(rng), li, pdf);
-        float3 L, c;
-        float dist;
-        float w = (LightEval(li, p, n, layer, L, dist, c) && pdf > 0.0) ? LightLuminance(c) / pdf : 0.0;
-        ReservoirAdd(r, li, w, 1.0, c, L, dist, Rand(rng));
+        float u = Rand(rng);
+        float3 L = 0, c = 0;
+        float dist = 0;
+        float w = 0.0;
+        uint code, bary = 0;
+        if (u < share)
+        {
+            uint tri;
+            float pdf, area;
+            SampleEmissiveTable(u / share, tri, pdf);
+            bary = EmissiveRandomBary(rng);
+            code = ULTRART_EMISSIVE | tri;
+            if (pdf > 0.0 && EmissiveEval(tri, bary, p, n, L, dist, c, area)) w = LightLuminance(c) * area / (share * pdf);
+        }
+        else
+        {
+            uint li;
+            float pdf;
+            SampleLightTable(saturate((u - share) / (1.0 - share)), li, pdf);
+            code = li;
+            if (pdf > 0.0 && LightEval(li, p, n, layer, L, dist, c)) w = LightLuminance(c) / ((1.0 - share) * pdf);
+        }
+        ReservoirAdd(r, code, bary, w, 1.0, c, L, dist, Rand(rng));
     }
     return r;
 }
 
+bool SampleVisible(Reservoir r, float3 p, float3 n)
+{
+    return (r.light & ULTRART_EMISSIVE) != 0u ? EmissiveVisible(p, n, r.L, r.dist) : Visible(p, n, r.L, r.dist);
+}
+
 // ---------------------------------------------------------------- temporal reuse
 
-uint2 OctEncode16(float3 n)
+#define ULTRART_OCT_MAX 2047.0 // 11 bits per component
+
+uint2 OctEncode11(float3 n)
 {
     n /= abs(n.x) + abs(n.y) + abs(n.z);
     float2 e = n.xy;
     if (n.z < 0.0) e = (1.0 - abs(n.yx)) * float2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-    return (uint2)round(saturate(e * 0.5 + 0.5) * 65535.0);
+    return (uint2)round(saturate(e * 0.5 + 0.5) * ULTRART_OCT_MAX);
 }
 
-float3 OctDecode16(uint2 q)
+float3 OctDecode11(uint2 q)
 {
-    float2 e = (float2)q / 65535.0 * 2.0 - 1.0;
+    float2 e = (float2)q / ULTRART_OCT_MAX * 2.0 - 1.0;
     float3 n = float3(e, 1.0 - abs(e.x) - abs(e.y));
     float t = saturate(-n.z);
     n.x += n.x >= 0.0 ? -t : t;
@@ -216,7 +381,26 @@ float3 OctDecode16(uint2 q)
 
 uint RestirIndex(uint2 q, uint2 dim) { return q.y * dim.x + q.x; }
 
-// Sky / no surface: an entry that is never reused.
+uint4 RestirPack(Reservoir r, float M, float W, float3 n, float3 pos)
+{
+    uint2 oct = OctEncode11(n);
+    float3 nq = OctDecode11(oct); // the plane is stored against the quantised normal, so the test is exact
+    uint m = min((uint)round(M), 4095u);
+    uint bary = (r.light & ULTRART_EMISSIVE) != 0u ? r.bary : 0u;
+    return uint4(
+        (r.light & 0x1FFFFu) | (m << 20),
+        (asuint(W) & ~0x3FFu) | (bary & 0x3FFu), // W keeps 13 mantissa bits (relative error < 1.3e-4)
+        oct.x | (oct.y << 11) | (((bary >> 10) & 0x3FFu) << 22),
+        asuint(dot(nq, pos)));
+}
+
+float  RestirM(uint4 h) { return (float)(h.x >> 20); }
+uint   RestirLight(uint4 h) { return h.x & 0x1FFFFu; }
+float  RestirW(uint4 h) { return asfloat(h.y & ~0x3FFu); }
+uint   RestirBary(uint4 h) { return (h.y & 0x3FFu) | ((h.z >> 22) << 10); }
+float3 RestirNormal(uint4 h) { return OctDecode11(uint2(h.z & 0x7FFu, (h.z >> 11) & 0x7FFu)); }
+
+// Sky / no surface: an entry that is never reused (M = 0).
 void RestirWriteEmpty(uint2 id, uint2 dim)
 {
     if (_LightSampling >= 2) _ReservoirCur[RestirIndex(id, dim)] = uint4(ULTRART_NO_LIGHT, 0u, 0u, 0u);
@@ -225,33 +409,45 @@ void RestirWriteEmpty(uint2 id, uint2 dim)
 // Does the previous frame's reservoir h belong to (roughly) the same surface as (pos, n)?
 bool RestirMatch(uint4 h, float3 pos, float3 n, float t)
 {
-    if (!(f16tof32(h.x >> 16) > 0.0)) return false;
-    float3 nh = OctDecode16(uint2(h.z & 0xFFFFu, h.z >> 16));
+    if (!(RestirM(h) > 0.0)) return false;
+    float3 nh = RestirNormal(h);
     if (dot(n, nh) < _RestirParams.y) return false;
     return abs(dot(nh, pos) - asfloat(h.w)) <= _RestirParams.z * t + 0.01;
 }
 
-// Merge a previous-frame reservoir into r, re-targeting its light at the current pixel (biased 1/M combine).
+// Merge a previous-frame reservoir into r, re-targeting its sample at the current pixel (biased 1/M combine).
 void RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, inout uint rng)
 {
-    float M = min(f16tof32(h.x >> 16), _RestirParams.x);
-    uint prevLight = h.x & 0xFFFFu;
+    float M = min(RestirM(h), _RestirParams.x);
+    uint prevLight = RestirLight(h);
     uint light = ULTRART_NO_LIGHT;
+    uint bary = 0;
     float3 L = 0, c = 0;
     float dist = 0;
     float w = 0;
-    if (prevLight != ULTRART_NO_LIGHT)
+    if ((prevLight & ULTRART_EMISSIVE) != 0u)
+    {
+        // Triangle indices are stable while _EmissiveHistoryValid. A triangle whose surface left the RTAS (room hidden,
+        // object destroyed) is dropped like a light that is gone.
+        uint tri = prevLight & 0xFFFFu;
+        if (_EmissiveHistoryValid == 0 || !EmissiveActive(tri)) return;
+        light = prevLight;
+        bary = RestirBary(h);
+        float area;
+        if (EmissiveEval(tri, bary, pos, n, L, dist, c, area)) w = LightLuminance(c) * RestirW(h) * M;
+    }
+    else if (prevLight != ULTRART_NO_LIGHT)
     {
         if (prevLight >= (uint)_PrevLightCount) return;
         light = _LightRemap[prevLight];
         // The light is gone (switched off with its room, destroyed): this history describes a light set that
         // no longer exists, so drop it rather than count its M with zero weight.
         if (light == ULTRART_NO_LIGHT) return;
-        if (LightEval(light, pos, n, layer, L, dist, c)) w = LightLuminance(c) * asfloat(h.y) * M;
+        if (LightEval(light, pos, n, layer, L, dist, c)) w = LightLuminance(c) * RestirW(h) * M;
     }
     // A history with no light (or W = 0 because its sample was occluded) still counts its M: it is evidence
     // that this pixel receives nothing from those samples. See docs/light-sampling.md.
-    ReservoirAdd(r, light, w, M, c, L, dist, Rand(rng));
+    ReservoirAdd(r, light, bary, w, M, c, L, dist, Rand(rng));
 }
 
 void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
@@ -283,10 +479,13 @@ void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
 // The unshadowed counterpart of the last DirectLighting() result (same samples, no visibility). The hybrid composite
 // uses shadowed / unshadowed as its shadow ratio, so it needs no separate loop over every light.
 static float3 g_DirectUnshadowed;
+// The emissive-triangle part of the last DirectLighting() result (shadowed, scaled), for the hybrid's additive term.
+static float3 g_DirectEmissive;
 
 // Direct light at the primary hit. Writes this pixel's reservoir when temporal reuse is on.
 float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
 {
+    g_DirectEmissive = 0;
     if (_LightSampling <= 0)
     {
         float3 shadowed = 0, unshadowed = 0;
@@ -298,8 +497,11 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
             unshadowed += c;
             if (LightUnshadowed((uint)i) || Visible(pos, n, L, dist)) shadowed += c;
         }
-        g_DirectUnshadowed = unshadowed * _LightScale;
-        return shadowed * _LightScale;
+        float3 emUnshadowed;
+        float3 em = EmissiveDirect(pos, n, _EmissiveRefSamples, rng, emUnshadowed);
+        g_DirectEmissive = em * _LightScale;
+        g_DirectUnshadowed = (unshadowed + emUnshadowed) * _LightScale;
+        return (shadowed + em) * _LightScale;
     }
 
     float3 sum = FillLighting(pos, n, layer);
@@ -313,39 +515,35 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
     {
         unshadowedSum += r.c * W;
         // Occluded samples are stored with W = 0 so they stop propagating (visibility reuse with the one ray).
-        if (Visible(pos, n, r.L, r.dist)) sum += r.c * W;
+        if (SampleVisible(r, pos, n))
+        {
+            sum += r.c * W;
+            if ((r.light & ULTRART_EMISSIVE) != 0u) g_DirectEmissive = r.c * (W * _LightScale);
+        }
         else W = 0.0;
     }
 
-    if (temporal)
-    {
-        uint2 oct = OctEncode16(n);
-        float3 nq = OctDecode16(oct); // the plane is stored against the quantised normal, so the test is exact
-        float M = min(r.M, _RestirParams.x);
-        _ReservoirCur[RestirIndex(id, dim)] = uint4(
-            (r.light & 0xFFFFu) | (f32tof16(M) << 16),
-            asuint(W),
-            oct.x | (oct.y << 16),
-            asuint(dot(nq, pos)));
-    }
+    if (temporal) _ReservoirCur[RestirIndex(id, dim)] = RestirPack(r, min(r.M, _RestirParams.x), W, n, pos);
     g_DirectUnshadowed = unshadowedSum * _LightScale;
     return sum * _LightScale;
 }
 
-// Direct light at the bounce hit: one shadow ray.
+// Direct light at the bounce hit: one shadow ray (reference: one light ray plus at most one emitter ray).
 float3 DirectOne(float3 p, float3 n, uint layer, inout uint rng)
 {
     if (_LightSampling <= 0)
     {
-        if (_LightCount <= 0) return 0;
+        float3 emUnshadowed;
+        float3 em = EmissiveDirect(p, n, min(_EmissiveRefSamples, 1), rng, emUnshadowed);
+        if (_LightCount <= 0) return em * _LightScale;
         int i = min((int)(Rand(rng) * _LightCount), _LightCount - 1);
-        return LightFrom((uint)i, p, n, layer) * (_LightCount * _LightScale);
+        return (LightFrom((uint)i, p, n, layer) * _LightCount + em) * _LightScale;
     }
 
     float3 sum = FillLighting(p, n, layer);
     Reservoir r = RisCandidates(p, n, layer, _BounceCandidates, rng);
     float W = ReservoirW(r);
-    if (W > 0.0 && Visible(p, n, r.L, r.dist)) sum += r.c * W;
+    if (W > 0.0 && SampleVisible(r, p, n)) sum += r.c * W;
     return sum * _LightScale;
 }
 

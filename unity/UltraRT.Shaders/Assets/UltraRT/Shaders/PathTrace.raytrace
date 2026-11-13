@@ -165,7 +165,8 @@ void RayGen()
             {
                 float3 hp = b.Origin + b.Direction * h.t;
                 float3 hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng) + _Ambient.rgb * _BounceAmbient;
-                indirect = h.emission * _EmissionScale + h.albedo * lerp(1.0, hitLight, h.alpha);
+                // Emitters that are sampled directly (EmissiveLights) must not also count when a bounce hits them.
+                indirect = h.emission * (_EmissionScale * _EmissiveBounceWeight) + h.albedo * lerp(1.0, hitLight, h.alpha);
             }
         }
 
@@ -177,7 +178,9 @@ void RayGen()
             case 1: lighting = direct + ambient; break;
             case 2: lighting = indirect; break;
             // Hybrid: shadows come from _DirectLight/_GameLighting as a ratio; the denoised bounce is added on top.
-            case 3: lighting = indirect; break; // hybrid: only the bounce goes through the denoiser
+            // Hybrid: only the bounce goes through the denoiser, plus emissive direct light as an optional extra (the game
+            // doesn't light surfaces from emissives). The composite multiplies this channel by _GIStrength, hence the divide.
+            case 3: lighting = indirect + g_DirectEmissive * (_EmissiveHybridAdd / max(_GIStrength, 1e-3)); break;
         }
         lighting = lerp(1.0, lighting, p.alpha); // fullbright surfaces ignore lighting, like the game
         albedo = p.albedo;
