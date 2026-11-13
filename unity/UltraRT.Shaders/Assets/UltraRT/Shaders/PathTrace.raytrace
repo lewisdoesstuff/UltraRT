@@ -1,13 +1,18 @@
-// First lighting pass: primary hit, shadowed direct light from the scene's point lights,
-// and one diffuse bounce that picks up emissive surfaces plus one shadowed light sample at the bounce.
-// Optional progressive accumulation while the camera is still (reference quality for comparisons).
+// Lighting pass: primary hit, shadowed direct light using ULTRAKILL's own light model, and one diffuse
+// bounce that picks up emissive surfaces plus one shadowed light sample at the bounce.
+// Writes a composited image plus demodulated G-buffer channels for the denoiser.
 #pragma max_recursion_depth 1
 
 #include "UltraRTCommon.hlsl"
 
 RaytracingAccelerationStructure _Scene;
-RWTexture2D<float4> _Output;
-RWTexture2D<float4> _Accum;
+RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission)
+RWTexture2D<float4> _Accum;       // progressive accumulation of _Output
+RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by albedo)
+RWTexture2D<float4> _AlbedoOut;
+RWTexture2D<float4> _EmissionOut;
+RWTexture2D<float4> _NormalDepth; // xyz world normal, w = hit distance (< 0 = sky)
+RWTexture2D<int>    _InstanceId;  // -1 = sky
 
 float4x4 _InvViewProj;
 float4   _CamPos;
@@ -15,11 +20,18 @@ int      _Mode;          // 0 full, 1 direct only, 2 indirect only
 uint     _FrameIndex;
 uint     _AccumFrames;   // frames already accumulated (0 = reset)
 
-StructuredBuffer<float4> _Lights; // per light: [posWS, range], [color * intensity, 0]
+// Per light, 4 x float4:
+//   [0] position (or -forward for directional), range (0 = directional)
+//   [1] color * intensity, culling mask (asfloat of uint)
+//   [2] forward, unused
+//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unused, unused
+StructuredBuffer<float4> _Lights;
 int      _LightCount;
 
-float4   _SkyColor;      // radiance for rays escaping the level
-float4   _Ambient;       // cheap stand-in for further bounces, applied at the bounce hit only
+float4   _SkyColor;       // radiance for rays escaping the level
+float4   _Ambient;        // the game's ambient term (2 * RenderSettings.ambientLight)
+float    _PrimaryAmbient; // how much of _Ambient to add at the primary hit (art knob)
+float    _BounceAmbient;  // how much of _Ambient to add at the bounce hit (stand-in for further bounces)
 float    _LightScale;
 float    _EmissionScale;
 
@@ -43,7 +55,7 @@ float3 CosineHemisphere(float3 n, float u1, float u2)
     return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(0.0, 1.0 - u1)));
 }
 
-// ---------------------------------------------------------------- tracing helpers
+// ---------------------------------------------------------------- lights
 
 bool Visible(float3 p, float3 n, float3 dir, float dist)
 {
@@ -58,42 +70,51 @@ bool Visible(float3 p, float3 n, float3 dir, float dist)
     return sp.t < 0.0;
 }
 
-// Smooth, range-limited falloff in the spirit of Unity's built-in point light attenuation.
-float Attenuation(float d, float range)
+// ULTRAKILL's falloff (StaticSceneOptimizer / Stationary shader): Unity's vertex-light term,
+// the spot cone, and a linear fade from range to 2 * range.
+float3 LightFrom(int i, float3 p, float3 n, uint layer)
 {
-    float r = d / max(range, 1e-3);
-    float w = saturate(1.0 - r * r * r * r);
-    return (w * w) / (1.0 + 25.0 * r * r);
-}
+    float4 l0 = _Lights[i * 4];
+    float4 l1 = _Lights[i * 4 + 1];
+    if (((asuint(l1.w) >> layer) & 1u) == 0u) return 0;
 
-float3 LightFrom(int i, float3 p, float3 n)
-{
-    float4 a = _Lights[i * 2];
-    float4 c = _Lights[i * 2 + 1];
-    float3 toL = a.xyz - p;
-    float d = length(toL);
-    if (d >= a.w) return 0;
-    float3 l = toL / max(d, 1e-4);
-    float ndl = dot(n, l);
+    bool local = l0.w != 0.0;
+    float3 toL = local ? l0.xyz - p : l0.xyz;
+    float d2 = max(dot(toL, toL), 1e-6);
+    float d = sqrt(d2);
+    float3 L = toL / d;
+    float ndl = dot(n, L);
     if (ndl <= 0.0) return 0;
-    float att = Attenuation(d, a.w);
-    if (att < 1e-3) return 0;
-    if (!Visible(p, n, l, d)) return 0;
-    return c.rgb * (att * ndl);
+
+    float atten = 1.0;
+    float dist = 1.0e4;
+    if (local)
+    {
+        float4 l2 = _Lights[i * 4 + 2];
+        float4 l3 = _Lights[i * 4 + 3];
+        float r = max(l0.w, 1e-6);
+        atten = 1.0 / (1.0 + d2 * 25.0 / (r * r));
+        atten *= saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
+        atten *= saturate(2.0 - d / r);
+        dist = d;
+    }
+    if (atten < 1e-3) return 0;
+    if (!Visible(p, n, L, dist)) return 0;
+    return l1.rgb * (atten * ndl);
 }
 
-float3 DirectAll(float3 p, float3 n)
+float3 DirectAll(float3 p, float3 n, uint layer)
 {
     float3 sum = 0;
-    for (int i = 0; i < _LightCount; i++) sum += LightFrom(i, p, n);
+    for (int i = 0; i < _LightCount; i++) sum += LightFrom(i, p, n, layer);
     return sum * _LightScale;
 }
 
-float3 DirectOne(float3 p, float3 n, inout uint rng)
+float3 DirectOne(float3 p, float3 n, uint layer, inout uint rng)
 {
     if (_LightCount <= 0) return 0;
     int i = min((int)(Rand(rng) * _LightCount), _LightCount - 1);
-    return LightFrom(i, p, n) * (_LightCount * _LightScale);
+    return LightFrom(i, p, n, layer) * (_LightCount * _LightScale);
 }
 
 // ---------------------------------------------------------------- ray generation
@@ -121,17 +142,23 @@ void RayGen()
     p.t = -1.0;
     TraceRay(_Scene, RAY_FLAG_NONE, 0xFF, 0, 1, 0, ray, p);
 
-    float3 c;
+    float3 c, lighting, albedo, emission;
     if (p.t < 0.0)
     {
-        c = _SkyColor.rgb;
+        lighting = _SkyColor.rgb;
+        albedo = 1;
+        emission = 0;
+        c = lighting;
+        _NormalDepth[id] = float4(0, 0, 0, -1);
+        _InstanceId[id] = -1;
     }
     else
     {
         float3 pos = ray.Origin + ray.Direction * p.t;
         float3 n = p.normal;
+        uint layer = PayloadLayer(p);
 
-        float3 direct = DirectAll(pos, n);
+        float3 direct = DirectAll(pos, n, layer);
 
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
         float3 indirect = 0;
@@ -151,19 +178,30 @@ void RayGen()
             else
             {
                 float3 hp = b.Origin + b.Direction * h.t;
-                indirect = h.emission * _EmissionScale + h.albedo * (DirectOne(hp, h.normal, rng) + _Ambient.rgb);
+                float3 hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng) + _Ambient.rgb * _BounceAmbient;
+                indirect = h.emission * _EmissionScale + h.albedo * lerp(1.0, hitLight, h.alpha);
             }
         }
 
-        float3 emission = p.emission * _EmissionScale;
+        float3 ambient = _Ambient.rgb * _PrimaryAmbient;
         switch (_Mode)
         {
             default:
-            case 0: c = p.albedo * (direct + indirect) + emission; break;
-            case 1: c = p.albedo * direct + emission; break;
-            case 2: c = p.albedo * indirect; break;
+            case 0: lighting = direct + indirect + ambient; break;
+            case 1: lighting = direct + ambient; break;
+            case 2: lighting = indirect; break;
         }
+        lighting = lerp(1.0, lighting, p.alpha); // fullbright surfaces ignore lighting, like the game
+        albedo = p.albedo;
+        emission = p.emission * _EmissionScale;
+        c = albedo * lighting + emission;
+        _NormalDepth[id] = float4(n, p.t);
+        _InstanceId[id] = (int)p.instance;
     }
+
+    _Radiance[id] = float4(lighting, 1.0);
+    _AlbedoOut[id] = float4(albedo, 1.0);
+    _EmissionOut[id] = float4(emission, 1.0);
 
     if (_AccumFrames > 0)
     {

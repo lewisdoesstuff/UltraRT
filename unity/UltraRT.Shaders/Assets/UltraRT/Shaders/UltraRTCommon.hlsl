@@ -5,15 +5,17 @@
 struct RayPayload
 {
     float3 albedo;
-    float  alpha;
+    float  alpha;      // lit weight: 0 = fullbright surface, 1 = fully lit (game: lerp(1, lighting, vertexColor.a))
     float3 normal;     // world space, facing the ray
     float  t;          // hit distance, < 0 on miss
     float3 emission;
     uint   instance;
     float2 uv;
     uint   primitive;
-    uint   flags;      // bit 0: vertex normals missing (geometric normal used)
+    uint   flags;      // bit 0: vertex normals missing (geometric normal used); bits 8-15: original layer
 };
+
+uint PayloadLayer(RayPayload p) { return (p.flags >> 8) & 0xFFu; }
 
 struct AttributeData
 {

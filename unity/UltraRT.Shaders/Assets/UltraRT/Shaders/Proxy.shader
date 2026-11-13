@@ -12,6 +12,7 @@ Shader "UltraRT/Proxy"
         _UseAlbedoAsEmissive ("Use Albedo As Emissive", Float) = 0
         _Cutoff ("Alpha cutoff", Float) = 0
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
+        _BlendTex ("Blend atlas", 2D) = "white" {}
     }
 
     SubShader
@@ -46,6 +47,7 @@ Shader "UltraRT/Proxy"
             float4 _MainTex_ST;
             Texture2D _EmissiveTex;
             float4 _EmissiveTex_ST;
+            Texture2D _BlendTex;
             SamplerState my_point_repeat_sampler;
 
             float4 _Color;
@@ -86,14 +88,38 @@ Shader "UltraRT/Proxy"
                 if (dot(n, WorldRayDirection()) > 0.0) n = -n; // treat everything as two-sided for now
 
                 float2 uv = FetchUV(tri, b);
-                float2 texUV = uv * _MainTex_ST.xy + _MainTex_ST.zw;
+                float4 albedo;
+                float litWeight = 1.0; // 0 = fullbright (game: lerp(1, lighting, vertexColor.a))
                 if (_AtlasMode > 0.5)
                 {
-                    // Atlas rect (xMin, yMin, xMax, yMax) is constant per face, so the first vertex's value is enough.
+                    // StaticSceneOptimizer geometry. Atlas rects (xMin, yMin, xMax, yMax) are constant per face.
+                    float2 f = frac(uv);
                     float4 rect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord1);
-                    texUV = lerp(rect.xy, rect.zw, frac(uv));
+                    float4 mainTex = _MainTex.SampleLevel(my_point_repeat_sampler, lerp(rect.xy, rect.zw, f), 0);
+
+                    // Vertex blending: texture = lerp(blendAtlas, mainAtlas, |normal.w| - 1).
+                    float nw = abs(UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeNormal).w) * b.x
+                             + abs(UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeNormal).w) * b.y
+                             + abs(UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeNormal).w) * b.z;
+                    float blendW = saturate(nw - 1.0);
+                    float4 blendRect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord2);
+                    float4 tex = mainTex;
+                    if (any(blendRect != 0) && blendW < 0.999)
+                    {
+                        float4 blendTex = _BlendTex.SampleLevel(my_point_repeat_sampler, lerp(blendRect.xy, blendRect.zw, f), 0);
+                        tex = lerp(blendTex, mainTex, blendW);
+                    }
+
+                    float4 vc = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeColor) * b.x
+                              + UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeColor) * b.y
+                              + UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeColor) * b.z;
+                    albedo = float4(tex.rgb * vc.rgb, tex.a) * _Color;
+                    litWeight = vc.a;
                 }
-                float4 albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, 0) * _Color;
+                else
+                {
+                    albedo = _MainTex.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0) * _Color;
+                }
 
                 float3 emission = 0;
                 if (_EmissiveIntensity > 0.0)
@@ -105,14 +131,15 @@ Shader "UltraRT/Proxy"
                 }
 
                 p.albedo = albedo.rgb;
-                p.alpha = albedo.a;
+                p.alpha = litWeight;
                 p.normal = n;
                 p.t = RayTCurrent();
                 p.emission = emission;
                 p.instance = InstanceIndex();
                 p.uv = uv;
                 p.primitive = PrimitiveIndex();
-                p.flags = flags;
+                // InstanceID() is the custom id we pass to AddInstance: the source object's original layer.
+                p.flags = flags | ((InstanceID() & 0xFFu) << 8);
             }
             ENDHLSL
         }

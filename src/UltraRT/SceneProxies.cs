@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -14,29 +14,89 @@ namespace UltraRT
     /// Unity picks ray tracing hit shaders from each instance's material, and the game's shaders have none.
     /// So we mirror the scene with hidden proxy renderers that use our hit shader, and put only those in the RTAS.
     ///  - Static-batched renderers share one combined mesh: one proxy per combined mesh, materials mapped per submesh.
-    ///  - Everything else: one proxy parented to the source, so it follows transforms and activation.
-    /// Skinned meshes are not handled yet.
+    ///  - Other MeshRenderers: one proxy parented to the source, so it follows transforms and activation.
+    ///  - SkinnedMeshRenderers: a proxy SkinnedMeshRenderer sharing the source's bones.
+    /// Each instance's custom id is the source's original layer, used by the shaders for per-light culling masks.
     /// </summary>
     internal sealed class SceneProxies : IDisposable
     {
         private static readonly PropertyInfo StaticBatchRoot =
             typeof(Renderer).GetProperty("staticBatchRootTransform", BindingFlags.Instance | BindingFlags.NonPublic);
 
+        // Layers that are never ray traced: 13 = AlwaysOnTop (viewmodel/HUD, rasterised by the HUD camera), 30 = Portal.
+        private const int ExcludedLayers = (1 << 13) | (1 << 30);
+
+        /// <summary>Set by -ultrart-dumpverts: log a decode of the StaticSceneOptimizer mesh's vertex data.</summary>
+        public static bool DumpAtlasVertices;
+
+        /// <summary>Set by -ultrart-skinned-visible: let skinned proxies "render" (via the no-op pass) so Unity keeps skinning them.</summary>
+        public static bool SkinnedProxiesVisible;
+
         private readonly ManualLogSource _log;
         private readonly Shader _proxyShader;
+        private readonly int _cameraMask;
         private readonly Material _disabledMaterial;
         private readonly Dictionary<Material, Material> _materialCache = new Dictionary<Material, Material>();
         private readonly HashSet<string> _loggedLayouts = new HashSet<string>();
         private readonly List<GameObject> _proxyObjects = new List<GameObject>();
-        private readonly List<(Renderer source, MeshRenderer proxy, bool visible)> _dynamic = new List<(Renderer, MeshRenderer, bool)>();
+        private readonly List<DynamicProxy> _dynamic = new List<DynamicProxy>();
+        private bool _dumpedAtlasVerts;
+
+        /// <summary>
+        /// Lives on each dynamic proxy (a child of its source), so activation changes of the source hierarchy arrive as
+        /// events instead of being polled across thousands of mostly-dormant objects every frame.
+        /// </summary>
+        private sealed class ProxyTracker : MonoBehaviour
+        {
+            public SceneProxies Owner;
+            public DynamicProxy Entry;
+            private void OnEnable() => Owner?.MarkDirty(Entry);
+            private void OnDisable() => Owner?.MarkDirty(Entry);
+        }
+
+        private readonly HashSet<DynamicProxy> _dirty = new HashSet<DynamicProxy>();
+        private readonly List<DynamicProxy> _active = new List<DynamicProxy>();
+        private void MarkDirty(DynamicProxy d) { if (d != null) _dirty.Add(d); }
+
+        private sealed class DynamicProxy
+        {
+            public Renderer Source;
+            public Transform SourceTransform;
+            public GameObject SourceObject;
+            public Renderer Proxy;
+            public SkinnedMeshRenderer SkinnedSource, SkinnedProxy;
+            public int BlendShapes;
+            public RayTracingSubMeshFlags[] Flags;
+            public uint Id;
+            public bool Visible;
+        }
 
         public RayTracingAccelerationStructure Rtas { get; private set; }
+        public int SkinnedCount { get; private set; }
 
-        public SceneProxies(ManualLogSource log, Shader proxyShader)
+        public SceneProxies(ManualLogSource log, Shader proxyShader, int cameraCullingMask)
         {
             _log = log;
             _proxyShader = proxyShader;
+            _cameraMask = cameraCullingMask & ~ExcludedLayers;
             _disabledMaterial = new Material(proxyShader) { name = "UltraRT Disabled" };
+        }
+
+        /// <summary>
+        /// StaticSceneOptimizer moves baked geometry to "baked" layers (24 -> 6, 8 -> 7). Lights' culling masks refer to
+        /// the original layers, so map back.
+        /// </summary>
+        private static int OriginalLayer(int layer) => layer == 6 ? 24 : layer == 7 ? 8 : layer;
+
+        private bool LayerIncluded(int layer) => ((_cameraMask >> layer) & 1) != 0 || layer == 6 || layer == 7;
+
+        /// <summary>Transparent, particle, additive and sky materials stay rasterised.</summary>
+        private static bool Traceable(Material m)
+        {
+            if (m == null || m.shader == null) return false;
+            if (m.renderQueue >= 3000) return false;
+            string s = m.shader.name;
+            return !(s.Contains("Particles") || s.Contains("Additive") || s.Contains("Skybox") || s.Contains("Sprite") || s.StartsWith("Hidden/ProBuilder"));
         }
 
         public void Build()
@@ -45,36 +105,114 @@ namespace UltraRT
                 RayTracingAccelerationStructure.ManagementMode.Manual,
                 RayTracingAccelerationStructure.RayTracingModeMask.Everything, ~0));
 
-            var renderers = Object.FindObjectsOfType<MeshRenderer>()
-                .Where(r => r.enabled && !(r.sharedMaterials.Length == 0))
-                .ToList();
-
-            int batchedSources = 0, dynamicProxies = 0, skipped = 0;
             var batches = new Dictionary<Mesh, List<MeshRenderer>>();
-            foreach (var r in renderers)
-            {
-                var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
-                if (mesh == null) { skipped++; continue; }
-                if (r.isPartOfStaticBatch)
-                {
-                    if (!batches.TryGetValue(mesh, out var list)) batches[mesh] = list = new List<MeshRenderer>();
-                    list.Add(r);
-                    batchedSources++;
-                }
-                else
-                {
-                    var proxy = CreateProxy($"{r.name} [UltraRT]", r.transform, mesh, r.sharedMaterials.Select(Proxy).ToArray());
-                    _dynamic.Add((r, proxy, false));
-                    dynamicProxies++;
-                }
-            }
-
+            var stats = new ScanStats();
+            // Include inactive objects: ULTRAKILL keeps most enemies and room contents disabled until triggered.
+            ScanRenderers(batches, stats);
             foreach (var kv in batches) AddStaticBatch(kv.Key, kv.Value);
 
             SyncDynamic(force: true);
             Rtas.Build();
-            _log.LogInfo($"Proxies: {batches.Count} static batches (from {batchedSources} renderers), {dynamicProxies} dynamic, {skipped} skipped; " +
+            _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
+                         $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh}; " +
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count}");
+        }
+
+        /// <summary>Pick up renderers created or loaded since the last scan (Cyber Grind spawns, instantiated props).</summary>
+        public int Rescan()
+        {
+            var stats = new ScanStats();
+            ScanRenderers(null, stats);
+            int added = stats.Dynamic + stats.Skinned;
+            if (added > 0) _log.LogInfo($"Rescan: +{stats.Dynamic} dynamic, +{stats.Skinned} skinned");
+            return added;
+        }
+
+        /// <summary>Targeted registration for a newly enabled/spawned hierarchy (e.g. an enemy). Cheap; dedupes.</summary>
+        public void AddHierarchy(GameObject root)
+        {
+            if (root == null) return;
+            var stats = new ScanStats();
+            ScanRenderers(null, stats, root.GetComponentsInChildren<MeshRenderer>(true), root.GetComponentsInChildren<SkinnedMeshRenderer>(true));
+        }
+
+        private sealed class ScanStats { public int Batched, Dynamic, Skinned, SkippedLayer, SkippedMaterial, SkippedMesh; }
+
+        private readonly HashSet<Renderer> _known = new HashSet<Renderer>();
+
+        private void ScanRenderers(Dictionary<Mesh, List<MeshRenderer>> batches, ScanStats stats,
+            MeshRenderer[] meshRenderers = null, SkinnedMeshRenderer[] skinnedRenderers = null)
+        {
+            foreach (var r in meshRenderers ?? Object.FindObjectsOfType<MeshRenderer>(true))
+            {
+                if (!_known.Add(r)) continue;
+                if ((r.gameObject.hideFlags & HideFlags.HideAndDontSave) != 0) continue; // our own proxies
+                if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; continue; }
+                var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
+                if (mesh == null) { stats.SkippedMesh++; continue; }
+                if (!r.sharedMaterials.Any(Traceable)) { stats.SkippedMaterial++; continue; }
+
+                if (r.isPartOfStaticBatch)
+                {
+                    if (batches == null) continue; // static batches only exist at load
+                    if (!batches.TryGetValue(mesh, out var list)) batches[mesh] = list = new List<MeshRenderer>();
+                    list.Add(r);
+                    stats.Batched++;
+                }
+                else
+                {
+                    var mats = r.sharedMaterials;
+                    var proxy = CreateMeshProxy($"{r.name} [UltraRT]", r.transform, mesh, mats.Select(ProxyOrDisabled).ToArray());
+                    AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount));
+                    stats.Dynamic++;
+                }
+            }
+
+            foreach (var r in skinnedRenderers ?? Object.FindObjectsOfType<SkinnedMeshRenderer>(true))
+            {
+                if (!_known.Add(r)) continue;
+                if ((r.gameObject.hideFlags & HideFlags.HideAndDontSave) != 0) continue;
+                if (r.sharedMesh == null) { stats.SkippedMesh++; continue; }
+                if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; continue; }
+                if (!r.sharedMaterials.Any(Traceable)) { stats.SkippedMaterial++; continue; }
+                var proxy = CreateSkinnedProxy(r);
+                AddDynamic(r, proxy, SubmeshFlags(r.sharedMaterials, r.sharedMesh.subMeshCount));
+                stats.Skinned++;
+            }
+            SkinnedCount += stats.Skinned;
+        }
+
+        private static RayTracingSubMeshFlags[] SubmeshFlags(Material[] mats, int subMeshCount)
+        {
+            var flags = new RayTracingSubMeshFlags[Math.Max(1, subMeshCount)];
+            for (int i = 0; i < flags.Length; i++)
+            {
+                var m = i < mats.Length ? mats[i] : null;
+                flags[i] = Traceable(m) ? RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.ClosestHitOnly : RayTracingSubMeshFlags.Disabled;
+            }
+            return flags;
+        }
+
+        private void AddDynamic(Renderer source, Renderer proxy, RayTracingSubMeshFlags[] flags)
+        {
+            var ss = source as SkinnedMeshRenderer;
+            var entry = new DynamicProxy
+            {
+                Source = source,
+                SourceTransform = source.transform,
+                SourceObject = source.gameObject,
+                Proxy = proxy,
+                SkinnedSource = ss,
+                SkinnedProxy = proxy as SkinnedMeshRenderer,
+                BlendShapes = ss != null && ss.sharedMesh != null ? ss.sharedMesh.blendShapeCount : 0,
+                Flags = flags,
+                Id = (uint)OriginalLayer(source.gameObject.layer),
+            };
+            _dynamic.Add(entry);
+            var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
+            tracker.Owner = this;
+            tracker.Entry = entry;
+            _dirty.Add(entry); // evaluate once, whatever the initial state
         }
 
         private void AddStaticBatch(Mesh combined, List<MeshRenderer> sources)
@@ -89,7 +227,7 @@ namespace UltraRT
                 for (int i = 0; i < src.Length; i++)
                 {
                     int sub = r.subMeshStartIndex + i;
-                    if (sub < 0 || sub >= mats.Length || src[i] == null) continue;
+                    if (sub < 0 || sub >= mats.Length || !Traceable(src[i])) continue;
                     mats[sub] = Proxy(src[i]);
                     flags[sub] = RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.ClosestHitOnly;
                 }
@@ -109,16 +247,163 @@ namespace UltraRT
             }
 
             // Combined vertices live in the batch root's space, or world space if there is no root.
+            // All sources of one combined mesh share a layer in practice (StaticSceneOptimizer: one per material).
             var root = StaticBatchRoot?.GetValue(sources[0]) as Transform;
-            var proxy = CreateProxy($"{combined.name} [UltraRT]", root, combined, mats);
-            Rtas.AddInstance(proxy, flags, enableTriangleCulling: false);
+            var proxy = CreateMeshProxy($"{combined.name} [UltraRT]", root, combined, mats);
+            uint id = (uint)OriginalLayer(sources[0].gameObject.layer);
+            Rtas.AddInstance(proxy, flags, enableTriangleCulling: false, id: id);
         }
 
-        /// <summary>Set by -ultrart-dumpverts: log a decode of the StaticSceneOptimizer mesh's vertex data.</summary>
-        public static bool DumpAtlasVertices;
-        private bool _dumpedAtlasVerts;
+        private MeshRenderer CreateMeshProxy(string name, Transform parent, Mesh mesh, Material[] materials)
+        {
+            var go = NewProxyObject(name, parent);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterials = materials;
+            mr.shadowCastingMode = ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            mr.forceRenderingOff = true; // never rasterised; still eligible for the RTAS
+            return mr;
+        }
 
-        /// <summary>Debug: decode the first few vertices of a (possibly non-readable) mesh straight from its GPU vertex buffer.</summary>
+        private SkinnedMeshRenderer CreateSkinnedProxy(SkinnedMeshRenderer src)
+        {
+            var go = NewProxyObject($"{src.name} [UltraRT]", src.transform);
+            var p = go.AddComponent<SkinnedMeshRenderer>();
+            p.sharedMesh = src.sharedMesh;
+            p.bones = src.bones;
+            p.rootBone = src.rootBone;
+            p.localBounds = src.localBounds;
+            p.updateWhenOffscreen = true;
+            p.sharedMaterials = src.sharedMaterials.Select(ProxyOrDisabled).ToArray();
+            p.shadowCastingMode = ShadowCastingMode.Off;
+            p.receiveShadows = false;
+            p.rayTracingMode = RayTracingMode.DynamicGeometry;
+            // If Unity stops skinning never-rendered renderers, the NoDraw pass keeps them "visible" at the cost of an empty draw.
+            p.forceRenderingOff = !SkinnedProxiesVisible;
+            return p;
+        }
+
+        private GameObject NewProxyObject(string name, Transform parent)
+        {
+            var go = new GameObject(name) { hideFlags = HideFlags.HideAndDontSave };
+            if (parent != null) go.transform.SetParent(parent, false);
+            go.layer = parent != null ? parent.gameObject.layer : 0;
+            _proxyObjects.Add(go);
+            return go;
+        }
+
+        /// <summary>Per frame: add/remove dynamic proxies whose source toggled, refresh transforms, sync blend shapes.</summary>
+        public void SyncDynamic(bool force = false)
+        {
+            // 1) Hierarchy (de)activations arrive as events via ProxyTracker.
+            if (force) foreach (var d in _dynamic) _dirty.Add(d);
+            if (_dirty.Count > 0)
+            {
+                foreach (var d in _dirty) Evaluate(d);
+                _dirty.Clear();
+            }
+
+            // 2) Per frame, only for instances currently in the RTAS: renderer.enabled toggles, transforms, blend shapes.
+            for (int k = _active.Count - 1; k >= 0; k--)
+            {
+                var d = _active[k];
+                if (d.Source == null || d.Proxy == null || !d.Source.enabled) { Evaluate(d); continue; }
+                if (d.SkinnedProxy != null)
+                {
+                    // DynamicGeometry instances are re-read on Build(); only blend shapes need copying.
+                    for (int i = 0; i < d.BlendShapes; i++) d.SkinnedProxy.SetBlendShapeWeight(i, d.SkinnedSource.GetBlendShapeWeight(i));
+                }
+                else if (d.SourceTransform.hasChanged)
+                {
+                    Rtas.UpdateInstanceTransform(d.Proxy);
+                    d.SourceTransform.hasChanged = false; // Unity never clears this itself
+                }
+            }
+
+            // 3) Renderers that were disabled (but whose GameObject stayed active) can come back without an event.
+            //    Check a slice of the dormant set each frame.
+            int n = _dynamic.Count;
+            if (n > 0)
+            {
+                for (int s = 0; s < 64; s++)
+                {
+                    _pollCursor = (_pollCursor + 1) % n;
+                    var d = _dynamic[_pollCursor];
+                    if (!d.Visible && d.Source != null && d.Source.enabled && d.SourceObject.activeInHierarchy) Evaluate(d);
+                }
+            }
+        }
+
+        private int _pollCursor;
+
+        private void Evaluate(DynamicProxy d)
+        {
+            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled;
+            if (visible == d.Visible) return;
+            if (visible)
+            {
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: false, id: d.Id);
+                d.SourceTransform.hasChanged = false;
+                _active.Add(d);
+            }
+            else
+            {
+                if (d.Proxy != null) Rtas.RemoveInstance(d.Proxy);
+                _active.Remove(d);
+            }
+            d.Visible = visible;
+        }
+
+        private Material ProxyOrDisabled(Material src) => Traceable(src) ? Proxy(src) : _disabledMaterial;
+
+        private Material Proxy(Material src)
+        {
+            if (src == null) return _disabledMaterial;
+            if (_materialCache.TryGetValue(src, out var m)) return m;
+
+            m = new Material(_proxyShader) { name = src.name + " [UltraRT]" };
+            if (src.HasProperty("_MainTex") && src.GetTexture("_MainTex") is Texture tex)
+            {
+                m.SetTexture("_MainTex", tex);
+                m.SetTextureScale("_MainTex", src.GetTextureScale("_MainTex"));
+                m.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
+            }
+            if (src.HasProperty("_Color")) m.SetColor("_Color", src.GetColor("_Color"));
+
+            // StaticSceneOptimizer's baked level geometry: _MainTex/_BlendTex are scene atlases, and each vertex carries
+            // its atlas rects in TEXCOORD1 (main) / TEXCOORD2 (blend). UV0 tiles within those rects.
+            if (src.shader != null && src.shader.name.Contains("Stationary"))
+            {
+                m.SetFloat("_AtlasMode", 1f);
+                if (src.HasProperty("_BlendTex") && src.GetTexture("_BlendTex") is Texture blend) m.SetTexture("_BlendTex", blend);
+            }
+
+            // ULTRAKILL/Master emission
+            if (src.IsKeywordEnabled("EMISSIVE"))
+            {
+                if (src.HasProperty("_EmissiveTex") && src.GetTexture("_EmissiveTex") is Texture etex) m.SetTexture("_EmissiveTex", etex);
+                if (src.HasProperty("_EmissiveColor")) m.SetColor("_EmissiveColor", src.GetColor("_EmissiveColor"));
+                m.SetFloat("_EmissiveIntensity", src.HasProperty("_EmissiveIntensity") ? Mathf.Max(src.GetFloat("_EmissiveIntensity"), 0.0001f) : 1f);
+                bool albedoAsEmissive = src.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") ||
+                                        src.HasProperty("_UseAlbedoAsEmissive") && src.GetFloat("_UseAlbedoAsEmissive") > 0.5f;
+                m.SetFloat("_UseAlbedoAsEmissive", albedoAsEmissive ? 1 : 0);
+            }
+            // Unity Standard emission
+            else if (src.IsKeywordEnabled("_EMISSION") && src.HasProperty("_EmissionColor"))
+            {
+                if (src.GetTexture("_EmissionMap") is Texture etex) m.SetTexture("_EmissiveTex", etex);
+                m.SetColor("_EmissiveColor", src.GetColor("_EmissionColor"));
+                m.SetFloat("_EmissiveIntensity", 1f);
+            }
+
+            _materialCache[src] = m;
+            return m;
+        }
+
+        // ---------------------------------------------------------------- debug: vertex dump
+
+        /// <summary>Debug: decode a (possibly non-readable) mesh straight from its GPU vertex buffer.</summary>
         private void DumpVertices(Mesh mesh, int count)
         {
             try
@@ -126,7 +411,6 @@ namespace UltraRT
                 int stride = mesh.GetVertexBufferStride(0);
                 using (var vb = mesh.GetVertexBuffer(0))
                 {
-                    // Whole-mesh summary: distinct atlas rects and the UV0 range used with each.
                     var all = new uint[mesh.vertexCount * stride / 4];
                     vb.GetData(all, 0, 0, all.Length);
                     var ab = new byte[all.Length * 4];
@@ -152,20 +436,13 @@ namespace UltraRT
                     foreach (var kv in rects.OrderByDescending(k => k.Value.n).Take(25))
                         _log.LogInfo($"  rect({kv.Key}) verts={kv.Value.n} uv0 min={kv.Value.min:F2} max={kv.Value.max:F2} blendRectNonZero={kv.Value.blendNonZero}");
 
-                    count = Math.Min(count, mesh.vertexCount);
-                    var words = new uint[count * stride / 4];
-                    vb.GetData(words, 0, 0, words.Length);
-                    var bytes = new byte[words.Length * 4];
-                    Buffer.BlockCopy(words, 0, bytes, 0, bytes.Length);
-
                     var attrs = mesh.GetVertexAttributes().Where(a => a.stream == 0).ToArray();
-                    _log.LogInfo($"Vertex dump '{mesh.name}' stride={stride} verts={mesh.vertexCount}");
-                    for (int v = 0; v < count; v++)
+                    for (int v = 0; v < Math.Min(count, mesh.vertexCount); v++)
                     {
                         var parts = attrs.Select(a =>
                         {
                             int off = v * stride + mesh.GetVertexAttributeOffset(a.attribute);
-                            var vals = Enumerable.Range(0, a.dimension).Select(d => Decode(bytes, off, a.format, d));
+                            var vals = Enumerable.Range(0, a.dimension).Select(d => Decode(ab, off, a.format, d));
                             return $"{a.attribute}=({string.Join(",", vals.Select(x => x.ToString("0.####")))})";
                         });
                         _log.LogInfo($"  v{v}: {string.Join(" ", parts)}");
@@ -187,90 +464,6 @@ namespace UltraRT
             }
         }
 
-        private MeshRenderer CreateProxy(string name, Transform parent, Mesh mesh, Material[] materials)
-        {
-            var go = new GameObject(name) { hideFlags = HideFlags.HideAndDontSave };
-            if (parent != null) go.transform.SetParent(parent, false);
-            go.layer = parent != null ? parent.gameObject.layer : 0;
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterials = materials;
-            mr.shadowCastingMode = ShadowCastingMode.Off;
-            mr.receiveShadows = false;
-            mr.forceRenderingOff = true; // never rasterised; still eligible for the RTAS
-            _proxyObjects.Add(go);
-            return mr;
-        }
-
-        /// <summary>Per frame: add/remove dynamic proxies whose source toggled, refresh transforms.</summary>
-        public void SyncDynamic(bool force = false)
-        {
-            for (int i = 0; i < _dynamic.Count; i++)
-            {
-                var (src, proxy, wasVisible) = _dynamic[i];
-                bool visible = src != null && proxy != null && src.enabled && src.gameObject.activeInHierarchy;
-                if (visible != wasVisible || force)
-                {
-                    if (proxy != null)
-                    {
-                        if (visible)
-                        {
-                            var flags = Enumerable.Repeat(RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.ClosestHitOnly,
-                                Math.Max(1, proxy.sharedMaterials.Length)).ToArray();
-                            Rtas.AddInstance(proxy, flags, enableTriangleCulling: false);
-                        }
-                        else if (wasVisible) Rtas.RemoveInstance(proxy);
-                    }
-                    _dynamic[i] = (src, proxy, visible);
-                }
-                else if (visible && src.transform.hasChanged)
-                {
-                    Rtas.UpdateInstanceTransform(proxy);
-                }
-            }
-        }
-
-        private Material Proxy(Material src)
-        {
-            if (src == null) return _disabledMaterial;
-            if (_materialCache.TryGetValue(src, out var m)) return m;
-
-            m = new Material(_proxyShader) { name = src.name + " [UltraRT]" };
-            if (src.HasProperty("_MainTex") && src.GetTexture("_MainTex") is Texture tex)
-            {
-                m.SetTexture("_MainTex", tex);
-                m.SetTextureScale("_MainTex", src.GetTextureScale("_MainTex"));
-                m.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
-            }
-            if (src.HasProperty("_Color")) m.SetColor("_Color", src.GetColor("_Color"));
-
-            // StaticSceneOptimizer's baked level geometry: _MainTex is a scene atlas, and each vertex carries
-            // its atlas rect in TEXCOORD1 (main) / TEXCOORD2 (blend). UV0 tiles within that rect.
-            if (src.shader != null && src.shader.name.Contains("Stationary"))
-                m.SetFloat("_AtlasMode", 1f);
-
-            // ULTRAKILL/Master emission
-            if (src.IsKeywordEnabled("EMISSIVE"))
-            {
-                if (src.HasProperty("_EmissiveTex") && src.GetTexture("_EmissiveTex") is Texture etex) m.SetTexture("_EmissiveTex", etex);
-                if (src.HasProperty("_EmissiveColor")) m.SetColor("_EmissiveColor", src.GetColor("_EmissiveColor"));
-                m.SetFloat("_EmissiveIntensity", src.HasProperty("_EmissiveIntensity") ? Mathf.Max(src.GetFloat("_EmissiveIntensity"), 0.0001f) : 1f);
-                bool albedoAsEmissive = src.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") ||
-                                        src.HasProperty("_UseAlbedoAsEmissive") && src.GetFloat("_UseAlbedoAsEmissive") > 0.5f;
-                m.SetFloat("_UseAlbedoAsEmissive", albedoAsEmissive ? 1 : 0);
-            }
-            // Unity Standard emission
-            else if (src.IsKeywordEnabled("_EMISSION") && src.HasProperty("_EmissionColor"))
-            {
-                if (src.GetTexture("_EmissionMap") is Texture etex) m.SetTexture("_EmissiveTex", etex);
-                m.SetColor("_EmissiveColor", src.GetColor("_EmissionColor"));
-                m.SetFloat("_EmissiveIntensity", 1f);
-            }
-
-            _materialCache[src] = m;
-            return m;
-        }
-
         public void Dispose()
         {
             Rtas?.Dispose();
@@ -278,6 +471,8 @@ namespace UltraRT
             foreach (var go in _proxyObjects) if (go != null) Object.Destroy(go);
             _proxyObjects.Clear();
             _dynamic.Clear();
+            _active.Clear();
+            _dirty.Clear();
             foreach (var m in _materialCache.Values) if (m != null) Object.Destroy(m);
             _materialCache.Clear();
             if (_disabledMaterial != null) Object.Destroy(_disabledMaterial);
