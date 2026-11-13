@@ -280,12 +280,30 @@ void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
 
 // ---------------------------------------------------------------- entry points
 
+// The unshadowed counterpart of the last DirectLighting() result (same samples, no visibility). The hybrid composite
+// uses shadowed / unshadowed as its shadow ratio, so it needs no separate loop over every light.
+static float3 g_DirectUnshadowed;
+
 // Direct light at the primary hit. Writes this pixel's reservoir when temporal reuse is on.
 float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
 {
-    if (_LightSampling <= 0) return DirectAll(pos, n, layer);
+    if (_LightSampling <= 0)
+    {
+        float3 shadowed = 0, unshadowed = 0;
+        for (int i = 0; i < _LightCount; i++)
+        {
+            float3 L, c;
+            float dist;
+            if (!LightEval((uint)i, pos, n, layer, L, dist, c)) continue;
+            unshadowed += c;
+            if (LightUnshadowed((uint)i) || Visible(pos, n, L, dist)) shadowed += c;
+        }
+        g_DirectUnshadowed = unshadowed * _LightScale;
+        return shadowed * _LightScale;
+    }
 
     float3 sum = FillLighting(pos, n, layer);
+    float3 unshadowedSum = sum;
     Reservoir r = RisCandidates(pos, n, layer, _RisCandidates, rng);
     bool temporal = _LightSampling >= 2;
     if (temporal) RestirReuse(r, dim, pos, n, t, layer, rng);
@@ -293,6 +311,7 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
     float W = ReservoirW(r);
     if (W > 0.0)
     {
+        unshadowedSum += r.c * W;
         // Occluded samples are stored with W = 0 so they stop propagating (visibility reuse with the one ray).
         if (Visible(pos, n, r.L, r.dist)) sum += r.c * W;
         else W = 0.0;
@@ -309,6 +328,7 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
             oct.x | (oct.y << 16),
             asuint(dot(nq, pos)));
     }
+    g_DirectUnshadowed = unshadowedSum * _LightScale;
     return sum * _LightScale;
 }
 

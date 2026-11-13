@@ -184,7 +184,7 @@ void RayGen()
         emission = p.emission * _EmissionScale;
         c = albedo * lighting + emission;
         _NormalDepth[id] = float4(n, p.t);
-        float3 un = UnshadowedAll(pos, n, layer);
+        float3 un = g_DirectUnshadowed; // same samples as `direct`, without visibility
         _HybridLight[id] = uint4(f32tof16(un.r) | (f32tof16(un.g) << 16),
                                  f32tof16(un.b) | (f32tof16(direct.r) << 16),
                                  f32tof16(direct.g) | (f32tof16(direct.b) << 16),

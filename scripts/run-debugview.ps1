@@ -17,6 +17,7 @@ $started = Get-Date
 $gameArgs = @('-force-d3d12', '-ultrart-scene', "`"$Scene`"", '-ultrart-scale', $Scale.ToString([Globalization.CultureInfo]::InvariantCulture), '-ultrart-capture', '-ultrart-quit')
 if ($Extra) { $gameArgs += @($Extra | Where-Object { $_ }) }
 if ($GpuTimer) { $gameArgs += '-ultrart-gputimer' }
+$gameArgs += @('-force-gfx-jobs', 'legacy') # avoids Unity's D3D12 graphics-jobs deadlock on level unload
 $p = Start-Process $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir -PassThru
 if (-not $p.WaitForExit($TimeoutSec * 1000)) {
     Stop-Process -Id $p.Id -Force

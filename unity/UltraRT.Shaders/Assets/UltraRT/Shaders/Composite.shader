@@ -68,11 +68,12 @@ Shader "UltraRT/Composite"
                     _UltraRTHybrid.GetDimensions(w, h);
                     uint4 pk = _UltraRTHybrid.Load(int3(min(uint2(i.uv * float2(w, h)), uint2(w - 1, h - 1)), 0));
                     float4 un = float4(f16tof32(pk.x), f16tof32(pk.x >> 16), f16tof32(pk.y), f16tof32(pk.w)); // rgb unshadowed, a lit weight
-                    float3 sh = _UltraRTDirect.Sample(my_point_clamp_sampler, i.uv).rgb; // denoised shadowed direct
+                    float2 shun = _UltraRTDirect.Sample(my_point_clamp_sampler, i.uv).rg; // denoised luminance: shadowed, unshadowed
                     float3 bounce = _UltraRTLighting.Sample(my_point_clamp_sampler, i.uv).rgb;
                     float3 albedo = _UltraRTAlbedo.Sample(my_point_clamp_sampler, i.uv).rgb;
                     float lit = un.a;
-                    float3 shadow = (sh + _UltraRTShadowBias) / (un.rgb + _UltraRTShadowBias);
+                    float3 sh = un.rgb * (shun.x / max(shun.y, 1e-4)); // for the debug view
+                    float3 shadow = (shun.x + _UltraRTShadowBias) / (shun.y + _UltraRTShadowBias);
                     float3 result = game * lerp(1.0, shadow, lit) + _UltraRTGIStrength * albedo * bounce * lit;
                     if (_UltraRTMode > 1.5)
                     {

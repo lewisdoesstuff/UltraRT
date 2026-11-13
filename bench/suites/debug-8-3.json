@@ -2,7 +2,7 @@
     "Name":  "debug-8-3",
     "Scenarios":  [
                       {
-                          "Name":  "8-3 portals sweep (must be last: leaving 8-3 hangs the game on DX12)",
+                          "Name":  "8-3 sweep",
                           "Scene":  "Level 8-3",
                           "Path":  {
                                        "Type":  "sweep",
@@ -16,6 +16,7 @@
                                    },
                           "Modes":  [
                                         "off",
+                                        "hybrid",
                                         "pt-dn"
                                     ],
                           "Screenshots":  [

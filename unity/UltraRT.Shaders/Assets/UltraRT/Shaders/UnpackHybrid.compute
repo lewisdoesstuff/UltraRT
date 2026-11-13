@@ -4,7 +4,7 @@
 #pragma kernel Unpack
 
 Texture2D<uint4> _Packed;     // x: un.r | un.g<<16, y: un.b | sh.r<<16, z: sh.g | sh.b<<16, w: lit weight
-RWTexture2D<float4> _Shadowed; // rgb shadowed direct, a lit weight
+RWTexture2D<float4> _Shadowed; // r: luminance of shadowed direct, g: of unshadowed direct, a: lit weight
 uint2 _Dim;
 
 [numthreads(8, 8, 1)]
@@ -13,5 +13,9 @@ void Unpack(uint3 id : SV_DispatchThreadID)
     if (any(id.xy >= _Dim)) return;
     uint4 pk = _Packed[id.xy];
     float3 sh = float3(f16tof32(pk.y >> 16), f16tof32(pk.z), f16tof32(pk.z >> 16));
-    _Shadowed[id.xy] = float4(sh, f16tof32(pk.w));
+    float3 un = float3(f16tof32(pk.x), f16tof32(pk.x >> 16), f16tof32(pk.y));
+    // Luminance of shadowed (r) and unshadowed (g) direct light from the same samples, filtered together so their
+    // ratio (the shadow term) is stable. b unused, a lit weight.
+    float3 lw = float3(0.2126, 0.7152, 0.0722);
+    _Shadowed[id.xy] = float4(dot(sh, lw), dot(un, lw), 0.0, f16tof32(pk.w));
 }

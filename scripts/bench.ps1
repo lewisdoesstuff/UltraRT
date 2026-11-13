@@ -11,6 +11,8 @@ param(
     [string] $Compare,
     [double] $Scale = 0.5,
     [switch] $NoGpuTimer,
+    # Unity 2022.3's native D3D12 graphics jobs deadlock when unloading big levels (e.g. leaving 8-3). Legacy jobs don't; same speed.
+    [switch] $NativeGfxJobs,
     [string[]] $Extra = @(),
     [string] $GameDir = $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }),
     [int] $TimeoutSec = 900
@@ -30,6 +32,7 @@ New-Item -ItemType Directory -Force $outDir | Out-Null
 $gameArgs = @("-force-$Api", '-ultrart-bench', "`"$suitePath`"", '-ultrart-bench-out', "`"$outDir`"",
     '-ultrart-bench-tag', $commit, '-ultrart-scale', $Scale.ToString([Globalization.CultureInfo]::InvariantCulture), '-ultrart-quit')
 if (-not $NoGpuTimer) { $gameArgs += '-ultrart-gputimer' }
+if (-not $NativeGfxJobs) { $gameArgs += @('-force-gfx-jobs', 'legacy') }
 if ($Extra) { $gameArgs += @($Extra | Where-Object { $_ }) }
 
 $exe = Join-Path $GameDir 'ULTRAKILL.exe'

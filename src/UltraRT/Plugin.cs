@@ -171,6 +171,9 @@ namespace UltraRT
                         }
                         break;
                     case "-ultrart-ris-m": int.TryParse(Next(), out _lightSamplingSettings.candidates); break;
+                    case "-ultrart-static-always": SceneProxies.StaticActivation = false; break;
+                    case "-ultrart-static-level": { if (int.TryParse(Next(), out var lv)) SceneProxies.ForceGroupLevel = lv; break; }
+                    case "-ultrart-static-budget": { if (int.TryParse(Next(), out var bg)) SceneProxies.StaticRecordBudget = bg; break; }
                     case "-ultrart-shadowbias": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _shadowBias); break;
                     case "-ultrart-gi": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _giStrength); break;
                     case "-ultrart-nohook": _noHook = true; break;
