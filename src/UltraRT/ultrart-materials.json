@@ -18,6 +18,8 @@
     { "material": "Theater Lamp", "class": "Generic" },
     { "material": "JumpPadOff", "class": "Generic" },
     { "material": "ShopScreen*", "class": "Generic" },
+    { "material": "M_ShopTerminal", "reflMode": "specular", "roughness": 0.12, "metalness": 0, "f0": 0.04, "specWeight": 1, "note": "CRT glass: faint Fresnel sheen instead of the game's 60% additive cubemap (screen is painted into the same texture)" },
+    { "material": "M_TestamentTerminal", "reflMode": "specular", "roughness": 0.12, "metalness": 0, "f0": 0.04, "specWeight": 1, "note": "same layout as the shop terminal" },
     { "material": "SkullScreen", "class": "Generic" },
     { "material": "StainedGlassLit", "class": "Generic" },
 
