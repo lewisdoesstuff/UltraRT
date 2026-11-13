@@ -1,0 +1,17 @@
+// Unpacks the shadowed direct light from PathTrace's packed _HybridLight (uint4 of halves) into a float texture,
+// so it can go through a second denoiser instance (ReSTIR makes it a 1-shadow-ray estimate, i.e. noisy).
+// Done as a compute pass because PathTrace is at Unity's 8-UAV limit for ray tracing shaders.
+#pragma kernel Unpack
+
+Texture2D<uint4> _Packed;     // x: un.r | un.g<<16, y: un.b | sh.r<<16, z: sh.g | sh.b<<16, w: lit weight
+RWTexture2D<float4> _Shadowed; // rgb shadowed direct, a lit weight
+uint2 _Dim;
+
+[numthreads(8, 8, 1)]
+void Unpack(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= _Dim)) return;
+    uint4 pk = _Packed[id.xy];
+    float3 sh = float3(f16tof32(pk.y >> 16), f16tof32(pk.z), f16tof32(pk.z >> 16));
+    _Shadowed[id.xy] = float4(sh, f16tof32(pk.w));
+}

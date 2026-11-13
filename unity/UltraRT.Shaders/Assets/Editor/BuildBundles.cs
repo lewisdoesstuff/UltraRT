@@ -37,6 +37,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/Denoise.compute",
                     "Assets/UltraRT/Shaders/PathTrace.raytrace",
                     "Assets/UltraRT/Shaders/Proxy.shader",
+                    "Assets/UltraRT/Shaders/UnpackHybrid.compute",
                 },
             };
 

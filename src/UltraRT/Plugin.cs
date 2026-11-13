@@ -118,6 +118,7 @@ namespace UltraRT
             _cmd = new CommandBuffer { name = "UltraRT" };
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
+            _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -161,6 +162,15 @@ namespace UltraRT
                     case "-ultrart-ccw": SceneProxies.FrontCounterClockwise = true; break;
                     case "-ultrart-noscene": _noScene = true; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
+                    case "-ultrart-lights":
+                        switch ((Next() ?? "").ToLowerInvariant())
+                        {
+                            case "ref": _lightSamplingSettings.mode = LightSamplingMode.Reference; break;
+                            case "ris": _lightSamplingSettings.mode = LightSamplingMode.Ris; break;
+                            default: _lightSamplingSettings.mode = LightSamplingMode.ReSTIR; break;
+                        }
+                        break;
+                    case "-ultrart-ris-m": int.TryParse(Next(), out _lightSamplingSettings.candidates); break;
                     case "-ultrart-shadowbias": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _shadowBias); break;
                     case "-ultrart-gi": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _giStrength); break;
                     case "-ultrart-nohook": _noHook = true; break;
@@ -201,6 +211,10 @@ namespace UltraRT
             var settings = _denoiser?.Settings;
             _denoiser?.Dispose();
             _denoiser = new Denoiser(denoise);
+            _denoiserDirect?.Dispose();
+            _denoiserDirect = new Denoiser(denoise);
+            _unpackHybrid = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "UnpackHybrid");
+            if (_unpackHybrid == null) Logger.LogWarning("UnpackHybrid compute shader missing from bundle");
             if (settings != null) _denoiser.Settings = settings;
 
             _bundle = bundle;
@@ -227,7 +241,8 @@ namespace UltraRT
             UpdateRecorder();
             try
             {
-                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F6)) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
                 if (Input.GetKeyDown(KeyCode.F8)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
             }
@@ -260,6 +275,8 @@ namespace UltraRT
             _proxies = null;
             _accumFrames = 0;
             _denoiser?.Reset();
+            _denoiserDirect?.Reset();
+            _lightSampling?.Reset();
         }
 
         private Denoiser _denoiser;
@@ -335,6 +352,7 @@ namespace UltraRT
                 _lightData[i] = l0;
                 _lightData[i + 1] = new Vector4(c.r, c.g, c.b, 0);
                 _lightMasks[_lightCount] = unchecked((uint)l.cullingMask);
+                _packedLights[_lightCount] = l;
                 _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, 0);
                 _lightData[i + 3] = l3;
                 _lightCount++;
@@ -365,11 +383,18 @@ namespace UltraRT
         private static readonly int UltraRTGameColorId = Shader.PropertyToID("_UltraRTGameColor");
         private static readonly int UltraRTLightingId = Shader.PropertyToID("_UltraRTLighting");
         private static readonly int UltraRTHybridId = Shader.PropertyToID("_UltraRTHybrid");
+        private static readonly int UltraRTDirectId = Shader.PropertyToID("_UltraRTDirect");
 
         private static readonly int UltraRTAlbedoId = Shader.PropertyToID("_UltraRTAlbedo");
         private static readonly int UltraRTShadowBiasId = Shader.PropertyToID("_UltraRTShadowBias");
         private static readonly int UltraRTGIStrengthId = Shader.PropertyToID("_UltraRTGIStrength");
         private static readonly int UltraRTModeId = Shader.PropertyToID("_UltraRTMode");
+        private LightSampling _lightSampling;
+        private readonly Light[] _packedLights = new Light[MaxLights];
+        private readonly LightSamplingSettings _lightSamplingSettings = new LightSamplingSettings();
+        private Denoiser _denoiserDirect;          // hybrid: filters ReSTIR's (noisy) shadowed direct light
+        private ComputeShader _unpackHybrid;
+        private RenderTexture _gShadowed, _denoisedDirectOut;
         private float _shadowBias = 0.1f; // -ultrart-shadowbias: how much of our light a surface needs before RT shadows apply fully
         private float _giStrength = 0.35f;
         private int _compositeDebug; // -ultrart-compdebug 1..4: shadow ratio / unshadowed direct / shadowed direct / bounce
@@ -475,7 +500,8 @@ namespace UltraRT
             var (_, kind, mode) = Modes[_mode];
             bool denoised = kind == Kind.Denoised || kind == Kind.Hybrid;
             bool pt = kind != Kind.Debug;
-            if (denoised && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid) _denoiser.Reset(); // history is stale after other modes
+            if (denoised && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid) { _denoiser.Reset(); _denoiserDirect?.Reset(); } // history is stale after other modes
+            if (pt && _lastKind == Kind.Debug) _lightSampling.Reset();
             _lastKind = kind;
             if (denoised) _accumulate = false; // the denoiser needs unjittered primary rays
             int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * (pt ? _scale : 1f)));
@@ -536,6 +562,7 @@ namespace UltraRT
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
+                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
                 _cmd.SetRayTracingIntParam(shader, "_AccumFrames", (int)_accumFrames);
                 _cmd.SetRayTracingVectorParam(shader, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
@@ -585,6 +612,21 @@ namespace UltraRT
                 _cmd.BeginSample(SampleDenoise);
                 _gpu?.Begin(_cmd, SlotDenoise);
                 _denoiser.Execute(_cmd, inputs, _denoised);
+                if (kind == Kind.Hybrid && _unpackHybrid != null)
+                {
+                    // ReSTIR's shadowed direct light is a 1-shadow-ray estimate: unpack it and filter it separately.
+                    EnsureGBuffer(ref _gShadowed, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Shadowed");
+                    EnsureGBuffer(ref _denoisedDirectOut, w, h, RenderTextureFormat.ARGB32, "UltraRT DenoisedDirect");
+                    int k = _unpackHybrid.FindKernel("Unpack");
+                    _cmd.SetComputeTextureParam(_unpackHybrid, k, "_Packed", _gHybrid);
+                    _cmd.SetComputeTextureParam(_unpackHybrid, k, "_Shadowed", _gShadowed);
+                    _cmd.SetComputeIntParams(_unpackHybrid, "_Dim", w, h);
+                    _cmd.DispatchCompute(_unpackHybrid, k, Mathf.CeilToInt(w / 8f), Mathf.CeilToInt(h / 8f), 1);
+                    var directInputs = inputs;
+                    directInputs.radiance = _gShadowed;
+                    _denoiserDirect.Settings.debugView = DenoiserDebugView.Final;
+                    _denoiserDirect.Execute(_cmd, directInputs, _denoisedDirectOut);
+                }
                 _gpu?.End(_cmd, SlotDenoise);
                 _cmd.EndSample(SampleDenoise);
                 _displayed = _denoised;
@@ -613,7 +655,7 @@ namespace UltraRT
                 _cmd.SetGlobalTexture(UltraRTGameColorId, _gameCopy);
                 _cmd.SetGlobalTexture(UltraRTLightingId, _denoiser.FilteredLighting);
                 _cmd.SetGlobalTexture(UltraRTHybridId, _gHybrid);
-
+                _cmd.SetGlobalTexture(UltraRTDirectId, _denoiserDirect?.FilteredLighting != null ? (Texture)_denoiserDirect.FilteredLighting : _gShadowed);
                 _cmd.SetGlobalTexture(UltraRTAlbedoId, _gAlbedo);
                 _cmd.SetGlobalFloat(UltraRTShadowBiasId, _shadowBias);
                 _cmd.SetGlobalFloat(UltraRTGIStrengthId, _giStrength);

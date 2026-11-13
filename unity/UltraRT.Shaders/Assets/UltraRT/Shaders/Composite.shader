@@ -27,6 +27,7 @@ Shader "UltraRT/Composite"
             Texture2D _UltraRTNormalDepth;  // w < 0: the ray hit nothing (sky) -> keep the game's own sky
             Texture2D _UltraRTLighting;     // denoised bounce (demodulated, HDR)
             Texture2D<uint4> _UltraRTHybrid;  // packed halves: unshadowed direct rgb, shadowed direct rgb, lit weight
+            Texture2D _UltraRTDirect;         // denoised shadowed direct (second denoiser instance)
             Texture2D _UltraRTAlbedo;
             Texture2D _UltraRTGameColor;    // copy of the game's colour target at this point (full res)
             SamplerState my_point_clamp_sampler;
@@ -67,7 +68,7 @@ Shader "UltraRT/Composite"
                     _UltraRTHybrid.GetDimensions(w, h);
                     uint4 pk = _UltraRTHybrid.Load(int3(min(uint2(i.uv * float2(w, h)), uint2(w - 1, h - 1)), 0));
                     float4 un = float4(f16tof32(pk.x), f16tof32(pk.x >> 16), f16tof32(pk.y), f16tof32(pk.w)); // rgb unshadowed, a lit weight
-                    float3 sh = float3(f16tof32(pk.y >> 16), f16tof32(pk.z), f16tof32(pk.z >> 16));
+                    float3 sh = _UltraRTDirect.Sample(my_point_clamp_sampler, i.uv).rgb; // denoised shadowed direct
                     float3 bounce = _UltraRTLighting.Sample(my_point_clamp_sampler, i.uv).rgb;
                     float3 albedo = _UltraRTAlbedo.Sample(my_point_clamp_sampler, i.uv).rgb;
                     float lit = un.a;
