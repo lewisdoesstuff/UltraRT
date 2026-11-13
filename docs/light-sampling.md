@@ -144,6 +144,9 @@ Per pixel in `ReSTIR` mode:
    Consider adding `_lightSampling.Settings.mode`, `RisLightCount` and `FillLightCount` to the HUD and to the "First trace OK" log line.
 7. Teardown, if the plugin ever disposes its buffers: `_lightSampling.Dispose();`.
 
+### UAV budget
+Unity's RayTracingShader appears to allow at most 8 UAVs per `.raytrace`. A 9th makes `DispatchRays` fail. Light sampling adds exactly **one** UAV, `_ReservoirCur` (`RWStructuredBuffer<uint4>`). Everything else it binds is a read-only SRV: `_ReservoirPrev`, `_LightAlias`, `_FillLights` and `_LightRemap`. The ping-pong swaps which `ComputeBuffer` goes into each slot every frame. Keep the PathTrace total at 8 or fewer: with the main agent's 7 RW outputs plus `_ReservoirCur`, it is exactly 8.
+
 ### Assumptions
 - `Bind` is called once per traced PathTrace frame, after `GatherLights()`, and the recorded commands run exactly once, in order. The reservoir ping-pong and the light-index history advance at record time.
 - `_packedLights[i]` is the `Light` whose data is at `_lightData[i*4 .. i*4+3]` for `i < _lightCount`. Entries past `_lightCount` are ignored.
