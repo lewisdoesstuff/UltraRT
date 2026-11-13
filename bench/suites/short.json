@@ -1,0 +1,19 @@
+{
+  "Name": "short",
+  "Scenarios": [
+    {
+      "Name": "1-1 static",
+      "Scene": "Level 1-1",
+      "Path": { "Type": "spawn", "Duration": 6 },
+      "Modes": ["off", "pt-dn"],
+      "Screenshots": [3]
+    },
+    {
+      "Name": "1-1 sweep",
+      "Scene": "Level 1-1",
+      "Path": { "Type": "sweep", "Duration": 8, "YawSpeed": 120, "PitchAmplitude": 20 },
+      "Modes": ["off", "pt-dn"],
+      "Screenshots": [2.5]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "Name": "full",
+  "Scenarios": [
+    {
+      "Name": "1-1 static",
+      "Scene": "Level 1-1",
+      "Path": { "Type": "spawn", "Duration": 10 },
+      "Modes": ["off", "pt-dn", "pt"],
+      "Screenshots": [4]
+    },
+    {
+      "Name": "1-1 sweep",
+      "Scene": "Level 1-1",
+      "Path": { "Type": "sweep", "Duration": 12, "YawSpeed": 120, "PitchAmplitude": 20 },
+      "Modes": ["off", "pt-dn", "pt"],
+      "Screenshots": [2.5, 7]
+    },
+    {
+      "Name": "0-5 lava (sweep at spawn; replace with a recording)",
+      "Scene": "Level 0-5",
+      "Path": { "Type": "sweep", "Duration": 12, "YawSpeed": 90, "PitchAmplitude": 25 },
+      "Modes": ["off", "pt-dn"],
+      "Screenshots": [3, 8]
+    },
+    {
+      "Name": "8-3 portals (sweep at spawn; replace with a recording)",
+      "Scene": "Level 8-3",
+      "Path": { "Type": "sweep", "Duration": 12, "YawSpeed": 90, "PitchAmplitude": 20 },
+      "Modes": ["off", "pt-dn"],
+      "Screenshots": [3, 8]
+    }
+  ]
+}

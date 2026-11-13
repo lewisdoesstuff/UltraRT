@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -20,7 +20,7 @@ namespace UltraRT
     ///   -ultrart-scene "Level 1-1"  -ultrart-view N  -ultrart-scale 0.5  -ultrart-capture  -ultrart-quit
     /// </summary>
     [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
-    public class Plugin : BaseUnityPlugin
+    public partial class Plugin : BaseUnityPlugin
     {
         private enum Kind { Debug, PathTrace, Denoised }
 
@@ -120,7 +120,7 @@ namespace UltraRT
             };
 
             _host.StartCoroutine(RenderLoop());
-            if (!string.IsNullOrEmpty(_autoScene)) _host.StartCoroutine(AutoRun());
+            if (!StartBenchIfRequested() && !string.IsNullOrEmpty(_autoScene)) _host.StartCoroutine(AutoRun());
         }
 
         private void ParseArgs()
@@ -196,6 +196,7 @@ namespace UltraRT
 
         private void OnUpdate()
         {
+            UpdateRecorder();
             try
             {
                 if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
