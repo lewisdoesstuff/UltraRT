@@ -1,0 +1,107 @@
+{
+    "Name":  "debug-1-1-new",
+    "Scenarios":  [
+                      {
+                          "Name":  "1-1-terminal-glancing",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-terminal-glancing.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              2.5
+                                          ]
+                      },
+                      {
+                          "Name":  "1-1-indoor-a",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-indoor-a.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              2.5
+                                          ]
+                      },
+                      {
+                          "Name":  "1-1-indoor-b",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-indoor-b.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              2.5
+                                          ]
+                      },
+                      {
+                          "Name":  "1-1-torch-hall",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-torch-hall.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              2.5
+                                          ]
+                      },
+                      {
+                          "Name":  "1-1-indoor-c",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-indoor-c.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              2.5
+                                          ]
+                      },
+                      {
+                          "Name":  "1-1-grass",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-grass-approach.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              2.5
+                                          ]
+                      }
+                  ]
+}

@@ -1,0 +1,1 @@
+{ "Name": "debug-radius", "Scenarios": [ { "Name": "torch", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-torch-hall.json", "Duration": 4 }, "Modes": ["off", "hybrid", "pt-dn"], "Screenshots": [2] } ] }

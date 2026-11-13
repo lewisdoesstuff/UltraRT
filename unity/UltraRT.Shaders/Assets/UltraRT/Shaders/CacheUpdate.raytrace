@@ -100,6 +100,7 @@ void UpdateRayGen()
 {
     uint2 id = DispatchRaysIndex().xy;
     uint rng = HashU32(id.x * 7919u + id.y * 104729u + _FrameIndex * 15485863u + 0x5bd1e995u) | 1u;
+    g_ShadowRng = HashU32(rng ^ 0x68E31DA4u);
 
     float2 dim = _CacheTrace.xy;
     float stride = _CacheTrace.z;

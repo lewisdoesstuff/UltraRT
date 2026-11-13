@@ -189,6 +189,7 @@ void RayGen()
     uint2 id = DispatchRaysIndex().xy;
     uint2 dim = DispatchRaysDimensions().xy;
     uint rng = (id.x * 1973u + id.y * 9277u + _FrameIndex * 26699u) | 1u;
+    g_ShadowRng = HashU32(rng);
 
     // Jitter within the pixel only while accumulating, so a single frame stays stable.
     float2 jitter = _AccumFrames > 0 ? float2(Rand(rng), Rand(rng)) : float2(0.5, 0.5);

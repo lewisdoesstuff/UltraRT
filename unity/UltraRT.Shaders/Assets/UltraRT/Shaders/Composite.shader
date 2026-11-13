@@ -25,6 +25,8 @@ Shader "UltraRT/Composite"
 
             Texture2D _UltraRTImage;
             Texture2D _UltraRTNormalDepth;  // w < 0: the ray hit nothing (sky) -> keep the game's own sky
+            Texture2D _UltraRTGameDepth;    // copy of the game's depth buffer (raw device depth)
+            float4 _UltraRTDepthParams;     // x: 1/P00, y: 1/P11 (view ray from uv), z: enabled
             Texture2D _UltraRTLighting;     // denoised bounce (demodulated, HDR)
             Texture2D<uint4> _UltraRTHybrid;  // packed halves: unshadowed direct rgb, shadowed direct rgb, lit weight
             Texture2D _UltraRTDirect;         // denoised shadowed direct (second denoiser instance)
@@ -57,7 +59,17 @@ Shader "UltraRT/Composite"
 
             float4 frag(v2f i) : SV_Target
             {
-                if (_UltraRTNormalDepth.Sample(my_point_clamp_sampler, i.uv).w < 0.0) discard;
+                float rtT = _UltraRTNormalDepth.Sample(my_point_clamp_sampler, i.uv).w;
+                if (rtT < 0.0) discard;
+                if (_UltraRTDepthParams.z > 0.5)
+                {
+                    // Where the game drew something closer than our ray hit (an object the traced scene doesn't have:
+                    // glow quads, decals, effects), keep the game's pixel untouched.
+                    float2 ndc = i.uv * 2.0 - 1.0;
+                    float rtViewZ = rtT / length(float3(ndc.x * _UltraRTDepthParams.x, ndc.y * _UltraRTDepthParams.y, 1.0));
+                    float gameViewZ = LinearEyeDepth(_UltraRTGameDepth.Sample(my_point_clamp_sampler, i.uv).r);
+                    if (gameViewZ < rtViewZ * 0.97 - 0.05) discard;
+                }
 
                 if (_UltraRTMode > 0.5)
                 {

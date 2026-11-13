@@ -107,6 +107,8 @@ namespace UltraRT
                 _cmd.SetRayTracingBufferParam(u, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(u, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(u, "_LightCount", _lightCount);
+            _cmd.SetRayTracingFloatParam(u, "_LightRadius", _lightRadius);
+            _cmd.SetRayTracingFloatParam(u, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
                 _lightSampling.BindTables(_cmd, u);
                 _emissive.Bind(_cmd, u, _lightSamplingSettings.mode);
                 _cmd.SetRayTracingVectorParam(u, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));

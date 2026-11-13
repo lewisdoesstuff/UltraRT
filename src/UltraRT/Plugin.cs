@@ -173,6 +173,9 @@ namespace UltraRT
                     case "-ultrart-flipy": _flipY = true; break;
                     case "-ultrart-ccw": SceneProxies.FrontCounterClockwise = true; break;
                     case "-ultrart-noscene": _noScene = true; break;
+                    case "-ultrart-light-radius": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _lightRadius); break;
+                    case "-ultrart-nofixtureshadows": _fixtureShadows = false; break;
+                    case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
                         switch ((Next() ?? "").ToLowerInvariant())
@@ -490,6 +493,38 @@ namespace UltraRT
         private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId, _gHybrid, _gameCopy;
         private RenderTexture _gSurface, _gReflection, _gSpecular, _gReflDebug;
         private string _capturePose;
+        private float _lightRadius = 0.15f;   // -ultrart-light-radius (m)
+        private bool _fixtureShadows = true;  // -ultrart-nofixtureshadows
+        private RenderTexture _depthCopy;
+        private bool _noDepthMatch;
+        private static readonly int UltraRTGameDepthId = Shader.PropertyToID("_UltraRTGameDepth");
+        private static readonly int UltraRTDepthParamsId = Shader.PropertyToID("_UltraRTDepthParams");
+
+        /// <summary>
+        /// Copy of the game's depth at the injection point, so the composite can leave pixels alone where the game drew
+        /// something closer than our ray hit (objects the traced scene doesn't contain).
+        /// </summary>
+        private void BindGameDepth(bool pt)
+        {
+            var depth = pt && !_noDepthMatch ? MonoSingleton<PostProcessV2_Handler>.Instance?.depthBuffer : null;
+            if (depth == null)
+            {
+                _cmd.SetGlobalVector(UltraRTDepthParamsId, Vector4.zero);
+                return;
+            }
+            if (_depthCopy == null || _depthCopy.width != depth.width || _depthCopy.height != depth.height || _depthCopy.depthStencilFormat != depth.depthStencilFormat)
+            {
+                if (_depthCopy != null) _depthCopy.Release();
+                var desc = depth.descriptor;
+                desc.msaaSamples = 1;
+                _depthCopy = new RenderTexture(desc) { name = "UltraRT GameDepth", filterMode = FilterMode.Point };
+                _depthCopy.Create();
+            }
+            _cmd.CopyTexture(depth, _depthCopy);
+            _cmd.SetGlobalTexture(UltraRTGameDepthId, _depthCopy, RenderTextureSubElement.Depth);
+            var proj = _camera.projectionMatrix;
+            _cmd.SetGlobalVector(UltraRTDepthParamsId, new Vector4(1f / proj.m00, 1f / proj.m11, 1f, 0f));
+        }
         private bool _noScene, _noHook;
         private Material _skyMaterial;
 
@@ -601,6 +636,8 @@ namespace UltraRT
             _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
             _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : resolve || mode >= CacheDebugModeBase ? 0 : mode);
             _cmd.SetRayTracingFloatParam(shader, "_GIStrength", _giStrength);
+            _cmd.SetRayTracingFloatParam(shader, "_LightRadius", _lightRadius);
+            _cmd.SetRayTracingFloatParam(shader, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
 
             if (pt)
             {
@@ -731,6 +768,7 @@ namespace UltraRT
             }
             _cmd.SetGlobalFloat(UltraRTModeId, ratio ? (_compositeDebug > 0 ? 1f + _compositeDebug : 1f) : 0f);
             _cmd.SetGlobalTexture(UltraRTNormalDepthId, pt ? (Texture)_gNormalDepth : Texture2D.whiteTexture);
+            BindGameDepth(pt);
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);

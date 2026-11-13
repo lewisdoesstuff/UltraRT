@@ -49,7 +49,7 @@ namespace UltraRT
 
         private readonly MaterialClassifier _classifier;
         private readonly HashSet<Material> _atlasProxies = new HashSet<Material>();
-        private readonly Dictionary<(Material, MaterialParams, MaterialParams?), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?), Material>();
+        private readonly Dictionary<(Material, MaterialParams, MaterialParams?, bool), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?, bool), Material>();
         private int _atlasSlotsHook, _atlasSlotsFootstep, _atlasSlotsUnknown;
 
         private readonly ManualLogSource _log;
@@ -165,7 +165,7 @@ namespace UltraRT
                          $"in {StaticInstancesActive}/{_staticPartsTotal} group instances, dynamic {dynamicRecords} in {_active.Count} instances)");
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
-                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials})");
+                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}), light fixtures {FixtureCount}");
             LogMaterialClasses();
         }
 
@@ -207,12 +207,21 @@ namespace UltraRT
 
             var p = _classifier.Classify(original, out var secondary);
             _classifier.Count(p);
-            if (!DumpMaterialClasses && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
+            // Cutout originals (e.g. baked grass cards) keep their alpha test: the atlas material itself isn't alpha-tested.
+            bool alphaTest = SourceAlphaTested(original) || SourceAlphaTested(OriginalMaterials.Dominant(mats, counts, SourceAlphaTested));
+            if (!DumpMaterialClasses && !alphaTest && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
 
-            var key = (atlasProxy, p, secondary);
+            var key = (atlasProxy, p, secondary, alphaTest);
             if (_atlasVariants.TryGetValue(key, out var v)) return v;
-            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}" };
+            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}" };
             MaterialParams.Apply(v, p, secondary);
+            if (alphaTest)
+            {
+                var cutSrc = SourceAlphaTested(original) ? original : OriginalMaterials.Dominant(mats, counts, SourceAlphaTested);
+                v.SetFloat("_AlphaTest", 1f);
+                v.SetFloat("_Cutoff", cutSrc != null && cutSrc.HasProperty("_Cutoff") ? cutSrc.GetFloat("_Cutoff") : 0.5f);
+                AlphaTestedMaterials++;
+            }
             if (IsTwoSided(atlasProxy)) _twoSidedProxies.Add(v);
             if (IsSkyWall(atlasProxy)) _skyWallProxies.Add(v);
             _atlasVariants[key] = v;
@@ -318,7 +327,7 @@ namespace UltraRT
                 Flags = flags,
                 Id = (uint)OriginalLayer(source.gameObject.layer),
                 TwoSided = source.sharedMaterials.Any(m => Traceable(m) && SourceTwoSided(m)),
-                Mask = source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : GeometryMask,
+                Mask = source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? FixtureMask : GeometryMask,
             };
             _dynamic.Add(entry);
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
@@ -496,7 +505,28 @@ namespace UltraRT
         /// Instance masks: shadow rays only test GeometryMask. Sky walls (LIMBO_WALLS, the "TV sky") stop camera and bounce
         /// rays and report sky, so the level behind them stays hidden as in game, but never block light.
         /// </summary>
-        public const uint GeometryMask = 0x01, SkyWallMask = 0x02;
+        public const uint GeometryMask = 0x01, SkyWallMask = 0x02, FixtureMask = 0x04;
+
+        /// <summary>
+        /// Light fixtures: small objects whose bounds contain a point/spot light (torch bowls, lamp housings). ULTRAKILL
+        /// puts lights inside them; the game has no shadows, but ray traced they'd shadow everything below their rim.
+        /// Shadow rays toward point/spot lights skip FixtureMask; everything else still sees them.
+        /// </summary>
+        private bool IsLightFixture(Renderer r)
+        {
+            if (_lightPositions == null)
+                _lightPositions = Object.FindObjectsOfType<Light>(true).Where(l => l.type == LightType.Point || l.type == LightType.Spot)
+                    .Select(l => l.transform.position).ToArray();
+            var b = r.bounds;
+            if (b.size.magnitude > 4f) return false;
+            b.Expand(0.2f);
+            foreach (var p in _lightPositions)
+                if (b.Contains(p)) { FixtureCount++; return true; }
+            return false;
+        }
+
+        private Vector3[] _lightPositions;
+        public int FixtureCount { get; private set; }
         private static bool SourceSkyWall(Material m) => m != null && m.IsKeywordEnabled("LIMBO_WALLS");
         private bool IsTwoSided(Material proxy) => proxy != null && _twoSidedProxies.Contains(proxy);
 
