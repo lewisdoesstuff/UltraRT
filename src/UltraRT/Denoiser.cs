@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
@@ -13,6 +14,19 @@ namespace UltraRT
         Variance = 3,
         HistoryLength = 4,
         Disocclusion = 5,
+        /// <summary>Stability features: red pre-blur strength, green cache seed, blue 3x3 history search, white firefly clamp.</summary>
+        SpatialBoost = 6,
+    }
+
+    /// <summary>Which radiance cache value matches the denoiser's input (set per frame by the plugin).</summary>
+    public enum DenoiserCacheChannel
+    {
+        /// <summary>No cache seed (inputs the cache has no equivalent for, e.g. hybrid's direct luminance pair).</summary>
+        None = 0,
+        /// <summary>Direct + indirect at the surface (PathTrace _Mode 0: full lighting).</summary>
+        Total = 1,
+        /// <summary>Indirect only (PathTrace _Mode 3: hybrid's bounce channel).</summary>
+        Indirect = 2,
     }
 
     /// <summary>Tunables, read every <see cref="Denoiser.Execute"/>. Safe to change at any time.</summary>
@@ -41,6 +55,54 @@ namespace UltraRT
         /// <summary>Clip box half-size in standard deviations.</summary>
         public float clampSigma = 2f;
         public DenoiserDebugView debugView = DenoiserDebugView.Final;
+
+        // ---- Temporal stability (docs/denoiser.md). `stability = false` is the previous behaviour, for A/B.
+        /// <summary>Master switch for the four features below (Ctrl+F3, -ultrart-dn-legacy).</summary>
+        public bool stability = true;
+        /// <summary>Pre-blur: pixels with less history than this (frames) accumulate a geometry-aware blur of the input
+        /// instead of their own sample; the strength falls linearly to 0 at this length. 0 = off.</summary>
+        public float boostFrames = 8f;
+        /// <summary>Pre-blur radius (trace pixels) at history 0. Clamped to 4 (the Temporal tile apron).</summary>
+        public float boostRadius = 4f;
+        /// <summary>Firefly clamp for pixels with 4+ frames of history: a sample is limited to
+        /// max(2 ref, ref + fireflySigma * spread), ref and spread from the history and the 8 neighbours. 0 = off.</summary>
+        public float fireflySigma = 8f;
+        /// <summary>When all 4 bilinear history taps fail, search the 3x3 around the reprojected point for a matching texel.</summary>
+        public bool historySearch = true;
+        /// <summary>Radiance cache seed weight (virtual samples at history 0, fading like the pre-blur). 0 = off.
+        /// Needs <see cref="Denoiser.CacheSource"/> and a channel other than None.</summary>
+        public float cacheSeed = 1f;
+        /// <summary>Cache seed consistency test: relative tolerance added to the pre-blur's own noise.</summary>
+        public float cacheSeedTolerance = 0.5f;
+
+        /// <summary>
+        /// Defaults overridden by command-line flags (both denoiser instances):
+        /// -ultrart-dn-legacy (stability off), -ultrart-dn-boost N (frames, 0 = off), -ultrart-dn-boost-radius R,
+        /// -ultrart-dn-firefly K (0 = off), -ultrart-dn-nosearch, -ultrart-dn-cache W (0 = off), -ultrart-dn-noclamp,
+        /// -ultrart-dn-iterations N.
+        /// </summary>
+        public static DenoiserSettings FromCommandLine()
+        {
+            var s = new DenoiserSettings();
+            var a = Environment.GetCommandLineArgs();
+            for (int i = 0; i < a.Length; i++)
+            {
+                string Next() => i + 1 < a.Length ? a[++i] : null;
+                float F(float fallback) => float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+                switch (a[i].ToLowerInvariant())
+                {
+                    case "-ultrart-dn-legacy": s.stability = false; break;
+                    case "-ultrart-dn-boost": s.boostFrames = F(s.boostFrames); break;
+                    case "-ultrart-dn-boost-radius": s.boostRadius = F(s.boostRadius); break;
+                    case "-ultrart-dn-firefly": s.fireflySigma = F(s.fireflySigma); break;
+                    case "-ultrart-dn-nosearch": s.historySearch = false; break;
+                    case "-ultrart-dn-cache": s.cacheSeed = F(s.cacheSeed); break;
+                    case "-ultrart-dn-noclamp": s.clampHistory = false; break;
+                    case "-ultrart-dn-iterations": s.iterations = (int)F(s.iterations); break;
+                }
+            }
+            return s;
+        }
     }
 
     /// <summary>
@@ -66,7 +128,15 @@ namespace UltraRT
     /// </summary>
     internal sealed class Denoiser : IDisposable
     {
-        public DenoiserSettings Settings = new DenoiserSettings();
+        public DenoiserSettings Settings = DenoiserSettings.FromCommandLine();
+
+        /// <summary>Radiance cache for the disocclusion seed (null = none). Read by the Temporal pass, after the cache's
+        /// resolve in the same frame. Set per frame by the plugin (Plugin.Cache.cs), with the two fields below.</summary>
+        internal RadianceCache CacheSource;
+        /// <summary>The cache value that matches this instance's input this frame.</summary>
+        public DenoiserCacheChannel CacheChannel = DenoiserCacheChannel.None;
+        /// <summary>Added to the cached value: lighting terms PathTrace adds that the cache leaves out (ambient).</summary>
+        public Vector3 CacheOffset;
 
         private readonly ComputeShader _shader;
         private readonly int _kTemporal, _kAtrous3, _kAtrous5, _kComposite;
@@ -76,6 +146,9 @@ namespace UltraRT
         private RenderTexture _t0, _t1;                   // integrated lighting / a-trous ping-pong
         private readonly RenderTexture[] _moments = new RenderTexture[2];
         private readonly RenderTexture[] _geo = new RenderTexture[2];
+        private RenderTexture _boostInfo;                 // Temporal's debug channels (DenoiserDebugView.SpatialBoost)
+        private readonly ComputeBuffer _dummyKeys, _dummyResolved; // bound when there is no cache (Temporal declares them)
+        private uint _frame;
         private int _cur;                                 // index written this frame
         private bool _historyValid;
         private Matrix4x4 _prevViewProj;
@@ -118,7 +191,16 @@ namespace UltraRT
             IdOutDim = Shader.PropertyToID("_OutDim"),
             IdDebugView = Shader.PropertyToID("_DebugView"),
             IdSpecular = Shader.PropertyToID("_Specular"),
-            IdHasSpecular = Shader.PropertyToID("_HasSpecular");
+            IdHasSpecular = Shader.PropertyToID("_HasSpecular"),
+            IdOutBoost = Shader.PropertyToID("_OutBoost"),
+            IdBoostInfo = Shader.PropertyToID("_BoostInfo"),
+            IdBoost = Shader.PropertyToID("_Boost"),
+            IdCacheSeed = Shader.PropertyToID("_CacheSeed"),
+            IdCacheSeedOffset = Shader.PropertyToID("_CacheSeedOffset"),
+            IdDnFrame = Shader.PropertyToID("_DnFrame"),
+            IdCacheKeys = Shader.PropertyToID("_CacheKeys"),
+            IdCacheResolved = Shader.PropertyToID("_CacheResolved"),
+            IdCacheMode = Shader.PropertyToID("_CacheMode");
 
         public Denoiser(ComputeShader shader)
         {
@@ -127,6 +209,10 @@ namespace UltraRT
             _kAtrous3 = shader.FindKernel("Atrous3");
             _kAtrous5 = shader.FindKernel("Atrous5");
             _kComposite = shader.FindKernel("Composite");
+            _dummyKeys = new ComputeBuffer(8, 4) { name = "UltraRT Denoise cache keys (unused)" };
+            _dummyKeys.SetData(new uint[8]);
+            _dummyResolved = new ComputeBuffer(8, 16) { name = "UltraRT Denoise cache resolved (unused)" };
+            _dummyResolved.SetData(new uint[32]);
         }
 
         /// <summary>Forget all history (scene load, teleport, respawn, camera cut, shader reload).</summary>
@@ -159,6 +245,10 @@ namespace UltraRT
             cmd.SetComputeMatrixParam(cs, IdInvViewProj, inputs.invViewProj);
             cmd.SetComputeMatrixParam(cs, IdPrevViewProj, _historyValid ? _prevViewProj : inputs.viewProj);
             cmd.SetComputeFloatParam(cs, IdMaxHistory, Mathf.Clamp(s.maxHistory, 1, 255));
+            // Geometry weights: used by the a-trous passes and by Temporal's pre-blur.
+            cmd.SetComputeFloatParam(cs, IdPhiNormal, s.phiNormal);
+            cmd.SetComputeFloatParam(cs, IdPhiDepth, Mathf.Max(1e-3f, s.phiDepth));
+            cmd.SetComputeFloatParam(cs, IdPixelAngle, PixelAngle(inputs.invViewProj, inputs.camPos, w, h));
 
             // 1. Temporal accumulation.
             cmd.SetComputeIntParam(cs, IdHistoryValid, _historyValid ? 1 : 0);
@@ -176,6 +266,24 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutIntegrated, _t0);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutMoments, _moments[_cur]);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutGeo, _geo[_cur]);
+            cmd.SetComputeTextureParam(cs, _kTemporal, IdOutBoost, _boostInfo);
+            bool st = s.stability;
+            cmd.SetComputeVectorParam(cs, IdBoost, new Vector4(
+                st ? Mathf.Max(0f, s.boostFrames) : 0f,
+                st ? Mathf.Clamp(s.boostRadius, 0f, 4f) : 0f,
+                st ? Mathf.Max(0f, s.fireflySigma) : 0f,
+                st && s.historySearch ? 1f : 0f));
+            bool seed = st && s.cacheSeed > 0f && CacheChannel != DenoiserCacheChannel.None && CacheSource != null
+                        && CacheSource.BindComputeLookup(cmd, cs, _kTemporal);
+            if (!seed)
+            {
+                cmd.SetComputeBufferParam(cs, _kTemporal, IdCacheKeys, _dummyKeys);
+                cmd.SetComputeBufferParam(cs, _kTemporal, IdCacheResolved, _dummyResolved);
+                cmd.SetComputeIntParam(cs, IdCacheMode, 0);
+            }
+            cmd.SetComputeVectorParam(cs, IdCacheSeed, new Vector4(seed ? s.cacheSeed : 0f, (int)CacheChannel, Mathf.Max(0f, s.cacheSeedTolerance), 0));
+            cmd.SetComputeVectorParam(cs, IdCacheSeedOffset, CacheOffset);
+            cmd.SetComputeIntParam(cs, IdDnFrame, unchecked((int)_frame++));
             int gx = Mathf.CeilToInt(w / 8f), gy = Mathf.CeilToInt(h / 8f);
             cmd.DispatchCompute(cs, _kTemporal, gx, gy, 1);
 
@@ -190,10 +298,7 @@ namespace UltraRT
             else
             {
                 int kAtrous = s.wideKernel ? _kAtrous5 : _kAtrous3;
-                cmd.SetComputeFloatParam(cs, IdPhiNormal, s.phiNormal);
-                cmd.SetComputeFloatParam(cs, IdPhiDepth, Mathf.Max(1e-3f, s.phiDepth));
                 cmd.SetComputeFloatParam(cs, IdPhiLuminance, Mathf.Max(1e-3f, s.phiLuminance));
-                cmd.SetComputeFloatParam(cs, IdPixelAngle, PixelAngle(inputs.invViewProj, inputs.camPos, w, h));
                 cmd.SetComputeTextureParam(cs, kAtrous, IdGeo, _geo[_cur]);
                 RenderTexture src = _t0;
                 for (int i = 0; i < iterations; i++)
@@ -221,6 +326,7 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kComposite, IdMoments, _moments[_cur]);
             cmd.SetComputeTextureParam(cs, _kComposite, IdSpecular, inputs.specular != null ? (Texture)inputs.specular : Texture2D.blackTexture);
             cmd.SetComputeIntParam(cs, IdHasSpecular, inputs.specular != null ? 1 : 0);
+            cmd.SetComputeTextureParam(cs, _kComposite, IdBoostInfo, _boostInfo);
             cmd.SetComputeTextureParam(cs, _kComposite, IdOutput, output);
             cmd.DispatchCompute(cs, _kComposite, Mathf.CeilToInt(output.width / 8f), Mathf.CeilToInt(output.height / 8f), 1);
 
@@ -257,6 +363,7 @@ namespace UltraRT
                 _moments[i] = Create($"UltraRT Denoise Moments {i}", RenderTextureFormat.ARGBHalf);
                 _geo[i] = Create($"UltraRT Denoise Geo {i}", RenderTextureFormat.ARGBInt);
             }
+            _boostInfo = Create("UltraRT Denoise Boost", RenderTextureFormat.ARGB32);
             _cur = 0;
             _historyValid = false;
         }
@@ -295,9 +402,15 @@ namespace UltraRT
                 Release(ref _moments[i]);
                 Release(ref _geo[i]);
             }
+            Release(ref _boostInfo);
             _historyValid = false;
         }
 
-        public void Dispose() => ReleaseTargets();
+        public void Dispose()
+        {
+            ReleaseTargets();
+            _dummyKeys?.Release();
+            _dummyResolved?.Release();
+        }
     }
 }

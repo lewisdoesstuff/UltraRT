@@ -74,8 +74,42 @@ namespace UltraRT
             _radianceCache.SetShaders(update, resolve);
         }
 
+        // ---- Denoiser stability (docs/denoiser.md). Lives here so Plugin.cs needs no further hooks.
+
+        /// <summary>
+        /// Tell the denoisers which cache value matches their input this frame (the disocclusion seed). Hybrid's main
+        /// denoiser filters the bounce only (PathTrace _Mode 3: cache indirect); the other denoised modes filter full
+        /// lighting (_Mode 0: cache total + the primary ambient). Both add the bounce-hit ambient the cache leaves out,
+        /// approximated with albedo 0.5. Hybrid's direct denoiser filters a luminance pair the cache has no equivalent for.
+        /// </summary>
+        private void ConfigureDenoiserCacheSeed(Color ambient)
+        {
+            if (_denoiser == null) return;
+            bool hybrid = Modes[_mode].kind == Kind.Hybrid;
+            float ambientScale = 2f * (_relightActive ? 1f - Mathf.Clamp01(RelightParams.w) : 1f); // PathTrace's _Ambient * RelightAmbientScale()
+            var amb = new Vector3(ambient.r, ambient.g, ambient.b) * ambientScale;
+            _denoiser.CacheSource = _radianceCache;
+            _denoiser.CacheChannel = hybrid ? DenoiserCacheChannel.Indirect : DenoiserCacheChannel.Total;
+            _denoiser.CacheOffset = amb * ((hybrid ? 0f : _primaryAmbient) + 0.5f);
+            if (_denoiserDirect != null) _denoiserDirect.CacheChannel = DenoiserCacheChannel.None;
+        }
+
+        /// <summary>Ctrl+F3: toggle the denoisers' stability features (pre-blur, 3x3 search, firefly clamp, cache seed).</summary>
+        private bool DenoiserStabilityHotkey()
+        {
+            if (!Input.GetKeyDown(KeyCode.F3) || !(Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))) return false;
+            if (_denoiser == null) return true;
+            bool on = !_denoiser.Settings.stability;
+            _denoiser.Settings.stability = on;
+            if (_denoiserDirect != null) _denoiserDirect.Settings.stability = on;
+            Logger.LogInfo($"Denoiser stability: {(on ? "on" : "off (legacy)")}");
+            Toast($"Denoiser stability {(on ? "on" : "off")} (Ctrl+F3)");
+            return true;
+        }
+
         private void CacheHotkeys()
         {
+            if (DenoiserStabilityHotkey()) return;
             if (!Input.GetKeyDown(KeyCode.F3) || _radianceCache == null) return;
             var s = _cacheSettings;
             if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
@@ -99,6 +133,7 @@ namespace UltraRT
         /// </summary>
         private void TraceRadianceCache(RayTracingShader pathTrace, int w, int h, Matrix4x4 invViewProj, Color ambient)
         {
+            ConfigureDenoiserCacheSeed(ambient);
             if (_radianceCache == null) return;
             if (_radianceCache.Active)
             {

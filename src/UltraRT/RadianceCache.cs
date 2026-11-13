@@ -232,6 +232,23 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(shader, IdQuery, new Vector4(Mathf.Max(1f, s.minSamples), Mathf.Max(0f, s.queryJitter), 0, 0));
         }
 
+        /// <summary>
+        /// Bind the read-only lookup inputs (UltraRTCache.hlsl) on a compute kernel: the denoiser's disocclusion seed
+        /// (docs/denoiser.md). Binds nothing and returns false when the cache did not run this frame.
+        /// </summary>
+        public bool BindComputeLookup(CommandBuffer cmd, ComputeShader cs, int kernel)
+        {
+            if (!Active || _keys == null) return false;
+            var s = Settings;
+            cmd.SetComputeBufferParam(cs, kernel, IdKeys, _keys);
+            cmd.SetComputeBufferParam(cs, kernel, IdResolved, _resolved);
+            cmd.SetComputeIntParam(cs, IdMode, 1); // CacheLookup only checks > 0
+            cmd.SetComputeIntParam(cs, IdCapacity, _capacity);
+            cmd.SetComputeVectorParam(cs, IdGrid, new Vector4(_keyCell, 1f / Mathf.Max(0.1f, _keyLod), _keyOffset, s.levelFallback ? 1f : 0f));
+            cmd.SetComputeVectorParam(cs, IdQuery, new Vector4(Mathf.Max(1f, s.minSamples), Mathf.Max(0f, s.queryJitter), 0, 0));
+            return true;
+        }
+
         private void BindResolve(CommandBuffer cmd)
         {
             foreach (int k in new[] { _kResolve, _kClear })
