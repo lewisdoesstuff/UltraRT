@@ -227,22 +227,27 @@ namespace UltraRT
             return p;
         }
 
+        /// <summary>Relative weight of dielectric specular classes (metals use 1).</summary>
+        public const float DielectricWeight = 0.6f;
+
         /// <summary>Default parameters of a class (the research table). Weights are relative: the global specular weight scales them.</summary>
         public static MaterialParams ClassDefaults(SurfaceClass c, string source)
         {
             switch (c)
             {
+                // Dielectric weights are 0.6 of the metals' so that, with the global 0.5, they keep their old effective
+                // weight (0.3 x 1.0) while metals reflect clearly (0.5).
                 case SurfaceClass.Wood:
-                case SurfaceClass.WoodThin: return MaterialParams.Spec(c, 0.75f, 0f, 0.03f, 0.5f, source);
-                case SurfaceClass.Flesh: return MaterialParams.Spec(c, 0.45f, 0f, 0.03f, 0.6f, source);
-                case SurfaceClass.Marble: return MaterialParams.Spec(c, 0.25f, 0f, 0.04f, 1f, source);
-                case SurfaceClass.Glass: return MaterialParams.Spec(c, 0.05f, 0f, 0.04f, 1f, source);
-                case SurfaceClass.Wet: return MaterialParams.Spec(c, 0.1f, 0f, 0.03f, 1f, source);
-                case SurfaceClass.MetalHigh: return MaterialParams.Spec(c, 0.3f, 1f, 0.04f, 1f, source);
-                case SurfaceClass.MetalLow: return MaterialParams.Spec(c, 0.55f, 0.8f, 0.04f, 1f, source);
-                case SurfaceClass.MetalThin: return MaterialParams.Spec(c, 0.5f, 0.7f, 0.04f, 1f, source);
+                case SurfaceClass.WoodThin: return MaterialParams.Spec(c, 0.75f, 0f, 0.03f, 0.3f, source);
+                case SurfaceClass.Flesh: return MaterialParams.Spec(c, 0.45f, 0f, 0.03f, 0.36f, source);
+                case SurfaceClass.Marble: return MaterialParams.Spec(c, 0.25f, 0f, 0.04f, DielectricWeight, source);
+                case SurfaceClass.Glass: return MaterialParams.Spec(c, 0.05f, 0f, 0.04f, DielectricWeight, source);
+                case SurfaceClass.Wet: return MaterialParams.Spec(c, 0.1f, 0f, 0.03f, DielectricWeight, source);
+                case SurfaceClass.MetalHigh: return MaterialParams.Spec(c, 0.2f, 1f, 0.04f, 1f, source);
+                case SurfaceClass.MetalLow: return MaterialParams.Spec(c, 0.35f, 0.8f, 0.04f, 1f, source);
+                case SurfaceClass.MetalThin: return MaterialParams.Spec(c, 0.3f, 0.7f, 0.04f, 1f, source);
                 case SurfaceClass.MetalStumpy:
-                case SurfaceClass.MetalGrill: return MaterialParams.Spec(c, 0.6f, 0.6f, 0.04f, 1f, source);
+                case SurfaceClass.MetalGrill: return MaterialParams.Spec(c, 0.4f, 0.6f, 0.04f, 1f, source);
                 case SurfaceClass.Mirror: return new MaterialParams { Class = c, Mode = ReflMode.Blend, Roughness = 0f, F0 = 0.04f, ReflStrength = 0.6f, Source = source };
                 // Generic, Carpet, Dirt, Sand, Snow, Grass, Gravel, Rubble, Crunchy (rough, 0.9-1.0), Hologram, Other.
                 default: return MaterialParams.None(c, source);
@@ -295,7 +300,7 @@ namespace UltraRT
             // 2. Name allow-list: fake mirrors (plain textures) and water.
             if (mirrorName) return ClassDefaults(SurfaceClass.Mirror, "mirror name");
             if (water && master)
-                return MaterialParams.Spec(TypeOf(m, "_SurfaceType"), 0f, 0f, 0.02f, 1f, "water name");
+                return MaterialParams.Spec(TypeOf(m, "_SurfaceType"), 0f, 0f, 0.02f, DielectricWeight, "water name");
 
             if (master)
             {

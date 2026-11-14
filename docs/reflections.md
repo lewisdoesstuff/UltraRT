@@ -35,25 +35,26 @@ Files:
 7. **Anything else**: class `Other`, none.
 8. **Overrides** (see below) are applied last, in file order, and every matching rule applies.
 
-Default table. The weight is relative: the global `-ultrart-spec-weight` (default 0.3) multiplies it, which keeps the effective weight at or below 0.3.
+Default table. The weight is relative: the global `-ultrart-spec-weight` (default 0.5) multiplies it. Dielectrics use 0.6 of the metals' weight, so their effective weight stays at the old 0.3 while metals get 0.5 (v2 tuning: metals should read as clearly reflective).
 
 | Class | Mode | Roughness | Metalness | F0 | Weight |
 |---|---|---|---|---|---|
 | Generic, Carpet, Dirt, Sand, Snow, Grass, Gravel, Rubble, Crunchy, Hologram, Other | none | | | | |
-| Wood, WoodThin | specular | 0.75 | 0 | 0.03 | 0.5 |
-| Flesh | specular | 0.45 | 0 | 0.03 | 0.6 |
-| Marble | specular | 0.25 | 0 | 0.04 | 1 |
-| Glass | specular | 0.05 | 0 | 0.04 | 1 |
-| Wet | specular | 0.10 | 0 | 0.03 | 1 |
-| MetalHigh | specular | 0.30 | 1.0 | (albedo) | 1 |
-| MetalLow | specular | 0.55 | 0.8 | | 1 |
-| MetalThin | specular | 0.50 | 0.7 | | 1 |
-| MetalStumpy, MetalGrill | specular | 0.60 | 0.6 | | 1 |
+| Wood, WoodThin | specular | 0.75 | 0 | 0.03 | 0.3 |
+| Flesh | specular | 0.45 | 0 | 0.03 | 0.36 |
+| Marble | specular | 0.25 | 0 | 0.04 | 0.6 |
+| Glass | specular | 0.05 | 0 | 0.04 | 0.6 |
+| Wet | specular | 0.10 | 0 | 0.03 | 0.6 |
+| MetalHigh | specular | 0.20 | 1.0 | (albedo, luma ≥ 0.5) | 1 |
+| MetalLow | specular | 0.35 | 0.8 | | 1 |
+| MetalThin | specular | 0.30 | 0.7 | | 1 |
+| MetalStumpy, MetalGrill | specular | 0.40 | 0.6 | | 1 |
 | Mirror | blend 0.6 | 0 | | | |
 
 SurfaceType is a footstep-sound tag, so it is noisy. The shipped `ultrart-materials.json` corrects the worst cases from the research scan:
 - `Concrete*` and `CaveRock*` are tagged Marble.
 - Lamp fixtures and screens are tagged Glass.
+- `M_ShopTerminal` / `M_TestamentTerminal`: CRT glass, specular, roughness 0.08, f0 0.1 (about 5 % head-on, Fresnel towards grazing). The game's `_ReflectionMask` limits it to the screen.
 - Credits portraits, signs and maze tiles are tagged MetalThin.
 
 ### Overrides: `ultrart-materials.json`
@@ -142,10 +143,10 @@ The resolve runs in every denoised mode, even with reflections off. The non-deno
 ## 5. The reflection ray (PathTrace RayGen)
 
 At a primary hit, `SpecularTerms(material, albedo, N·V)` gives `specW` (rgb) and `keep`. These are the same weights the composites use (section 7). The pixel traces a ray only if reflections are on, the mode is not `none`, and `luma(specW) ≥ threshold` (default 0.015). This means:
-- **Dielectric specular classes** (weight 0.3 × F) trace mostly at grazing angles.
+- **Dielectric specular classes** (effective weight 0.3 × F) trace mostly at grazing angles.
   - Marble: 0.3 × 0.04 = 0.012 at normal incidence, below the threshold.
   - Wood: 0.15 × F, so rays only at grazing angles.
-- **Metals**: F ≈ albedo, so 0.3 × albedo. They trace almost everywhere.
+- **Metals**: F ≈ albedo (raised to luma ≥ 0.5), so 0.5 × that. They trace almost everywhere.
 - **`REFLECTION` materials**: specW = RS × `-ultrart-refl-strength`. For example, FloorPanelSmall (0.025) traces and FloorPanelSmallShine (0.05) does too.
 
 How the ray is traced:
@@ -153,7 +154,7 @@ How the ray is traced:
 - **Estimator**: the radiance along the ray, with no BRDF weight. The composite applies F (split-sum style), and G2/G1 is taken as 1.
 - **Origin and flags**: origin `pos + n·0.02`, back faces culled, mask `0xFF`. Sky walls stop the ray and report sky, as on camera rays.
 - **Shading at the hit**: `albedo × lerp(1, light + ambient·_BounceAmbient, litWeight) + emission` (`ReflectionHitLight`). Emission is counted in full, because emissive light sampling only covers the diffuse lobe. `light` comes from the radiance cache ([radiance-cache.md](radiance-cache.md)) where it can:
-  - **Footprint ≥ ½ cell** (`-ultrart-refl-cache auto`, default): the cell's total lighting. No shadow ray, no light-selection speckle, multi-bounce light. Footprint = `hitDist·2·roughness² + (t + hitDist)·pixelAngle`, so rough metals and distant hits use the cache.
+  - **Footprint ≥ 0.35 cell** (`-ultrart-refl-cache auto`, default): the cell's total lighting. No shadow ray, no light-selection speckle, multi-bounce light. Footprint = `hitDist·2·roughness² + (t + hitDist)·pixelAngle`, so rough metals and distant hits use the cache.
   - **Smaller footprint** (mirrors, sharp gloss, near hits): `DirectOne` (one shadow ray, sharp shadows in the reflection) plus the cell's indirect light.
   - **Cell missing or below `minSamples`**: `DirectOne` only, as before.
   - Hybrid scales the cached indirect part by `_GIStrength`, the same weight the bounce gets on the game's colour, so reflected surfaces match the directly seen ones.
@@ -186,8 +187,8 @@ How the ray is traced:
 The shared form is `final = base·keep + specW·Lrefl` (`SpecularTerms` in `UltraRTMaterial.hlsl`).
 
 **`specular` mode.**
-- `F = f0' + (max(1 − roughness, f0') − f0')·(1 − N·V)^5`, with `f0' = lerp(f0, albedo, metalness)`. Metals are tinted by albedo, and roughness damps the grazing peak.
-- `w = materialWeight × specWeight` (global, 0.3).
+- `F = f0' + (max(1 − roughness, f0') − f0')·(1 − N·V)^5`, with `f0' = lerp(f0, metalF0, metalness)`. Metals are tinted by albedo, and roughness damps the grazing peak. `metalF0` is the albedo scaled up to a luminance of at least 0.5 (`ULTRART_METAL_F0_MIN`): ULTRAKILL's metal textures are dark painted diffuse colours (luma 0.1–0.2), and with F = albedo their reflections were nearly invisible.
+- `w = materialWeight × specWeight` (global, 0.5).
 - `specW = F·w`.
 
 | Path | base | keep |
@@ -235,10 +236,10 @@ Where each path applies it:
 | Flag / key | Field | Default |
 |---|---|---|
 | `-ultrart-noreflections`, **F4** toggle (resets the reflection history, shows a toast) | `enabled` | on |
-| `-ultrart-spec-weight X` | `specWeight` (global weight of specular classes) | 0.3 |
+| `-ultrart-spec-weight X` | `specWeight` (global weight of specular classes) | 0.5 |
 | `-ultrart-refl-strength X` | `reflStrength` (scales REFLECTION materials' RS) | 1.0 |
 | `-ultrart-matdump` | `SceneProxies.DumpMaterialClasses` | off |
-| `-ultrart-refl-cache off\|auto\|always` | `cacheShading` (radiance cache at reflection hits), `cacheFootprint` (0.5 cell) | auto |
+| `-ultrart-refl-cache off\|auto\|always` | `cacheShading` (radiance cache at reflection hits), `cacheFootprint` (0.35 cell) | auto |
 | `-ultrart-refl-keepcube` | `replaceGameCube` = false (hybrid keeps the game's cubemap) | replace |
 | — | `threshold` (minimum luma(specW) for a ray), `maxRadiance` (8) | 0.015 |
 | — | `temporal`, `spatial`, `alphaMirror`/`alphaRough` (0.3/0.08), `clampMirror`/`clampRough` (1.25/2.5), `maxHistory` (32), `spatialMinRoughness` (0.08) | |
@@ -262,7 +263,21 @@ Where each path applies it:
 - `EnsureTargets` adds `_gSurface` (ARGBInt), `_gReflection`, `_gSpecular` (ARGBHalf) and `_gReflDebug` (ARGB32).
 - `Trace()` binds `_Surface`, `_Reflection`, `_ReflParams` and `_ReflMaxRadiance` instead of `_AlbedoOut`/`_EmissionOut`. In denoised and reflection modes it runs `_reflFilter.Execute` (sample marker `UltraRT.Reflections`) **before** `_denoiser.Execute`. It passes `specular = _gSpecular` to the main denoiser and sets the `_UltraRTSpecular` global for the hybrid composite.
 
-## 9. Cost (estimated, not measured)
+## 9. Cost
+
+**Measured (v2, RTX 5070 Ti, 1920x1080, trace scale 0.5, GPU timer), main ee9095e → reflections-v2:**
+
+| Scenario | hybrid GPU total ms | pt-dn GPU total ms |
+|---|---|---|
+| short: 1-1 pose | 0.433 → 0.441 | 0.363 → 0.371 |
+| short: 1-1 doors run | 1.815 → 1.790 | 1.550 → 1.525 |
+| 1-1 terminal (MetalThin room) | 1.919 → 1.822 | 1.699 → 1.597 |
+| 1-1 indoor a / b / c | +0.04 / +0.01 / +0.05 | +0.03 / +0.03 / +0.04 |
+| 4-1 indoor A | 1.544 → 1.575 | 1.305 → 1.322 |
+
+The cache lookup replaces `DirectOne`'s shadow ray on most glossy hits, so the extra metal coverage (higher weight → more pixels above the ray threshold) is about free. The terminal room got cheaper because the reflection mask stops the terminal body from tracing. The game-cube reconstruction only runs on hybrid primary hits of REFLECTION materials.
+
+The v1 estimates below are kept for reference.
 
 **Rays.** Each glossy pixel adds one reflection ray plus `DirectOne`'s shadow ray, and RIS evaluates `_BounceCandidates` candidates. That is about +2 rays on top of the roughly 3–4 rays per lit pixel today (primary, bounce, shadows). Expected dispatch growth:
 
@@ -285,11 +300,12 @@ Together about 0.05–0.15 ms. The resolve runs even with reflections off (about
 
 ## 10. Limitations and risks
 
-- **Not tested in game yet** (the game was not launched for this change).
+- **Tested in game** (v2) on 1-1 and 4-1 poses (`bench/suites/debug-refl-v2.json`): terminal, MetalThin room, indoor stone and wood.
+- **Metals in single-colour rooms** (1-1's red MetalThin room) read as a sheen and blurred light-strip reflections, not a mirror: the room reflects itself. Lower roughness via overrides for sharper metal.
 - **Reflected objects that move** reproject with the camera only, so moving enemies in mirrors lag by the history.
   - Glossy reflections on curved or non-planar surfaces: the virtual point is wrong, and the code falls back to surface reprojection, which smears a little in motion.
   - The neighbourhood clip limits ghosting, but at 1 spp with rough metals it is loose.
-- **Glossy reflections remain somewhat noisy** at 1 spp, especially rough metals at roughness 0.5–0.6. The spatial pass is display-only and small. If it is too noisy: lower `alphaRough` (longer history), lower `-ultrart-spec-weight`, or classify more metals as rough via overrides.
+- **Sharp glossy reflections remain somewhat noisy** at 1 spp where the footprint is below the cache threshold (near hits, roughness below about 0.25): those keep the 1-sample direct light. Rough and distant hits read the cache and are smooth. The spatial pass is display-only and small. If it is too noisy: lower `alphaRough` (longer history), lower `-ultrart-spec-weight`, or classify more metals as rough via overrides.
 - **SurfaceType is noisy.** Expect odd glossy objects until the override list grows (`-ultrart-matdump`, `materials` view).
 - **Atlas slots take one dominant class per source renderer.** A secondary type on baked geometry relies on the unverified `|normal.w| − 1` blend weight.
 - **Hybrid cube removal** is approximate at saturated pixels and at trace resolution (section 7).

@@ -11,7 +11,7 @@ namespace UltraRT
         /// <summary>-ultrart-noreflections / F4. Off: no reflection rays, the resolve only unpacks albedo and emission.</summary>
         public bool enabled = true;
         /// <summary>-ultrart-spec-weight: global weight of the specular classes (per-material weights are relative to it).</summary>
-        public float specWeight = 0.3f;
+        public float specWeight = 0.5f;
         /// <summary>-ultrart-refl-strength: scales the game's _ReflectionStrength on REFLECTION materials.</summary>
         public float reflStrength = 1f;
         /// <summary>Luminance of the specular term below which a pixel traces no reflection ray.</summary>
@@ -33,7 +33,7 @@ namespace UltraRT
         /// <summary>-ultrart-refl-cache off|auto|always: radiance cache at reflection hits. Auto (1) uses it where the
         /// reflection footprint covers <see cref="cacheFootprint"/> of a cache cell, else 1-sample direct + cached indirect.</summary>
         public int cacheShading = 1;
-        public float cacheFootprint = 0.5f;
+        public float cacheFootprint = 0.35f;
         /// <summary>Hybrid: remove the game's own REFLECTION cubemap term where ours applies (-ultrart-refl-keepcube: off).</summary>
         public bool replaceGameCube = true;
         /// <summary>Hybrid cube removal: cap on the keep factor divided by what the game left of the lit colour.</summary>

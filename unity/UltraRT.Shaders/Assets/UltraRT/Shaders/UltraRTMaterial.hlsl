@@ -25,6 +25,8 @@
 #define ULTRART_REFL_BLEND    2u // ULTRAKILL REFLECTION, _CubeMode 0: lerp(colour, reflection, strength)
 #define ULTRART_REFL_ADD      3u // ULTRAKILL REFLECTION, _CubeMode 1: colour + strength * reflection
 
+#define ULTRART_METAL_F0_MIN 0.5 // minimum luminance of a metal's albedo-tinted f0 (SpecularTerms)
+
 #define ULTRART_CLASS_COUNT 23u // 0-20 ULTRAKILL SurfaceType, 21 other/unknown, 22 mirror (name allow-list)
 
 struct SurfaceMaterial
@@ -102,6 +104,8 @@ float3 HybridGameCube(uint w) { return float3(FromUnorm8(w >> 8), FromUnorm8(w >
 // where diffuse is the colour without reflections (albedo * lighting + emission's lit part, or the game's colour in
 // hybrid) and Lrefl the reflected radiance. params: x global specular weight, y global reflection strength.
 //   SPECULAR: Schlick Fresnel at the shading normal (roughness damps the grazing peak), f0 tinted by albedo for metals.
+//     ULTRAKILL's metal textures are dark painted diffuse colours (luma ~0.1-0.2), far below real metal F0, so a metal's
+//     f0 keeps the albedo's tint but is raised to at least ULTRART_METAL_F0_MIN luminance.
 //     Full RT: energy-conserving blend: keep = 1 - w * lerp(luma(F), 1, metalness).
 //     Hybrid:  dielectrics add on top (keep = 1); metals blend by w * metalness, so the game's flat metal is partly
 //              replaced rather than brightened.
@@ -113,7 +117,9 @@ void SpecularTerms(SurfaceMaterial m, float3 albedo, float NdotV, float2 params,
     keep = 1.0;
     if (m.mode == ULTRART_REFL_SPECULAR)
     {
-        float3 f0 = lerp(m.f0.xxx, albedo, m.metalness);
+        float la = dot(albedo, float3(0.2126, 0.7152, 0.0722));
+        float3 metalF0 = saturate(albedo * max(1.0, ULTRART_METAL_F0_MIN / max(la, 1e-3)));
+        float3 f0 = lerp(m.f0.xxx, metalF0, m.metalness);
         float fc = pow(1.0 - saturate(NdotV), 5.0);
         float3 F = f0 + (max((1.0 - m.roughness).xxx, f0) - f0) * fc;
         float w = saturate(m.weight * params.x);
