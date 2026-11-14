@@ -1,0 +1,18 @@
+// Motion vectors (src/UltraRT/MotionVectors.cs, docs/denoiser.md): after each trace, copy every active skinned proxy's
+// object-space positions out of its skinned vertex buffer, so next frame's hit shader can read the previous pose.
+
+#pragma kernel CopyPositions
+
+ByteAddressBuffer          _SkinSrc;  // the SkinnedMeshRenderer's vertex buffer (vertexBufferTarget |= Raw)
+RWStructuredBuffer<float3> _PrevSkin; // shared by all skinned proxies; each owns [_DstBase, _DstBase + _Count)
+uint _Count;
+uint _Stride;   // bytes per vertex
+uint _Offset;   // byte offset of the float3 position
+uint _DstBase;
+
+[numthreads(64, 1, 1)]
+void CopyPositions(uint id : SV_DispatchThreadID)
+{
+    if (id >= _Count) return;
+    _PrevSkin[_DstBase + id] = asfloat(_SkinSrc.Load3(id * _Stride + _Offset));
+}

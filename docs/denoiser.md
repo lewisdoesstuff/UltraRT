@@ -17,7 +17,7 @@ All passes use 8x8 thread groups and run at trace resolution, except Composite, 
 **Temporal**
 - Loads a 16x16 tile (the 8x8 group plus a 4-pixel apron) into groupshared memory: radiance, ray t, world position and normal. The 3x3 statistics and the pre-blur read from it.
 - Rebuilds each pixel's world position from the primary ray (`camPos + dir * t`), using the same formula as the ray generation shader.
-- Projects that position with the previous frame's viewProj, then does a 2x2 bilinear fetch. Each tap is validated separately: the valid bit is set (not sky), the low 7 bits of the instance id match, `dot(n, nPrev) ≥ reprojNormalTolerance`, and `|dot(pPrev − p, n)| ≤ reprojPlaneTolerance · t + 0.01`. The weights of the valid taps are renormalised.
+- Moves that position to where the surface was last frame, `p' = p + motion` (see [Motion vectors](#motion-vectors); 0 for static geometry), projects `p'` with the previous frame's viewProj, then does a 2x2 bilinear fetch. Each tap is validated separately: the valid bit is set (not sky), the low 7 bits of the instance id match, `dot(n, nPrev) ≥ reprojNormalTolerance`, and `|dot(pPrev − p', n)| ≤ reprojPlaneTolerance · t + 0.01`. The weights of the valid taps are renormalised.
 - If no tap is valid, a 3x3 search around the reprojected point takes the best texel that passes the same tests (`historySearch`). Only if that also fails does the history length go back to 0. See [Temporal stability](#temporal-stability).
 - Blends with an exponential moving average, `alpha = max(1 / len, alphaMin)` where `len = min(histLen + 1, maxHistory)`. Both the lighting and the luminance moments (m1, m2) are accumulated this way.
 - Variance is `m2 − m1²`. Below 4 frames of history it is replaced by the luminance variance of the 3x3 neighbourhood. The 3x3 is cached in groupshared memory and only includes pixels whose depth is within 10%.
@@ -74,6 +74,32 @@ ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has 
 
 **Debug view `dn-boost`** (`DenoiserDebugView.SpatialBoost`, at the end of the Page Up/Page Down list), drawn over a dim grey image: **red** is pre-blur strength, **green** the cache seed weight, **blue** history recovered by the 3x3 search, and **white** a firefly clamped by more than 10%. While sliding, expect a red band along the leading edge that fades within 8 frames, green over most of it (indirect light near the camera), and blue specks along silhouettes. `dn-history` still shows the history length.
 
+## Motion vectors
+
+Every temporal consumer reprojects a moving surface point from where it was last frame: this denoiser (both instances), ReSTIR's temporal reuse (`UltraRTLights.hlsl`, `g_PrimaryMotion`) and the reflection history (`Reflections.compute`, surface and virtual point). The disocclusion tests (plane, normal, instance) compare the history against `p + motion`, so an enemy keeps its history while it walks and the wall it uncovers is rejected.
+
+**What is stored.** PathTrace's primary ray asks the hit shader for motion (payload `flags` bit 30 in, packed motion out in the payload's `motion` dword; other rays and DebugView get 0). To make room within the 64-byte payload, emission travels as 3 halves (`emissionHalf`, `PayloadEmission()`), the precision every consumer stores it at anyway; `uvHalf` / `primitive` stay free for reflections' game-cubemap term on hybrid primary rays. The hit shader returns `prevWorld − curWorld` of the hit point, packed into one 32-bit word with a shared exponent (`PackMotion`: 3 × sign + 8-bit magnitude, 5-bit exponent; error ≤ max|d|/255, 0 = static). PathTrace writes it to `_InstanceId.y`: the instance texture is now `RGInt` (x unchanged). No 9th UAV, the payload stays 64 bytes, and readers that declare `Texture2D<int>` still see the instance in x.
+
+**Where the hit shader gets the previous position** (`src/UltraRT/MotionVectors.cs`, owned by `SceneProxies`):
+- Each dynamic proxy gets a **motion slot**, put in its RTAS custom id (`layer | slot << 8`, 16-bit slot; static batches are slot 0 and skip everything). Per slot, the global `_UltraRTMotion` holds the world-space motion matrix `W = M_prev · M_cur⁻¹` and a skinned-pose offset. Rigid proxies use their `localToWorldMatrix` (exactly the instance transform; updated only when `hasChanged`, reset to identity the frame after they stop). Skinned proxies use the root bone's position and rotation.
+- **Skinned meshes**: after each trace, `MotionCopy.compute` copies every active skinned proxy's object-space positions out of its skinned vertex buffer (`vertexBufferTarget |= Raw`, `GetVertexBuffer()`) into one shared buffer `_UltraRTPrevSkin`. Next frame the hit shader interpolates the previous pose with the same triangle indices and barycentrics: `prevWorld = W · O2W_cur · prevPose`. The current position is always the BLAS hit point (`WorldRayOrigin + t · dir`), never the vertex fetch, which does not necessarily return the skinned pose. `-ultrart-motion-probe` confirmed Unity's skinned buffer is in root-bone space without scale (the instance matrix), so W of the root's position and rotation is exact. Regions are recycled per vertex count when a proxy leaves the RTAS.
+- Why a copy and not Unity's own previous buffer (`GetPreviousVertexBuffer`) or a second vertex stream: the previous buffer would have to be bound per instance through a property block that changes every frame (it is double-buffered), which hit groups would have to re-read; a stream would need the mesh layout changed. The copy is one tiny dispatch per active skinned mesh (12 bytes per vertex), the binding is one global, and the hit shader only reads it on primary hits of skinned instances.
+- A proxy entering the RTAS has no motion for its first frame; a skinned one whose pose wasn't copied yet (first frame, buffer regrow) gets root motion only.
+
+**Cost** (RTX 5070 Ti, 1920x1080, trace scale 0.5, `bench/suites/motion.json` = the 0-2 run with active enemies, vs master c5e4d7c):
+
+| | master | motion vectors |
+|---|---|---|
+| pt-dn frame / GPU total / dispatch / denoise (ms) | 4.090 / 1.882 / 1.230 / 0.193 | 4.197 / 1.977 / 1.281 / 0.194 |
+| hybrid frame / GPU total / dispatch / denoise (ms) | 4.112 / 2.065 / 1.189 / 0.386 | 4.234 / 2.170 / 1.249 / 0.388 |
+| 1-1 static pose, pt-dn dispatch (ms) | 0.160 | 0.165 |
+
+About +0.05 ms in DispatchRays (motion on primary hits of dynamic instances, the 8-byte instance texture), about +0.04 ms for the pose copies (25-35 skinned meshes, 36k vertices), and about 0.1 ms of CPU (`motion CPU` in the 600-frame scene-sync log line; mostly the per-skinned-mesh `GetVertexBuffer` and copy dispatch). Static geometry (slot 0) skips the motion code entirely.
+
+**Debug view `motion`** (`DenoiserDebugView.Motion`, last in the Page Up/Page Down list): object motion as a flow colour over a dim grey image (hue = screen direction, saturation = speed, full at 8 trace px/frame; slow objects are grey-white); camera-only motion is a faint tint. A spinning object shows a hue wheel; an object whose previous pose is wrong shows a field converging on one point (that was the symptom of a broken pose copy, with `dn-history` dropping to 0 on every enemy). `-ultrart-nomotion` turns motion off (all slots identity, no pose copies) for A/B; `-ultrart-motion-probe` logs which space Unity's skinned vertex buffer is in.
+
+**Limits.** Normals are not rotated back, so a surface turning faster than `acos(reprojNormalTolerance)` (25°) per frame still loses its history. Motion is only for the primary hit; reflections of moving objects reproject with the reflecting surface's motion. Static-batched geometry never moves. Instances that teleport (checkpoint room clones) produce a huge motion that lands off-screen or fails the tests, which is the right result.
+
 ## Textures (owned by the denoiser)
 
 | Name | Format | Content |
@@ -98,7 +124,7 @@ All of these are enableRandomWrite and point filtered. At 1280x720 they total ab
 | reprojNormalTolerance | 0.9 | Minimum cosine between current and history normal |
 | reprojPlaneTolerance | 0.01 | Maximum plane distance, relative to ray t |
 | clampHistory / clampSigma | true / 2 | Turn the clip off to compare ghosting against noise |
-| debugView | Final | `Final`, `FilteredLighting`, `RawLighting`, `Variance` (heatmap of the relative σ of the temporal estimate; blue is clean, red is σ ≥ 2× the mean), `HistoryLength` (heatmap of len / maxHistory), `Disocclusion` (red where history was rejected this frame, grey elsewhere), `SpatialBoost` (see above) |
+| debugView | Final | `Final`, `FilteredLighting`, `RawLighting`, `Variance` (heatmap of the relative σ of the temporal estimate; blue is clean, red is σ ≥ 2× the mean), `HistoryLength` (heatmap of len / maxHistory), `Disocclusion` (red where history was rejected this frame, grey elsewhere), `SpatialBoost` (see above), `Motion` (see [Motion vectors](#motion-vectors)) |
 | stability | true | Master switch for the four features below. false = the previous output, bit for bit. `-ultrart-dn-legacy`; Ctrl+F3 toggles both instances. |
 | boostFrames | 8 | Pre-blur fades out at this history length. 0 = off. `-ultrart-dn-boost N` |
 | boostRadius | 4 | Pre-blur radius in trace pixels at history 0. Clamped to 4 (tile apron). `-ultrart-dn-boost-radius R` |
@@ -162,12 +188,11 @@ There is no need to call it for camera motion or resolution changes. The denoise
 - All five inputs have the same size and come from the same frame and the same `invViewProj` / `camPos` passed in `inputs`. The primary rays are **not jittered**. The progressive accumulation mode does jitter, so bypass the denoiser while accumulating.
 - `normalDepth.w` is the ray t along the *normalized* primary direction and is negative for sky. The normal faces the camera.
 - `radiance` is demodulated, so `albedo * radiance + emission` reproduces the undenoised image. Sky pixels have albedo 1.
-- `instanceId` is an `RInt` texture. Only the low 7 bits are compared.
+- `instanceId` is an `RGInt` texture: x the instance (only the low 7 bits are compared), y the packed world-space motion (`PackMotion`, 0 = static).
 - `Execute` is called once per frame, and the recorded commands run exactly once, in order, before the next `Execute`. Ping-pong indices advance at record time.
 - The output must be enableRandomWrite and not sRGB. It is written with `saturate()` and no tonemapping.
 
 ## Known limitations
-- There are no motion vectors. Moving objects reproject using their current world position. When an object moves along its own surface plane its lighting can trail slightly. Motion along the normal is rejected by the plane test, and moving onto a different instance is rejected by the instance test.
 - The history clip uses a 1 spp neighbourhood, so it is loose by design. Fast lighting changes, such as muzzle flashes or toggled lights, take a few frames to settle (about `1/alphaMin` frames at worst). An A-SVGF gradient pass would fix this properly.
 - Reprojection is bilinear, so the history is resampled slightly every frame while the camera moves. Lighting is smooth enough that this is hard to see, but it does slightly soften shadow edges in motion.
 - Screen-edge disocclusions have no history at all. They start from the pre-blur (4 px radius at trace resolution) plus the cache seed, and are visibly softer than converged regions for the first few frames. Raise `boostRadius` only together with the tile apron (`APRON` in Denoise.compute; groupshared cost grows quadratically).

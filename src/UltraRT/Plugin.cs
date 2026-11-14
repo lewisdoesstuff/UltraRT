@@ -54,6 +54,7 @@ namespace UltraRT
             ("cache", Kind.PathTrace, CacheDebugModeBase + (int)RadianceCacheDebug.Radiance),     // Plugin.Cache.cs
             ("cache-cells", Kind.PathTrace, CacheDebugModeBase + (int)RadianceCacheDebug.Cells),
             ("dn-boost", Kind.Denoised, (int)DenoiserDebugView.SpatialBoost), // denoiser stability features (docs/denoiser.md)
+            ("motion", Kind.Denoised, (int)DenoiserDebugView.Motion),        // motion vectors (docs/denoiser.md)
         };
 
         private const int MaxLights = 256;
@@ -219,6 +220,8 @@ namespace UltraRT
                     case "-ultrart-refl-cache": { var v = Next(); _reflSettings.cacheShading = v == "off" ? 0 : v == "always" ? 2 : 1; break; }
                     case "-ultrart-refl-keepcube": _reflSettings.replaceGameCube = false; break;
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
+                    case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
+                    case "-ultrart-motion-probe": SceneProxies.MotionProbe = true; break;
                 }
             }
             _scale = Mathf.Clamp(_scale, 0.1f, 1f);
@@ -257,6 +260,8 @@ namespace UltraRT
             _denoiserDirect = new Denoiser(denoise);
             _unpackHybrid = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "UnpackHybrid");
             if (_unpackHybrid == null) Logger.LogWarning("UnpackHybrid compute shader missing from bundle");
+            _motionCopy = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "MotionCopy");
+            if (_motionCopy == null) Logger.LogWarning("MotionCopy compute shader missing from bundle: skinned meshes get root motion only");
             if (settings != null) _denoiser.Settings = settings;
             _reflFilter?.Dispose();
             _reflFilter = new ReflectionFilter(reflections);
@@ -350,7 +355,7 @@ namespace UltraRT
             {
                 var sw = Stopwatch.StartNew();
                 var cam = Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
-                _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0);
+                _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy);
                 _proxies.Build();
                 _emissive.Build(_proxies);
                 Logger.LogInfo($"Scene RT setup took {sw.Elapsed.TotalMilliseconds:F0} ms");
@@ -530,6 +535,7 @@ namespace UltraRT
         private readonly LightSamplingSettings _lightSamplingSettings = new LightSamplingSettings();
         private Denoiser _denoiserDirect;          // hybrid: filters ReSTIR's (noisy) shadowed direct light
         private ComputeShader _unpackHybrid;
+        private ComputeShader _motionCopy; // MotionCopy.compute: previous skinned poses for motion vectors
         private RenderTexture _gShadowed, _denoisedDirectOut;
         private float _shadowBias = 0.1f; // -ultrart-shadowbias: how much of our light a surface needs before RT shadows apply fully
         private float _giStrength = 0.35f;
@@ -575,7 +581,8 @@ namespace UltraRT
             EnsureGBuffer(ref _gAlbedo, w, h, RenderTextureFormat.ARGB32, "UltraRT Albedo");
             EnsureGBuffer(ref _gEmission, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Emission");
             EnsureGBuffer(ref _gNormalDepth, w, h, RenderTextureFormat.ARGBHalf, "UltraRT NormalDepth");
-            EnsureGBuffer(ref _gInstanceId, w, h, RenderTextureFormat.RInt, "UltraRT InstanceId");
+            // x instance index, y packed world-space motion (docs/denoiser.md, "Motion vectors").
+            EnsureGBuffer(ref _gInstanceId, w, h, RenderTextureFormat.RGInt, "UltraRT InstanceId");
             EnsureGBuffer(ref _gHybrid, w, h, RenderTextureFormat.ARGBInt, "UltraRT HybridLight");
             // PathTrace writes albedo + emission + material packed into _gSurface (Unity's 8-UAV limit), and the reflection
             // into _gReflection. ReflectionFilter's resolve unpacks _gAlbedo / _gEmission and writes _gSpecular.
@@ -712,7 +719,11 @@ namespace UltraRT
             _cpuFrames++;
             if (_cpuFrames >= 600)
             {
-                Logger.LogInfo($"RT scene sync CPU avg {_cpuMs / _cpuFrames:F3} ms/frame");
+                var mv = _proxies.Motion;
+                Logger.LogInfo($"RT scene sync CPU avg {_cpuMs / _cpuFrames:F3} ms/frame; motion vectors {(MotionVectors.Enabled ? "on" : "off")}: " +
+                               $"{mv.SlotCount} slots, {mv.CopiesLastFrame} skinned pose copies/frame, {mv.SkinVertices} pose vertices, " +
+                               $"{(double)mv.RigidUpdates / _cpuFrames:F1} rigid updates/frame, motion CPU {mv.Ticks * 1000.0 / Stopwatch.Frequency / _cpuFrames:F3} ms/frame");
+                mv.Ticks = 0; mv.RigidUpdates = 0;
                 _cpuMs = 0; _cpuFrames = 0;
             }
 
@@ -785,6 +796,7 @@ namespace UltraRT
             _cmd.DispatchRays(shader, "RayGen", (uint)w, (uint)h, 1);
             _gpu?.End(_cmd, SlotDispatch);
             _cmd.EndSample(SampleTrace);
+            _proxies.RecordMotionCopies(_cmd); // this frame's skinned poses become next frame's previous poses
             if (kind == Kind.PathTrace) TraceCacheDebug(mode);
 
             _displayed = _output;
