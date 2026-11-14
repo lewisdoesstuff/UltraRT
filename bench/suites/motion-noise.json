@@ -1,0 +1,32 @@
+{
+    "Name": "motion-noise",
+    "Scenarios": [
+        { "Name": "1-1 sweep 180", "Scene": "Level 1-1",
+          "Path": { "Type": "sweep", "YawSpeed": 180, "PitchAmplitude": 5, "Duration": 4 },
+          "Modes": ["off", "relight"], "Screenshots": [2], "Motion": 96,
+          "MotionModes": ["off", "relight", "hybrid", "relight+preset=previous", "relight+taau=0"] },
+        { "Name": "1-1 sweep 500", "Scene": "Level 1-1",
+          "Path": { "Type": "sweep", "YawSpeed": 500, "PitchAmplitude": 15, "Duration": 4 },
+          "Modes": ["off", "relight"], "Screenshots": [2], "Motion": 96, "MotionStrip": 0,
+          "MotionModes": ["off", "relight", "hybrid"] },
+        { "Name": "1-1 start sweep", "Scene": "Level 1-1",
+          "Path": { "Type": "sweep", "Approach": "../recordings/1-1-approach.json", "YawSpeed": 180, "PitchAmplitude": 5, "Duration": 4 },
+          "Modes": ["off", "relight"], "Screenshots": [2], "Motion": 96,
+          "MotionModes": ["off", "relight", "hybrid"] },
+        { "Name": "1-1 start fx", "Scene": "Level 1-1",
+          "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 4 },
+          "Effects": { "Kinds": ["revolver"], "Every": 0.1, "ShotDelay": 0.03 },
+          "Modes": ["off", "relight"], "Screenshots": [2], "Motion": 96,
+          "MotionModes": ["off", "relight", "hybrid"] },
+        { "Name": "4-1 indoor A sweep", "Scene": "Level 4-1",
+          "Path": { "Type": "sweep", "Approach": "../recordings/4-1-approach-a.json", "YawSpeed": 180, "PitchAmplitude": 5, "Duration": 4 },
+          "Modes": ["off", "relight"], "Screenshots": [2], "Motion": 96,
+          "MotionModes": ["off", "relight", "hybrid"] },
+        { "Name": "0-2 run", "Scene": "Level 0-2",
+          "Path": { "Type": "recording", "File": "../recordings/0-2-run.json" },
+          "Enemies": "none", "ReplayArenas": false,
+          "Effects": { "Kinds": ["revolver"], "Every": 0.1, "ShotDelay": 0.03 },
+          "Modes": ["off", "relight"], "Screenshots": [7.6, 16.6, 40.9], "Motion": 96,
+          "MotionModes": ["off", "relight", "hybrid"] }
+    ]
+}

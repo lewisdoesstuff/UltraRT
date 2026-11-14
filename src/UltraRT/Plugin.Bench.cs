@@ -817,6 +817,7 @@ namespace UltraRT
                             yield return null; // CaptureScreenshot completes at the end of this frame
                         }
                         if (sc.Burst > 0 && sr.Bursts.Count == 0) yield return RunBurst(sc, sr, outDir, path, pathT);
+                        if (sc.Motion > 0) yield return RunMotionNoise(sc, sr, outDir, path, at); // every screenshot time
                         current = null; // force a fresh switch below
                     }
 
@@ -1016,6 +1017,7 @@ namespace UltraRT
                 sb.AppendLine($"| {sc.Order} | {sc.Name} | {sc.Reached} | {(sc.LevelLoadSeconds > 0 ? sc.LevelLoadSeconds.ToString("F1") : "-")} | " +
                               $"{sc.Load}{(sc.LoadDetail != null ? $" ({sc.LoadDetail})" : "")} | {sc.LoadSeconds:F1} | {sc.WallSeconds:F1} |");
             SummarizeBursts(sb, r);
+            SummarizeMotion(sb, r);
             return sb.ToString();
 
             string Get(Dictionary<string, float> d, string k) => d.TryGetValue(k, out var v) ? v.ToString("F3") : "-";

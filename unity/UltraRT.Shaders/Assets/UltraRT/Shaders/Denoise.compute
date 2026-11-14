@@ -11,12 +11,14 @@
 //              Temporal pass's reprojection), clamped to the filtered signal's own temporal spread, so the residual
 //              low-frequency flicker the spatial filter leaves (correlated ReSTIR / radiance cache noise) averages out.
 //   Composite  albedo * lighting * keep + emission + specular (or a debug view) into the output.
+//   Classify   bench only (Plugin.MotionNoise.cs): per-pixel class bits for the motion-noise breakdown.
 
 #pragma kernel Temporal
 #pragma kernel Atrous3
 #pragma kernel Atrous5
 #pragma kernel Stabilize
 #pragma kernel Composite
+#pragma kernel Classify
 
 // ---------------------------------------------------------------- shared
 
@@ -662,4 +664,46 @@ void Composite(uint3 id : SV_DispatchThreadID)
     // clipping. Global properties; 0/unset = off.
     if (_DebugView == 0) c = UltraRTToneMap(c);
     _Output[id.xy] = float4(saturate(c), 1.0);
+}
+
+// ---------------------------------------------------------------- bench: motion-noise classes
+
+// Per trace pixel, for the motion-noise breakdown (bench/README.md, "Motion noise"): bit 6 = a traced surface, bit 0 =
+// short denoiser history (< _ClassFresh frames: disocclusions, screen edges), bit 1 = depth / instance edge in the 3x3
+// (silhouettes), bit 2 = thin (both opposite neighbours of an axis belong to another surface: wires, railings, slivers).
+// Reads this frame's _Geo and _Moments. Written as unorm8 (value / 255).
+RWTexture2D<float> _ClassOut;
+float _ClassFresh;
+
+bool ClassOther(int2 q, int2 dim, uint inst, float3 p, float3 n, float tol)
+{
+    if (any(q < 0) || any(q >= dim)) return false; // the screen border is not an edge
+    int4 g = _Geo[q];
+    if (!GeoValid(g)) return true;
+    if (GeoInstance(g) != inst) return true;
+    return abs(dot(GeoPos(g) - p, n)) > tol;
+}
+
+[numthreads(8, 8, 1)]
+void Classify(uint3 id : SV_DispatchThreadID)
+{
+    int2 dim = (int2)_Dim.xy;
+    int2 c = (int2)id.xy;
+    if (any(c >= dim)) return;
+    int4 g = _Geo[c];
+    if (!GeoValid(g)) { _ClassOut[c] = 0; return; }
+    float3 p = GeoPos(g), n = GeoNormal(g);
+    uint inst = GeoInstance(g);
+    float t = distance(p, _CamPos.xyz);
+    float tol = 0.02 * t + 0.02;
+    uint bits = 64u;
+    if (_Moments[c].z < _ClassFresh) bits |= 1u;
+    bool l = ClassOther(c + int2(-1, 0), dim, inst, p, n, tol), r = ClassOther(c + int2(1, 0), dim, inst, p, n, tol);
+    bool d = ClassOther(c + int2(0, -1), dim, inst, p, n, tol), u = ClassOther(c + int2(0, 1), dim, inst, p, n, tol);
+    bool any4 = l || r || d || u;
+    bool diag = ClassOther(c + int2(-1, -1), dim, inst, p, n, tol) || ClassOther(c + int2(1, -1), dim, inst, p, n, tol)
+             || ClassOther(c + int2(-1, 1), dim, inst, p, n, tol) || ClassOther(c + int2(1, 1), dim, inst, p, n, tol);
+    if (any4 || diag) bits |= 2u;
+    if ((l && r) || (d && u)) bits |= 4u;
+    _ClassOut[c] = bits / 255.0;
 }

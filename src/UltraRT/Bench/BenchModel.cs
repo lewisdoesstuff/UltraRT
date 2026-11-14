@@ -53,6 +53,22 @@ namespace UltraRT.Bench
         public List<string> BurstModes;
         /// <summary>Optional: spawn combat effects in front of the camera (EffectSpawner.cs), for effect-light tests.</summary>
         public EffectSpec Effects;
+        /// <summary>
+        /// Motion noise (Plugin.MotionNoise.cs, bench/README.md "Motion noise"): at every screenshot time, replay the same
+        /// MotionSettle + Motion frames of the path MotionPasses times per mode on a fixed 1/360 s clock, histories reset at
+        /// the start of each pass, and compare the passes frame by frame. Frames captured per pass = Motion / MotionStride.
+        /// 0 = off.
+        /// </summary>
+        public int Motion;
+        public int MotionPasses = 3;
+        public int MotionStride = 4;
+        public int MotionSettle = 120;
+        /// <summary>Modes ("off" first: its two passes give the mask of what the game itself animates); default Modes.</summary>
+        public List<string> MotionModes;
+        /// <summary>Start each pass at a different TAAU jitter phase (pass index), so jitter-dependent flicker counts too.</summary>
+        public bool MotionJitterRotate = true;
+        /// <summary>Consecutive frames of the first pass saved as PNG at the end of the window (frame strips).</summary>
+        public int MotionStrip = 4;
     }
 
     /// <summary>
@@ -150,6 +166,24 @@ namespace UltraRT.Bench
         public Dictionary<string, ModeStats> Modes = new Dictionary<string, ModeStats>();
         public List<string> Screenshots = new List<string>();
         public List<BurstStats> Bursts = new List<BurstStats>();
+        public List<MotionStats> MotionNoise = new List<MotionStats>();
+    }
+
+    /// <summary>
+    /// Motion noise of one mode over one path window (screen luma 0-255): sigma = RMS difference between passes / sqrt 2
+    /// (the per-frame noise of a single pass), over the pixels the game keeps identical between its own passes.
+    /// Classes (exclusive, in this priority): thin, edge, fresh (denoiser history &lt; 8 frames), screen edge (outer 10%),
+    /// interior; "none" = no traced surface (sky, game-only pixels).
+    /// </summary>
+    public sealed class MotionStats
+    {
+        public string Mode;
+        public float Window;
+        public int Frames, Passes, Width, Height;
+        public float Sigma, SigmaBlock, Offset, MaskedShare;
+        public List<string> Classes = new List<string>();
+        public List<float> ClassShare = new List<float>(), ClassSigma = new List<float>(), ClassEnergy = new List<float>();
+        public List<string> Images;
     }
 
     /// <summary>Temporal noise of a held pose in one mode (screen luma, 0-255). Masked = pixels still in "off".</summary>

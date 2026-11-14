@@ -217,7 +217,14 @@ namespace UltraRT
         }
 
         private readonly ComputeShader _shader;
-        private readonly int _kTemporal, _kAtrous3, _kAtrous5, _kStabilize, _kComposite;
+        private readonly int _kTemporal, _kAtrous3, _kAtrous5, _kStabilize, _kComposite, _kClassify;
+
+        /// <summary>Bench (Plugin.MotionNoise.cs): when set, Execute also writes the per-pixel motion-noise classes into
+        /// <see cref="Classes"/> (R8, trace resolution; see Denoise.compute, Classify).</summary>
+        public bool ClassifyFrame;
+        /// <summary>Short-history threshold of the classes (frames).</summary>
+        public float ClassifyFreshFrames = 8f;
+        public RenderTexture Classes { get; private set; }
 
         private int _width, _height;
         private RenderTexture _hist;                       // first a-trous output, fed back as next frame's history
@@ -288,7 +295,9 @@ namespace UltraRT
             IdStableIn = Shader.PropertyToID("_StableIn"),
             IdStableOut = Shader.PropertyToID("_StableOut"),
             IdStabilize = Shader.PropertyToID("_Stabilize"),
-            IdSpatialVarFloor = Shader.PropertyToID("_SpatialVarFloor");
+            IdSpatialVarFloor = Shader.PropertyToID("_SpatialVarFloor"),
+            IdClassOut = Shader.PropertyToID("_ClassOut"),
+            IdClassFresh = Shader.PropertyToID("_ClassFresh");
 
         public Denoiser(ComputeShader shader)
         {
@@ -298,6 +307,7 @@ namespace UltraRT
             _kAtrous5 = shader.FindKernel("Atrous5");
             _kStabilize = shader.FindKernel("Stabilize");
             _kComposite = shader.FindKernel("Composite");
+            _kClassify = shader.HasKernel("Classify") ? shader.FindKernel("Classify") : -1;
             _dummyKeys = new ComputeBuffer(8, 4) { name = "UltraRT Denoise cache keys (unused)" };
             _dummyKeys.SetData(new uint[8]);
             _dummyResolved = new ComputeBuffer(8, 16) { name = "UltraRT Denoise cache resolved (unused)" };
@@ -424,6 +434,20 @@ namespace UltraRT
 
             FilteredLighting = filtered;
 
+            if (ClassifyFrame && _kClassify >= 0)
+            {
+                if (Classes == null || Classes.width != w || Classes.height != h)
+                {
+                    if (Classes != null) { Classes.Release(); Object.Destroy(Classes); }
+                    Classes = Init(new RenderTexture(w, h, 0, RenderTextureFormat.R8, RenderTextureReadWrite.Linear), "UltraRT Denoise Classes");
+                }
+                cmd.SetComputeFloatParam(cs, IdClassFresh, ClassifyFreshFrames);
+                cmd.SetComputeTextureParam(cs, _kClassify, IdGeo, _geo[_cur]);
+                cmd.SetComputeTextureParam(cs, _kClassify, IdMoments, _moments[_cur]);
+                cmd.SetComputeTextureParam(cs, _kClassify, IdClassOut, Classes);
+                cmd.DispatchCompute(cs, _kClassify, gx, gy, 1);
+            }
+
             // 4. Composite.
             cmd.SetComputeVectorParam(cs, IdOutDim, new Vector4(output.width, output.height, 0, 0));
             cmd.SetComputeIntParam(cs, IdDebugView, (int)s.debugView);
@@ -520,6 +544,7 @@ namespace UltraRT
             Release(ref _boostInfo);
             Release(ref _reproj);
             for (int i = 0; i < 2; i++) Release(ref _stable[i]);
+            if (Classes != null) { Classes.Release(); Object.Destroy(Classes); Classes = null; }
             _historyValid = false;
         }
 
