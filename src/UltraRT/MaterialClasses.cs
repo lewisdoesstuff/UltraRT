@@ -33,6 +33,9 @@ namespace UltraRT
         public float Roughness, Metalness, F0, Weight, ReflStrength;
         /// <summary>Which rule decided it (for the dump).</summary>
         public string Source;
+        /// <summary>Per-texel detail strengths from an override ("detail", "detailRoughness"); null = the class table
+        /// (MaterialMaps.ClassNormal / ClassRoughness). Not part of equality: atlas cells bake them into the texture.</summary>
+        public float? DetailNormal, DetailRoughness;
 
         public bool HasReflection => Mode != ReflMode.None;
 
@@ -145,6 +148,8 @@ namespace UltraRT
             [JsonProperty("specWeight")] public float? SpecWeight;
             [JsonProperty("reflMode")] public string ReflMode;
             [JsonProperty("reflStrength")] public float? ReflStrength;
+            [JsonProperty("detail")] public float? Detail;
+            [JsonProperty("detailRoughness")] public float? DetailRoughness;
             [JsonProperty("note")] public string Note;
             [JsonIgnore] public Regex MaterialRx, TextureRx, ShaderRx;
             [JsonIgnore] public string Origin;
@@ -208,6 +213,16 @@ namespace UltraRT
                 if (r.MaterialRx != null && !r.MaterialRx.IsMatch(name)) continue;
                 if (r.TextureRx != null && !r.TextureRx.IsMatch(tex)) continue;
                 if (r.ShaderRx != null && !r.ShaderRx.IsMatch(shader)) continue;
+                // Rules that only set per-texel detail strengths (docs/materials.md) leave the reflection parameters alone.
+                if (r.Class == null && !r.Roughness.HasValue && !r.Metalness.HasValue && !r.F0.HasValue && !r.SpecWeight.HasValue &&
+                    !r.ReflStrength.HasValue && r.ReflMode == null)
+                {
+                    if (r.Detail.HasValue) p.DetailNormal = Mathf.Max(0f, r.Detail.Value);
+                    if (r.DetailRoughness.HasValue) p.DetailRoughness = Mathf.Max(0f, r.DetailRoughness.Value);
+                    if (secondary is MaterialParams sd) { sd.DetailNormal = p.DetailNormal; sd.DetailRoughness = p.DetailRoughness; secondary = sd; }
+                    OverrideHits++;
+                    continue;
+                }
                 if (r.Class != null && Enum.TryParse(r.Class, true, out SurfaceClass c)) p = ClassDefaults(c, r.Origin);
                 if (r.Roughness.HasValue) p.Roughness = Mathf.Clamp01(r.Roughness.Value);
                 if (r.Metalness.HasValue) p.Metalness = Mathf.Clamp01(r.Metalness.Value);
@@ -215,6 +230,8 @@ namespace UltraRT
                 if (r.SpecWeight.HasValue) p.Weight = Mathf.Clamp01(r.SpecWeight.Value);
                 if (r.ReflStrength.HasValue) p.ReflStrength = Mathf.Clamp01(r.ReflStrength.Value);
                 if (r.ReflMode != null && Enum.TryParse(r.ReflMode, true, out ReflMode mode)) p.Mode = mode;
+                if (r.Detail.HasValue) p.DetailNormal = Mathf.Max(0f, r.Detail.Value);
+                if (r.DetailRoughness.HasValue) p.DetailRoughness = Mathf.Max(0f, r.DetailRoughness.Value);
                 // A specular mode set without a weight would be invisible: default the weight to 1.
                 if (p.Mode == ReflMode.Specular && p.Weight <= 0f && !r.SpecWeight.HasValue) p.Weight = 1f;
                 p.Source = r.Origin;

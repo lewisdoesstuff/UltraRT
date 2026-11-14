@@ -18,7 +18,7 @@
 //   blend (_CubeMode 0): saturate(lit * (1 - m RS) + m^2 RS cube tint)      additive: saturate(lit + m RS^2 cube tint)
 // i.e. game = lit * k + C. The proxy hit shader reconstructs C and k for primary rays; PathTrace stores C in
 // _HybridLight.w and k here; the composite subtracts C and Resolve divides the keep factor by k.
-#define ULTRART_FLAG_GAMECUBE 0x80000000u // payload flags (hit -> ray gen): C and k are in uvHalf / primitive; also the request bit (ray gen -> hit)
+#define ULTRART_FLAG_GAMECUBE 0x80000000u // payload flags (hit -> ray gen): C and k in uvHalf (unorm8 x4), lighting contribution in primitive >> 24; also the request bit (ray gen -> hit)
 
 #define ULTRART_REFL_NONE     0u
 #define ULTRART_REFL_SPECULAR 1u // GGX lobe weighted by Fresnel and the specular weight

@@ -630,11 +630,27 @@ static float3 g_DirectAdditive;
 
 float LightHybridWeight(uint i) { return _Lights[i * 4 + 3].w; }
 
+// Hybrid with a per-texel detail normal (docs/materials.md): DirectLighting gets the vertex normal (sampling, reservoirs,
+// the unshadowed denominator: the game lit the surface with it) and the shadowed result is re-shaded with this normal,
+// so the composite's shadowed / unshadowed ratio carries the per-texel shading. Zero = off (every other caller).
+static float3 g_DetailN = 0;
+
+// With g_DetailN: the shadowed direct light at the vertex normal (what DirectLighting returns without detail).
+static float3 g_DirectVertex;
+
+// c (a light's contribution at normal n from direction L) re-shaded with the detail normal.
+float DetailScale(float3 n, float3 L)
+{
+    if (!any(g_DetailN != 0.0)) return 1.0;
+    return saturate(dot(g_DetailN, L)) / max(dot(n, L), 1e-4);
+}
+
 // Direct light at the primary hit. Writes this pixel's reservoir when temporal reuse is on.
 float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
 {
     g_DirectEmissive = 0;
     g_DirectAdditive = 0;
+    g_DirectVertex = 0;
     if (_LightSampling <= 0)
     {
         float3 shadowed = 0, unshadowed = 0;
@@ -646,19 +662,24 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
             unshadowed += c;
             if (LightUnshadowed((uint)i) || LightVisible((uint)i, pos, n, L, dist))
             {
-                shadowed += c;
-                g_DirectAdditive += c * (LightHybridWeight((uint)i) * _LightScale);
+                float3 cd = c * DetailScale(n, L);
+                g_DirectVertex += c * _LightScale;
+                shadowed += cd;
+                g_DirectAdditive += cd * (LightHybridWeight((uint)i) * _LightScale);
             }
         }
         float3 emUnshadowed;
         float3 em = EmissiveDirect(pos, n, _EmissiveRefSamples, rng, emUnshadowed);
         g_DirectEmissive = em * _LightScale;
         g_DirectUnshadowed = (unshadowed + emUnshadowed) * _LightScale;
+        g_DirectVertex += em * _LightScale;
         return (shadowed + em) * _LightScale;
     }
 
     float3 sum = FillLighting(pos, n, layer);
     float3 unshadowedSum = sum;
+    float3 vertexSum = sum;
+    if (any(g_DetailN != 0.0)) sum = FillLighting(pos, g_DetailN, layer);
     Reservoir r = RisCandidates(pos, n, layer, _RisCandidates, rng);
     bool temporal = _LightSampling >= 2;
     if (temporal) RestirReuse(r, dim, pos, n, t, layer, rng);
@@ -670,9 +691,11 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
         // Occluded samples are stored with W = 0 so they stop propagating (visibility reuse with the one ray).
         if (SampleVisible(r, pos, n))
         {
-            sum += r.c * W;
-            if ((r.light & ULTRART_EMISSIVE) != 0u) g_DirectEmissive = r.c * (W * _LightScale);
-            else g_DirectAdditive = r.c * (W * _LightScale * LightHybridWeight(r.light));
+            float3 cd = r.c * (W * DetailScale(n, r.L));
+            vertexSum += r.c * W;
+            sum += cd;
+            if ((r.light & ULTRART_EMISSIVE) != 0u) g_DirectEmissive = cd * _LightScale;
+            else g_DirectAdditive = cd * (_LightScale * LightHybridWeight(r.light));
         }
         else W = 0.0;
     }
@@ -680,6 +703,7 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
     if (temporal) _ReservoirCur[RestirIndex(id, dim)] = RestirPack(r, min(r.M, _RestirParams.x), W,
         g_PrimaryVirtual ? g_PrimaryVirtualN : n, g_PrimaryVirtual ? g_PrimaryVirtualPos : pos);
     g_DirectUnshadowed = unshadowedSum * _LightScale;
+    g_DirectVertex = vertexSum * _LightScale;
     return sum * _LightScale;
 }
 

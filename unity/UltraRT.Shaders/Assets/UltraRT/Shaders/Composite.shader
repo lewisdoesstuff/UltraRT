@@ -41,6 +41,7 @@ Shader "UltraRT/Composite"
             float _UltraRTMode;
             float _UltraRTShadowBias;
             float _UltraRTGIStrength;
+            float4 _UltraRTDetail; // global (MaterialMaps.cs): w = 1 albedo-guided pick (docs/materials.md)
 
             struct v2f
             {
@@ -111,13 +112,32 @@ Shader "UltraRT/Composite"
                     float2 base = floor(traceUV * dim - 0.5);
                     float bestErr = 1e30;
                     float2 bestUV = traceUV;
+                    // Per-texel material detail makes the hybrid ratio vary per texture texel, and the nearest-depth
+                    // pick then draws texel edges in steps of trace pixels. Albedo-guided: among the depth matches,
+                    // take the trace texel whose albedo chromaticity is closest to the game's pixel (the same texture
+                    // texel, as far as colour tells them apart).
+                    bool guided = _UltraRTMode > 0.5 && _UltraRTDetail.w > 0.5;
+                    float3 gameC = 0;
+                    if (guided)
+                    {
+                        float3 g = _UltraRTGameColor.Sample(my_point_clamp_sampler, screenUV).rgb;
+                        gameC = g / max(g.r + g.g + g.b, 1e-3);
+                    }
+                    float tol = gameViewZ * 0.03 + 0.05; // the depth test's tolerance below
+                    float bestScore = 1e30;
                     [unroll] for (int k = 0; k < 4; k++)
                     {
                         float2 texel = clamp(base + float2(k & 1, k >> 1), 0.0, dim - 1.0);
                         float2 tuv = (texel + 0.5) / dim;
                         float tt = _UltraRTNormalDepth.SampleLevel(my_point_clamp_sampler, tuv, 0).w;
                         float err = tt < 0.0 ? 1e20 : DepthErr(tuv, tt, gameViewZ);
-                        if (err < bestErr) { bestErr = err; bestUV = tuv; }
+                        float score = err;
+                        if (guided && tt >= 0.0)
+                        {
+                            float3 al = _UltraRTAlbedo.SampleLevel(my_point_clamp_sampler, tuv, 0).rgb;
+                            score = (err <= tol ? 0.0 : 1e6 + err) + length(al / max(al.r + al.g + al.b, 1e-3) - gameC);
+                        }
+                        if (score < bestScore) { bestScore = score; bestErr = err; bestUV = tuv; }
                     }
                     i.uv = bestUV;
                 }

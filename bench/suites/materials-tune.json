@@ -1,0 +1,149 @@
+{
+ "Name": "materials-tune",
+ "Scenarios": [
+  {
+   "Name": "1-1 start",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-approach.json",
+    "Duration": 10
+   },
+   "Modes": [
+    "off",
+    "hybrid+mat.enabled=0",
+    "hybrid",
+    "hybrid+mat.guidedPick=0",
+    "hybrid+mat.normalStrength=2",
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.normalStrength=2",
+    "relight+mat.normalStrength=3"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    6
+   ]
+  },
+  {
+   "Name": "1-1 indoor a",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-indoor-a.json",
+    "Duration": 10
+   },
+   "Modes": [
+    "off",
+    "hybrid+mat.enabled=0",
+    "hybrid",
+    "hybrid+mat.guidedPick=0",
+    "hybrid+mat.normalStrength=2",
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.normalStrength=2",
+    "relight+mat.normalStrength=3"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    6
+   ]
+  },
+  {
+   "Name": "1-1 indoor b",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-indoor-b.json",
+    "Duration": 10
+   },
+   "Modes": [
+    "off",
+    "hybrid+mat.enabled=0",
+    "hybrid",
+    "hybrid+mat.guidedPick=0",
+    "hybrid+mat.normalStrength=2",
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.normalStrength=2",
+    "relight+mat.normalStrength=3"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    6
+   ]
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 10
+   },
+   "Modes": [
+    "off",
+    "hybrid+mat.enabled=0",
+    "hybrid",
+    "hybrid+mat.guidedPick=0",
+    "hybrid+mat.normalStrength=2",
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.normalStrength=2",
+    "relight+mat.normalStrength=3"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    6
+   ]
+  },
+  {
+   "Name": "4-1 indoor A",
+   "Scene": "Level 4-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/4-1-approach-a.json",
+    "Duration": 10
+   },
+   "Modes": [
+    "off",
+    "hybrid+mat.enabled=0",
+    "hybrid",
+    "hybrid+mat.guidedPick=0",
+    "hybrid+mat.normalStrength=2",
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.normalStrength=2",
+    "relight+mat.normalStrength=3"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    6
+   ]
+  },
+  {
+   "Name": "1-4 lamps",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-4-lamps.json",
+    "Duration": 10
+   },
+   "Modes": [
+    "off",
+    "hybrid+mat.enabled=0",
+    "hybrid",
+    "hybrid+mat.guidedPick=0",
+    "hybrid+mat.normalStrength=2",
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.normalStrength=2",
+    "relight+mat.normalStrength=3"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    6
+   ]
+  }
+ ]
+}
