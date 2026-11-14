@@ -11,7 +11,7 @@ namespace UltraRT
     ///  - Motion slots: every dynamic proxy gets a slot, passed in its RTAS custom id (layer | slot &lt;&lt; 8; static
     ///    batches use slot 0 = no motion). Per slot, 4 float4 in <c>_UltraRTMotion</c>: rows 0-2 the world-space motion
     ///    matrix W = M_prev * M_cur^-1, row 3 x = first vertex of the previous skinned pose (or -1). Only slots whose
-    ///    data changed are uploaded (one SetData over the dirty range per frame).
+    ///    data changed are uploaded, one SetData per run of nearby changed slots.
     ///  - Previous skinned pose: after each trace, every active skinned proxy's positions are copied from its skinned
     ///    vertex buffer into one shared buffer <c>_UltraRTPrevSkin</c> (MotionCopy.compute, one small dispatch each).
     ///    Regions are recycled per vertex count when a proxy leaves the RTAS.
@@ -27,6 +27,7 @@ namespace UltraRT
         private static readonly int IdMotion = Shader.PropertyToID("_UltraRTMotion");
         private static readonly int IdPrevSkin = Shader.PropertyToID("_UltraRTPrevSkin");
         private static readonly int IdSkinSrc = Shader.PropertyToID("_SkinSrc");
+        private static readonly int IdCopyDst = Shader.PropertyToID("_PrevSkin"); // MotionCopy.compute's UAV
         private static readonly int IdCount = Shader.PropertyToID("_Count");
         private static readonly int IdStride = Shader.PropertyToID("_Stride");
         private static readonly int IdOffset = Shader.PropertyToID("_Offset");
@@ -37,7 +38,8 @@ namespace UltraRT
 
         private Vector4[] _rows = new Vector4[4 * 256];
         private int _slotCount = 1; // slot 0: static
-        private int _dirtyMin = int.MaxValue, _dirtyMax = -1;
+        private readonly List<int> _dirty = new List<int>();
+        private bool[] _isDirty = new bool[256];
         private ComputeBuffer _slotBuffer;
 
         private ComputeBuffer _skin;
@@ -51,6 +53,9 @@ namespace UltraRT
         public int SlotCount => _slotCount;
         public int SkinVertices => _skinUsed;
         public int CopiesLastFrame { get; private set; }
+        /// <summary>Accumulated by SceneProxies (CPU ticks spent on motion bookkeeping, rigid instance updates), read and reset by the plugin's log.</summary>
+        public long Ticks;
+        public int RigidUpdates;
         private int _copies;
 
         public MotionVectors(ComputeShader copy)
@@ -66,7 +71,11 @@ namespace UltraRT
         {
             if (_slotCount >= MaxSlots) return 0; // out of slots: treated as static
             int s = _slotCount++;
-            if (_rows.Length < _slotCount * 4) Array.Resize(ref _rows, Math.Max(_rows.Length * 2, _slotCount * 4));
+            if (_rows.Length < _slotCount * 4)
+            {
+                Array.Resize(ref _rows, Math.Max(_rows.Length * 2, _slotCount * 4));
+                Array.Resize(ref _isDirty, _rows.Length / 4);
+            }
             SetIdentity(s);
             return s;
         }
@@ -89,8 +98,7 @@ namespace UltraRT
             var r0 = m.GetRow(0); var r1 = m.GetRow(1); var r2 = m.GetRow(2);
             if (_rows[i + 3] == r3 && _rows[i] == r0 && _rows[i + 1] == r1 && _rows[i + 2] == r2) return;
             _rows[i] = r0; _rows[i + 1] = r1; _rows[i + 2] = r2; _rows[i + 3] = r3;
-            if (slot < _dirtyMin) _dirtyMin = slot;
-            if (slot > _dirtyMax) _dirtyMax = slot;
+            if (!_isDirty[slot]) { _isDirty[slot] = true; _dirty.Add(slot); }
         }
 
         /// <summary>A region of the pose buffer for a skinned proxy with this many vertices (recycled by size).</summary>
@@ -115,12 +123,23 @@ namespace UltraRT
         /// <summary>Upload the slots changed this frame and (re)bind the globals. Call after the per-frame sync, before tracing.</summary>
         public void Upload()
         {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             EnsureSlotBuffer();
-            if (_dirtyMax >= _dirtyMin)
+            if (_dirty.Count > 0)
             {
-                _slotBuffer.SetData(_rows, _dirtyMin * 4, _dirtyMin * 4, (_dirtyMax - _dirtyMin + 1) * 4);
-                _dirtyMin = int.MaxValue; _dirtyMax = -1;
+                // Moving instances are scattered over thousands of slots: upload runs, bridging gaps of a few slots.
+                _dirty.Sort();
+                int start = _dirty[0], end = start;
+                for (int k = 1; k <= _dirty.Count; k++)
+                {
+                    if (k < _dirty.Count && _dirty[k] - end <= 4) { end = _dirty[k]; continue; }
+                    _slotBuffer.SetData(_rows, start * 4, start * 4, (end - start + 1) * 4);
+                    if (k < _dirty.Count) start = end = _dirty[k];
+                }
+                foreach (int sl in _dirty) _isDirty[sl] = false;
+                _dirty.Clear();
             }
+            Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
             Shader.SetGlobalBuffer(IdMotion, _slotBuffer);
             Shader.SetGlobalBuffer(IdPrevSkin, _skin);
             CopiesLastFrame = _copies;
@@ -149,7 +168,7 @@ namespace UltraRT
             var mesh = smr.sharedMesh;
             int offset = mesh != null ? Math.Max(0, mesh.GetVertexAttributeOffset(VertexAttribute.Position)) : 0;
             cmd.SetComputeBufferParam(_copy, _kCopy, IdSkinSrc, vb);
-            cmd.SetComputeBufferParam(_copy, _kCopy, IdPrevSkin, _skin);
+            cmd.SetComputeBufferParam(_copy, _kCopy, IdCopyDst, _skin);
             cmd.SetComputeIntParam(_copy, IdCount, count);
             cmd.SetComputeIntParam(_copy, IdStride, vb.stride);
             cmd.SetComputeIntParam(_copy, IdOffset, offset);
@@ -160,6 +179,12 @@ namespace UltraRT
             return true;
         }
 
+        /// <summary>Debug (-ultrart-motion-probe): read back one vertex of the previous-pose buffer, ordered after the copy.</summary>
+        public void RequestPoseReadback(CommandBuffer cmd, int vertex, Action<Vector3> done)
+        {
+            cmd.RequestAsyncReadback(_skin, 12, vertex * 12, r => { if (!r.hasError) done(r.GetData<Vector3>()[0]); });
+        }
+
         private void EnsureSlotBuffer()
         {
             int need = _rows.Length;
@@ -167,7 +192,8 @@ namespace UltraRT
             _slotBuffer?.Release();
             _slotBuffer = new ComputeBuffer(need, 16, ComputeBufferType.Structured) { name = "UltraRT Motion Slots" };
             _slotBuffer.SetData(_rows);
-            _dirtyMin = int.MaxValue; _dirtyMax = -1;
+            foreach (int sl in _dirty) _isDirty[sl] = false;
+            _dirty.Clear();
         }
 
         private void EnsureSkin(int vertices)

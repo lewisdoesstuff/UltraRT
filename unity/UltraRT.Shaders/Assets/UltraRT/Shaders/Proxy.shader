@@ -124,8 +124,10 @@ Shader "UltraRT/Proxy"
             StructuredBuffer<float4> _UltraRTMotion;
             StructuredBuffer<float3> _UltraRTPrevSkin; // object space, copied from the skinned vertex buffer after each trace
 
-            // Previous-frame world position of this hit minus the current one, packed (PackMotion).
-            uint HitMotion(uint3 tri, float3 b, float3 p0, float3 p1, float3 p2)
+            // Previous-frame world position of this hit minus the current one, packed (PackMotion). The current position is
+            // the BLAS hit point itself: for skinned instances the vertex fetch does not necessarily read the skinned pose
+            // the BLAS was built from, so only the previous pose (same space as the BLAS) is interpolated from vertices.
+            uint HitMotion(uint3 tri, float3 b)
             {
                 uint slot = InstanceID() >> 8;
                 if (slot == 0u) return 0u;
@@ -133,17 +135,16 @@ Shader "UltraRT/Proxy"
                 float4 r1 = _UltraRTMotion[slot * 4u + 1u];
                 float4 r2 = _UltraRTMotion[slot * 4u + 2u];
                 float skin = _UltraRTMotion[slot * 4u + 3u].x;
-                float3 objCur = p0 * b.x + p1 * b.y + p2 * b.z;
-                float3 objPrev = objCur;
+                float3 wCur = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+                float4 w = float4(wCur, 1.0);
                 if (skin >= 0.0)
                 {
                     uint s = (uint)skin;
-                    objPrev = _UltraRTPrevSkin[s + tri.x] * b.x + _UltraRTPrevSkin[s + tri.y] * b.y + _UltraRTPrevSkin[s + tri.z] * b.z;
+                    float3 objPrev = _UltraRTPrevSkin[s + tri.x] * b.x + _UltraRTPrevSkin[s + tri.y] * b.y + _UltraRTPrevSkin[s + tri.z] * b.z;
+                    w.xyz = mul(ObjectToWorld3x4(), float4(objPrev, 1.0)); // previous pose under the current transform
                 }
-                float3x4 o2w = ObjectToWorld3x4();
-                float4 w = float4(mul(o2w, float4(objPrev, 1.0)), 1.0); // previous pose under the current transform
                 float3 wPrev = float3(dot(r0, w), dot(r1, w), dot(r2, w));
-                return PackMotion(wPrev - mul(o2w, float4(objCur, 1.0)));
+                return PackMotion(wPrev - wCur);
             }
 
             float2 FetchUV(uint3 tri, float3 b)
@@ -259,7 +260,7 @@ Shader "UltraRT/Proxy"
                 p.instance = InstanceIndex();
                 p.uvHalf = f32tof16(uv.x) | (f32tof16(uv.y) << 16);
                 p.primitive = PrimitiveIndex();
-                p.motion = wantMotion ? HitMotion(tri, b, p0, p1, p2) : 0u;
+                p.motion = wantMotion ? HitMotion(tri, b) : 0u;
 
                 // Reflection material: constant per proxy material, or the secondary set on VERTEX_BLENDING surfaces.
                 bool second = _Secondary > 0.5 && blendWeight < 0.5;

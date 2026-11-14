@@ -451,21 +451,26 @@ namespace UltraRT
                     // DynamicGeometry instances are re-read on Build(); only blend shapes need copying.
                     for (int i = 0; i < d.BlendShapes; i++) d.SkinnedProxy.SetBlendShapeWeight(i, d.SkinnedSource.GetBlendShapeWeight(i));
                     // Skinned: root motion as a matrix, the pose itself from last frame's copy (RecordMotionCopies).
+                    long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     var m = MotionMatrix(d);
                     d.PrevM = d.CurM;
                     d.CurM = m;
                     bool pose = d.SkinPrevValid && d.SkinGen == Motion.Generation;
                     Motion.SetMotion(d.Slot, d.PrevM * m.inverse, pose ? d.SkinBase : -1);
+                    Motion.Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
                 }
                 else if (d.SourceTransform.hasChanged)
                 {
                     Rtas.UpdateInstanceTransform(d.Proxy);
                     d.SourceTransform.hasChanged = false; // Unity never clears this itself
+                    long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     var m = MotionMatrix(d);
                     d.PrevM = d.CurM;
                     d.CurM = m;
                     Motion.SetMotion(d.Slot, d.PrevM * m.inverse, -1);
                     d.Moved = true;
+                    Motion.RigidUpdates++;
+                    Motion.Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
                 }
                 else if (d.Moved)
                 {
@@ -540,6 +545,7 @@ namespace UltraRT
         public void RecordMotionCopies(CommandBuffer cmd)
         {
             if (!Motion.CanCopySkin) return;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             foreach (var d in _active)
             {
                 if (d.SkinnedProxy == null || d.SkinBase < 0) continue;
@@ -548,6 +554,7 @@ namespace UltraRT
                 d.SkinGen = Motion.Generation;
                 if (ok && MotionProbe && _probeCount < 6 && ++_probeFrames % 97 == 0) { _probeCount++; ProbeSkinSpace(cmd, d, vb); }
             }
+            Motion.Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
         }
 
         /// <summary>-ultrart-motion-probe: log which space Unity's skinned vertex buffer is in (checks MotionMatrix's assumption).</summary>
@@ -569,11 +576,14 @@ namespace UltraRT
             var smrLocal = smr.transform.InverseTransformPoint(world);
             var log = _log;
             int stride = vb.stride;
+            int slot = d.Slot;
+            var w = d.PrevM * d.CurM.inverse;
+            Motion.RequestPoseReadback(cmd, d.SkinBase, v => log.LogInfo($"Motion probe '{name}': copied pose vertex 0 = {v:F4} (base {d.SkinBase})"));
             cmd.RequestAsyncReadback(vb, 12, 0, r =>
             {
                 if (r.hasError) { log.LogWarning("Motion probe: readback failed"); return; }
                 var raw = r.GetData<Vector3>()[0];
-                log.LogInfo($"Motion probe '{name}': raw={raw:F4} world={world:F4} rootNoScale={rootNoScale:F4} rootLocal={rootLocal:F4} " +
+                log.LogInfo($"Motion probe '{name}': raw={raw:F4} slot={slot} W.t={w.GetColumn(3):F4} world={world:F4} rootNoScale={rootNoScale:F4} rootLocal={rootLocal:F4} " +
                             $"smrLocal={smrLocal:F4} rootScale={root.lossyScale:F3} smrScale={smr.transform.lossyScale:F3} root='{root.name}' stride={stride}");
             });
         }

@@ -721,7 +721,9 @@ namespace UltraRT
             {
                 var mv = _proxies.Motion;
                 Logger.LogInfo($"RT scene sync CPU avg {_cpuMs / _cpuFrames:F3} ms/frame; motion vectors {(MotionVectors.Enabled ? "on" : "off")}: " +
-                               $"{mv.SlotCount} slots, {mv.CopiesLastFrame} skinned pose copies/frame, {mv.SkinVertices} pose vertices");
+                               $"{mv.SlotCount} slots, {mv.CopiesLastFrame} skinned pose copies/frame, {mv.SkinVertices} pose vertices, " +
+                               $"{(double)mv.RigidUpdates / _cpuFrames:F1} rigid updates/frame, motion CPU {mv.Ticks * 1000.0 / Stopwatch.Frequency / _cpuFrames:F3} ms/frame");
+                mv.Ticks = 0; mv.RigidUpdates = 0;
                 _cpuMs = 0; _cpuFrames = 0;
             }
 
