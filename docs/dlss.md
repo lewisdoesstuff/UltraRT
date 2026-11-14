@@ -99,7 +99,123 @@ ignores exposure parameters).
 
 ## Evaluation
 
-(EVAL)
+All runs were on the RTX 5070 Ti. The installs ran at 1920x1080 during this work: their display prefs had been
+overwritten, and master now restores them. So "1080p" below means 960x540 -> 1920x1080.
+
+**The 1440p numbers come from a cost probe.** `plugin._scale=0.6667` traces at 1280x720, exactly the user's 1440p trace.
+`plugin._rrOutScale=1.3333` makes RR output 2560x1440, which is point-sampled back to the 1080p screen. That is the
+user's real RR configuration, 720p -> 1440p.
+
+Results are in `bench/results/<time>_dlss-*` (not committed). Suites: `dlss-smoke`, `dlss-eval`, `dlss-jitter`,
+`dlss-cost`, `dlss-3-1`, `dlss-final`.
+
+### Bugs found on the way (worth knowing for any RR integration here)
+
+1. **Per-term linearisation darkened the image.** Feeding `sum(term^2.2)` and taking `^(1/2.2)` afterwards loses
+   brightness wherever terms overlap, because (a^2.2 + b^2.2)^(1/2.2) < a + b. Reflective metal lost about 15% luma
+   (0-1 metal: 40.5 vs 48.9). Linearising the whole composite instead fixes it (0-1 now 51.1 vs 50.4).
+2. **The motion vectors carried the jitter.** Our jittered projection maps an unjittered position u to texel u - j.
+   Removing last frame's jitter therefore needs +prevJ, and the current position is the sample's own u = s + 0.5 + J.
+   The first version produced MVs of J - 2 prevJ on a still camera. Every edge and texel boundary shimmered (the burst
+   sigma maps lit up along all edges), and motion noise was 3-4x ours. After the fix, 1-1 blast went from 4.09 to 1.05.
+3. **Jitter sign.** Our J is the sample offset; DLSS takes the projection offset, so it gets -J. A balanced-order burst
+   test (`dlss-jitter`, each sign twice, alternating) settled it: 0-1 metal sigma 1.02 / 1.04 with -1, 2.22 / 2.28
+   with +1.
+   - Unbalanced comparisons misled: in four runs, **the first RR mode after a non-RR mode in a burst list measured
+     noisier**. Compare RR variants only in balanced or repeated order.
+4. **V1 shadow.** Main's shadow split (docs/denoiser.md, "Moving shadows") moves V1's shadow out of the radiance into
+   `_Radiance.a`. Prepare multiplies it back into RR's noisy input.
+
+### Integration
+
+- NGX initialises on Unity's device. The feature is created and evaluated from plugin events in both modes:
+  - our own command list via `ExecuteCommandList` with state declarations (the default);
+  - Unity's own list with `ModifiesCommandBuffersState`.
+- No device removal, no resource-state problems, no broken composite. The GPU timer's old pitfall, where
+  `ModifiesCommandBuffersState` dropped render-target bindings, did not show up: Prepare, Finish and the composite all
+  follow the event and draw correctly in both modes.
+- NGX loads `nvngx_dlssd.dll` 310.9.16 from the plugin folder. The driver also offers a built-in copy; ours took
+  precedence.
+
+### Image and temporal noise (`dlss-final`, rebased on master with its portal and noise fixes)
+
+How to read the table:
+- **Burst**: 48 frames held still, masked sigma (luma 0-255; lower is better).
+- **Motion**: replay sigma on the 0-2 walk at 360 Hz, with `vol=0`.
+- RR columns: the default, a repeat of it at the end of the mode list (to expose the order effect), and 64 Halton
+  phases.
+
+| Pose | relight (ours) | RR | RR repeat | RR, 64 phases |
+|---|---|---|---|---|
+| 3-1 noisy room (checkpoint load) | 0.33 | 0.34 | 0.35 | 0.35 |
+| 0-1 metal | 0.58 | 1.17 | 1.27 | 1.08 |
+| 8-2 portal side 1 | 0.40 | 0.61 | 0.79 | 0.76 |
+| 8-2 portal side 2 | 0.97 | 1.08 | 1.18 | 1.09 |
+| 0-2 v1 shadow walk, motion | 0.75 (block4 0.62) | 1.59 (1.25) | | |
+| 1-1 spawn blast, motion (`dlss-eval`, alt) | 0.89 | 1.05 | | |
+| 6-2 start (`dlss-eval`, alt) | 1.18 | 0.96 (4 phases) to 1.76 | | |
+
+- **Noise.** RR is about at parity in dark, low-detail rooms (3-1) and with flashes (1-1 blast). It is 1.1-2x noisier
+  than our denoiser on detailed or metallic surfaces (0-1, 8-2), and 2x in motion (0-2 walk, interior pixels included).
+  Its sigma maps show broad low-frequency boil on lit walls rather than grain. ReSTIR's correlated temporal/spatial
+  reuse is the likely cause; the RR guide calls it out explicitly.
+- **Look.** RR resolves the pixel-art textures more crisply, with higher local contrast (7-3 floor, 0-1 walls), than our
+  TAAU's exact-hit accumulation.
+  - Mean luma matches within 1-2%. 7-3 was about 10% darker in `dlss-eval`: mostly floor texture contrast, plus a
+    slightly different auto-exposure meter.
+  - No ghosting seen on the 0-2 walk or the 1-1 blasts.
+  - Thin geometry and portal planes are masked as before (`Finish`'s depth test).
+  - The 8-2 portal speckle in the earlier runs was the portal noise since fixed on master; it is gone in `dlss-final`.
+- **Jitter pattern.** 4 phases (our TAAU's exact 2x pattern) vs 64 Halton phases showed no consistent difference once
+  order was controlled: 6-2 favoured 4, 0-1 favoured 64, the rest were within repeat noise. The default is NVIDIA's 64.
+- **Preset E** (`plugin._rrPreset=5`) was not better than the default (8-2 side 1: 3.12 vs 2.05; 6-2: 1.35-1.74). Both
+  were measured before the MV fix and not re-tested after it.
+- **Specular hit distance** on vs off made little difference (0-1 metal: 1.09 vs 1.23 after the MV fix). It stays on.
+
+Screenshots (game / ours / RR) are `<pose>_<t>_off.png`, `_relight.png` and `_relight_plugin__rrEnabled_1.png`:
+- `20261114-194447_dlss-final`: 3-1, 0-1, 8-2 sides;
+- `20261114-192659_dlss-eval_alt`: 6-2, 7-3 tree, 0-2 walk, 1-1 blast.
+
+Sigma heat maps are `_burst_<mode>_sigma.png`.
+
+### GPU cost (exclusive perf lock, `dlss-cost`)
+
+| | 3-1 | 6-2 | 0-1 | 8-2 | 0-2 walk |
+|---|---|---|---|---|---|
+| 1080p: ours (denoise + upsample) | 0.38 | 0.39 | 0.39 | 0.38 | 0.39 |
+| 1080p: RR, Prepare + eval + Finish (eval alone) | 1.18 (1.11) | 1.21 (1.14) | 1.20 (1.12) | 1.23 (1.16) | 1.20 (1.13) |
+| 1080p: GPU total, ours -> RR | 2.58 -> 3.42 | 2.83 -> 3.69 | 3.32 -> 4.20 | 3.23 -> 4.08 | 2.88 -> 3.65 |
+| **1440p probe**: ours (denoise at 720p + upsample) | 0.56 | 0.58 | 0.59 | 0.58 | 0.58 |
+| **1440p probe**: RR (eval alone) | **1.97 (1.84)** | **2.02 (1.88)** | **2.02 (1.87)** | **1.99 (1.87)** | **2.02 (1.87)** |
+| 1440p probe: GPU total, ours -> RR | 3.87 -> 5.38 | 4.27 -> 5.78 | 5.19 -> 6.53 | 4.74 -> 6.24 | 4.32 -> 5.69 |
+
+- **RR costs about +1.35-1.5 ms of GPU time per frame at the user's 1440p.** The evaluate alone is 1.84-1.88 ms,
+  against 0.6-0.7 ms for our denoiser and upsampler. NVIDIA's table (RTX 5070, 1440p Performance: 2.58-2.72 ms)
+  agrees.
+- In the probe our upsampler runs at 1080p (about 0.115 ms; about 0.2 ms at real 1440p), so the real gap is about
+  0.1 ms smaller.
+- Frame time grows less wherever the CPU is the limit (0-2 walk at 1080p: 3.72 -> 3.99 ms).
+
+### Verdict
+
+**Feasible, and it works.** NGX runs on Unity's D3D12 device from a BepInEx plugin, with no files in the game's own
+folders and no resource-state or binding problems. Ctrl+F8 switches it live.
+
+**It is not a win today.** For the current relight signal our denoiser + TAAU is equal or quieter, about three times
+cheaper, and closer to the game's pixel-art look. That signal is 1 spp, ReSTIR-correlated, and already low-noise
+thanks to the radiance cache.
+
+RR's case is a heavier, noisier signal, such as the path-tracing mode in (c), where our SVGF would struggle. Before
+that, try RR with decorrelated ReSTIR (randomised or no spatial reuse) and the `ColorBeforeTransparency` / particle
+guides. Keep RR as an option, off by default.
+
+Problems and limits:
+- Hybrid is untouched: RR would need the game's colour as input. Not attempted.
+- The first RR burst after another mode measures noisier (see above). Real play doesn't toggle modes, but bench
+  comparisons must allow for it.
+- Unity-list mode needs `ModifiesCommandBuffersState`. It worked here, but given the GPU timer's history with that flag
+  the own-list mode stays the default.
+- Licensing blocks redistribution without NVIDIA's involvement (see "License").
 
 ## License
 

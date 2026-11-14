@@ -24,7 +24,7 @@ namespace UltraRT
         private float _rrJitterSign = -1f;
         /// <summary>Bench cost probe (docs/dlss.md): RR output at this x the screen, e.g. 1.3333 with plugin._scale=0.6667 = 720p -> 1440p on a 1080p screen.</summary>
         private float _rrOutScale = 1f;
-        private int _rrJitterPhases = 4; // 4 = the TAAU pattern (exact output pixel centres at 2x); 64 = Halton, as NVIDIA recommends
+        private int _rrJitterPhases = 64; // Halton, as NVIDIA recommends; 4 = the TAAU pattern (no consistent difference measured, docs/dlss.md)
         private int _rrGen = -1;
         private float _rrLastUsed;
         private string _rrStatusLogged;
