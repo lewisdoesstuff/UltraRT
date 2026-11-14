@@ -103,7 +103,7 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
         // (Composite.shader does the same) and keep the virtual depth for reprojection.
         uint pt = (uint)im.x >> 16;
         gsZv[i] = z;
-        if (t >= 0.0 && im.x > 0xFFFF) z = f16tof32(pt) / rayLen;
+        if (t >= 0.0 && im.x > 65535 && pt != 0u) z = f16tof32(pt) / rayLen; // im.x > 0: sky is -1
         gsColZ[i] = float4(_Color[k].rgb, z);
         gsPos[i] = (sp - _TraceMap.zw) / _TraceMap.xy;          // screen px
         gsMotion[i] = (uint)im.y;

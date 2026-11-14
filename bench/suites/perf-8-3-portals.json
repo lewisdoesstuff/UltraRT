@@ -1,0 +1,7 @@
+{
+    "Name": "perf-8-3-portals",
+    "Scenarios": [
+        { "Name": "8-3 route hybrid", "Scene": "Level 8-3", "Path": { "Type": "recording", "File": "../recordings/8-3-b.json" }, "KillEnemies": true, "Modes": ["hybrid"] },
+        { "Name": "8-3 route hybrid no portals", "Scene": "Level 8-3", "Path": { "Type": "recording", "File": "../recordings/8-3-b.json" }, "KillEnemies": true, "Modes": ["hybrid+plugin._portals=0"] }
+    ]
+}

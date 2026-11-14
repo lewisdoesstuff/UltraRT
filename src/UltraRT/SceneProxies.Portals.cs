@@ -62,6 +62,9 @@ namespace UltraRT
         private Mesh _portalQuad;
         private static FieldInfo _portalListField;
         private static readonly int IdPortals = Shader.PropertyToID("_UltraRTPortals");
+        private static readonly int IdPortalHops = Shader.PropertyToID("_UltraRTPortalHops");
+        /// <summary>Teleports per ray before portals are ignored (the game's views go 3 to 4 deep).</summary>
+        public static int PortalHops = 3;
         private int _portalLogs;
         private bool _portalLayerChecked;
         private int _portalSidesInRtas;
@@ -217,6 +220,7 @@ namespace UltraRT
                 _portalRowsDirty = false;
             }
             Shader.SetGlobalBuffer(IdPortals, _portalBuffer);
+            Shader.SetGlobalInt(IdPortalHops, Mathf.Clamp(PortalHops, 0, 8));
         }
 
         /// <summary>A unit quad in the side's local xy plane (PortalVertices: width along x, height along y).</summary>

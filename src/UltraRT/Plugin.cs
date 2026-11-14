@@ -204,6 +204,7 @@ namespace UltraRT
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-noportals": _portals = false; break;
                     case "-ultrart-noportallayer": SceneProxies.TracePortalLayer = false; break;
+                    case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
                         switch ((Next() ?? "").ToLowerInvariant())
@@ -641,8 +642,9 @@ namespace UltraRT
         private RenderTexture _gShadowed, _denoisedDirectOut;
         private float _shadowBias = 0.1f; // -ultrart-shadowbias: how much of our light a surface needs before RT shadows apply fully
         private float _giStrength = 0.35f;
-        private int _compositeDebug; // -ultrart-compdebug 1..5: shadow ratio / unshadowed direct / shadowed direct / bounce / portal depth
+        private int _compositeDebug; // -ultrart-compdebug 1..6: shadow ratio / unshadowed direct / shadowed direct / bounce / portal depth / game-albedo overlay
         private bool _portals = true; // -ultrart-noportals (bench variant: plugin._portals=0): rays ignore portals (docs/portals.md)
+        private int _portalHops = 3;  // -ultrart-portal-hops N (bench variant: plugin._portalHops=N): teleports per ray
         private bool _flipY;
         private int _recordedFrame = -1;
         private int _camSwitchLogs;
@@ -902,6 +904,7 @@ namespace UltraRT
                 Logger.LogInfo($"Rescan took {sw.Elapsed.TotalMilliseconds:F2} ms");
             }
             _proxies.SyncDynamic();
+            SceneProxies.PortalHops = _portalHops;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
             long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);

@@ -1,0 +1,11 @@
+{
+    "Name": "portals-align",
+    "Scenarios": [
+        { "Name": "8-3 portals", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Yaw": 631.03, "Pitch": -4.38, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 3 },
+          "Modes": ["hybrid+plugin._compositeDebug=6", "hybrid+plugin._compositeDebug=6+plugin._portals=0"], "Screenshots": [2] },
+        { "Name": "8-3 mirror", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Position": [-13.5, 26.0, 465.0], "Yaw": 270, "Pitch": 0, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 3 },
+          "Modes": ["hybrid+plugin._compositeDebug=6"], "Screenshots": [2] },
+        { "Name": "8-3 b", "Scene": "Level 8-3", "Path": { "Type": "static", "Approach": "../recordings/8-3-b.json", "Duration": 4 },
+          "Modes": ["hybrid+plugin._compositeDebug=6", "hybrid+plugin._compositeDebug=6+plugin._portalHops=1", "hybrid+plugin._compositeDebug=6+plugin._portalHops=2"], "Screenshots": [1, 2, 3] }
+    ]
+}

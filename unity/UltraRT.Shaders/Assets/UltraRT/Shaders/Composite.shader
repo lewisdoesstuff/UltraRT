@@ -132,7 +132,7 @@ Shader "UltraRT/Composite"
                 {
                     float rtViewZ = RtViewZ(traceUV, rtT);
                     float tp = PortalT(i.uv);
-                    if (_UltraRTMode > 5.5)
+                    if (_UltraRTMode > 5.5 && _UltraRTMode < 6.5)
                     {
                         // Debug (-ultrart-compdebug 5): through-portal pixels: green = the game's depth is the portal
                         // plane, blue = the far-side hit, red = neither; other pixels: the game's colour, darkened.
@@ -164,6 +164,9 @@ Shader "UltraRT/Composite"
                     float2 shun = _UltraRTDirect.Sample(my_point_clamp_sampler, i.uv).rg; // denoised luminance: shadowed, unshadowed
                     float3 bounce = _UltraRTLighting.Sample(my_point_clamp_sampler, i.uv).rgb;
                     float3 albedo = _UltraRTAlbedo.Sample(my_point_clamp_sampler, i.uv).rgb;
+                    // Debug (-ultrart-compdebug 6): the game's colour and our albedo 50/50 where RT applies, to check in a
+                    // single frame that traced geometry lines up with the game's (portal views, moving portals).
+                    if (_UltraRTMode > 6.5) return float4(lerp(game, _UltraRTAlbedo.Sample(my_point_clamp_sampler, i.uv).rgb, 0.5), 1.0);
                     float lit = un.a;
                     float3 sh = un.rgb * (shun.x / max(shun.y, 1e-4)); // for the debug view
                     float3 shadow = (shun.x + _UltraRTShadowBias) / (shun.y + _UltraRTShadowBias);

@@ -17,12 +17,12 @@
 // Layer-30 renderers (SceneProxies.PortalLayerMask): only portal views with canSeePortalLayer show them, so rays see them
 // only after crossing such a portal; the portal hit reports the flag in p.material bit 0.
 #define ULTRART_MASK_PORTAL_LAYER 0x40u
+#define ULTRART_MASK_PORTAL 0x20u // SceneProxies.PortalMask
 
 #ifndef ULTRART_PORTALS_DEFINES_ONLY
 
-#define ULTRART_PORTAL_MAX_HOPS 3
-
 StructuredBuffer<float4> _UltraRTPortals; // per portal side: 3 rows of its 3x4 travel matrix (world -> world)
+int _UltraRTPortalHops; // teleports per ray (SceneProxies.PortalHops, default 3); global, set every frame
 
 struct PortalPath
 {
@@ -53,15 +53,15 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
         if (path.firstT < 0.0) path.firstT = p.t;
-        if (i >= ULTRART_PORTAL_MAX_HOPS)
+        if (i >= (uint)_UltraRTPortalHops)
         {
-            // Deeper than the recursion limit: a black, unlit surface (the game draws nothing past its own limit either).
-            float t = p.t;
-            uint inst = p.instance;
+            // Past the recursion limit the game doesn't draw the portal at all, so the level behind it shows: go on
+            // straight, without portals (also bounds the loop).
             p = (RayPayload)0;
-            p.t = t;
-            p.normal = -ray.Direction;
-            p.instance = inst;
+            p.t = -1.0;
+            p.flags = inFlags | ULTRART_PORTAL_IN_RECURSION;
+            mask &= ~ULTRART_MASK_PORTAL;
+            TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
             return;
         }
         uint s = p.instance * 3u;
