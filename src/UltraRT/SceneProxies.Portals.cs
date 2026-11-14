@@ -65,8 +65,6 @@ namespace UltraRT
         private static readonly int IdPortalHops = Shader.PropertyToID("_UltraRTPortalHops");
         /// <summary>Teleports per ray before portals are ignored (the game's views go 3 to 4 deep).</summary>
         public static int PortalHops = 3;
-        /// <summary>Mirror quads sit this far (m) in front of the mirror's plane, so a coplanar wall doesn't hide them.</summary>
-        public static float MirrorOffset = 0.02f;
         private int _portalLogs;
         private bool _portalLayerChecked;
         private int _portalSidesInRtas;
@@ -152,14 +150,9 @@ namespace UltraRT
             if (portal.mirror)
             {
                 // The game renders a mirror as a portal onto itself (exit = entry, rotated 180 degrees about up) and flips
-                // the projection's x; for a ray that is a reflection about the plane. Mirrors hang on walls, often exactly
-                // in the wall's plane (8-3's Escher Entrance), where the wall wins the hit: the quad and the reflection plane
-                // move MirrorOffset toward the viewer (the side's back half-space, -forward).
+                // the projection's x; for a ray that is a reflection about the plane.
                 if ((flags & PortalSideFlags.Enter) != 0)
-                {
-                    var m = entry * Matrix4x4.Translate(new Vector3(0f, 0f, -MirrorOffset));
-                    SyncSide(portal, false, m, m * MirrorFlip * m.inverse, shape);
-                }
+                    SyncSide(portal, false, entry, entry * MirrorFlip * entry.inverse, shape);
                 return;
             }
             portal.exit.GetPositionAndRotation(out var xp, out var xr);

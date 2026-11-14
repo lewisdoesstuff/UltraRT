@@ -656,7 +656,6 @@ namespace UltraRT
         // 1 reflection rays (incl. water/glass), 2 bounce rays, 4 shadow rays, 8 camera rays after a portal hop (8-x
         // mirrors, as the game's portal views). Camera rays never see it directly. -ultrart-player-rays N, bench plugin._playerRays=N.
         private int _playerRays = 15;
-        private float _mirrorOffset = 0.02f; // bench plugin._mirrorOffset=X: portal mirror quads this far in front of their wall (docs/portals.md)
         private static readonly int PlayerRaysId = Shader.PropertyToID("_UltraRTPlayerRays");
         private static readonly int PlayerBoxMinId = Shader.PropertyToID("_UltraRTPlayerBoxMin"), PlayerBoxMaxId = Shader.PropertyToID("_UltraRTPlayerBoxMax");
         private bool _flipY;
@@ -919,7 +918,6 @@ namespace UltraRT
             }
             _proxies.SyncDynamic();
             SceneProxies.PortalHops = _portalHops;
-            SceneProxies.MirrorOffset = _mirrorOffset;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
             Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? _playerRays & 15 : 0);
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))
