@@ -1,0 +1,12 @@
+{
+ "Version": 1,
+ "Scene": "Level 1-3",
+ "Objects": [
+  {
+   "Path": "R2 - Second Arena",
+   "On": true
+  }
+ ],
+ "Lights": [],
+ "Fog": false
+}

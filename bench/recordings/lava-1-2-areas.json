@@ -1,0 +1,12 @@
+{
+ "Version": 1,
+ "Scene": "Level 1-2",
+ "Objects": [
+  {
+   "Path": "7B - Lava Room",
+   "On": true
+  }
+ ],
+ "Lights": [],
+ "Fog": false
+}

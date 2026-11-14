@@ -59,6 +59,7 @@ namespace UltraRT
             if (_upsampler != null) yield return new KeyValuePair<string, object>("up", _upsampler.Settings);
             yield return new KeyValuePair<string, object>("vol", _volSettings);
             yield return new KeyValuePair<string, object>("mat", MaterialMaps.Settings); // per-texel detail (docs/materials.md)
+            yield return new KeyValuePair<string, object>("lava", SceneProxies.Lava); // docs/lava.md, e.g. lava.active=0
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>
