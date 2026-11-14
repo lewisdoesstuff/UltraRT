@@ -82,8 +82,12 @@ namespace UltraRT.Bench
                     var go = pool.GetFire(kind == "firesimple");
                     var p = InFront(cam, distance);
                     if (Physics.Raycast(p, Vector3.down, out var floor, 10f, ~(1 << 2), QueryTriggerInteraction.Ignore)) p = floor.point;
+                    // As Flammable.Burn does: unparent, scale to the burning object's size, switch the light on.
                     go.transform.SetParent(null, true);
                     go.transform.position = p;
+                    go.transform.localScale = Vector3.one * 2f;
+                    var light = go.GetComponent<Light>();
+                    if (light != null) light.enabled = true;
                     break;
                 }
                 default: throw new ArgumentException("unknown effect kind");

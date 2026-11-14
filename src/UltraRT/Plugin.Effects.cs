@@ -66,6 +66,7 @@ namespace UltraRT
         private void AppendEffectLights()
         {
             if (_effectLights == null || _camera == null || (!_effectSettings.spawnedLights && !_effectSettings.virtualLights && !_effectSettings.flicker)) return;
+            _effectLights.ProcessSpawns(_effectSurvey); // spawned since OnUpdate (coroutines, LateUpdate): no frame of delay
             _lightCount = _effectLights.Append(_proxies, _sceneLights, _lightData, _lightMasks, _packedLights, _lightIds, _lightCount, MaxLights, _camera.transform.position);
         }
     }

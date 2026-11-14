@@ -28,7 +28,7 @@ namespace UltraRT
         /// <summary>Emitters whose strength (peak channel of their average visible colour, x4) is below this are ignored.</summary>
         public float minStrength = 0.1f;
         /// <summary>An emitter within this distance of an active game light (plus its own size) is already lit by the game.</summary>
-        public float coverDistance = 1.5f;
+        public float coverDistance = 1f;
         /// <summary>Hybrid: how much of a virtual light's (shadowed) light is added on top of the game's image.</summary>
         public float hybridWeight = 1f;
         /// <summary>Flicker: the light's intensity follows flame brightness / its running mean, clamped to [1 - x, 1 + x].</summary>
@@ -88,6 +88,8 @@ namespace UltraRT
             public int Id;
             public Color Base;        // visible colour without the sprite / fill (premultiplied, gamma)
             public string Name;
+            public bool OnLight;      // its spawned hierarchy has a Light: never a virtual light, only flicker
+            public int NextCheck;     // inactive emitters are looked at every 16th frame
             public Light CoverLight;  // the game light sitting on it (null: none)
             public int CoverFrame = -100000;
             public float Score;
@@ -125,7 +127,7 @@ namespace UltraRT
         private readonly Stopwatch _sw = new Stopwatch();
         private double _cpuMs;
         private int _logFrames, _logAppended, _logVirtual, _logMaxVirtual, _logFlicker, _logs;
-        private float _flickerMin = float.MaxValue, _flickerMax;
+        private float _flickerMin = float.MaxValue, _flickerMax, _nextLog;
 
         public EffectLights(ManualLogSource log) { _log = log; }
 
@@ -239,6 +241,7 @@ namespace UltraRT
             _emitters.Add(new Emitter
             {
                 R = r, PS = ps, SR = r as SpriteRenderer, Go = r.gameObject, T = r.transform, Kind = kind, Id = id, Base = col, Name = m.name,
+                OnLight = onLight,
             });
         }
 
@@ -373,8 +376,9 @@ namespace UltraRT
             _logAppended += appended;
             _logVirtual += virt;
             _logMaxVirtual = Math.Max(_logMaxVirtual, virt);
-            if (_logFrames >= 600)
+            if (Time.realtimeSinceStartup >= _nextLog)
             {
+                _nextLog = Time.realtimeSinceStartup + 5f;
                 _log.LogInfo($"Effect lights: CPU {_cpuMs / _logFrames * 1000.0:F1} us/frame; tracked lights {_trackedCount}, appended {(double)_logAppended / _logFrames:F2}/frame; " +
                              $"virtual {(double)_logVirtual / _logFrames:F2}/frame (max {_logMaxVirtual}) from {_emitters.Count} emitters; " +
                              $"flickering lights {(double)_logFlicker / _logFrames:F1}/frame (x{(_flickerMax > 0 ? _flickerMin : 1):F2}..{(_flickerMax > 0 ? _flickerMax : 1):F2}); spawn queue drops {EffectSpawns.Dropped}" +
@@ -467,7 +471,8 @@ namespace UltraRT
                     }
                     bool was = e.Score > 0f;
                     e.Score = 0f;
-                    if (!e.Go.activeInHierarchy || !e.R.enabled) { e.Smoothed = 0f; continue; }
+                    if (e.NextCheck > _frame) continue;
+                    if (!e.Go.activeInHierarchy || !e.R.enabled) { e.Smoothed = 0f; e.Mean = -1f; e.NextCheck = _frame + 16; continue; }
                     float d2 = (e.T.position - camPos).sqrMagnitude;
                     if (d2 > cull2 || !Measure(e)) continue;
                     if (_frame - e.CoverFrame > 60) { e.CoverLight = FindCoveringLight(e, data, packed, count); e.CoverFrame = _frame; }
@@ -476,7 +481,7 @@ namespace UltraRT
                         if (s.flicker && _flickers.Count < MaxFlickers && (e.Kind == Kind.Sprite || e.Kind == Kind.Particles)) _flickers.Add(e);
                         continue;
                     }
-                    if (!s.virtualLights || e.Strength < s.minStrength) continue;
+                    if (!s.virtualLights || e.OnLight || e.Strength < s.minStrength) continue;
                     e.Score = e.Strength * (e.Radius + 0.5f) / (1f + d2 / 25f) * (was ? 1.5f : 1f);
                     Insert(e, Math.Max(0, s.maxVirtual));
                 }
@@ -518,9 +523,11 @@ namespace UltraRT
             foreach (var e in _flickers)
             {
                 if (e.CoverLight == null || e.R == null || !e.Go.activeInHierarchy || !e.R.enabled || e.Strength <= 0f) continue;
-                // Running mean over ~1 s at 60+ fps; the light keeps the game's intensity on average.
-                e.Mean = e.Mean < 0f ? e.Strength : Mathf.Lerp(e.Mean, e.Strength, 0.03f);
-                float k = Mathf.Clamp(e.Strength / Mathf.Max(e.Mean, 1e-4f), 1f - range, 1f + range);
+                // Brightness x size (flames flicker by swapping sprites and by scaling), against its running mean over
+                // ~1 s at 60+ fps: the light keeps the game's intensity on average.
+                float b = e.Strength * e.Radius * e.Radius;
+                e.Mean = e.Mean < 0f ? b : Mathf.Lerp(e.Mean, b, 0.03f);
+                float k = Mathf.Clamp(b / Mathf.Max(e.Mean, 1e-6f), 1f - range, 1f + range);
                 for (int i = 0; i < count; i++)
                 {
                     if (!ReferenceEquals(packed[i], e.CoverLight)) continue;
@@ -560,8 +567,11 @@ namespace UltraRT
                 case Kind.Line:
                 case Kind.Trail:
                 {
-                    float w = e.Kind == Kind.Line ? ((LineRenderer)e.R).widthMultiplier : ((TrailRenderer)e.R).widthMultiplier;
-                    if (w <= 0f) { e.Strength = 0f; return false; }
+                    float w;
+                    int points;
+                    if (e.Kind == Kind.Line) { var lr = (LineRenderer)e.R; w = lr.widthMultiplier; points = lr.positionCount; }
+                    else { var tr = (TrailRenderer)e.R; w = tr.widthMultiplier; points = tr.positionCount; }
+                    if (w <= 0f || points < 2) { e.Strength = 0f; return false; }
                     fill = Mathf.Clamp01(w * 4f);
                     break;
                 }
@@ -589,7 +599,9 @@ namespace UltraRT
         /// <summary>The nearest active game light (not virtual) within reach of the emitter, from this frame's packed list.</summary>
         private Light FindCoveringLight(Emitter e, Vector4[] data, Light[] packed, int count)
         {
-            float reach = Settings.coverDistance + e.Radius;
+            // Small reach: the light must sit on the effect (a torch's Fire light inside its flame sprite), not merely nearby
+            // (the player's weapon lights next to a flame on the floor).
+            float reach = Settings.coverDistance + 0.25f * e.Radius;
             float best = reach * reach;
             Light found = null;
             for (int i = 0; i < count; i++)
