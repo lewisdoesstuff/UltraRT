@@ -40,6 +40,7 @@ namespace UltraRT
     internal static class TransparentClassifier
     {
         private static readonly Regex WaterName = new Regex(@"(^|[\s_])(Water|Sea)(?![A-Z])", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        private static readonly Regex BloodLiquidName = new Regex(@"^Mulch|Blood(?!Splat|Spray|Drop|Decal|Stain)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
         // Not surfaces: force fields, ghost curtains, plants and enemies tagged Wet, lamp shades tagged Glass.
         private static readonly Regex Excluded = new Regex(@"ForceField|Ghost|Succulent|Splash|Metal Light", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
@@ -65,6 +66,9 @@ namespace UltraRT
             if (Excluded.IsMatch(n)) return TransparentKind.None;
             int st = m.HasProperty("_SurfaceType") ? Mathf.RoundToInt(m.GetFloat("_SurfaceType")) : -1;
             if (WaterName.IsMatch(n) && (st == (int)SurfaceClass.Wet || n.Equals("Water", StringComparison.OrdinalIgnoreCase))) return TransparentKind.Water;
+            // Liquid blood: 0-2's blood river ("Mulch") is the same alpha-blended Master liquid as 6-2's blood (a water
+            // material), so it gets the same treatment. Opaque BloodPool and particle/decal blood never reach here.
+            if (BloodLiquidName.IsMatch(n)) return TransparentKind.Water;
             if (n.IndexOf("Glass", StringComparison.OrdinalIgnoreCase) >= 0) return TransparentKind.Glass;
             if (st == (int)SurfaceClass.Glass && n.StartsWith("Ice", StringComparison.OrdinalIgnoreCase)) return TransparentKind.Glass;
             return TransparentKind.None;
