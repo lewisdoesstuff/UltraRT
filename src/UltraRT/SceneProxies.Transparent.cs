@@ -22,7 +22,8 @@ namespace UltraRT
 
         private TransparentOverlays _overlays;
         private readonly Dictionary<Material, Material> _transparentCache = new Dictionary<Material, Material>();
-        private int _transparentWater, _transparentGlass, _transparentStatic, _transparentNoOverlay;
+        private int _transparentWater, _transparentGlass, _transparentStatic, _transparentNoOverlay, _transparentBlood;
+        private readonly HashSet<string> _bloodMaterials = new HashSet<string>();
         private readonly List<string> _transparentLog = new List<string>();
         private readonly List<Renderer> _waterSources = new List<Renderer>();
 
@@ -74,7 +75,12 @@ namespace UltraRT
             var proxy = CreateMeshProxy($"{r.name} (transparent) [UltraRT]", r.transform, mesh, proxyMats);
             bool twoSided = mats.Any(m => TransparentSource(m) && SourceTwoSided(m));
             AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: twoSided);
-            if (kind == TransparentKind.Water || kind == TransparentKind.Blood) { _transparentWater++; _waterSources.Add(r); }
+            if (kind == TransparentKind.Water) { _transparentWater++; _waterSources.Add(r); }
+            if (kind == TransparentKind.Blood)
+            {
+                _transparentBlood++; _waterSources.Add(r);
+                foreach (var m in r.sharedMaterials) if (TransparentClassifier.Of(m) == TransparentKind.Blood) _bloodMaterials.Add(m.name);
+            }
             else _transparentGlass++;
 
             if (_overlays == null && OverlayShader != null) _overlays = new TransparentOverlays(OverlayShader, Transparents);
@@ -104,8 +110,8 @@ namespace UltraRT
 
         private void LogTransparents()
         {
-            if (_transparentWater + _transparentGlass + _transparentStatic == 0) return;
-            _log.LogInfo($"Transparent surfaces: {_transparentWater} water and {_transparentGlass} glass renderers traced (mask 0x10), " +
+            if (_transparentWater + _transparentGlass + _transparentBlood + _transparentStatic == 0) return;
+            _log.LogInfo($"Transparent surfaces: {_transparentWater} water, {_transparentBlood} blood ({string.Join(", ", _bloodMaterials)}) and {_transparentGlass} glass renderers traced (mask 0x10), " +
                          $"overlays {_overlays?.Count ?? 0}{(OverlayShader == null ? " (overlay shader missing)" : "")}, without overlay {_transparentNoOverlay}, " +
                          $"skipped static-batched {_transparentStatic}");
             foreach (var line in _transparentLog) _log.LogInfo(line);
