@@ -1,0 +1,23 @@
+{
+    "Name":  "blood-river-24",
+    "Scenarios":  [
+                      {
+                          "Name":  "0-2 run",
+                          "Scene":  "Level 0-2",
+                          "Path":  {
+                                       "Type":  "recording",
+                                       "File":  "../recordings/0-2-run.json"
+                                   },
+                          "Enemies":  "blind",
+                          "Modes":  [
+                                        "off",
+                                        "relight",
+                                        "pt-dn",
+                                        "hybrid"
+                                    ],
+                          "Screenshots":  [
+                                              24
+                                          ]
+                      }
+                  ]
+}

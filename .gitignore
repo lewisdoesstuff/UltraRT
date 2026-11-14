@@ -24,3 +24,5 @@ __pycache__/
 
 # Staged build (scripts/build.ps1 -NoDeploy)
 /stage/
+# Reference assemblies fetched for compiling (scripts/fetch-pluginconfigurator.ps1)
+lib/

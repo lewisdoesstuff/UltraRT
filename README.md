@@ -3,3 +3,7 @@
 # ultrart
 
 Created in [T3 Code](https://t3.codes).
+
+## Settings
+
+UltraRT has an in-game settings page (pause, Options, Plugin Config, UltraRT) when the optional PluginConfigurator mod is installed. See [docs/settings.md](docs/settings.md).
