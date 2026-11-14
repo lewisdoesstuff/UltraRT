@@ -19,8 +19,8 @@ namespace UltraRT.Bench
         /// Pickers not listed are seeded from Seed and their own name. The log lists each picker and its entries.
         /// </summary>
         public Dictionary<string, string> RandomPicks;
-        /// <summary>Seconds to let the level settle after loading (and RT setup) before anything happens.</summary>
-        public float Settle = 3f;
+        /// <summary>Seconds to let the level settle after loading (and RT setup) before anything happens. Was 3; frame times are the same at 0.5 (bench/README.md "Level settle").</summary>
+        public float Settle = 1f;
         /// <summary>
         /// Always load the level for this scenario, never reuse one an earlier scenario left (see "Chaining" in
         /// bench/README.md). Later scenarios may still chain after it.
@@ -123,6 +123,8 @@ namespace UltraRT.Bench
         /// <summary>Levels loaded once and reused by later scenarios (off with -ultrart-bench-nochain).</summary>
         public bool Chaining;
         public int LevelLoads;
+        /// <summary>Run options that change what is measured or captured (no screenshots, no bursts, settle override); empty = defaults.</summary>
+        public string Options;
         /// <summary>Wall-clock seconds from the plugin starting the suite to the summary.</summary>
         public float TotalSeconds;
         public List<ScenarioResult> Scenarios = new List<ScenarioResult>();

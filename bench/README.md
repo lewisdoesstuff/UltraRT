@@ -1,5 +1,37 @@
 # UltraRT benchmarks
 
+## How to run tests (agents)
+
+Two game installs exist: **main** (the Steam install, also what the user plays) and **alt** (`D:\UltraRT-Bench\ULTRAKILL`, a copy with BepInEx and our plugin, for visual and diagnostic runs). `scripts\game-lock.ps1` queues everybody (FIFO) in front of them. The game is only ever started while you hold a slot, so **build first, queue second, release as soon as the runs are done**.
+
+```powershell
+# 1. Build outside the lock (no game needed). Stages the build in <repo>\stage.
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -NoDeploy
+# 2. Queue once (shows position and estimate; no polling loop needed, one ticket per owner). Perf is the default kind.
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\death\.t3\projects\ultrart\scripts\game-lock.ps1 acquire <you>
+#    visual run:   ... acquire <you> -Kind visual            (alt install if it is free, else main; prints "slot: alt|main")
+# 3. Copy the staged build into the slot (seconds).
+.\scripts\deploy.ps1 [-Slot alt]
+# 4. Run. Several suites in one launch; -Perf = no screenshots, no bursts.
+.\scripts\bench.ps1 -Suite a,b,c -Perf [-Slot alt] [-Compare <older run>]
+# 5. Release right away (stops your resident game, restores main's build from a cached copy: about a second).
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\death\.t3\projects\ultrart\scripts\game-lock.ps1 release <you>
+```
+
+Which kind of run for which question:
+
+| You want | Acquire | bench.ps1 | Notes |
+|---|---|---|---|
+| Frame times, GPU ms, regressions | `acquire <you>` (kind perf, the default) | `-Perf` | Exclusive: needs **both** slots and no game of the user's. Nothing else runs on the machine meanwhile, so numbers are comparable. |
+| Screenshots, bursts, noise, look-dev, debugging | `acquire <you> -Kind visual` | `-Slot <the one printed>` | One slot is enough; usually the alt install, so a visual run does not block a perf run's slot hunt. Frame times from a run that shares the GPU with another game are not reliable. |
+| Both in one go | perf hold, default `bench.ps1` | (no `-Perf`) | Takes both slots; fine for a final check. Screenshots and bursts cost about a third of game time, so use them only for runs that need them. |
+| `merge-regress` | **don't** | | The lead runs `merge-regress` once per merge batch. Agents use their feature suite plus a `-quick` suite and leave regression to the lead. |
+
+Rules: hold a slot only while a game runs (analyse screenshots and edit code *after* release; queue again for the next run). Never launch or deploy without a slot. Never kill an ULTRAKILL process you did not start: a launch without `-ultrart-*` arguments is the user playing, and nobody starts anything until it ends (`status` shows `user game: playing`). Hand launches need `-ultrart-agent` (any `-ultrart-*` switch counts). Always release, also after failures.
+
+Shader-only or config-only iterations (the bundle hot-reloads): `bench.ps1 -Suite x -KeepOpen` leaves the game running at the main menu; rebuild with `build.ps1 -NoDeploy`, `deploy.ps1`, and run `bench.ps1 -Suite x -KeepOpen` again to skip the launch. A changed `UltraRT.dll` or different `-Scale`/`-Api`/`-Extra` restarts it by itself. `release` and `bench.ps1 -Stop` quit it; it also quits after 20 idle minutes.
+
+
 ```powershell
 .\scripts\bench.ps1                       # short suite (~1 min)
 .\scripts\bench.ps1 -Suite full           # everything
@@ -129,3 +161,49 @@ A scenario with `"Burst": N` measures how much a held image changes from frame t
 Moving paths (`sweep`, `recording`) advance a fixed 1/360 s per frame during a burst, and the denoiser blends as at 360 Hz (`Denoiser.FrameTimeOverride`), so every run sees the same per-frame motion however slow the capture is. Each mode saves `<scenario>_burst_<mode>_sigma.png` (block sigma x16 as a heat map) and `_frame.png` (the last frame).
 
 A burst mode may add runtime variants after the view mode, separated by `+`: `relight+lights=ref+cache=off`. Keys: `lights=ref|ris|restir`, `cache=off|bounce|primary`, `refl=0|1`, `emissive=0|1`, `relight=1` (the relight light model in any mode, e.g. `pt-direct+relight`), `preset=full|previous|legacy` (Ctrl+F3's denoiser presets), `taau=0|1` (the temporal upsampler, F2), and `<object>.<field>=value` for any public field of `ls` (LightSamplingSettings), `cache` (RadianceCacheSettings), `refl` (ReflectionSettings), `em` (EmissiveLightSettings), `ae` (AutoExposureSettings), `dn` (DenoiserSettings, both instances), `up` (UpsamplerSettings) or `plugin` (any Plugin field, e.g. `plugin._guardX=0`). Histories (including auto exposure, which snaps to the variant and settles) are reset and everything is restored after each mode, and after a scenario that fails mid-variant. Keep variant strings short: screenshot names include them, and paths over 260 characters fail the scenario. For relight burst modes the log also gets a per-frame auto exposure trace (`Burst AE ...`: EV, target, band mean, meter; docs/relight.md, "Flicker"); auto exposure adapts on the burst's 1/360 s clock like the denoiser. Every RT screenshot also logs radiance statistics (mean lighting by surface orientation; docs/relight.md, "Radiance statistics"), and `"ShotSettle": seconds` holds each mode longer before its screenshot. `bench/suites/noise-diag.json` and `noise-r2.json` are the suites behind docs/denoiser.md's "Static noise"; `relight-polish.json` is behind docs/relight.md's "Light reference distance" and "Flicker" (game / gamma relight via Ctrl+F5's switches / the 1666d51 settings / current, plus bursts); `upsample.json` is behind "Temporal upsampling" (it also times trace scale 0.67 via `plugin._scale=0.67`).
+
+## bench.ps1 options
+| Switch | What it does |
+|---|---|
+| `-Suite a,b,c` | Several suites in **one** game launch (one results folder per suite, in order). Saves the boot, intro skip and quit of every extra launch (about 10 s each). Each suite still loads its own levels. `-Compare` takes one folder per suite, or one for all. |
+| `-Perf` | `-NoScreenshots -NoBursts`: frame times only. Screenshots (12 frames + auto-exposure wait per mode, 2 PNGs per RT mode) and noise bursts (120 settle frames + capture per mode) were 35% of all game time. The suites are not edited: `results.json`/`summary.md` say `Options: no screenshots, no bursts`. |
+| `-NoScreenshots` / `-NoBursts` | One of the two. A burst runs at the first screenshot time, so `-NoScreenshots` alone still takes the burst, only without the screenshots. |
+| `-Settle <s>` | Seconds to settle after every level load, instead of each scenario's `Settle` (3 s in the suite files). See "Level settle" below. |
+| `-Slot main\|alt` | Which install to run in (`-GameDir` still works). A run in alt writes its Unity log to `<alt>\Player.log` (`-logFile`), because `LocalLow\Hakita\ULTRAKILL\Player.log` belongs to the main install. |
+| `-KeepOpen` / `-Stop` | Resident game (see "How to run tests"). |
+| `-Load`, `-NoChain`, `-ValidateLoad`, `-ValidateMethods`, `-Scale`, `-Api`, `-NoGpuTimer`, `-NativeGfxJobs`, `-Extra`, `-TimeoutSec`, `-Compare` | As before. |
+
+`bench.ps1` refuses to start a game while the user is playing, warns when no slot lock is held and, for `-Perf`, when another game instance is running (frame times are then not exclusive).
+
+## Game slots and the lock (`scripts\game-lock.ps1`)
+- `acquire <owner> [-Kind perf|visual] [-Slot main|alt|any] [-TimeoutMin N]`: takes a ticket in `BepInEx\ultrart\lock-queue\` (one per owner; a second acquire of the same owner keeps the place and returns at once if it already holds the slot). It polls every 2 s, prints `queued: position 2 of 3 (...); est. wait ~N min` when the position changes and at least once a minute, and prints `acquired by <owner>` when it is yours (then `slot: main|alt ...` as an extra line). A waiter that is gone (its process ended and 30 s passed) loses its ticket; a timed-out acquire keeps the place for 30 s, so retry loops do not lose it. The estimate is the median of the last hold times in `lock-history.csv` times the queue position.
+- Order: strict FIFO among tickets that need the same slot. A perf ticket needs both slots, a visual `-Slot any` ticket one of them, so tickets for different slots do not block each other.
+- `release <owner>`: quits your resident game, copies the cached main build into your slot(s), frees them, logs the hold. The cache is `BepInEx\ultrart\main-cache\<head>\`, built from the main checkout when its HEAD changed; `acquire` starts that build in the background while you queue (`game-lock.ps1 cache` does it by hand), so `release` is a file copy of changed files only.
+- `status`: line 1 `free` or `locked by <owner> since <time>` (main slot, as before), then `ULTRAKILL is running` if any game process runs, then `slot alt: ...`, `user game: playing ...` and the queue with estimates. `slot <owner>` prints the slot you hold; `cancel <owner>` leaves the queue.
+- A hold nobody touched (lock file, `bench.ps1` runs and `deploy.ps1` touch it) for 60 minutes with no game running in the slot is taken over.
+- The user: an ULTRAKILL.exe from the Steam folder started without any `-ultrart-*` argument. While one runs, no acquire is granted (waiting agents keep their place) and `bench.ps1` refuses to launch.
+
+## Level settle
+`Scenario.Settle` (seconds to wait after a level load, before the player is taken over) was 3 and is now 1; `bench.ps1 -Settle <s>` overrides it for a whole run (`-Settle 3` gives the old behaviour; a suite that sets `Settle` itself keeps its value unless `-Settle` is given). Measured on 0-1, 1-4, 0-3, 6-2, 0-5 (`infra-settle.json`, `-Perf`, two runs each at 3 s and 0.5 s, one at 1 s): avg frame times match within the run-to-run noise (relight 5.27/5.48 ms at 3 s against 5.08/5.39 at 0.5 s in 6-2; every other row the same way), and the level load drops from 5.3-6.6 s to 2.6-3.9 s (88 s -> 76 s for the suite). The RT warm-up before measuring (at least 30 frames) and the 0.5 s take-over already cover what the 3 s was for. Visual runs that need a fully settled scene (auto exposure, radiance cache) have `ShotSettle` and `BurstSettle`.
+
+## The alt install (`D:\UltraRT-Bench\ULTRAKILL`)
+A plain copy of the Steam install (3.7 GB: game, BepInEx, our plugin, a snapshot of `Saves` and `Preferences`, without `BepInEx\ultrart` and the logs), made with `robocopy ... /E`. It is a normal Steam game folder moved out of Steam's tree, with a `steam_appid.txt` (`1229490`) next to the exe so the Steamworks init does not try to restart the game through Steam; **Steam has to be running**, as for the main install. Use it only through `game-lock.ps1` / `bench.ps1 -Slot alt` / `deploy.ps1 -Slot alt`.
+- *Saves and prefs.* The alt folder has its own `Saves` and `Preferences`, and `BenchSafety` blocks every save, prefs and Steam-stat writer there as well, so nothing a run does can reach the user's files.
+- *Shared state, checked.* `Player.log` (`%USERPROFILE%\AppData\LocalLow\Hakita\ULTRAKILL`) is the main install's: `bench.ps1 -Slot alt` passes `-logFile <alt>\Player.log`, and the alt runs left the LocalLow log untouched. The registry key `HKCU\Software\Hakita\ULTRAKILL` is shared; across alt-only runs and runs of both installs at once the only values that changed were Unity's analytics counters (`unity.player_session_count`, `unity.player_sessionid`), which every launch changes anyway. The window mode, resolution and position values (`Screenmanager ...`) stayed as they were. Both installs run at the same resolution, so screenshots from either are comparable.
+- *Two games at once.* Both windows are borderless fullscreen and cover each other, and the one that is not focused is not rendered by Unity unless `Application.runInBackground` is on. The plugin now sets it when a bench starts (it used to set it only when the suite began, so an instance that lost focus while booting froze at the loading screen until someone clicked it). With that, both instances boot, load and run without any focus; screenshots from the covered window are correct renders.
+- *Frame times when both run.* `infra-par.json` (1-1 doors run, four rounds, `-Perf`): alone about 2.4 / 4.5 / 4.7 ms (off / hybrid / pt-dn) in either install, identical; with both running at the same time about 4.4 / 8-9 / 8.7-9 ms, roughly 1.9x. Two games on one GPU split it, so that is why perf runs need both slots and nothing else. For visual runs the cost does not matter: the images are the same (compared `short`'s doors run in both installs). Two `short` runs in parallel took 36 s each, as one does alone.
+- *Keeping it current.* `release` copies the cached main build into both installs. After a change that is not in the plugin folder (BepInEx, game update), redo the robocopy: `robocopy D:\SteamLibrary\steamapps\common\ULTRAKILL D:\UltraRT-Bench\ULTRAKILL /E /XD ...\BepInEx\ultrart /XF LogOutput.log LogOutput.log.1`, (the copy's `steam_appid.txt` is not in the source, so robocopy keeps it).
+
+## Measured (2026-11-14, this machine)
+| | Before | After |
+|---|---|---|
+| `release` (restore main's build) | 15 s (Unity shader build + `dotnet build`, under the lock) | 1.3 s (copy of changed files from the cache) |
+| Build + deploy under the lock | build.ps1 under the lock | `build.ps1 -NoDeploy` before queueing (no lock); `deploy.ps1` 0.1-0.3 s |
+| `infra-burst` (1 scenario, one burst) | 55 s | `-Perf`: 23 s; `-NoBursts` only: 24 s |
+| `short` (3 scenarios, 1 screenshot time each, no burst) | 38 s | `-Perf`: 36 s (screenshots alone cost about 0.5 s per screenshot time) |
+| Two suites | 2 launches: 48 s | `-Suite a,a` in one launch: 35 s (one boot, one quit) |
+| Next run while the game is resident | 23-24 s per call | 12-13 s (`-KeepOpen`, no boot, no quit) |
+| Level settle | 3 s per level load | 1 s default, 0.5 s tested equal (about 2.5 s per load) |
+| Lock handoff | agents polling every 3-30 s, no order | FIFO tickets, polled every 2 s |
+
+Pitfall seen while testing: `short`'s "1-1 pose" is a plain teleport (`Load: none`), so most of the level around it is not loaded and the screenshot shows an empty sky and floor. Use a recording or an `Approach` for anything that has to look like the game (see "Poses deep in a level").
