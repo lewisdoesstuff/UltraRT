@@ -15,6 +15,15 @@ Shader "UltraRT/Proxy"
         _BlendTex ("Blend atlas", 2D) = "white" {}
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
+        // ULTRAKILL/Master without VERTEX_LIGHTING is fullbright in game: the lit weight is 1 - _Unlit (enemies: a partial
+        // value, SceneProxies.UnlitEnemyLitWeight). Non-atlas only; atlas geometry carries it in the vertex colour alpha.
+        _Unlit ("Unlit (0 lit, 1 fullbright)", Float) = 0
+        // BLOOD_FILLER (7-3's tree): the game paints the albedo's green and blue out below a fill height (mesh TEXCOORD2.y in
+        // [-1, 1]) with a noisy edge. _BloodFill: the renderer's _FillAmount (0 = off), _BloodScale its _MeshScale.z
+        // (SceneProxies.Sync.cs sets both from the MaterialPropertyBlock; only for meshes with a 3-component TEXCOORD2).
+        _BloodFill ("Blood fill amount", Float) = 0
+        _BloodScale ("Blood noise scale (_MeshScale.z)", Float) = 1
+        _BloodNoiseTex ("Blood noise", 2D) = "gray" {}
 
         // Reflections (MaterialClasses.cs, docs/reflections.md). Mode: 0 none, 1 specular, 2 blend, 3 additive.
         _Roughness ("Roughness", Float) = 1
@@ -78,7 +87,6 @@ Shader "UltraRT/Proxy"
             Texture2D _MainTex;
             float4 _MainTex_ST;
             Texture2D _EmissiveTex;
-            float4 _EmissiveTex_ST;
             Texture2D _BlendTex;
             SamplerState my_point_repeat_sampler;
 
@@ -90,6 +98,10 @@ Shader "UltraRT/Proxy"
             float _AtlasMode;
             float _SkyWall;
             float _AlphaTest;
+            float _Unlit;
+            float _BloodFill, _BloodScale;
+            Texture2D _BloodNoiseTex;
+            SamplerState my_linear_repeat_sampler;
             float _Roughness, _Metalness, _F0, _SpecWeight, _ReflMode, _ReflStrength, _MatClass;
             float _Secondary, _Roughness2, _Metalness2, _F02, _SpecWeight2, _ReflMode2, _MatClass2;
             float4 _GameRefl;
@@ -165,6 +177,27 @@ Shader "UltraRT/Proxy"
                 return u0 * b.x + u1 * b.y + u2 * b.z;
             }
 
+            // The game's BLOOD_FILLER fragment (decompiled from ULTRAKILL/Master): p = mesh TEXCOORD2.xyz in [-1, 1]; noise
+            // from _BloodNoiseTex around the trunk (u = angle, v = height x _MeshScale.z / 4) on sides, from (x, y) on caps;
+            // below the noisy fill height the colour is multiplied by (1, 0, 0).
+            float3 BloodFillTint(uint3 tri, float3 b)
+            {
+                float3 q = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributeTexCoord2) * b.x
+                         + UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributeTexCoord2) * b.y
+                         + UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributeTexCoord2) * b.z;
+                float h = q.y * 0.5 + 0.5;
+                float u = atan2(q.z * 0.5, q.x * 0.5) * 0.159155 + 0.5;
+                float nSide = _BloodNoiseTex.SampleLevel(my_linear_repeat_sampler, float2(u, h * _BloodScale * 0.25), 0).x;
+                float nCap = _BloodNoiseTex.SampleLevel(my_linear_repeat_sampler, float2(q.x * 0.5 + 0.5, h), 0).x;
+                float3 nObj = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributeNormal) * b.x
+                            + UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributeNormal) * b.y
+                            + UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributeNormal) * b.z;
+                float3 nw = normalize(mul(nObj, (float3x3)WorldToObject3x4()) + 1e-6);
+                float capW = saturate(abs(nw.y) * 2.0 - 0.5);
+                float n = saturate(lerp(nSide, nCap, capW)) * 2.0 - 1.0;
+                return (h - n * 0.05 < _BloodFill) ? float3(1.0, 0.0, 0.0) : float3(1.0, 1.0, 1.0);
+            }
+
             // Surface colour (alpha = coverage) at a hit; litWeight 0 = fullbright.
             // blendWeight: < 0.5 selects the secondary material (VERTEX_BLENDING); 1 when the surface doesn't blend.
             // texUV: where _MainTex (and _DetailTex) was sampled.
@@ -205,6 +238,8 @@ Shader "UltraRT/Proxy"
                 {
                     texUV = uv * _MainTex_ST.xy + _MainTex_ST.zw;
                     albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, 0) * _Color;
+                    litWeight = 1.0 - _Unlit;
+                    if (_BloodFill > 0.0) albedo.rgb *= BloodFillTint(tri, b);
                     // ULTRAKILL VERTEX_BLENDING: vertex colour r < 0.5 is the secondary surface. Missing colours read as white.
                     if (_Secondary > 0.5)
                         blendWeight = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeColor).r * b.x
@@ -315,9 +350,12 @@ Shader "UltraRT/Proxy"
                 float3 emission = 0;
                 if (_EmissiveIntensity > 0.0)
                 {
+                    // ULTRAKILL/Master (and Unity's Standard) sample the emission map at the main texture's uv
+                    // (uv0 * _MainTex_ST), not with _EmissiveTex_ST: materials that share one texture and pick a band of it
+                    // by _MainTex offset (0-2's FinalFrameL 2/3 strips) otherwise glow one band off.
                     float3 e = _UseAlbedoAsEmissive > 0.5
                         ? albedo.rgb
-                        : _EmissiveTex.SampleLevel(my_point_repeat_sampler, uv * _EmissiveTex_ST.xy + _EmissiveTex_ST.zw, 0).rgb;
+                        : _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, 0).rgb;
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                 }
 

@@ -213,6 +213,15 @@ namespace UltraRT
             // New dynamic proxies (rescans, spawned hierarchies). Readbacks stall the GPU, so only a few per frame.
             if (proxies.DynamicProxyCount < _dynamicCursor) _dynamicCursor = 0; // proxies were rebuilt
             if (proxies.DynamicProxyCount > _dynamicCursor) _dynamicCursor = proxies.CollectDynamicSubmeshes(IsEmissive, _dynamicCursor, _pending);
+            // Submeshes whose material changed at runtime (swaps, emission from property blocks; SceneProxies.Sync.cs).
+            // Their old entries stop counting through the material generation in Visible.
+            _changed.Clear();
+            proxies.TakeMaterialChanges(_changed);
+            foreach (var s in _changed)
+            {
+                _emissiveMaterial.Remove(s.Material); // its values may have changed
+                if (IsEmissive(s.Material)) _pending.Add(s);
+            }
             if (_pending.Count > 0) ProcessPending();
 
             long tVis = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -354,6 +363,8 @@ namespace UltraRT
             public Color Le;
             public float Area, Lum;
         }
+
+        private readonly List<SceneProxies.TracedSubmesh> _changed = new List<SceneProxies.TracedSubmesh>();
 
         private bool IsEmissive(Material m)
         {
@@ -703,10 +714,12 @@ namespace UltraRT
             if (!m.HasProperty(prop)) return null;
             var tex = m.GetTexture(prop);
             if (tex == null || tex.dimension != TextureDimension.Tex2D) return null;
-            if (albedo) // the hit shader only applies _MainTex_ST
+            // The hit shader (like the game's Master shader) samples both the albedo and the emission map at
+            // uv0 * _MainTex_ST; _EmissiveTex_ST is not used.
+            if (m.HasProperty("_MainTex"))
             {
-                var sc = m.GetTextureScale(prop);
-                var of = m.GetTextureOffset(prop);
+                var sc = m.GetTextureScale("_MainTex");
+                var of = m.GetTextureOffset("_MainTex");
                 st = new Vector4(sc.x, sc.y, of.x, of.y);
             }
             return tex;

@@ -114,6 +114,25 @@ namespace UltraRT.Bench
                     UnityEngine.Object.Instantiate(nm.impactDust, p, Quaternion.identity);
                     break;
                 }
+                case "coin":
+                case "coinfront":
+                {
+                    // The revolver's coin, hovering (kinematic): "coin" 1.5 m behind the camera (seen in reflections ahead),
+                    // "coinfront" at Distance in front.
+                    GameObject prefab = null;
+                    foreach (var r in UnityEngine.Object.FindObjectsOfType<Revolver>(true))
+                        if (r != null && r.coin != null) { prefab = r.coin; break; }
+                    if (prefab == null) throw new InvalidOperationException("no Revolver with a coin prefab");
+                    var p = kind == "coin" ? cam.position - cam.forward * 1.5f + cam.up * 0.2f : InFront(cam, distance);
+                    var go = UnityEngine.Object.Instantiate(prefab, p, cam.rotation);
+                    foreach (var rb in go.GetComponentsInChildren<Rigidbody>(true)) { rb.isKinematic = true; rb.useGravity = false; }
+                    break;
+                }
+                case "opendoors":
+                    // The game's own FinalDoor.Open() on every final door (lit frame materials swapped in, door light on):
+                    // tests the runtime material sync (docs/scene-proxies.md) without playing the level to that point.
+                    foreach (var fd in UnityEngine.Object.FindObjectsOfType<FinalDoor>()) if (fd != null && !fd.aboutToOpen) fd.Open();
+                    break;
                 case "flash":
                     // Light only (no particles, so replays are identical): a revolver-like muzzle light, 20 / range 5, fading
                     // out over 0.2 s like RevolverBeam's light.

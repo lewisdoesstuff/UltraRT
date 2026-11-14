@@ -109,7 +109,8 @@ Brute force over every emissive triangle is not feasible. In Reference mode, eac
 
 - **EmissiveLightScale and EmissiveHybridAdd are untested in the game.** See above.
 - **Large emitters near receivers** (lava floors, wall-sized screens) are noisy, because uniform area sampling of a big triangle gives high variance close to it. The `minDistance` clamp (0.25 m) removes the worst fireflies at the cost of a little bias. Solid-angle sampling of the triangle would be the real fix. Lava emitters are split into pieces of at most 1 m2 (docs/lava.md).
-- **Static material values only**: the proxy material copies emission parameters once, so flickering or animated emission isn't followed. The same is true of the existing hit shader.
+- **Runtime material changes** (swaps, property blocks) are followed by the hit shader and re-registered here (docs/scene-proxies.md, "Runtime material changes"); emission changes from property blocks at most once a second per proxy (the hit shader follows them every frame).
+- **Emission uv**: the game samples `_EmissiveTex` at the main texture's uv (`uv0 * _MainTex_ST`, checked in the Master shader's compiled code), so both the hit shader and the triangle radiance here use `_MainTex_ST`. Before 2026-11-14 they used `_EmissiveTex_ST` (never set, identity): materials sharing one texture with different `_MainTex` offsets (0-2's `FinalFrameL 2/3` light strips) glowed one band off, an extra row of lit strips on the wall while the real ones were lit orange.
 - **No light layers**: lights respect culling masks, but emitters light every layer.
 - **Bounce emission is dropped for emitters outside the list** (skinned, over the cap, failed readback). See Bounce above.
 - **Readbacks during gameplay** for late emitters stall the GPU briefly, with at most 2 per frame.

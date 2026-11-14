@@ -29,6 +29,7 @@ namespace UltraRT
         {
             var harmony = new Harmony(id);
             harmony.PatchAll(typeof(Patches).Assembly);
+            PatchPortalClones(harmony);
             // Instantiate<T>(T) is generic and goes straight to native code (gibs, fire pools, BulkInstantiate use it).
             // Mono shares one body for every reference-type T, so patching one instantiation covers them all. Optional:
             // without it the periodic rescan still finds those objects.
@@ -45,6 +46,41 @@ namespace UltraRT
 
         public static bool GenericInstantiateHooked;
         public static string GenericInstantiateError;
+
+        /// <summary>
+        /// ULTRAKILL.Portal.PortalAwareRenderer makes copies of objects that cross a portal (V1 jumping into 8-2's pool, enemies
+        /// walking through doorways) with new GameObject + AddComponent, which the Instantiate hooks never see. Its private
+        /// CreateClone returns a Clone whose GameObject holds the whole copy: register that like a spawned hierarchy, so
+        /// rays through the portal see the copy the game draws there (docs/portals.md, "Portal clones").
+        /// </summary>
+        private static void PatchPortalClones(Harmony harmony)
+        {
+            try
+            {
+                var type = AccessTools.TypeByName("ULTRAKILL.Portal.PortalAwareRenderer");
+                var create = type != null ? AccessTools.Method(type, "CreateClone") : null;
+                if (create == null) { PortalClonesError = "PortalAwareRenderer.CreateClone not found"; return; }
+                harmony.Patch(create, postfix: new HarmonyMethod(typeof(Patches).GetMethod(nameof(PortalClonePostfix), BindingFlags.NonPublic | BindingFlags.Static)));
+                PortalClonesHooked = true;
+            }
+            catch (System.Exception e) { PortalClonesError = e.Message; }
+        }
+
+        public static bool PortalClonesHooked;
+        public static int PortalClones;
+        public static string PortalClonesError;
+        private static FieldInfo _cloneObjectField;
+
+        private static void PortalClonePostfix(object __result)
+        {
+            try
+            {
+                if (__result == null || !CollectSpawns) return;
+                if (_cloneObjectField == null) _cloneObjectField = AccessTools.Field(__result.GetType(), "GameObject");
+                if (_cloneObjectField?.GetValue(__result) is GameObject go && go != null) { PendingHierarchies.Add(go); PortalClones++; }
+            }
+            catch (System.Exception) { /* never break the game's portals */ }
+        }
 
         private static void GenericInstantiatePostfix(object __result) => Spawned(__result as Object);
 

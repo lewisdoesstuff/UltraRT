@@ -85,6 +85,7 @@ namespace UltraRT
             public Group Group;
             public StaticSource Owner;      // first source seen; its ancestors define the grouping keys
             public int VisibleSources;
+            public int MatGen;              // bumped when a source swaps this slot's material (SceneProxies.Sync.cs)
         }
 
         private sealed class StaticSource
@@ -95,6 +96,9 @@ namespace UltraRT
             public GameObject Watch, WatchDeep, WatchShallow;
             public GameObject[] Keys;       // per grouping level (level 4 = null)
             public bool Visible, Dead;
+            public Material[] Mats;         // source materials last seen (null: atlas source, never swapped)
+            public Slot[] SlotByMat;        // per source material index: its slot, or null
+            public int SwapPhase;           // multi-material sources: swap check on every 4th slice visit
         }
 
         private sealed class Watcher
@@ -129,6 +133,7 @@ namespace UltraRT
             public bool[] Shown;            // slots in the instance currently in the RTAS
             public bool InRtas;
             public int Records, FullRecords;
+            public bool FullStale;          // a slot's material changed: rebuild Full before using it
         }
 
         private sealed class CheckpointWatch
@@ -431,10 +436,17 @@ namespace UltraRT
         {
             var mats = r.sharedMaterials;
             var slots = new List<Slot>(mats.Length);
+            var byMat = new Slot[mats.Length];
+            bool swappable = false;
             for (int i = 0; i < mats.Length; i++)
             {
                 int sub = r.subMeshStartIndex + i;
-                if (sub >= 0 && sub < c.Slots.Length && c.Slots[sub] != null) slots.Add(c.Slots[sub]);
+                if (sub >= 0 && sub < c.Slots.Length && c.Slots[sub] != null)
+                {
+                    slots.Add(c.Slots[sub]);
+                    byMat[i] = c.Slots[sub];
+                    swappable |= !IsAtlasProxy(c.Slots[sub].BaseMaterial);
+                }
             }
             if (slots.Count == 0) return null;
 
@@ -463,6 +475,8 @@ namespace UltraRT
                 WatchDeep = deep ?? d2,
                 WatchShallow = shallow ?? d2,
                 Keys = new[] { null, d2, AtDepth(1), AtDepth(0), null },
+                Mats = swappable ? mats : null,
+                SlotByMat = byMat,
             };
             s.Keys[0] = s.Watch = WatchFor(s, _watchMode);
             foreach (var slot in slots) if (slot.Owner == null) slot.Owner = s;
@@ -831,7 +845,9 @@ namespace UltraRT
                 for (int k = 0, count = Math.Min(n, force ? n : StaticPollPerFrame); k < count; k++)
                 {
                     _staticCursor = (_staticCursor + 1) % n;
-                    EvaluateStatic(_staticSources[_staticCursor]);
+                    var src = _staticSources[_staticCursor];
+                    EvaluateStatic(src);
+                    if (MaterialSync && !src.Dead && src.Mats != null) CheckStaticSwap(src);
                 }
                 if (_deadSources > 1024 && _deadSources * 2 > _staticSources.Count) CompactSources();
             }
@@ -927,7 +943,7 @@ namespace UltraRT
             var gp = g.Parts[p];
             var c = g.Combined;
             int n = list.Count, visible = 0;
-            bool same = gp.InRtas;
+            bool same = gp.InRtas && gp.Shown != null;
             for (int i = 0; i < n; i++)
             {
                 bool v = list[i].VisibleSources > 0;
@@ -956,6 +972,22 @@ namespace UltraRT
             }
             else if (visible == n)
             {
+                if (gp.FullStale)
+                {
+                    // A slot's material was swapped: the merged mesh groups submeshes by material.
+                    if (budget <= 0) return false;
+                    budget--;
+                    try
+                    {
+                        var full = BuildGroupMesh(c, list, null, $"{c.Name} {g.Name}", out var fullMats);
+                        if (gp.Full != null && gp.Full != c.Mesh) _retired.Add((gp.Full, Time.frameCount));
+                        gp.Full = full;
+                        gp.FullMaterials = fullMats;
+                        gp.FullRecords = fullMats.Length;
+                    }
+                    catch (Exception e) { _log.LogWarning($"Group rebuild after a material swap failed for '{c.Name}' / '{g.Name}': {e.Message}"); }
+                    gp.FullStale = false;
+                }
                 mesh = gp.Full;
                 mats = gp.FullMaterials;
                 flags = AllOn(mats);

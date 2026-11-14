@@ -109,6 +109,10 @@ namespace UltraRT
             public Vector3 AddedRootPos; // diagnostics: where the root was when the instance entered the RTAS
             public int SkinBase = -1, SkinVerts, SkinGen;
             public bool SkinPrevValid;
+
+            // Runtime material changes (SceneProxies.Sync.cs): null for proxies that aren't synced (transparent, lava).
+            public SyncState Sync;
+            public int MatGen; // bumped when the proxy's materials change (EmissiveLights drops the old emitters)
         }
 
         /// <summary>Diagnostics: visible dynamic proxies whose bounds contain p (something the camera may be inside of).</summary>
@@ -440,6 +444,7 @@ namespace UltraRT
                 for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
                 var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
                 AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
+                TrackSync(_dynamic[_dynamic.Count - 1], mats, mesh);
                 if (player) NotePlayerProxy(r);
                 stats.Dynamic++;
             }
@@ -457,6 +462,7 @@ namespace UltraRT
             if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
             var proxy = CreateSkinnedProxy(r, mats);
             AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
+            TrackSync(_dynamic[_dynamic.Count - 1], mats, r.sharedMesh);
             if (player) NotePlayerProxy(r);
             stats.Skinned++;
         }
@@ -694,6 +700,9 @@ namespace UltraRT
             }
 
             PollTicks += Perf.Now - tPoll;
+            // 4) Runtime material changes: swaps, property blocks, source property edits (SceneProxies.Sync.cs).
+            SyncMaterials();
+            RetireMaterials(force);
             Perf.Add(Perf.Sec.Dynamic, td);
             long tm = Perf.Now;
             Motion.Upload(); // motion slots changed above, before this frame's trace
@@ -1002,6 +1011,14 @@ namespace UltraRT
                 m.SetFloat("_EmissiveIntensity", 1f);
             }
 
+            // Fullbright: ULTRAKILL/Master without VERTEX_LIGHTING is never lit by the game (Gabriel, screens, unlit props).
+            // Enemies keep part of the RT lighting (UnlitEnemyLitWeight), so they still sit in the scene's shadows.
+            if (FullbrightUnlit && src.shader != null && src.shader.name == "ULTRAKILL/Master" && !src.IsKeywordEnabled("VERTEX_LIGHTING"))
+                m.SetFloat("_Unlit", src.IsKeywordEnabled("ENEMY") ? 1f - Mathf.Clamp01(UnlitEnemyLitWeight) : 1f);
+            // BLOOD_FILLER (7-3's tree): the noise for the fill edge; the fill itself comes from the renderer's property block.
+            if (src.IsKeywordEnabled("BLOOD_FILLER") && src.HasProperty("_BloodNoiseTex") && Tex2D(src, "_BloodNoiseTex") is Texture noise)
+                m.SetTexture("_BloodNoiseTex", noise);
+
             // Reflection parameters (MaterialClasses.cs). Atlas proxies get theirs per slot (AtlasVariant).
             if (src.shader != null && src.shader.name.Contains("Stationary"))
             {
@@ -1019,6 +1036,7 @@ namespace UltraRT
             }
 
             _materialCache[src] = m;
+            NoteProxyMaterial(src, m); // runtime property changes (SceneProxies.Sync.cs)
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
             if (SourceSkyWall(src)) { _skyWallProxies.Add(m); m.SetFloat("_SkyWall", 1f); }
             return m;
@@ -1098,6 +1116,7 @@ namespace UltraRT
             Motion.Dispose();
             DisposeTransparents();
             DisposeLava();
+            DisposeSync();
             _dynamic.Clear();
             _active.Clear();
             _dirty.Clear();

@@ -149,6 +149,7 @@ namespace UltraRT
                 Patches.Apply(Info.Metadata.GUID);
                 Logger.LogInfo(Patches.GenericInstantiateHooked ? "Instantiate hooks installed (incl. generic Instantiate<T>)"
                     : $"Instantiate hooks installed; generic Instantiate<T> not hooked ({Patches.GenericInstantiateError}), the periodic rescan covers it");
+                Logger.LogInfo(Patches.PortalClonesHooked ? "Portal clone hook installed (PortalAwareRenderer.CreateClone)" : $"Portal clones not hooked: {Patches.PortalClonesError}");
             }
             _cmd = new CommandBuffer { name = "UltraRT" };
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
@@ -249,6 +250,10 @@ namespace UltraRT
                     case "-ultrart-refl-cache": { var v = Next(); _reflSettings.cacheShading = v == "off" ? 0 : v == "always" ? 2 : 1; break; }
                     case "-ultrart-refl-keepcube": _reflSettings.replaceGameCube = false; break;
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
+                    case "-ultrart-viewprobe": SceneProxies.ViewProbe = true; break;
+                    case "-ultrart-nomatsync": SceneProxies.MaterialSync = false; break;
+                    case "-ultrart-lit-unlit": SceneProxies.FullbrightUnlit = false; break;
+                    case "-ultrart-enemy-lit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.UnlitEnemyLitWeight); break;
                     case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
                     case "-ultrart-guard":
                         float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _guardX);
@@ -969,6 +974,11 @@ namespace UltraRT
                                $"new {_emissive.PendingTicks * 1000.0 / Stopwatch.Frequency:F1} ms, visibility {_emissive.VisibilityTicks * 1000.0 / Stopwatch.Frequency:F1} ms, transforms {_emissive.TransformTicks * 1000.0 / Stopwatch.Frequency:F1} ms; " +
                                $"{_emissive.EmitterCount} emitters, {_emissive.OwnerCount} owners; dynamic: {_proxies.DirtyEvaluations} dirty evaluations " +
                                $"({_proxies.DirtyTicks * Perf.TickMs:F1} ms), active loop {_proxies.ActiveTicks * Perf.TickMs:F1} ms over {_proxies.ActiveDynamicCount}, poll {_proxies.PollTicks * Perf.TickMs:F1} ms");
+                Logger.LogInfo($"Material sync ({Patches.PortalClones} portal clones registered so far): {_proxies.SyncSwaps} swaps, {_proxies.SyncStaticSwaps} static slot swaps, {_proxies.SyncBlockUpdates} property-block updates " +
+                               $"({_proxies.SyncHot} proxies followed), {_proxies.SyncPropertyUpdates} material property re-copies; {_proxies.SyncTicks * Perf.TickMs / _cpuFrames:F4} ms/frame " +
+                               $"(swap checks {_proxies.SyncSwapTicks * Perf.TickMs / _cpuFrames:F4}, blocks {_proxies.SyncHotTicks * Perf.TickMs / _cpuFrames:F4}, re-copies {_proxies.SyncCopyTicks * Perf.TickMs / _cpuFrames:F4}, static {_proxies.SyncStaticTicks * Perf.TickMs / _cpuFrames:F4})");
+                _proxies.SyncSwaps = _proxies.SyncStaticSwaps = _proxies.SyncBlockUpdates = _proxies.SyncPropertyUpdates = 0;
+                _proxies.SyncTicks = _proxies.SyncSwapTicks = _proxies.SyncHotTicks = _proxies.SyncCopyTicks = _proxies.SyncStaticTicks = 0;
                 if (_proxies.PlayerProxiesTotal > 0) Logger.LogInfo(_proxies.DescribePlayerModel(_camera.transform.position));
                 _proxies.DirtyEvaluations = 0; _proxies.DirtyTicks = _proxies.ActiveTicks = _proxies.PollTicks = 0;
                 _emissive.AliasBuilds = 0; _emissive.AliasTicks = 0; _emissive.ActiveUpdates = 0; _emissive.PendingTicks = _emissive.VisibilityTicks = _emissive.TransformTicks = 0;
