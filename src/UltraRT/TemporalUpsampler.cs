@@ -70,6 +70,9 @@ namespace UltraRT
         public UpsamplerSettings Settings = UpsamplerSettings.FromCommandLine();
         /// <summary>The accumulated value is not a displayed colour: keep values above 1 (DLSS RR's demodulation colour, DlssRR.cs).</summary>
         public bool Unclamped;
+        /// <summary>> 0: the input is noise-free (a texture, not lighting): no clip box; a sample on the pixel centre that differs
+        /// from the history by more than this fraction replaces it (Upsample.compute, _Params4.w).</summary>
+        public float ExactReplace;
 
         private readonly ComputeShader _shader;
         private readonly int _kernel;
@@ -192,7 +195,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdParams, new Vector4(sharp, Mathf.Max(0.1f, s.maxWeight), 0.5f / (sigmaScreen * sigmaScreen), _historyValid ? 1f : 0f));
             cmd.SetComputeVectorParam(cs, IdParams2, new Vector4(Mathf.Max(0f, s.depthTolerance), Mathf.Max(0f, s.depthToleranceAbs), Mathf.Max(0f, s.clipPadding), Mathf.Max(0, s.clipMinSamples)));
             cmd.SetComputeVectorParam(cs, IdParams3, new Vector4(Mathf.Max(0f, s.reprojTolerance), s.catmullRom ? 1f : 0f, Mathf.Max(1e-3f, s.spatialWeight), s.debugView));
-            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Max(1e-3f, s.holdMinWeight), Mathf.Clamp01(s.holdDecay), Unclamped ? 1f : 0f, 0f));
+            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Max(1e-3f, s.holdMinWeight), Mathf.Clamp01(s.holdDecay), Unclamped ? 1f : 0f, Mathf.Max(0f, ExactReplace)));
             cmd.SetComputeTextureParam(cs, k, IdColor, color);
             cmd.SetComputeTextureParam(cs, k, IdNormalDepth, normalDepth);
             cmd.SetComputeTextureParam(cs, k, IdInstanceId, instanceId);

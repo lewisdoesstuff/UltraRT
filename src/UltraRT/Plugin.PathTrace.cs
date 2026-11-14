@@ -20,7 +20,7 @@ namespace UltraRT
     public sealed class PathTraceSettings
     {
         /// <summary>Diffuse (and, on glossy pixels, specular) paths per pixel, 1-4.</summary>
-        public int paths = 2;
+        public int paths = 1;
         /// <summary>Bounce rays per path, 1-4. Every vertex but the last takes one light sample and one sky sample.</summary>
         public int bounces = 2;
         /// <summary>The last vertex reads the radiance cache (direct + all further bounces) instead of one light sample.</summary>
@@ -34,6 +34,12 @@ namespace UltraRT
         /// <summary>Path vertices past the primary hit take a direct sky sample (one more ray each, outdoors). Off: their
         /// cosine bounce finds the sky by itself, at more variance in the deeper bounces only.</summary>
         public bool skyAtVertices = false;
+        /// <summary>Path rays see water, glass and liquid blood: a Fresnel mirror reflection or a tinted pass-through. Off: they
+        /// pass through untouched, as every ray but the overlay's does in relight.</summary>
+        public bool transparents = true;
+        /// <summary>How much of a transparent surface's colour tints the light that passes through it (blood: in full, water and
+        /// glass: 0.6 of this).</summary>
+        public float transparentTint = 0.8f;
         public PathTraceDenoiser denoiser = PathTraceDenoiser.Auto;
         /// <summary>Trace scale (per axis) when DLSS RR denoises and upscales: 0.3333 = 853x480 at 1440p.</summary>
         public float scaleRR = 0.3333f;
@@ -47,7 +53,7 @@ namespace UltraRT
         /// <summary>RIS candidates at the primary hit while RR denoises and <see cref="lightsRR"/> is RIS.</summary>
         public int candidatesRR = 16;
         /// <summary>Light samples (one shadow ray each) at the primary hit while RR denoises with RIS, 1-4.</summary>
-        public int directSamplesRR = 2;
+        public int directSamplesRR = 1;
     }
 
     public partial class Plugin
@@ -130,6 +136,8 @@ namespace UltraRT
                 s.cacheTail && _radianceCache != null && _radianceCache.Active ? 1f : 0f, Mathf.Max(0f, s.roulette)));
             _cmd.SetRayTracingVectorParam(shader, "_PtParams2", new Vector4(Mathf.Max(0f, s.maxRadiance), s.specularLobes ? 1f : 0f, s.skyAtVertices ? 1f : 0f,
                 rr ? Mathf.Clamp(s.directSamplesRR, 1, 4) : 1f));
+            bool trans = s.transparents && SceneProxies.Transparents.enabled && _proxies != null && _proxies.ActiveTransparent > 0;
+            _cmd.SetRayTracingVectorParam(shader, "_PtParams3", new Vector4(trans ? 1f : 0f, Mathf.Clamp01(s.transparentTint), 0f, 0f));
             if (full && !_ptLoggedDenoiser)
             {
                 _ptLoggedDenoiser = true;

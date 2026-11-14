@@ -152,6 +152,36 @@ the fallback needs 1 path x 2 bounces to stay near 120 fps. Section 6 replaces t
 
 ## 6. Results
 
+### 6.0 Summary
+
+| Stage | Outcome |
+|---|---|
+| 0 Experiments | RR wants RIS without reuse (35-45% quieter); 1/3 scale keeps noise but loses texels; default preset is F; no "first burst" effect (6.1) |
+| 1 `pathtrace` mode | done: `RayGenPT`, energy within 0-5% of relight on the same sampler ([path-tracing.md](path-tracing.md)) |
+| 2 RR for the mode | done: RIS, remodulation, exact 3x3 jitter grid at 1/3 scale, colour and game match. 10-45% quieter than relight at rest, 4-11% noisier moving, same GPU cost, 132-195 fps at 1440p |
+| 3 Transparents in the path | done: Fresnel reflection or tinted pass-through at water / glass / blood; viewmodel, particles, volumetrics run unchanged |
+| 4 Effects pass | done for additive glows (particles, sprites, trails, lines): visible to every specular ray in relight, hybrid and pathtrace |
+| 5 Decals, lit particles, alpha-blended sprites in reflections | not done (6.2) |
+| 6 Sweep, settings, docs | done: defaults 1 path x 2 bounces x 1 light sample; the settings menu's "Path tracing" section |
+
+The cost estimate of section 5 was wrong in one way that mattered: a path segment past the primary hit costs about
+twice what the primary's does (incoherent rays, RIS candidates at every vertex), so 2 paths x 2 bounces at 1/3 scale is
+9-12 ms, not 3-4. One path with one light sample is what fits, and under RR it measures as quiet as two.
+
+### 6.2 Not done, and why
+
+- **Blood stains in reflections.** The game draws them from a compute buffer (`BloodsplatterManager.instanceBuffer`:
+  position, normal, parent index per stain, up to 100,000) into a screen buffer, then composites it over the frame
+  (`PostProcess/CompositeBlood`) after the RT image, so the camera view already has them on the ray-traced lighting.
+  Tracing them means rebuilding quads from that buffer and reproducing a shader (size, atlas cell and rotation come
+  from `Bloodstain_ProceduralInstancing`, not from the instance data) for a multiplicative term that only reflections
+  would show. The effects pass can carry it (a second accumulator for transmittance); the stain shader has to be read
+  first.
+- **Alpha-blended particles and sprites** (blood drops, dust, smoke, splashes) in reflections: they need lighting at the
+  hit (the froxel volume is camera-aligned and could be sampled) and order-dependent blending; the any-hit
+  accumulation is order-independent. Additive-only for now.
+- **Grates and fences** (queue 3000 cut-outs) still cast no shadows: they are not in the RTAS in any mode.
+
 ### 6.1 Experiments (2026-11-14, 2560x1440, RTX 5070 Ti; `bench/results/20261114-223629_pt-exp-*`)
 
 Masked burst sigma (48 frames, luma 0-255; lower is better). "RR" = `relight+plugin._rrEnabled=1`, trace scale 0.5

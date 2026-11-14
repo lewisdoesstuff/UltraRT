@@ -192,7 +192,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
         c = PayloadEmission(h) * _EmissionScale + h.albedo * lerp(1.0, LightToDisplay(hitLight), h.alpha);
     }
     // Fire, explosions, flashes and beams in front of the hit (the last segment after portals), added as the game blends them.
-    c += EffectsAlong(r.Origin, r.Direction, h.t < 0.0 ? 1.0e4 : h.t);
+    c += EffectsAlong(r.Origin, r.Direction, h.t < 0.0 ? 1.0e4 : h.t) * (glossy ? EffectLobeWeight(sqrt(0.5 * spread)) : 1.0);
     c = max(c, 0.0); // also drops NaN
     if (glossy)
     {
@@ -299,6 +299,7 @@ void RayGenBody(bool full)
     {
         float3 pos = ray.Origin + ray.Direction * p.t;
         float3 n = p.normal; // shading normal: per-texel detail where the material has it (docs/materials.md)
+        EffectCover(camRay.Origin, camRay.Direction, path.firstT >= 0.0 ? path.firstT : p.t); // UltraRTEffects.hlsl
         // The interpolated vertex normal: ray offsets and the hemisphere test, the radiance cache lookup, and in hybrid the
         // game's own lighting (the shadow ratio's denominator).
         bool detail = (p.flags & ULTRART_FLAG_DETAIL) != 0u;

@@ -169,6 +169,7 @@ namespace UltraRT
             if (_frostedCache.TryGetValue(src, out var m)) return m;
             m = new Material(TransparentProxy(src, TransparentKind.Glass)) { name = src.name + " [UltraRT frosted]" };
             m.SetFloat("_CameraSkip", 1f);
+            m.SetFloat("_Transparent", 0f); // in the scene it is a frosted, opaque surface
             _frostedCache[src] = m;
             return m;
         }
@@ -187,6 +188,7 @@ namespace UltraRT
             }
             if (src.HasProperty("_Color")) m.SetColor("_Color", src.GetColor("_Color"));
             MaterialParams.Apply(m, TransparentClassifier.Params(kind, Transparents), null);
+            m.SetFloat("_Transparent", (float)(int)kind); // pathtrace: paths reflect off it or pass through, tinted
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
             _transparentCache[src] = m;
             return m;

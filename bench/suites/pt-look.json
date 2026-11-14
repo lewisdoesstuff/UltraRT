@@ -1,0 +1,163 @@
+{
+ "Name": "pt-look",
+ "Scenarios": [
+  {
+   "Name": "warm-up",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    4
+   ]
+  },
+  {
+   "Name": "6-2 start",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/6-2-start.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "0-5 lava",
+   "Scene": "Level 0-5",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-5-approach.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    4
+   ]
+  },
+  {
+   "Name": "0-2 blood river",
+   "Scene": "Level 0-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-2-blood-river.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-3 start water",
+   "Scene": "Level 1-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-3-start-water.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "8-2 portal side 1",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-2-portal-side1.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "7-3 flashlight",
+   "Scene": "Level 7-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/7-3-flashlight.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "2-2 floor noise purple",
+   "Scene": "Level 2-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-2-2-floor-noise-purple.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-2-2-floor-noise-purple-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

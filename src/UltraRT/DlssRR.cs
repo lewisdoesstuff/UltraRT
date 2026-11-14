@@ -88,7 +88,7 @@ namespace UltraRT
         /// resolution (docs/dlss.md, "Remodulation"). Needs the Upsample compute shader; not with <see cref="OutScale"/>.</summary>
         public bool Remodulate = true;
         /// <summary>Accumulation of the demodulation colour: the best (nearest) sample of each screen pixel wins.</summary>
-        public float DemodSharpness = 30f, DemodMaxWeight = 4f, DemodClipPadding = 0.5f;
+        public float DemodSharpness = 30f, DemodMaxWeight = 4f;
 
         public RenderTexture Final => _final;
         public int State => _disposed ? -1 : _getState();
@@ -154,7 +154,7 @@ namespace UltraRT
             _kExposure = cs != null ? cs.FindKernel("ExposureInput") : -1;
             _kDemod = cs != null && cs.HasKernel("Demod") ? cs.FindKernel("Demod") : -1;
             _demodUp?.Dispose();
-            _demodUp = upsample != null ? new TemporalUpsampler(upsample) { Unclamped = true, Settings = new UpsamplerSettings() } : null;
+            _demodUp = upsample != null ? new TemporalUpsampler(upsample) { Unclamped = true, ExactReplace = 0.08f, Settings = new UpsamplerSettings() } : null;
             _historyValid = false;
         }
 
@@ -266,8 +266,6 @@ namespace UltraRT
                 var us = _demodUp.Settings;
                 us.sharpness = DemodSharpness;
                 us.maxWeight = DemodMaxWeight;
-                us.clipPadding = DemodClipPadding;
-                us.clipMinSamples = 4;
                 us.spatialWeight = 1e-3f; // only until a pixel has a sample of its own
                 _demodUp.Execute(cmd, cam, _demod, i.normalDepth, i.instanceId, i.gameDepth, i.guardPx, i.guardScale, jitter, !_historyValid, traceMap);
             }

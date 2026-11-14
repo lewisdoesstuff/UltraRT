@@ -24,6 +24,9 @@ float4 _PtParams;
 // z sky samples at path vertices (0/1; the primary hit always takes one), w light samples at the primary hit (1-4; only
 // without reservoirs, _LightSampling 1)
 float4 _PtParams2;
+// x water / glass / blood in the path (0/1): path rays see the transparent proxies (mask 0x10) and reflect off them by
+// Fresnel or pass through tinted, y how much of the surface colour tints what passes through (0-1)
+float4 _PtParams3;
 
 float PtLuma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
@@ -32,7 +35,8 @@ float PtLuma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 //              and V1's model is seen as reflection rays see it
 //   nPrev      the normal the first direction was cosine-sampled around (the sky MIS weight of a diffuse miss)
 //   firstDist  path length to the first hit (through portals); 1000 for the sky
-float3 PtPath(RayDesc r, bool specular, float3 nPrev, int bounces, inout uint rng, out float firstDist)
+//   effectW    the weight of glowing effects on the first segment when it is specular (EffectLobeWeight of its lobe)
+float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces, inout uint rng, out float firstDist)
 {
     float3 L = 0;
     float3 T = 1;
@@ -41,16 +45,18 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, int bounces, inout uint rn
     bool specLobes = _PtParams2.y > 0.5 && _ReflParams.x > 0.5;
     bool skyNee = _PtParams2.z > 0.5;
     bool skyMis = true; // the vertex this segment leaves took a direct sky sample (the primary hit always does)
+    uint surfaces = ULTRART_MASK_SCENE | (_PtParams3.x > 0.5 ? ULTRART_MASK_TRANSPARENT : 0u);
+    int crossings = 0; // transparent surfaces met so far (they don't count as bounces; at most 3 per path)
     float3 ambient = ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
     [loop] for (int b = 1; b <= bounces; b++)
     {
         RayPayload h;
         float travelled;
         TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-                   ULTRART_MASK_SCENE | PlayerRayMask(specular ? ULTRART_PLAYER_REFLECTION : ULTRART_PLAYER_BOUNCE), r, h, travelled); // r: the last segment after portals
+                   surfaces | PlayerRayMask(specular ? ULTRART_PLAYER_REFLECTION : ULTRART_PLAYER_BOUNCE), r, h, travelled); // r: the last segment after portals
         // Glowing effects in front of what a specular lobe sees (UltraRTEffects.hlsl). Cosine bounces get their light
         // from the effects' point lights instead.
-        if (specular) L += T * ToLight(EffectsAlong(r.Origin, r.Direction, h.t < 0.0 ? 1.0e4 : h.t));
+        if (specular) L += T * ToLight(EffectsAlong(r.Origin, r.Direction, h.t < 0.0 ? 1.0e4 : h.t) * effectW);
         if (h.t < 0.0)
         {
             // Sky (sky walls report a miss too). After a cosine bounce the sky was also sampled directly at the previous
@@ -59,9 +65,35 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, int bounces, inout uint rn
             else L += T * SkyLightRadiance(r.Direction) * (skyMis ? SkyMissWeight(nPrev, r.Direction) : 1.0);
             break;
         }
-        if (b == 1) firstDist = travelled + h.t;
         float3 hp = r.Origin + r.Direction * h.t;
         float3 hn = h.normal; // faces the ray; no per-texel detail on path vertices (docs/materials.md)
+        uint transparent = (h.flags >> ULTRART_FLAG_TRANSPARENT_SHIFT) & 3u;
+        if (transparent != 0u)
+        {
+            // Water, glass or liquid blood (the game draws it for the camera; here a path meets it): a mirror reflection
+            // with the Fresnel probability, else straight through, tinted by its colour. Not a bounce. After 3 of them
+            // the rest of the path ignores transparents (a ray skimming a pool could otherwise cross it for ever).
+            if (++crossings >= 3) surfaces = ULTRART_MASK_SCENE;
+            float f0 = FromUnorm8(h.material >> 16);
+            float F = f0 + (1.0 - f0) * pow(1.0 - saturate(dot(hn, -r.Direction)), 5.0);
+            if (Rand(rng) < F)
+            {
+                r.Origin = hp + hn * 0.02;
+                r.Direction = reflect(r.Direction, hn);
+                specular = true;
+                effectW = 1.0;
+            }
+            else
+            {
+                r.Origin = hp + r.Direction * 0.02;
+                T *= lerp(1.0, ToLight(h.albedo), _PtParams3.y * (transparent == 3u ? 1.0 : 0.6));
+            }
+            r.TMin = 0.0;
+            r.TMax = 1.0e4;
+            b--;
+            continue;
+        }
+        if (b == 1) firstDist = travelled + h.t;
         bool last = b == bounces;
 
         // Emitters the light sampling covers must not count again when a cosine bounce hits them.
@@ -99,6 +131,7 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, int bounces, inout uint rn
             T *= specT / pSpec;
             r.Direction = ReflectionDirection(hn, r.Direction, mat.roughness, rng);
             specular = true;
+            effectW = EffectLobeWeight(mat.roughness);
         }
         else
         {
@@ -164,7 +197,7 @@ float3 PtIndirect(float3 pos, float3 n, float3 nv, inout uint rng)
         b.TMin = 0.0;
         b.TMax = 1.0e4;
         float dist;
-        float3 L = PtPath(b, false, n, bounces, rng, dist);
+        float3 L = PtPath(b, false, n, 1.0, bounces, rng, dist);
         float l = PtLuma(L);
         if (_PtParams2.x > 0.0 && l > _PtParams2.x) L *= _PtParams2.x / l;
         sum += L;
@@ -192,7 +225,7 @@ float3 PtReflection(float3 pos, float3 nv, float3 n, float3 dir, float roughness
         r.TMin = 0.0;
         r.TMax = 1.0e4;
         float d;
-        float3 c = LightToDisplay(PtPath(r, true, n, bounces, rng, d));
+        float3 c = LightToDisplay(PtPath(r, true, n, EffectLobeWeight(roughness), bounces, rng, d));
         if (s == 0) dist = d;
         if (glossy)
         {
