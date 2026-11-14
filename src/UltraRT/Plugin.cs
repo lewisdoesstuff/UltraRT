@@ -221,6 +221,11 @@ namespace UltraRT
                     case "-ultrart-refl-keepcube": _reflSettings.replaceGameCube = false; break;
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
                     case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
+                    case "-ultrart-guard":
+                        float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _guardX);
+                        _guardY = _guardX;
+                        if (i + 1 < a.Length && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var gy)) { _guardY = gy; i++; }
+                        break;
                     case "-ultrart-motion-probe": SceneProxies.MotionProbe = true; break;
                 }
             }
@@ -648,6 +653,13 @@ namespace UltraRT
         private bool _noDepthMatch;
         private static readonly int UltraRTGameDepthId = Shader.PropertyToID("_UltraRTGameDepth");
         private static readonly int UltraRTDepthParamsId = Shader.PropertyToID("_UltraRTDepthParams");
+        private static readonly int UltraRTUVScaleId = Shader.PropertyToID("_UltraRTUVScale");
+        /// <summary>-ultrart-guard X [Y]: guard band per side as a fraction of the trace width / height (0 = off).</summary>
+        private float _guardX = 0.04f, _guardY = 0.03f;
+        /// <summary>Ctrl+F3's "previous build" and "legacy" presets turn the guard band off.</summary>
+        private bool _guardActive = true;
+        /// <summary>Traced size / visible size this frame (1 without a guard band).</summary>
+        private Vector2 _guardScale = Vector2.one;
 
         /// <summary>
         /// Copy of the game's depth at the injection point, so the composite can leave pixels alone where the game drew
@@ -672,7 +684,8 @@ namespace UltraRT
             _cmd.CopyTexture(depth, _depthCopy);
             _cmd.SetGlobalTexture(UltraRTGameDepthId, _depthCopy, RenderTextureSubElement.Depth);
             var proj = _camera.projectionMatrix;
-            _cmd.SetGlobalVector(UltraRTDepthParamsId, new Vector4(1f / proj.m00, 1f / proj.m11, 1f, 0f));
+            // The view ray of a trace uv: the trace's NDC is the screen's divided by the guard scale.
+            _cmd.SetGlobalVector(UltraRTDepthParamsId, new Vector4(_guardScale.x / proj.m00, _guardScale.y / proj.m11, 1f, 0f));
         }
         private bool _noScene, _noHook;
         private Material _skyMaterial;
@@ -737,6 +750,13 @@ namespace UltraRT
             if (resolve) _accumulate = false; // the denoiser and the reflection filter need unjittered primary rays
             int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * (pt ? _scale : 1f)));
             int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * (pt ? _scale : 1f)));
+            // Guard band (docs/denoiser.md): trace a slightly wider view than the screen, so surfaces entering the screen
+            // while turning already have denoiser/ReSTIR history and warm cache cells. The visible part keeps its pixel grid.
+            int gxPx = pt && _guardActive ? Mathf.RoundToInt(w * Mathf.Clamp(_guardX, 0f, 0.25f)) : 0;
+            int gyPx = pt && _guardActive ? Mathf.RoundToInt(h * Mathf.Clamp(_guardY, 0f, 0.25f)) : 0;
+            _guardScale = new Vector2((float)(w + 2 * gxPx) / w, (float)(h + 2 * gyPx) / h);
+            w += 2 * gxPx;
+            h += 2 * gyPx;
             EnsureTargets(w, h);
 
             var cpu = Stopwatch.StartNew();
@@ -767,7 +787,7 @@ namespace UltraRT
                 _cpuMs = 0; _cpuFrames = 0;
             }
 
-            var viewProj = _camera.projectionMatrix * _camera.worldToCameraMatrix;
+            var viewProj = Matrix4x4.Scale(new Vector3(1f / _guardScale.x, 1f / _guardScale.y, 1f)) * _camera.projectionMatrix * _camera.worldToCameraMatrix;
             if (!_accumulate || !Approximately(viewProj, _lastViewProj) || _mode != _lastMode) _accumFrames = 0;
             _lastViewProj = viewProj;
             _lastMode = _mode;
@@ -790,7 +810,7 @@ namespace UltraRT
             _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : resolve || mode >= CacheDebugModeBase ? 0 : mode);
             _cmd.SetRayTracingFloatParam(shader, "_GIStrength", _giStrength);
             _cmd.SetRayTracingFloatParam(shader, "_LightRadius", _lightRadius);
-            _relightActive = Modes[_mode].name == "relight";
+            _relightActive = Modes[_mode].name == "relight" || _relightForce;
             _cmd.SetRayTracingVectorParam(shader, "_Relight", RelightParams);
             _cmd.SetGlobalFloat("_UltraRTTonemapWhite", _relightActive ? _relightWhite : 0f);
             _cmd.SetRayTracingFloatParam(shader, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
@@ -873,6 +893,7 @@ namespace UltraRT
                 };
                 _cmd.BeginSample(SampleDenoise);
                 _gpu?.Begin(_cmd, SlotDenoise);
+                _denoiser.FrameTime = Time.unscaledDeltaTime;
                 _denoiser.Execute(_cmd, inputs, _denoised);
                 if (kind == Kind.Hybrid && _unpackHybrid != null)
                 {
@@ -888,6 +909,7 @@ namespace UltraRT
                     directInputs.radiance = _gShadowed;
                     directInputs.specular = null;
                     _denoiserDirect.Settings.debugView = DenoiserDebugView.Final;
+                    _denoiserDirect.FrameTime = Time.unscaledDeltaTime;
                     _denoiserDirect.Execute(_cmd, directInputs, _denoisedDirectOut);
                 }
                 _gpu?.End(_cmd, SlotDenoise);
@@ -898,6 +920,7 @@ namespace UltraRT
             // Composite into the camera's current target without changing render-target bindings.
             _gpu?.Begin(_cmd, SlotBlit);
             _cmd.SetGlobalTexture(UltraRTImageId, _displayed);
+            _cmd.SetGlobalVector(UltraRTUVScaleId, new Vector4(1f / _guardScale.x, 1f / _guardScale.y, 0f, 0f));
             // Hybrid: keep the game's shaded colour and apply the RT/game lighting ratio. Needs a copy of the game's
             // colour target as it is right now (opaques + sky drawn), since the composite draws into it.
             var gameTex = kind == Kind.Hybrid ? MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex : null;

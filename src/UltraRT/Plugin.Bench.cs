@@ -755,6 +755,7 @@ namespace UltraRT
                             }
                             yield return null; // CaptureScreenshot completes at the end of this frame
                         }
+                        if (sc.Burst > 0 && sr.Bursts.Count == 0) yield return RunBurst(sc, sr, outDir, path, pathT);
                         current = null; // force a fresh switch below
                     }
 
@@ -886,6 +887,7 @@ namespace UltraRT
             foreach (var sc in r.Scenarios.Where(s => s.Reached != null).OrderBy(s => s.Order))
                 sb.AppendLine($"| {sc.Order} | {sc.Name} | {sc.Reached} | {(sc.LevelLoadSeconds > 0 ? sc.LevelLoadSeconds.ToString("F1") : "-")} | " +
                               $"{sc.Load}{(sc.LoadDetail != null ? $" ({sc.LoadDetail})" : "")} | {sc.LoadSeconds:F1} | {sc.WallSeconds:F1} |");
+            SummarizeBursts(sb, r);
             return sb.ToString();
 
             string Get(Dictionary<string, float> d, string k) => d.TryGetValue(k, out var v) ? v.ToString("F3") : "-";

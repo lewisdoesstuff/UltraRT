@@ -1,0 +1,117 @@
+{
+  "Name": "noise-diag",
+  "Scenarios": [
+    {
+      "Name": "1-4 drift",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+dn.stabilize=0",
+        "hybrid+dn.stabilize=0",
+        "relight+lights=ref+dn.stabilize=0",
+        "relight+cache=off+dn.stabilize=0",
+        "relight+refl=0+dn.stabilize=0",
+        "relight+emissive=0+dn.stabilize=0",
+        "relight+plugin._lightRadius=0+dn.stabilize=0",
+        "relight+ls.historyLimit=4+dn.stabilize=0",
+        "relight+cache.historyFrames=128+dn.stabilize=0",
+        "relight+dn.alphaMin=0.03+dn.maxHistory=100+dn.stabilize=0",
+        "relight+dn.stability=0+dn.stabilize=0",
+        "hybrid+lights=ref+dn.stabilize=0",
+        "hybrid+cache=off+dn.stabilize=0",
+        "dn-lighting+relight+dn.stabilize=0",
+        "pt-direct+relight",
+        "pt-indirect+relight",
+        "relight",
+        "hybrid",
+        "relight+dn.stabilizeAlphaMin=0.1",
+        "relight+ls.historyLimit=4"
+      ]
+    },
+    {
+      "Name": "1-1 start",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-approach.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+dn.stabilize=0",
+        "hybrid+dn.stabilize=0",
+        "relight+lights=ref+dn.stabilize=0",
+        "relight+cache=off+dn.stabilize=0",
+        "relight+refl=0+dn.stabilize=0",
+        "relight+emissive=0+dn.stabilize=0",
+        "relight+plugin._lightRadius=0+dn.stabilize=0",
+        "relight+ls.historyLimit=4+dn.stabilize=0",
+        "relight+cache.historyFrames=128+dn.stabilize=0",
+        "relight+dn.alphaMin=0.03+dn.maxHistory=100+dn.stabilize=0",
+        "relight+dn.stability=0+dn.stabilize=0",
+        "hybrid+lights=ref+dn.stabilize=0",
+        "hybrid+cache=off+dn.stabilize=0",
+        "dn-lighting+relight+dn.stabilize=0",
+        "pt-direct+relight",
+        "pt-indirect+relight",
+        "relight",
+        "hybrid",
+        "relight+dn.stabilizeAlphaMin=0.1",
+        "relight+ls.historyLimit=4"
+      ]
+    },
+    {
+      "Name": "1-1 sweep",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "sweep",
+        "YawSpeed": 180,
+        "PitchAmplitude": 5,
+        "Duration": 10
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 96,
+      "BurstSettle": 60,
+      "BurstModes": [
+        "off",
+        "relight+dn.stabilize=0",
+        "relight",
+        "relight+dn.stability=0+dn.stabilize=0",
+        "relight+plugin._guardX=0.05+plugin._guardY=0.03",
+        "hybrid+dn.stabilize=0",
+        "hybrid",
+        "dn-lighting+relight+dn.stabilize=0",
+        "dn-lighting+relight",
+        "dn-lighting+relight+dn.stability=0+dn.stabilize=0",
+        "dn-lighting+relight+plugin._guardX=0.05+plugin._guardY=0.03"
+      ]
+    }
+  ]
+}

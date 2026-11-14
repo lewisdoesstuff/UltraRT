@@ -94,16 +94,24 @@ namespace UltraRT
             if (_denoiserDirect != null) _denoiserDirect.CacheChannel = DenoiserCacheChannel.None;
         }
 
-        /// <summary>Ctrl+F3: toggle the denoisers' stability features (pre-blur, 3x3 search, firefly clamp, cache seed).</summary>
+        /// <summary>Ctrl+F3: cycle the denoiser presets (DenoiserPreset): Full -> Previous (the build before the static-noise
+        /// work, also without the guard band) -> Legacy (plain SVGF) -> Full.</summary>
         private bool DenoiserStabilityHotkey()
         {
             if (!Input.GetKeyDown(KeyCode.F3) || !(Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))) return false;
             if (_denoiser == null) return true;
-            bool on = !_denoiser.Settings.stability;
-            _denoiser.Settings.stability = on;
-            if (_denoiserDirect != null) _denoiserDirect.Settings.stability = on;
-            Logger.LogInfo($"Denoiser stability: {(on ? "on" : "off (legacy)")}");
-            Toast($"Denoiser stability {(on ? "on" : "off")} (Ctrl+F3)");
+            var next = _denoiser.Settings.CurrentPreset() switch
+            {
+                DenoiserPreset.Full => DenoiserPreset.Previous,
+                DenoiserPreset.Previous => DenoiserPreset.Legacy,
+                _ => DenoiserPreset.Full,
+            };
+            _denoiser.Settings.ApplyPreset(next);
+            _denoiserDirect?.Settings.ApplyPreset(next);
+            _guardActive = next == DenoiserPreset.Full;
+            string name = next == DenoiserPreset.Full ? "full" : next == DenoiserPreset.Previous ? "previous build" : "off (legacy SVGF)";
+            Logger.LogInfo($"Denoiser stability: {name}");
+            Toast($"Denoiser stability: {name} (Ctrl+F3)");
             return true;
         }
 

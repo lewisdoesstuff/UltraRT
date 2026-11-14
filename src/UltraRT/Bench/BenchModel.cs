@@ -39,6 +39,14 @@ namespace UltraRT.Bench
         public int Rounds = 1;
         /// <summary>Path times (s) at which every mode is screenshotted (first round only).</summary>
         public List<float> Screenshots = new List<float>();
+        /// <summary>Temporal noise burst at the first screenshot time (Plugin.Burst.cs): frames captured per mode (0 = off).</summary>
+        public int Burst;
+        /// <summary>Burst: frames per block for the block-mean sigma (noise that survives averaging over this many frames).</summary>
+        public int BurstBlock = 8;
+        /// <summary>Burst: frames to hold the pose in each mode before capturing (history convergence).</summary>
+        public int BurstSettle = 120;
+        /// <summary>Burst modes ("off" first gives the mask); default Modes. "mode+key=value" applies runtime variants.</summary>
+        public List<string> BurstModes;
     }
 
     public sealed class PathSpec
@@ -118,6 +126,19 @@ namespace UltraRT.Bench
         public int Order;
         public Dictionary<string, ModeStats> Modes = new Dictionary<string, ModeStats>();
         public List<string> Screenshots = new List<string>();
+        public List<BurstStats> Bursts = new List<BurstStats>();
+    }
+
+    /// <summary>Temporal noise of a held pose in one mode (screen luma, 0-255). Masked = pixels still in "off".</summary>
+    public sealed class BurstStats
+    {
+        public string Mode;
+        public int Frames, Block, Width, Height;
+        public float Sigma, SigmaP95, SigmaBlock, SigmaBlockP95, Drift, MeanLuma;
+        /// <summary>Mean |Laplacian| of luma per frame in the left 15%, centre 40%, right 15% of the screen (noise in motion).</summary>
+        public float HfLeft, HfCenter, HfRight;
+        public float MaskedShare, SigmaMasked, SigmaP95Masked, SigmaBlockMasked, SigmaBlockP95Masked, DriftMasked, MeanLumaMasked;
+        public List<string> Images;
     }
 
     // ---------------------------------------------------------------- load validation (-ultrart-bench-validate)

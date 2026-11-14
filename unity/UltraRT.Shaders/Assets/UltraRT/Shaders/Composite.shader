@@ -26,7 +26,8 @@ Shader "UltraRT/Composite"
             Texture2D _UltraRTImage;
             Texture2D _UltraRTNormalDepth;  // w < 0: the ray hit nothing (sky) -> keep the game's own sky
             Texture2D _UltraRTGameDepth;    // copy of the game's depth buffer (raw device depth)
-            float4 _UltraRTDepthParams;     // x: 1/P00, y: 1/P11 (view ray from uv), z: enabled
+            float4 _UltraRTDepthParams;     // x: guard x / P00, y: guard y / P11 (view ray from a trace uv), z: enabled
+            float4 _UltraRTUVScale;         // xy: visible size / traced size (guard band; 0 = no guard band)
             Texture2D _UltraRTLighting;     // denoised bounce (demodulated, HDR)
             Texture2D<uint4> _UltraRTHybrid;  // packed halves: unshadowed direct rgb, shadowed direct rgb; w: lit weight unorm8 | game cubemap term rgb unorm8 << 8
             Texture2D _UltraRTDirect;         // denoised shadowed direct (second denoiser instance)
@@ -66,6 +67,9 @@ Shader "UltraRT/Composite"
             float4 frag(v2f i) : SV_Target
             {
                 float2 screenUV = i.uv;
+                // RT buffers may cover a slightly wider view than the screen (guard band): screen uv -> trace uv.
+                float2 uvScale = _UltraRTUVScale.x > 0.0 ? _UltraRTUVScale.xy : float2(1.0, 1.0);
+                float2 traceUV = (screenUV - 0.5) * uvScale + 0.5;
                 float gameViewZ = 0.0;
                 if (_UltraRTDepthParams.z > 0.5)
                 {
@@ -77,9 +81,9 @@ Shader "UltraRT/Composite"
                     uint tw, th;
                     _UltraRTNormalDepth.GetDimensions(tw, th);
                     float2 dim = float2(tw, th);
-                    float2 base = floor(i.uv * dim - 0.5);
+                    float2 base = floor(traceUV * dim - 0.5);
                     float bestErr = 1e30;
-                    float2 bestUV = i.uv;
+                    float2 bestUV = traceUV;
                     [unroll] for (int k = 0; k < 4; k++)
                     {
                         float2 texel = clamp(base + float2(k & 1, k >> 1), 0.0, dim - 1.0);
@@ -90,6 +94,7 @@ Shader "UltraRT/Composite"
                     }
                     i.uv = bestUV;
                 }
+                else i.uv = traceUV;
 
                 float rtT = _UltraRTNormalDepth.Sample(my_point_clamp_sampler, i.uv).w;
                 if (rtT < 0.0) discard;
@@ -98,7 +103,7 @@ Shader "UltraRT/Composite"
                 //  - ours closer: an object we trace but the game doesn't draw (hidden/unused renderers).
                 if (_UltraRTDepthParams.z > 0.5)
                 {
-                    float rtViewZ = RtViewZ(screenUV, rtT);
+                    float rtViewZ = RtViewZ(traceUV, rtT);
                     if (abs(gameViewZ - rtViewZ) > rtViewZ * 0.03 + 0.05) discard;
                 }
 
