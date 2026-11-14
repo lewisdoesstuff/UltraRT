@@ -89,16 +89,19 @@ namespace UltraRT
         public bool historySearch = true;
         /// <summary>Radiance cache seed weight (virtual samples at history 0, fading like the pre-blur). 0 = off.
         /// Needs <see cref="Denoiser.CacheSource"/> and a channel other than None.</summary>
-        public float cacheSeed = 1f;
+        public float cacheSeed = 4f;
         /// <summary>Cache seed consistency test: relative tolerance added to the pre-blur's own noise.</summary>
         public float cacheSeedTolerance = 0.5f;
         /// <summary>Anti-lag for changing lights: the history is shortened where the 5x5 mean of the input differs from it by
         /// more than this many standard errors plus <see cref="antilagTolerance"/> x the luminance. 0 = off.</summary>
-        public float antilag = 0f;
+        public float antilag = 3f;
         public float antilagTolerance = 0.15f;
+        /// <summary>The anti-lag never cuts the history below this many frames. At the pre-blur length (boostFrames) a changed
+        /// pixel only blends faster; lower values also put it back on the pre-blur, which follows sooner but is noisier.</summary>
+        public float antilagMinLength = 8f;
         /// <summary>A-trous step multiplier for pixels without history (disocclusions), fading out at
         /// <see cref="freshSpreadFrames"/> frames of history. 1 = off.</summary>
-        public float freshSpread = 1f;
+        public float freshSpread = 2f;
         public float freshSpreadFrames = 8f;
 
         // ---- Temporal stabilisation of the filtered output (docs/denoiser.md, "Stabilisation"). Ctrl+F3 cycles
@@ -377,7 +380,7 @@ namespace UltraRT
             cmd.SetComputeIntParam(cs, IdHistoryValid, _historyValid ? 1 : 0);
             cmd.SetComputeFloatParam(cs, IdAlphaMin, RateAlpha(s.alphaMin));
             cmd.SetComputeFloatParam(cs, IdSpatialVarFloor, Mathf.Max(0f, s.spatialVarianceFloor));
-            cmd.SetComputeVectorParam(cs, IdAntilag, new Vector4(s.stability ? Mathf.Max(0f, s.antilag) : 0f, Mathf.Max(0f, s.antilagTolerance), 0f, 0f));
+            cmd.SetComputeVectorParam(cs, IdAntilag, new Vector4(s.stability ? Mathf.Max(0f, s.antilag) : 0f, Mathf.Max(0f, s.antilagTolerance), Mathf.Max(0f, s.antilagMinLength), 0f));
             cmd.SetComputeFloatParam(cs, IdNormalTol, s.reprojNormalTolerance);
             cmd.SetComputeFloatParam(cs, IdPlaneTol, Mathf.Max(0f, s.reprojPlaneTolerance));
             cmd.SetComputeIntParam(cs, IdClampHistory, s.clampHistory ? 1 : 0);

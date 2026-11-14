@@ -35,7 +35,7 @@ namespace UltraRT
         /// <summary>Shorten the history per pixel, only where the changed lights matter (docs/light-sampling.md, "Light
         /// changes"), instead of over the whole screen. Also covers lights that change brightness or move. Falls back to the
         /// whole-screen cap when more than <see cref="LightSampling.MaxChanges"/> lights changed in one frame.</summary>
-        public bool perPixelLightChange = false;
+        public bool perPixelLightChange = true;
         /// <summary>Per-pixel shortening: share of a pixel's direct light that may be stale before its history is shortened.</summary>
         public float lightChangeTolerance = 0.1f;
         /// <summary>Per-pixel shortening also for lights that stay but change brightness or move (off: only lights that appear or
@@ -49,7 +49,7 @@ namespace UltraRT
         public float lightChangeMove = 0.05f;
         /// <summary>Extra RIS candidates (on top of <see cref="candidates"/>) for a pixel whose temporal history failed
         /// (disocclusions, the screen edge in motion). Light evaluations only, no rays.</summary>
-        public int freshCandidates = 0;
+        public int freshCandidates = 24;
         /// <summary>Extra reservoirs reused from the previous frame around the reprojected pixel (0 = temporal only).</summary>
         public int spatialSamples = 0;
         /// <summary>Radius of the spatial neighbourhood, in trace-resolution pixels.</summary>

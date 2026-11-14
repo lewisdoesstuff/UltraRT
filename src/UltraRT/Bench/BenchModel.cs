@@ -185,6 +185,8 @@ namespace UltraRT.Bench
         public int Frames, Passes, Width, Height;
         /// <summary>Captured frames left out because the game itself changed between the two passes (squared error over 4x the median).</summary>
         public int Dropped;
+        /// <summary>Share of pixels whose difference exceeded 40 luma (the game's own birds, gore): left out.</summary>
+        public float Clipped;
         public float Sigma, SigmaBlock, Offset, MaskedShare;
         public List<string> Classes = new List<string>();
         public List<float> ClassShare = new List<float>(), ClassSigma = new List<float>(), ClassEnergy = new List<float>();

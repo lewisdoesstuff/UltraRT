@@ -1,0 +1,321 @@
+{
+ "Name": "motion-final",
+ "Scenarios": [
+  {
+   "Name": "1-1 sweep 180",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "sweep",
+    "YawSpeed": 180,
+    "PitchAmplitude": 5,
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionModes": [
+    "off",
+    "relight+vol=0+preset=static",
+    "relight+vol=0",
+    "hybrid+vol=0+preset=static",
+    "hybrid+vol=0"
+   ]
+  },
+  {
+   "Name": "1-1 sweep 500",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "sweep",
+    "YawSpeed": 500,
+    "PitchAmplitude": 15,
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionModes": [
+    "off",
+    "relight+vol=0+preset=static",
+    "relight+vol=0",
+    "hybrid+vol=0+preset=static",
+    "hybrid+vol=0"
+   ]
+  },
+  {
+   "Name": "1-1 spawn flash",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 4
+   },
+   "Effects": {
+    "Kinds": [
+     "flash"
+    ],
+    "Every": 0.1,
+    "ShotDelay": 0.03
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionModes": [
+    "off",
+    "relight+vol=0+preset=static",
+    "relight+vol=0",
+    "relight+vol=0+dn.antilag=0",
+    "relight+vol=0+dn.antilagMinLength=0",
+    "relight+vol=0+ls.perPixelLightChange=0",
+    "hybrid+vol=0+preset=static",
+    "hybrid+vol=0"
+   ]
+  },
+  {
+   "Name": "1-1 spawn blast",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 4
+   },
+   "Effects": {
+    "Kinds": [
+     "blast"
+    ],
+    "Every": 0.3,
+    "Distance": 6,
+    "ShotDelay": 0.1
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionStrip": 0,
+   "MotionModes": [
+    "off",
+    "relight+vol=0+preset=static",
+    "relight+vol=0",
+    "relight+vol=0+dn.antilag=0",
+    "relight+vol=0+dn.antilagMinLength=0",
+    "relight+vol=0+ls.perPixelLightChange=0",
+    "hybrid+vol=0+preset=static",
+    "hybrid+vol=0"
+   ]
+  },
+  {
+   "Name": "1-1 spawn",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    3
+   ],
+   "Burst": 64,
+   "BurstModes": [
+    "off",
+    "relight+preset=static",
+    "relight",
+    "hybrid+preset=static",
+    "hybrid"
+   ]
+  },
+  {
+   "Name": "4-1 indoor A",
+   "Scene": "Level 4-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/4-1-approach-a.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    3
+   ],
+   "Burst": 64,
+   "BurstModes": [
+    "off",
+    "relight+preset=static",
+    "relight",
+    "hybrid+preset=static",
+    "hybrid"
+   ]
+  },
+  {
+   "Name": "4-1 indoor A flash",
+   "Scene": "Level 4-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/4-1-approach-a.json",
+    "Duration": 4
+   },
+   "Effects": {
+    "Kinds": [
+     "flash"
+    ],
+    "Every": 0.1,
+    "ShotDelay": 0.03
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionStrip": 0,
+   "MotionModes": [
+    "off",
+    "relight+vol=0+preset=static",
+    "relight+vol=0",
+    "relight+vol=0+dn.antilag=0",
+    "relight+vol=0+dn.antilagMinLength=0",
+    "relight+vol=0+ls.perPixelLightChange=0",
+    "hybrid+vol=0+preset=static",
+    "hybrid+vol=0"
+   ]
+  },
+  {
+   "Name": "4-1 indoor A sweep",
+   "Scene": "Level 4-1",
+   "Path": {
+    "Type": "sweep",
+    "Approach": "../recordings/4-1-approach-a.json",
+    "YawSpeed": 180,
+    "PitchAmplitude": 5,
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionStrip": 0,
+   "MotionModes": [
+    "off",
+    "relight+vol=0+preset=static",
+    "relight+vol=0",
+    "hybrid+vol=0+preset=static",
+    "hybrid+vol=0"
+   ]
+  },
+  {
+   "Name": "0-3 ghosts",
+   "Scene": "Level 0-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-3-ghosts.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    3
+   ],
+   "Burst": 64,
+   "BurstModes": [
+    "off",
+    "relight+preset=static",
+    "relight",
+    "hybrid+preset=static",
+    "hybrid"
+   ]
+  },
+  {
+   "Name": "0-2 run fx",
+   "Scene": "Level 0-2",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/0-2-run.json"
+   },
+   "Enemies": "none",
+   "ReplayArenas": false,
+   "Effects": {
+    "Kinds": [
+     "flash"
+    ],
+    "Every": 0.1,
+    "ShotDelay": 0.03
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    7.6,
+    16.6,
+    40.9
+   ],
+   "Motion": 96,
+   "MotionModes": [
+    "off",
+    "relight+vol=0+preset=static",
+    "relight+vol=0",
+    "relight+vol=0+dn.antilag=0",
+    "relight+vol=0+dn.antilagMinLength=0",
+    "relight+vol=0+ls.perPixelLightChange=0",
+    "hybrid+vol=0+preset=static",
+    "hybrid+vol=0"
+   ]
+  },
+  {
+   "Name": "0-2 run",
+   "Scene": "Level 0-2",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/0-2-run.json"
+   },
+   "Enemies": "active",
+   "ReplayArenas": true,
+   "Effects": {
+    "Kinds": [
+     "revolver"
+    ],
+    "Every": 0.5,
+    "ShotDelay": 0.03
+   },
+   "Modes": [
+    "off",
+    "relight+preset=full",
+    "relight+preset=static",
+    "hybrid+preset=full",
+    "hybrid+preset=static"
+   ],
+   "Screenshots": [
+    15,
+    40
+   ]
+  }
+ ]
+}

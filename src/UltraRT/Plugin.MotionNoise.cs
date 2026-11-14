@@ -167,6 +167,8 @@ namespace UltraRT
                                                 int x = bx + xx, i = y * W + x;
                                                 if ((mask != null && mask[i] != 0) || excl[i]) { rec.MaskedOut++; continue; }
                                                 float d = LumaOf(px[i]) - r[i] - off;
+                                                // Gross differences are the game's (birds, gore), not denoised lighting noise: skipped, counted.
+                                                if (Math.Abs(d) > MotionClip) { rec.Clipped++; rec.MaskedOut++; continue; }
                                                 int k = 5;
                                                 if (c != null && tw > 0)
                                                 {
@@ -214,11 +216,11 @@ namespace UltraRT
                     var sum = new double[MotionClassNames.Length];
                     var cnt = new long[MotionClassNames.Length];
                     double blockSum = 0;
-                    long blocks = 0, considered = 0, maskedOut = 0;
+                    long blocks = 0, considered = 0, maskedOut = 0, clipped = 0;
                     foreach (var x in kept)
                     {
                         for (int k = 0; k < sum.Length; k++) { sum[k] += x.Sum[k]; cnt[k] += x.Cnt[k]; }
-                        blockSum += x.BlockSum; blocks += x.Blocks; considered += x.Considered; maskedOut += x.MaskedOut;
+                        blockSum += x.BlockSum; blocks += x.Blocks; considered += x.Considered; maskedOut += x.MaskedOut; clipped += x.Clipped;
                     }
                     if (!isOff && considered > 0)
                     {
@@ -233,6 +235,7 @@ namespace UltraRT
                             Offset = offsetN > 0 ? (float)(offsetSum / offsetN) : 0f,
                             MaskedShare = (float)((double)maskedOut / Math.Max(1, considered + maskedOut)),
                             Dropped = dropped,
+                            Clipped = (float)((double)clipped / Math.Max(1, considered + clipped)),
                             Images = images,
                         };
                         for (int k = 0; k < MotionClassNames.Length; k++)
@@ -243,7 +246,7 @@ namespace UltraRT
                             ms.ClassEnergy.Add(k != 5 && all - sum[5] > 0 ? (float)(sum[k] / (all - sum[5])) : 0f);
                         }
                         sr.MotionNoise.Add(ms);
-                        Logger.LogInfo($"Motion noise '{sc.Name}' @ {t0:F1}s {spec}: sigma {ms.Sigma:F2} block4 {ms.SigmaBlock:F2} offset {ms.Offset:F2} masked {ms.MaskedShare:P0} dropped {dropped}/{recs.Count}; " +
+                        Logger.LogInfo($"Motion noise '{sc.Name}' @ {t0:F1}s {spec}: sigma {ms.Sigma:F2} block4 {ms.SigmaBlock:F2} offset {ms.Offset:F2} masked {ms.MaskedShare:P0} clipped {ms.Clipped:P2} dropped {dropped}/{recs.Count}; " +
                                        string.Join(", ", Enumerable.Range(0, MotionClassNames.Length).Select(k =>
                                            $"{MotionClassNames[k]} {ms.ClassSigma[k]:F2} ({ms.ClassShare[k]:P0} px, {ms.ClassEnergy[k]:P0} energy)")));
                     }
@@ -287,7 +290,7 @@ namespace UltraRT
             public readonly double[] Sum;
             public readonly long[] Cnt;
             public double BlockSum;
-            public long Blocks, Considered, MaskedOut;
+            public long Blocks, Considered, MaskedOut, Clipped;
             public MotionRecord(int n) { Sum = new double[n]; Cnt = new long[n]; }
             public double SurfaceMse
             {
@@ -299,6 +302,9 @@ namespace UltraRT
                 }
             }
         }
+
+        /// <summary>Per-pixel differences above this (luma) are left out of the statistics and counted as clipped.</summary>
+        private const float MotionClip = 40f;
 
         private static int LumaOf(Color32 c) => (2126 * c.r + 7152 * c.g + 722 * c.b + 5000) / 10000;
 

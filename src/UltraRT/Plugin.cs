@@ -223,6 +223,8 @@ namespace UltraRT
                     case "-ultrart-ris-m": int.TryParse(Next(), out _lightSamplingSettings.candidates); break;
                     case "-ultrart-restir-spatial": int.TryParse(Next(), out _lightSamplingSettings.spatialSamples); break;
                     case "-ultrart-restir-spatial-hybrid": int.TryParse(Next(), out _lightSamplingSettings.spatialSamplesHybrid); break;
+                    case "-ultrart-restir-fresh": int.TryParse(Next(), out _lightSamplingSettings.freshCandidates); break; // extra candidates without history
+                    case "-ultrart-restir-global-change": _lightSamplingSettings.perPixelLightChange = false; break; // old whole-screen shortening
                     case "-ultrart-noemissive": _emissiveSettings.enabled = false; break;
                     case "-ultrart-emissive-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.lightScale); break;
                     case "-ultrart-emissive-hybrid": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.hybridAdd); break;

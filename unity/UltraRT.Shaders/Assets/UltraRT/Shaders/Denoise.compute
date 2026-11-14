@@ -93,7 +93,7 @@ float4 _CacheSeed;       // x seed weight (virtual samples at history 0; 0 = off
 float4 _CacheSeedOffset; // rgb added to the cached value (terms PathTrace adds that the cache leaves out, e.g. ambient)
 uint   _DnFrame;
 float  _SpatialVarFloor; // the variance never drops below this x the 3x3 spatial variance of the input (0 = plain SVGF)
-float4 _Antilag;         // x sigma (0 = off), y relative tolerance: history shortened where the lighting changed (see Temporal)
+float4 _Antilag;         // x sigma (0 = off), y relative tolerance, z shortest history it cuts to: see Temporal
 // Shared with the a-trous passes (the pre-blur uses the same geometry weights).
 float _PhiNormal;
 float _PhiDepth;
@@ -334,7 +334,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         float se = sqrt(max(0.0, a2 / an - a1 * a1) / an);
         float lh = Luma(hColor);
         float z = abs(a1 - lh) / (_Antilag.x * se + _Antilag.y * max(lh, a1) + 1e-3);
-        if (z > 1.0) histLen = histLen / (z * z);
+        if (z > 1.0) histLen = min(histLen, max(histLen / (z * z), _Antilag.z));
     }
 
     // Anti-firefly: with enough history, a sample far above both the history and the current neighbourhood is scaled
