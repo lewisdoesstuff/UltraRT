@@ -1091,6 +1091,7 @@ namespace UltraRT
             }
             _proxies.SyncDynamic();
             _proxies.UpdateLava(); // scroll offsets of the lava proxies (SceneProxies.Lava.cs)
+            _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;
             SceneProxies.TraceMirrors = _rtMirrors;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals

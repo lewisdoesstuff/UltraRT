@@ -36,6 +36,13 @@ namespace UltraRT
         /// game's) it looked like water. <see cref="bloodAbsorb"/> absorbs what shows through toward the blood's colour
         /// (overlay pass "Absorb"); a weaker reflection keeps a glossy sheen without washing the colour out.</summary>
         public float bloodF0 = 0.06f, bloodWeight = 0.4f, bloodAbsorb = 0.9f;
+        /// <summary>Frosted transparents (0-E's ice, <see cref="TransparentClassifier.Frosted"/>): reflection weight of the
+        /// overlay. The game draws ice as a bright, fairly opaque frost; a full mirror-Fresnel reflection on top replaced
+        /// that with the reflected room and the ice read as clear glass. A rough surface gives a faint sheen.</summary>
+        public float frostedWeight = 0.25f;
+        /// <summary>-ultrart-nofrosted / bench variant trans.frosted=0: frosted transparents leave the scene (they stay a
+        /// transparent surface). Runtime switch, like LavaSettings.active.</summary>
+        public bool frosted = true;
     }
 
     /// <summary>
@@ -50,6 +57,8 @@ namespace UltraRT
         // Not surfaces: force fields, ghost curtains, plants and enemies tagged Wet, lamp shades tagged Glass.
         private static readonly Regex Excluded = new Regex(@"ForceField|Ghost|Succulent|Splash|Metal Light", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        public const string PsxWater = "psx/water";
+
         private static readonly Dictionary<Material, TransparentKind> Cache = new Dictionary<Material, TransparentKind>();
 
         public static TransparentKind Of(Material m)
@@ -62,7 +71,16 @@ namespace UltraRT
 
         private static TransparentKind Classify(Material m)
         {
-            if (m.shader == null || m.shader.name != "ULTRAKILL/Master") return TransparentKind.None;
+            if (m.shader == null) return TransparentKind.None;
+            // psx/water: the older alpha-blended water shader (_OpacScale), e.g. the museum's fountain, pools and bird baths
+            // ("Calm Water vapor"). A liquid surface; it has no _SurfaceType or keywords to check.
+            if (m.shader.name == PsxWater)
+            {
+                // 0-2's crusher-arena blood tanks ("Blood") use it too: liquid blood, like Mulch.
+                string pn = MaterialClassifier.CleanName(m);
+                return Excluded.IsMatch(pn) ? TransparentKind.None : BloodLiquidName.IsMatch(pn) ? TransparentKind.Blood : TransparentKind.Water;
+            }
+            if (m.shader.name != "ULTRAKILL/Master") return TransparentKind.None;
             if (!m.IsKeywordEnabled("TRANSPARENCY")) return TransparentKind.None;
             // 2 = alpha blend. 3 (additive) is lava, acid and light shafts: glows, not surfaces.
             if (m.HasProperty("_BlendMode") && Mathf.RoundToInt(m.GetFloat("_BlendMode")) != 2) return TransparentKind.None;
@@ -79,6 +97,13 @@ namespace UltraRT
             if (st == (int)SurfaceClass.Glass && n.StartsWith("Ice", StringComparison.OrdinalIgnoreCase)) return TransparentKind.Glass;
             return TransparentKind.None;
         }
+
+        /// <summary>Frosted, nearly opaque transparents (0-E's ice): besides the transparent proxy they are scene geometry for
+        /// every ray but the camera's, so reflections (the glass doors next to 0-E's ice), bounce and the radiance cache see
+        /// them. Clear glass and water stay invisible to those rays.</summary>
+        public static bool Frosted(Material m) =>
+            Of(m) == TransparentKind.Glass && m.HasProperty("_SurfaceType") && Mathf.RoundToInt(m.GetFloat("_SurfaceType")) == (int)SurfaceClass.Glass
+            && MaterialClassifier.CleanName(m).StartsWith("Ice", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Reflection parameters of the transparent proxy (the hit shader packs them into the payload).</summary>
         public static MaterialParams Params(TransparentKind kind, TransparentSettings s) =>
@@ -142,10 +167,10 @@ namespace UltraRT
                     overlay.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
                 }
                 if (src.HasProperty("_Color")) overlay.SetColor("_Color", src.GetColor("_Color"));
-                overlay.SetFloat("_Opacity", src.HasProperty("_Opacity") ? src.GetFloat("_Opacity") : 1f);
+                overlay.SetFloat("_Opacity", src.HasProperty("_Opacity") ? src.GetFloat("_Opacity") : src.HasProperty("_OpacScale") ? src.GetFloat("_OpacScale") : 1f);
                 overlay.SetFloat("_Kind", kind == TransparentKind.Water ? 1f : kind == TransparentKind.Blood ? 2f : 0f);
                 overlay.SetFloat("_F0", kind == TransparentKind.Water ? _settings.waterF0 : kind == TransparentKind.Blood ? _settings.bloodF0 : _settings.glassF0);
-                overlay.SetFloat("_Weight", kind == TransparentKind.Blood ? _settings.bloodWeight : 1f);
+                overlay.SetFloat("_Weight", kind == TransparentKind.Blood ? _settings.bloodWeight : TransparentClassifier.Frosted(src) ? _settings.frostedWeight : 1f);
                 overlay.SetFloat("_CullMode", src.HasProperty("_CullMode") ? src.GetFloat("_CullMode") : 2f);
                 overlay.SetFloat("_Absorb", kind == TransparentKind.Blood ? _settings.bloodAbsorb : 0f);
                 if (src.IsKeywordEnabled("LIMBO_WATER_FADE"))

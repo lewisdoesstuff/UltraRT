@@ -88,6 +88,8 @@ namespace UltraRT
             }
             else _transparentGlass++;
 
+            if (mats.Any(TransparentClassifier.Frosted)) AddFrostedScene(r, mesh, mats);
+
             if (_overlays == null && OverlayShader != null) _overlays = new TransparentOverlays(OverlayShader, Transparents);
             if (_overlays == null || !_overlays.Attach(r)) _transparentNoOverlay++;
             if (_transparentLog.Count < 40)
@@ -124,6 +126,55 @@ namespace UltraRT
 
         private int _staticWater, _staticGlass, _staticBlood;
 
+        /// <summary>
+        /// Frosted transparents (ice, <see cref="TransparentClassifier.Frosted"/>): a second proxy in the scene under
+        /// EmitterMask (0x08: camera, bounce, reflection and cache rays, no shadow rays), whose any-hit lets camera rays
+        /// through (_CameraSkip), since the game draws the surface itself. Without it the ice was missing from every RT
+        /// reflection, the glass doors next to it included.
+        /// </summary>
+        private void AddFrostedScene(MeshRenderer r, Mesh mesh, Material[] mats)
+        {
+            var flags = new RayTracingSubMeshFlags[System.Math.Max(1, mesh.subMeshCount)];
+            var proxyMats = new Material[flags.Length];
+            for (int i = 0; i < flags.Length; i++)
+            {
+                var m = i < mats.Length ? mats[i] : null;
+                bool on = m != null && TransparentClassifier.Frosted(m);
+                flags[i] = on ? RayTracingSubMeshFlags.Enabled : RayTracingSubMeshFlags.Disabled; // not ClosestHitOnly: the any-hit must run
+                proxyMats[i] = on ? FrostedProxy(m) : _disabledMaterial;
+            }
+            var proxy = CreateMeshProxy($"{r.name} (frosted) [UltraRT]", r.transform, mesh, proxyMats);
+            AddDynamic(r, proxy, flags, mask: EmitterMask, twoSided: mats.Any(m => TransparentClassifier.Frosted(m) && SourceTwoSided(m)));
+            _frostedProxies.Add(_dynamic[_dynamic.Count - 1]);
+            _transparentFrosted++;
+        }
+
+        private readonly HashSet<DynamicProxy> _frostedProxies = new HashSet<DynamicProxy>();
+        private bool _frostedOn = true;
+
+        private bool FrostedHidden(DynamicProxy d) => !Transparents.frosted && _frostedProxies.Contains(d);
+
+        /// <summary>Per traced frame, after SyncDynamic: notices the frosted switch (re-evaluated in the next SyncDynamic).</summary>
+        public void UpdateFrosted()
+        {
+            if (_frostedProxies.Count == 0 || Transparents.frosted == _frostedOn) return;
+            _frostedOn = Transparents.frosted;
+            foreach (var d in _frostedProxies) MarkDirty(d);
+        }
+
+        private int _transparentFrosted;
+
+        private Material FrostedProxy(Material src)
+        {
+            if (_frostedCache.TryGetValue(src, out var m)) return m;
+            m = new Material(TransparentProxy(src, TransparentKind.Glass)) { name = src.name + " [UltraRT frosted]" };
+            m.SetFloat("_CameraSkip", 1f);
+            _frostedCache[src] = m;
+            return m;
+        }
+
+        private readonly Dictionary<Material, Material> _frostedCache = new Dictionary<Material, Material>();
+
         private Material TransparentProxy(Material src, TransparentKind kind)
         {
             if (_transparentCache.TryGetValue(src, out var m)) return m;
@@ -147,7 +198,7 @@ namespace UltraRT
             _log.LogInfo($"Transparent surfaces: {_transparentWater} water, {_transparentBlood} blood ({string.Join(", ", _bloodMaterials)}) and {_transparentGlass} glass renderers traced (mask 0x10), " +
                          $"static-batched {_staticWater} water, {_staticBlood} blood, {_staticGlass} glass; " +
                          $"overlays {_overlays?.Count ?? 0}{(OverlayShader == null ? " (overlay shader missing)" : "")}, without overlay {_transparentNoOverlay}, " +
-                         $"skipped static-batched {_transparentStatic}");
+                         $"skipped static-batched {_transparentStatic}, frosted (ice) also in the scene {_transparentFrosted}");
             foreach (var line in _transparentLog) _log.LogInfo(line);
             _transparentLog.Clear();
         }
@@ -158,6 +209,8 @@ namespace UltraRT
             _overlays = null;
             foreach (var m in _transparentCache.Values) if (m != null) Object.Destroy(m);
             _transparentCache.Clear();
+            foreach (var m in _frostedCache.Values) if (m != null) Object.Destroy(m);
+            _frostedCache.Clear();
             _waterSources.Clear();
             ActiveTransparent = 0;
         }

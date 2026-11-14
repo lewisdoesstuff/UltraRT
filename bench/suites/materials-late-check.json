@@ -1,0 +1,277 @@
+{
+  "Name": "materials-late-check",
+  "Scenarios": [
+    {
+      "Name": "0-2 blood decals white",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-0-2-blood-decals-white.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-0-2-blood-decals-white-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "6-1 coffins",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-6-1-coffins.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-6-1-coffins-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "3-2 eye",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-eye.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-3-2-eye-areas.json"
+      },
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "0-E ice",
+      "Scene": "Level 0-E",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-0-E-ice.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-0-E-ice-areas.json"
+      },
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight",
+        "relight+trans.frosted=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "museum fountain",
+      "Scene": "CreditsMuseum2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-museum-fountain.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-museum-fountain-areas.json"
+      },
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-1 fountain",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          -6,
+          -6,
+          326
+        ],
+        "Yaw": 60,
+        "Pitch": -12,
+        "Duration": 6,
+        "Approach": "../recordings/1-1-approach.json"
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        3
+      ]
+    },
+    {
+      "Name": "1-1 fountain top",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          0,
+          -3,
+          321
+        ],
+        "Yaw": 0,
+        "Pitch": -35,
+        "Duration": 6,
+        "Approach": "../recordings/1-1-approach.json"
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        3
+      ]
+    },
+    {
+      "Name": "1-4 garden glass",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          0.3,
+          -13.5,
+          327.4
+        ],
+        "Yaw": 120,
+        "Pitch": -15,
+        "Duration": 6,
+        "Approach": "../recordings/1-4-lamps.json"
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        3
+      ]
+    },
+    {
+      "Name": "7-1 pool",
+      "Scene": "Level 7-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          75.5,
+          22,
+          522
+        ],
+        "Yaw": 0,
+        "Pitch": -15,
+        "Duration": 6,
+        "Load": "none"
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        3
+      ]
+    },
+    {
+      "Name": "7-1 underwater",
+      "Scene": "Level 7-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          80,
+          18,
+          520
+        ],
+        "Yaw": 0,
+        "Pitch": -20,
+        "Duration": 6,
+        "Load": "none"
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        3
+      ]
+    },
+    {
+      "Name": "8-2 pool",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Position": [
+          0,
+          -11.6,
+          345
+        ],
+        "Yaw": 0,
+        "Pitch": -89,
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "0-2 blood river",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-2-blood-river.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "0-5 lava",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-approach.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ]
+    }
+  ]
+}

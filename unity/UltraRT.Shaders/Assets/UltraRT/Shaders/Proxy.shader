@@ -17,6 +17,9 @@ Shader "UltraRT/Proxy"
         _BlendTex ("Blend atlas", 2D) = "white" {}
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
+        // Frosted transparents (ice) also traced as scene geometry (SceneProxies.Transparent.cs): camera rays pass through
+        // (the game draws the surface), every other ray sees it. Needs a non-opaque submesh so the any-hit runs.
+        _CameraSkip ("Camera rays pass through", Float) = 0
         // ULTRAKILL/Master without VERTEX_LIGHTING is fullbright in game: the lit weight is 1 - _Unlit (enemies: a partial
         // value, SceneProxies.UnlitEnemyLitWeight). Non-atlas only; atlas geometry carries it in the vertex colour alpha.
         _Unlit ("Unlit (0 lit, 1 fullbright)", Float) = 0
@@ -49,6 +52,10 @@ Shader "UltraRT/Proxy"
         _GameRefl ("Game reflection", Vector) = (0,0,0,0)
         _GameCube ("Game cubemap", Cube) = "" {}
         _GameReflMask ("Game reflection mask", 2D) = "white" {}
+        // 1: the game's cube is a pattern (DiamondCubemap on 3-2's big eye, Gabriel's SwordCubemap), not an environment
+        // capture: no RT reflection replaces it; every ray but hybrid primaries (whose game colour already has it) adds the
+        // game's own cube term, lit by RT lighting with _LightingContribution and as emission otherwise (MaterialClasses.cs).
+        _GameCubeLit ("Keep the game's pattern cube", Float) = 0
         // Per-texel material detail (MaterialMaps.cs, docs/materials.md): rg tangent-space normal xy (0.5 + 0.5 x; x = +u,
         // y = +v), b roughness minus the texture's mean (0.5 + 0.5 d), a 1 = texel has detail. Same layout and uv as
         // _MainTex (the scene atlas for atlas proxies). x: normal strength, y: roughness amount (atlas: both baked into
@@ -113,6 +120,7 @@ Shader "UltraRT/Proxy"
             float _AtlasMode;
             float _SkyWall;
             float _AlphaTest;
+            float _CameraSkip;
             float _Unlit;
             float _BloodFill, _BloodScale;
             Texture2D _BloodNoiseTex;
@@ -122,6 +130,7 @@ Shader "UltraRT/Proxy"
             float4 _GameRefl;
             TextureCube _GameCube;
             Texture2D _GameReflMask;
+            float _GameCubeLit;
             SamplerState my_linear_clamp_sampler;
             Texture2D _DetailTex;
             float4 _DetailParams;
@@ -347,6 +356,7 @@ Shader "UltraRT/Proxy"
             [shader("anyhit")]
             void AnyHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
             {
+                if (_CameraSkip > 0.5 && (p.flags & ULTRART_PAYLOAD_WANT_MOTION) != 0u) { IgnoreHit(); return; }
                 if (_AlphaTest < 0.5) return;
                 uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
@@ -416,6 +426,16 @@ Shader "UltraRT/Proxy"
                         : _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, 0).rgb;
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                     if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
+                }
+                // Pattern cubes (_GameCubeLit): the game's cube term C on top of the surface, game = lit k + C with C lit by
+                // lerp(1, lighting, _LightingContribution) -> albedo k + C lc (lit by RT) and C (1 - lc) as emission.
+                if (_GameCubeLit > 0.5 && _GameRefl.x > 0.5 && !wantGameCube)
+                {
+                    float cm = _GameReflMask.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0).r;
+                    float ck;
+                    float3 c = GameCubeTerm(tri, b, p0, p1, p2, (flags & 1u) != 0u, nVertex, cm, ck);
+                    albedo.rgb = albedo.rgb * ck + c * _GameRefl.z;
+                    emission += c * (1.0 - _GameRefl.z);
                 }
 
                 p.albedo = albedo.rgb;

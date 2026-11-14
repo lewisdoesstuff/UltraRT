@@ -190,6 +190,9 @@ namespace UltraRT
             // LIMBO_WALLS: the "TV sky" walls (ScreenSky/ScreenField) draw the panoramic sky by view direction through a
             // scanline mask. For RT they are sky, not surfaces: rays pass through to the sky lookup and the sun isn't blocked.
             // (They ARE traced, as "sky walls": see SkyWallMask.)
+            // Bloodstain_Fallback (queue 2999): the game's blood stains on meshes, a multiplicative (DstColor Zero) decal whose
+            // texture is white where there is no blood. Traced, it was an opaque white quad over the wall (0-2).
+            if (s.StartsWith("ULTRAKILL/Bloodstain")) return false;
             return !(s.Contains("Particles") || s.Contains("Additive") || s.Contains("Skybox") || s.Contains("Sprite") || s.Contains("Stencil") || s.StartsWith("Hidden/ProBuilder"));
         }
 
@@ -731,7 +734,7 @@ namespace UltraRT
 
         private void Evaluate(DynamicProxy d)
         {
-            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d);
+            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d) && !FrostedHidden(d);
             if (visible == d.Visible) return;
             if (visible)
             {
