@@ -14,13 +14,14 @@ namespace UltraRT
         /// <summary>Glowing effects (fire, explosions, flashes, beams) are visible to reflection rays.</summary>
         public bool enabled = true;
         /// <summary>Brightness of effects in reflections (1 = as the game draws them).</summary>
-        public float glow = 0.8f;
-        /// <summary>Lobes up to this roughness show effects in full; rougher ones fade to <see cref="roughWeight"/> at 0.6.</summary>
+        public float glow = 1f;
+        /// <summary>Optional fade on rough lobes: lobes up to this roughness show effects in full, rougher ones fade to
+        /// <see cref="roughWeight"/> at 0.6. 1 = no fade (the default: a rough lobe already spreads the reflection).</summary>
         public float smoothBelow = 0.2f;
-        public float roughWeight = 0.3f;
-        /// <summary>A pixel the game draws an effect over shows less of the effects in its own reflections: 1 - luminance of
-        /// the effect there x this (0 = off). Without it a flame in front of polished metal clips to white.</summary>
-        public float coverFade = 1.5f;
+        public float roughWeight = 1f;
+        /// <summary>Optional: a pixel the game draws an effect over shows less of the effects in its own reflections
+        /// (1 - luminance of the effect there x this; one more any-hit ray per pixel while effects are active). 0 = off.</summary>
+        public float coverFade = 0f;
         /// <summary>Most effect instances in the RTAS at once (the nearest ones win).</summary>
         public int maxInstances = 48;
         /// <summary>Effects farther from the camera than this are left out (m).</summary>

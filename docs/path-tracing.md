@@ -108,14 +108,13 @@ them: a screen next to a fire reflected an empty room (0-4's terminal). Now:
 - Tracked effects that are off are polled in turn (one in 12 per frame): most of a level's glowing effects are pooled
   fires and unlit torches. CPU 0.02-0.03 ms per frame with 200-500 tracked.
 
-- Smooth lobes (roughness up to 0.2: screens, glass, water, polished metal) show the effects in full (`fxg.glow` 0.8);
-  rougher ones fade to 0.3 of that at roughness 0.6 (`fxg.roughWeight`). The billboards face the camera, so their
-  reflection in whatever is behind a flame sits behind the flame itself: on rough metal, at full weight, that read as
-  the flame blown out to white (0-4, a fire in front of a metal wall).
-
-- A pixel the game draws an effect over shows less of the effects in its own reflections (`EffectCover`: one more
-  any-hit-only ray per pixel along the camera ray, only while effects are in the RTAS; `fxg.coverFade` 1.5). Polished
-  metal behind a flame mirrors it onto the pixels the flame itself covers, and the sum clipped to white.
+- Knobs, neutral by default: `fxg.glow` (1 = as the game draws them), `fxg.roughWeight` (fade on rough lobes, 1 = none)
+  and `fxg.coverFade` (0 = off: less of the effects in the reflections of pixels the effect itself covers, since the
+  camera-facing billboards mirror onto the pixels right behind them; costs one more any-hit ray per pixel while effects
+  are active).
+- Bench trap: `Effects` are spawned once per mode at a screenshot and pooled fires keep burning, so in one scenario
+  each later mode shows one more flame stacked on the last (the flame looked "blown out" by the reflections; it was
+  three flames). Compare effect looks with one mode per scenario, or only between the first two modes.
 
 `fxg.enabled=0` (bench), `-ultrart-noeffectgeometry`, settings menu "Fire and explosions in reflections".
 
