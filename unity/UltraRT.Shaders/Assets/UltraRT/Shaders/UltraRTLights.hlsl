@@ -144,16 +144,18 @@ float3 LightToDisplay(float3 l) { return LinearLight() ? pow(max(l, 0.0), 1.0 / 
 // it from _UltraRTPlayerRays; the radiance cache keeps 0, so its world-space cells never hold the moving player's shadow).
 // Set by each ray-generation shader, like g_ShadowRng.
 static uint g_ShadowPlayerMask;
-// V1's bounds, padded (SceneProxies.PlayerShadowBox; min > max = none). A light that ends inside them is the player's own
-// (muzzle flashes and other effect lights at the first-person gun, which sits inside the third-person model's arm): the
-// model doesn't shadow it, or every shot would cast the arm's shadow across the room.
+// V1's bounds, padded (SceneProxies.PlayerShadowBox; min > max = none). An emitter sample that ends inside them is the
+// player's own (glowing effects at the first-person gun, which sits inside the third-person model's arm): the model
+// doesn't shadow it (EmissiveVisible). Point and spot lights carry the decision in their player-light flag instead
+// (Plugin.FlagPlayerLights: lights on the player or camera, at the eye, and transient lights inside this box), so a
+// level light that happens to be near the player's head still gets V1's shadow (0-2's first room).
 float4 _UltraRTPlayerBoxMin, _UltraRTPlayerBoxMax;
+
+bool InPlayerBox(float3 e) { return all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz); }
 
 bool VisibleMasked(float3 p, float3 n, float3 dir, float dist, uint mask)
 {
-    float3 e = p + dir * dist;
-    if (g_ShadowPlayerMask != 0u && !(all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz)))
-        mask |= g_ShadowPlayerMask;
+    mask |= g_ShadowPlayerMask;
     RayDesc r;
     r.Origin = p + n * 0.02;
     r.Direction = dir;
@@ -217,8 +219,8 @@ bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
 #endif
     }
     uint mask = _FixtureShadows > 0.5 ? 0x05u : 0x01u; // fixtures (0x04) cast shadows unless disabled
-    // The player's own lights (a head-mounted flashlight, the held torch) sit inside V1's model: it never shadows them,
-    // wherever they are relative to the camera box (VisibleMasked).
+    // The player's own lights (a head-mounted flashlight, the held torch, muzzle flashes) sit inside or next to V1's
+    // model: it never shadows them (flag set by Plugin.FlagPlayerLights).
     uint playerMask = g_ShadowPlayerMask;
     if (_Lights[i * 4 + 1].w > 0.5) g_ShadowPlayerMask = 0u;
     bool vis = VisibleMasked(p, n, L, dist - min(kLightFixtureClearance, 0.5 * dist), mask);
@@ -410,7 +412,11 @@ bool EmissiveEval(uint tri, uint bary, float3 p, float3 n, out float3 L, out flo
 // Visibility of an emitter sample: the ray stops just short of the emitter, so the emitter can't shadow itself.
 bool EmissiveVisible(float3 p, float3 n, float3 L, float dist)
 {
-    return Visible(p, n, L, dist * 0.999 - 0.02);
+    uint playerMask = g_ShadowPlayerMask;
+    if (InPlayerBox(p + L * dist)) g_ShadowPlayerMask = 0u; // an emitter at the player (see _UltraRTPlayerBoxMin)
+    bool vis = Visible(p, n, L, dist * 0.999 - 0.02);
+    g_ShadowPlayerMask = playerMask;
+    return vis;
 }
 
 void SampleEmissiveTable(float u, out uint tri, out float pdf)
@@ -845,10 +851,10 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
 #ifdef ULTRART_MOVERS
         if (split && visible)
         {
-            // V1 alone, along the sample's (unjittered) direction; skipped when the light is the player's own (inside the
-            // player box, as VisibleMasked does) or the segment misses V1's bounds.
-            float3 e = pos + r.L * r.dist;
-            bool own = all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz);
+            // V1 alone, along the sample's (unjittered) direction; skipped when the light is the player's own (as
+            // SampleVisible decides: the player-light flag for lights, the player box for emitters; the 7-3 flashlight
+            // used to get V1's shadow here) or the segment misses V1's bounds.
+            bool own = (r.light & ULTRART_EMISSIVE) != 0u ? InPlayerBox(pos + r.L * r.dist) : _Lights[r.light * 4 + 1].w > 0.5;
             float3 inv = 1.0 / (abs(r.L) > 1e-8 ? r.L : (r.L >= 0.0 ? 1e-8 : -1e-8));
             float3 t0 = (_UltraRTPlayerModelMin.xyz - pos) * inv, t1 = (_UltraRTPlayerModelMax.xyz - pos) * inv;
             float a = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), max(min(t0.z, t1.z), 0.02));
