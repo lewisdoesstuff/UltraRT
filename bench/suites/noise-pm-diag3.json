@@ -7,7 +7,8 @@
       "Path": {
         "Type": "static",
         "Approach": "../recordings/3-1-noisy-room.json",
-        "Duration": 3
+        "Duration": 3,
+        "Load": "checkpoint"
       },
       "Modes": [
         "off",
@@ -49,7 +50,8 @@
         "Approach": "../recordings/3-1-noisy-room.json",
         "Duration": 3,
         "YawSpeed": 6,
-        "PitchAmplitude": 0
+        "PitchAmplitude": 0,
+        "Load": "checkpoint"
       },
       "Modes": [
         "off",
@@ -73,7 +75,8 @@
       "Path": {
         "Type": "static",
         "Approach": "../recordings/3-1-noisy-room.json",
-        "Duration": 3
+        "Duration": 3,
+        "Load": "checkpoint"
       },
       "Modes": [
         "off",
