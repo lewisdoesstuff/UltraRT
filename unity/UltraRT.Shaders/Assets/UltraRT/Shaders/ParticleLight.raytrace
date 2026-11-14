@@ -1,0 +1,115 @@
+// Particle lighting volume (docs/particles.md): the lighting at points in the air, for the game's lit transparent effects
+// (smoke, dust, blood spray, splashes; LitParticle.shader). One sample per froxel of a camera-aligned grid per frame:
+//   direct    RIS over the lights and emissive triangles (UltraRTLights.hlsl, compiled ULTRART_LIGHT_ISOTROPIC: no
+//             cosine, the point faces every light), one shadow ray: torch light, the sun through windows, muzzle flashes.
+//   indirect  one ray in a uniform direction; its hit is shaded from the radiance cache (albedo x cached lighting +
+//             emission), a miss sees the sky: bounce light, sky light, lava glow.
+// Output: linear (in the mode's lighting space) lighting units, the same units as a surface's lighting (displayed =
+// albedo x lighting), unfiltered. ParticleLight.compute accumulates it over time.
+// A separate .raytrace (PathTrace is at Unity's 8-UAV limit). UAVs: _PLRaw (+ _ReservoirCur, declared by
+// UltraRTLights.hlsl and stripped as unused).
+#pragma max_recursion_depth 1
+
+#define ULTRART_LIGHT_ISOTROPIC
+#include "UltraRTCommon.hlsl"
+
+RaytracingAccelerationStructure _Scene;
+float4   _CamPos;
+uint     _FrameIndex;
+float    _LightScale;
+float    _EmissionScale;
+
+RWTexture3D<float4> _PLRaw;
+float4x4 _PLInvViewProj;  // the camera's unjittered view-projection (GL clip space), inverted
+float4   _PLGrid;         // grid size x, y, z, unused
+float4   _PLDepth;        // x near (m), y log2(far / near), z 1 / log2(far / near), w unused
+float4   _PLCamFwd;       // xyz camera forward
+float4   _PLParams;       // x RIS candidates, y indirect scale, z max sample luminance, w 1 = indirect rays on
+float4   _PLAmbient;      // rgb flat ambient (game units, gamma), added to every sample
+
+uint Pcg(inout uint s)
+{
+    s = s * 747796405u + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+float Rand(inout uint s) { return Pcg(s) * (1.0 / 4294967296.0); }
+
+#include "UltraRTLights.hlsl"
+#include "UltraRTCache.hlsl"
+#define ULTRART_SKY_NO_NEE // sky light comes from the indirect ray's misses only
+#include "UltraRTSky.hlsl"
+
+float3 UniformSphere(float u1, float u2)
+{
+    float z = 1.0 - 2.0 * u1;
+    float r = sqrt(max(0.0, 1.0 - z * z));
+    float phi = 6.28318530718 * u2;
+    return float3(r * cos(phi), z, r * sin(phi));
+}
+
+// World position of a point in the froxel grid (continuous coordinates, cells are [i, i + 1)).
+float3 FroxelToWorld(float3 g)
+{
+    float2 ndc = g.xy / _PLGrid.xy * 2.0 - 1.0;
+    float4 farPt = mul(_PLInvViewProj, float4(ndc, 1.0, 1.0));
+    farPt.xyz /= farPt.w;
+    float3 dir = normalize(farPt.xyz - _CamPos.xyz);
+    float depth = _PLDepth.x * exp2(g.z / _PLGrid.z * _PLDepth.y); // view depth, exponential slices
+    return _CamPos.xyz + dir * (depth / max(dot(dir, _PLCamFwd.xyz), 1e-3));
+}
+
+[shader("raygeneration")]
+void ParticleLightRayGen()
+{
+    uint3 id = DispatchRaysIndex().xyz;
+    uint rng = HashU32(id.x * 73856093u ^ id.y * 19349663u ^ id.z * 83492791u ^ (_FrameIndex * 2654435761u)) | 1u;
+    g_ShadowRng = HashU32(rng ^ 0x68E31DA4u);
+    g_ShadowPlayerMask = 0u; // V1's model does not shadow the volume (it surrounds the camera)
+
+    // A random point in the froxel each frame: the temporal filter averages the whole cell.
+    float3 p = FroxelToWorld((float3)id + float3(Rand(rng), Rand(rng), Rand(rng)));
+    float3 n0 = 0; // no surface: VisibleMasked starts shadow rays at p itself
+
+    // Direct: lights and emitters (RIS), one shadow ray. Fill lights (fake bounce) are left out, as in relight.
+    float3 direct = 0;
+    Reservoir r = RisCandidates(p, n0, 0u, max((int)_PLParams.x, 1), rng);
+    float W = ReservoirW(r);
+    if (W > 0.0 && SampleVisible(r, p, n0)) direct = r.c * W * _LightScale;
+
+    // Indirect: everything else arriving from a uniform direction (the average radiance around the point).
+    float3 indirect = 0;
+    if (_PLParams.w > 0.5)
+    {
+        RayDesc ray;
+        ray.Origin = p;
+        ray.Direction = UniformSphere(Rand(rng), Rand(rng));
+        ray.TMin = 0.0;
+        ray.TMax = 1.0e4;
+        RayPayload h = (RayPayload)0;
+        h.t = -1.0;
+        TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, ray, h);
+        if (h.t < 0.0) indirect = SkyLightRadiance(ray.Direction);
+        else
+        {
+            float3 hp = ray.Origin + ray.Direction * h.t;
+            float3 total;
+            // A cell the cache has not seen counts as unlit (it fills in within frames for anything near the view).
+            if (!CacheQueryTotal(hp, h.normal, total)) total = 0;
+            indirect = ToLight(PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight)) + ToLight(h.albedo) * lerp(1.0, total, h.alpha);
+        }
+        indirect *= _PLParams.y;
+    }
+
+    float3 sum = direct + indirect + ToLight(_PLAmbient.rgb);
+    float lum = dot(sum, float3(0.2126, 0.7152, 0.0722));
+    if (lum > _PLParams.z && _PLParams.z > 0.0) sum *= _PLParams.z / lum; // firefly clamp
+    if (any(!(sum >= 0.0)) || any(isinf(sum))) sum = 0;                  // NaN / Inf guard
+    _PLRaw[id] = float4(sum, 1.0);
+}
+
+[shader("miss")]
+void Miss(inout RayPayload p : SV_RayPayload)
+{
+    p.t = -1.0;
+}

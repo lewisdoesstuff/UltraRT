@@ -330,10 +330,11 @@ namespace UltraRT
         {
             UpdateRecorder();
             UpdateEffects();
+            UpdateParticles(); // lit particles (Plugin.Particles.cs)
             MaterialsUpdate(); // Ctrl+F1, _UltraRTDetail global
             try
             {
-                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F7) && !CtrlHeld()) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
                 ExposureHotkeys(); // Ctrl+F4
                 if (Input.GetKeyDown(KeyCode.F4) && !CtrlHeld()) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
                 SkyHotkeys(); // Ctrl+F5
@@ -1045,6 +1046,7 @@ namespace UltraRT
             _cmd.EndSample(SampleTrace);
             _proxies.RecordMotionCopies(_cmd); // this frame's skinned poses become next frame's previous poses
             if (kind == Kind.PathTrace) TraceCacheDebug(mode);
+            if (pt) TraceParticleLight(kind); // lit particles' lighting volume (Plugin.Particles.cs)
 
             _displayed = _output;
             if (resolve)
@@ -1181,8 +1183,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 11;
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 12; // 11: SlotParticles (Plugin.Particles.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "particles" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

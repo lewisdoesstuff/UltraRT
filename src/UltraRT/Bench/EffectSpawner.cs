@@ -90,6 +90,30 @@ namespace UltraRT.Bench
                     if (light != null) light.enabled = true;
                     break;
                 }
+                case "blood":
+                {
+                    // A body-sized blood splatter from the game's gore pool (spray particles, drops, stains where it lands).
+                    var bsm = MonoSingleton<BloodsplatterManager>.Instance;
+                    if (bsm == null) throw new InvalidOperationException("no BloodsplatterManager");
+                    var go = bsm.GetGore(GoreType.Body);
+                    if (go == null) throw new InvalidOperationException("no gore");
+                    go.transform.position = InFront(cam, distance);
+                    go.transform.rotation = Quaternion.LookRotation(-cam.forward, Vector3.up); // spray toward the camera
+                    go.SetActive(true);
+                    // The pool activates it (and its splatter starts playing) before we move it: restart at the new place.
+                    foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true)) { ps.Clear(true); ps.Play(true); }
+                    break;
+                }
+                case "dust":
+                {
+                    // The landing dust puff (NewMovement.impactDust), on the floor ahead.
+                    var nm = MonoSingleton<NewMovement>.Instance;
+                    if (nm == null || nm.impactDust == null) throw new InvalidOperationException("no impact dust prefab");
+                    var p = InFront(cam, distance);
+                    if (Physics.Raycast(p, Vector3.down, out var floor, 10f, ~(1 << 2), QueryTriggerInteraction.Ignore)) p = floor.point;
+                    UnityEngine.Object.Instantiate(nm.impactDust, p, Quaternion.identity);
+                    break;
+                }
                 default: throw new ArgumentException("unknown effect kind");
             }
         }
