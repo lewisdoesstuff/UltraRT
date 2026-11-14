@@ -62,6 +62,21 @@ namespace UltraRT
         /// draw kept with the full history M (up to historyLimit x candidates) darkened the pixel for about 20 frames: slow,
         /// smooth boiling in penumbra-covered areas (3-1's walkway under the ribs). 0 = no cap (the old behaviour).</summary>
         public float occludedHistory = 2f;
+        /// <summary>An occluded temporal history re-tests its sample's visibility (one shadow ray, only on pixels whose history
+        /// was occluded) instead of being capped by <see cref="occludedHistory"/>: blocked again, it keeps its full M (an umbra
+        /// stays dark without forgetting the pixel's visible lights); visible, it counts with its stored W. With the cap, 8-2's
+        /// skylight room boiled: the sun is blocked on every wall but keeps winning RIS by its unshadowed weight, and every win
+        /// cut the history to 16 samples (docs/light-sampling.md, "Occluded history"). Spatial neighbours keep the cap.
+        /// Off by default: with <see cref="retestUmbra"/> it cut the skylight room's boil by 30 % but made penumbra poses
+        /// (1-4 drift, 0-1 metal, 6-2 start) boil 17-24 % more. Opt in: -ultrart-restir-retest, bench ls.occludedRetest=1.</summary>
+        public bool occludedRetest = false;
+        /// <summary>With <see cref="occludedRetest"/>: a history blocked again by the re-test carries at most this many x candidates
+        /// of M, unless <see cref="retestUmbra"/> finds it in an umbra (0 = no cap). Measured: 6 or more made 1-4's moonlit
+        /// penumbrae and 0-1 metal boil 15-25 % more.</summary>
+        public float retestCap = 2f;
+        /// <summary>With <see cref="occludedRetest"/>: a history blocked again also traces the ray to the light's centre; blocked too
+        /// (an umbra), it keeps its full M. One more ray, only on those pixels.</summary>
+        public bool retestUmbra = true;
         /// <summary>Radius of the spatial neighbourhood, in trace-resolution pixels.</summary>
         public float spatialRadius = 12f;
         /// <summary>Spatial reuse in hybrid (Bind's hybrid flag). Hybrid only uses ReSTIR's shadowed / unshadowed ratio, where
@@ -154,7 +169,10 @@ namespace UltraRT
             IdLightChangeCount = Shader.PropertyToID("_LightChangeCount"),
             IdLightChangeTolerance = Shader.PropertyToID("_LightChangeTolerance"),
             IdRestirFreshCandidates = Shader.PropertyToID("_RestirFreshCandidates"),
-            IdRestirOccludedCap = Shader.PropertyToID("_RestirOccludedCap");
+            IdRestirOccludedCap = Shader.PropertyToID("_RestirOccludedCap"),
+            IdRestirOccludedRetest = Shader.PropertyToID("_RestirOccludedRetest"),
+            IdRestirRetestCap = Shader.PropertyToID("_RestirRetestCap"),
+            IdRestirRetestUmbra = Shader.PropertyToID("_RestirRetestUmbra");
 
         public LightSampling(int maxLights)
         {
@@ -251,6 +269,9 @@ namespace UltraRT
             cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, Mathf.Max(1e-3f, s.lightChangeTolerance));
             cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, restir ? Mathf.Clamp(s.freshCandidates, 0, 64) : 0);
             cmd.SetRayTracingFloatParam(shader, IdRestirOccludedCap, s.occludedHistory > 0f ? s.occludedHistory * candidates : 1e9f);
+            cmd.SetRayTracingIntParam(shader, IdRestirOccludedRetest, restir && s.occludedRetest ? 1 : 0);
+            cmd.SetRayTracingFloatParam(shader, IdRestirRetestCap, s.retestCap > 0f ? s.retestCap * candidates : 1e9f);
+            cmd.SetRayTracingIntParam(shader, IdRestirRetestUmbra, s.retestUmbra ? 1 : 0);
 
             if (restir)
             {
@@ -288,6 +309,9 @@ namespace UltraRT
             cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, 1f);
             cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, 0);
             cmd.SetRayTracingFloatParam(shader, IdRestirOccludedCap, 1e9f);
+            cmd.SetRayTracingIntParam(shader, IdRestirOccludedRetest, 0);
+            cmd.SetRayTracingFloatParam(shader, IdRestirRetestCap, 1e9f);
+            cmd.SetRayTracingIntParam(shader, IdRestirRetestUmbra, 0);
         }
 
         private int _prevCountForShader;

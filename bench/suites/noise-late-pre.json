@@ -1,0 +1,9 @@
+{
+  "Name": "noise-late-pre",
+  "Scenarios": [
+    { "Name": "8-2 intro day", "Scene": "Level 8-2",
+      "Path": { "Type": "static", "Approach": "../recordings/late-8-2-intro-day.json", "Duration": 4, "Areas": "../recordings/late-8-2-intro-day-areas.json" },
+      "Modes": ["off", "relight"], "Screenshots": [2], "Burst": 64,
+      "BurstModes": ["off", "relight+vol=0", "relight", "relight+vol=0"] }
+  ]
+}

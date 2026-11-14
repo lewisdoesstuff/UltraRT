@@ -232,6 +232,7 @@ namespace UltraRT
                     case "-ultrart-restir-spatial": int.TryParse(Next(), out _lightSamplingSettings.spatialSamples); break;
                     case "-ultrart-restir-spatial-hybrid": int.TryParse(Next(), out _lightSamplingSettings.spatialSamplesHybrid); break;
                     case "-ultrart-restir-fresh": int.TryParse(Next(), out _lightSamplingSettings.freshCandidates); break; // extra candidates without history
+                    case "-ultrart-restir-retest": _lightSamplingSettings.occludedRetest = true; break; // re-test occluded history, full M in umbrae (docs/light-sampling.md, "Occluded history")
                     case "-ultrart-restir-pixel-change": _lightSamplingSettings.perPixelLightChange = true; break; // per-pixel light-change history (docs/light-sampling.md)
                     case "-ultrart-noemissive": _emissiveSettings.enabled = false; break;
                     case "-ultrart-emissive-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.lightScale); break;

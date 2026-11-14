@@ -98,6 +98,42 @@ Tried for 3-1 and not kept: more candidates (16: no change), a shorter history (
 ### Occluded history (penumbrae)
 With soft shadows each frame's shadow ray is one random visibility draw, and a blocked draw was stored with W = 0 and the full history M (up to `historyLimit` x `candidates` = 160): a pixel in a penumbra stayed dark for about 20 frames, then lit for as long, independently of its neighbours. `occludedHistory` (2) caps the M an occluded history carries at that many x `candidates`. Interleaved bursts (`noise-pm-final.json`, masked sigma / block sigma / mean luma): 1-4 drift (moonlit bridge) **0.36 / 0.28 / 56.8** with the cap against 1.02 / 0.95 / 54.4 without (twice each, identical), p95 1.2 against 5.3; 3-1 with eye lights unshadowed unchanged (0.07 on the walkway either way). It biases penumbrae slightly bright (+4% mean luma in 1-4 drift): occluded draws count less than lit ones. Before the eye-light change it made 3-1's walkway 25% brighter and noisier (the player light's samples were being blocked there). Bench: `ls.occludedHistory=0` (no cap).
 
+#### Umbrae: re-testing occluded history (opt-in)
+User report (2026-11-14, pose "8-2 building boil" in `bench/suites/user-1114-late.json`): the white room with a skylight in
+8-2 boiled on every wall in relight, finer at trace scale 1.0; `lights=ref` was calm. The sun shines through the skylight
+but is blocked on every wall, and RIS keeps picking it because its unshadowed weight is large. With the `occludedHistory`
+cap, each blocked sun pick cut the pixel's history to 16 samples, discarding its memory of the lamps it does see, so the
+walls' estimate kept restarting from 8-24 samples. Masked block sigma (`bench/suites/noise-late-diag.json`, vol off):
+default 0.67-0.83, `ls.occludedHistory=0` 0.31, `lights=ris` 0.28, `ls.historyLimit=4` 0.35, `lights=ref` 0.13;
+`ls.candidates=32` and `cache=off` did not help.
+
+`occludedRetest` (`-ultrart-restir-retest`, bench `ls.occludedRetest=1`): the reservoir keeps the occluded sample's
+unshadowed W and flags it (x bit 17) instead of storing W = 0. Next frame the temporal history (spatial neighbours keep
+the cap) re-traces that sample's shadow ray from the current pixel. Visible: the history counts with its W. Blocked
+again: one more ray to the light's centre (`retestUmbra`); blocked too, it is an umbra and keeps its full M, otherwise
+it is capped at `retestCap` (2) x candidates. Off, the code path is the old one (same reservoir contents, same cap).
+
+Measured (`noise-late-fix.json`, `noise-late-tune.json`, relight with vol on, masked block sigma, interleaved, before ->
+after), RTX 5070 Ti, 2560x1440, scale 0.5:
+
+| Pose | cap (default) | re-test, cap 2 + umbra |
+|---|---|---|
+| 8-2 building boil | 0.64 | 0.43-0.46 |
+| 2-2 floor noise purple | 0.39-0.40 | 0.36 (mean luma -1 %) |
+| 1-4 drift (moonlit penumbrae) | 0.21 | 0.26 |
+| 0-1 metal | 0.41-0.42 | 0.49 |
+| 6-2 start | 0.34 | 0.40 |
+| hybrid (0-1, 6-2) | 0.30 / 0.24 | 0.31 / 0.25 |
+
+Variants tried: a 3-bit "occluded N frames in a row" streak (no gain: the room's pixels alternate between a visible lamp
+sample and the blocked sun, so the streak keeps resetting); a centre ray on the final sample only (room 0.40 with vol off,
+1-4 drift 0.22 -> 0.32); re-test with no cap (room 0.36-0.38, 1-4 drift 0.45, 0-1 metal 0.65: a blocked re-test with the
+full M lingers dark in penumbrae, as before the cap); re-test with caps 2 / 6 (room 0.51 / 0.37-0.42, 1-4 drift
+0.21 / 0.26-0.28, 0-1 metal 0.38 / 0.51). Every variant that calms the room makes the penumbra poses boil 15-25 % more,
+so it stays off by default. Cost when on: one shadow ray on pixels whose temporal history was occluded, plus one for
+those blocked again (not measured: the visual runs shared the GPU with other games). A real fix probably needs a
+per-pixel visibility estimate (a filtered shadow ratio) instead of one binary draw per history.
+
 ### Moving occluders
 A reservoir that was occluded last frame keeps its M with W = 0 (visibility reuse, above), so when an occluder moves away the pixel stays dark for up to `historyLimit` frames of M: a walking player or enemy left a trail behind its shadow. `SceneProxies.CollectMovers` (`SceneProxies.Movers.cs`) uploads every frame up to 8 boxes of dynamic objects that moved in the last 3 frames (V1's model first, then the nearest moving enemies and props within 60 m, at most 16 m in size), each the union of this frame's and last frame's bounds (`_UltraRTMovers`, `_UltraRTMoverCount`; PathTrace only, `ULTRART_MOVERS`). In `RestirMerge`, a history sample whose shadow segment crosses a box is re-weighted to at most `candidates` of M, and dropped when it was occluded. The final sample's crossing is flagged in `_Radiance.a` (+2) for the denoiser (docs/denoiser.md, "Moving shadows"). Bench: `plugin._movers=0` (also `plugin._moverOthers=0`: the player only).
 
