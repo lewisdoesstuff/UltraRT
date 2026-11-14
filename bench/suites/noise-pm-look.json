@@ -1,0 +1,142 @@
+{
+  "Name": "noise-pm-look",
+  "Scenarios": [
+    {
+      "Name": "7-3 tree a",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-3-tree-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.darkFog=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "7-3 tree b",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-3-tree-b.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.darkFog=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-4 drift",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.darkFog=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.darkFog=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "3-1 noisy room",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/3-1-noisy-room.json",
+        "Duration": 3,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.darkFog=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.darkFog=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "8-2 a",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.darkFog=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "4-1 indoor A",
+      "Scene": "Level 4-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/4-1-approach-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.darkFog=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    }
+  ]
+}

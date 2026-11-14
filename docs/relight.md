@@ -87,7 +87,30 @@ So auto exposure also meters **the game's own frame**: `BindGameMatch` (Plugin.E
 
 Mean screen luma, game / relight before / relight now (game match and the haze rebalance of docs/volumetrics.md "Balance"; HUD and viewmodel left out; `bench/suites/exposure-pm2.json`, `exposure-pm3.json`):
 
-RESULTS_EXPOSURE
+| Pose | game | before | now | before / game | now / game |
+|---|---|---|---|---|---|
+| 0-2 blood river | 34.7 | 53.3 | 50.7 | 1.54 | 1.46 |
+| 0-2 door red metal | 27.3 | 29.3 | 28.3 | 1.07 | 1.04 |
+| 1-3 start water | 78.0 | 88.2 | 86.8 | 1.13 | 1.11 |
+| 3-1 noisy room (checkpoint) | 19.3 | 24.5 | 21.2 | 1.27 | 1.10 |
+| 4-4 v2 chair (checkpoint) | 36.7 | 75.9 | 60.9 | 2.07 | 1.66 |
+| 6-2 gabriel wings | 15.0 | 29.3 | 25.0 | 1.95 | 1.67 |
+| 6-2 start | 11.0 | 28.6 | 21.6 | 2.60 | 1.96 |
+| 8-2 a | 61.4 | 34.9 | 46.6 | 0.57 | 0.76 |
+| 8-2 b | 26.9 | 50.5 | 44.4 | 1.88 | 1.65 |
+| 8-2 c | 92.3 | 73.4 | 82.2 | 0.80 | 0.89 |
+| 8-2 portal side 1 | 56.8 | 95.2 | 83.7 | 1.68 | 1.47 |
+| 1-1 start | 181.1 | 182.4 | 180.7 | 1.01 | 1.00 |
+| 1-1 indoor a (torches) | 50.5 | 87.9 | 81.5 | 1.74 | 1.61 |
+| 1-4 lamps | 23.4 | 31.2 | 27.9 | 1.33 | 1.19 |
+| 1-4 drift | 34.0 | 53.5 | 43.8 | 1.57 | 1.29 |
+| 4-1 indoor A | 13.9 | 49.4 | 36.5 | 3.55 | 2.63 |
+| 7-3 flashlight | 21.9 | 28.6 | 27.3 | 1.31 | 1.25 |
+| 7-3 tree a | 7.1 | 100.8 | 11.5 | 14.20 | 1.62 |
+| 7-3 tree b | 16.2 | 58.9 | 31.9 | 3.64 | 1.97 |
+| P-2 vent smoke | 18.8 | 21.8 | 16.0 | 1.16 | 0.85 |
+
+"Before" is the same build with `ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0` (and, for 7-3 and 1-4, `vol.darkFog=0`), measured in the same run. Torch rooms, 6-2's start and 1-4's lamps keep their RT look and stay brighter than the game (1.2x to 2x), just less so; 8-2's alley comes up from 0.55x to 0.73-0.76x; 4-1's green corridor (light reference, docs "Light reference distance") is still the brightest departure.
 
 ### Flicker
 `-ultrart-ae-max 0.5` (with the old full brightening) measured as flicker on 1-4 drift (masked burst sigma 0.97 vs 0.26).

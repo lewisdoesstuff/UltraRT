@@ -11,7 +11,7 @@
       "Enemies": "active",
       "Modes": [
         "relight",
-        "relight+plugin._playerSplit=0+plugin._movers=0+ls.portalImportance=0+plugin._eyeLightsUnshadowed=0+plugin._vmHistorySearch=0+plugin._vmFastSigma=0+plugin._vmCandidates=0+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+        "relight+plugin._playerSplit=0+plugin._movers=0+ls.portalImportance=0+plugin._eyeLightsUnshadowed=0+plugin._vmHistorySearch=0+plugin._vmFastSigma=0+plugin._vmCandidates=0+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0+vol.darkFog=0+ls.occludedHistory=0"
       ],
       "Segment": 0.5
     },
@@ -25,7 +25,7 @@
       },
       "Modes": [
         "relight",
-        "relight+plugin._playerSplit=0+plugin._movers=0+ls.portalImportance=0+plugin._eyeLightsUnshadowed=0+plugin._vmHistorySearch=0+plugin._vmFastSigma=0+plugin._vmCandidates=0+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+        "relight+plugin._playerSplit=0+plugin._movers=0+ls.portalImportance=0+plugin._eyeLightsUnshadowed=0+plugin._vmHistorySearch=0+plugin._vmFastSigma=0+plugin._vmCandidates=0+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0+vol.darkFog=0+ls.occludedHistory=0"
       ],
       "Segment": 0.5
     },
@@ -40,7 +40,7 @@
       },
       "Modes": [
         "relight",
-        "relight+plugin._playerSplit=0+plugin._movers=0+ls.portalImportance=0+plugin._eyeLightsUnshadowed=0+plugin._vmHistorySearch=0+plugin._vmFastSigma=0+plugin._vmCandidates=0+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+        "relight+plugin._playerSplit=0+plugin._movers=0+ls.portalImportance=0+plugin._eyeLightsUnshadowed=0+plugin._vmHistorySearch=0+plugin._vmFastSigma=0+plugin._vmCandidates=0+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0+vol.darkFog=0+ls.occludedHistory=0"
       ],
       "Segment": 0.5
     }
