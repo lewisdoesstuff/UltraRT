@@ -8,6 +8,7 @@
 #include "UltraRTCommon.hlsl"
 
 RaytracingAccelerationStructure _Scene;
+#include "UltraRTPortals.hlsl" // TraceScene: rays follow portals (docs/portals.md)
 float4x4 _InvViewProj;
 float4   _CamPos;
 uint     _FrameIndex;
@@ -68,9 +69,8 @@ bool TracePrimary(float2 pixel, float2 dim, out RayDesc ray, out RayPayload p)
     ray.Direction = normalize(farPt.xyz - _CamPos.xyz);
     ray.TMin = 0.0;
     ray.TMax = 1.0e5;
-    p = (RayPayload)0;
-    p.t = -1.0;
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, ray, p);
+    float travelled;
+    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, ray, p, travelled); // ray: the last segment after portals
     return p.t >= 0.0;
 }
 
@@ -134,9 +134,9 @@ void UpdateRayGen()
         br.Direction = CosineHemisphere(n, Rand(rng), Rand(rng));
         br.TMin = 0.0;
         br.TMax = 1.0e4;
-        RayPayload h = (RayPayload)0;
-        h.t = -1.0;
-        TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, br, h);
+        RayPayload h;
+        float travelled;
+        TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, br, h, travelled); // br: the last segment after portals
         if (h.t < 0.0)
         {
             a[v] = SkyLightRadiance(br.Direction) * SkyMissWeight(n, br.Direction);

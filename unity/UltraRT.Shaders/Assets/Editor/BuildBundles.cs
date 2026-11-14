@@ -40,6 +40,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/Exposure.compute",
                     "Assets/UltraRT/Shaders/MotionCopy.compute",
                     "Assets/UltraRT/Shaders/PathTrace.raytrace",
+                    "Assets/UltraRT/Shaders/Portal.shader",
                     "Assets/UltraRT/Shaders/Proxy.shader",
                     "Assets/UltraRT/Shaders/Reflections.compute",
                     "Assets/UltraRT/Shaders/TransparentOverlay.shader",

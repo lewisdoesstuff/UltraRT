@@ -1,0 +1,13 @@
+{
+    "Name": "portals",
+    "Scenarios": [
+        { "Name": "8-3 portals", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Yaw": 631.03, "Pitch": -4.38, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 8 },
+          "Modes": ["off", "hybrid+plugin._portals=0", "hybrid", "relight+plugin._portals=0", "relight", "pt-dn+plugin._portals=0", "pt-dn", "hybrid+plugin._compositeDebug=5"], "Screenshots": [2] },
+        { "Name": "8-3 portals sweep", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "sweep", "Yaw": 631.03, "Pitch": -4.38, "Duration": 10, "YawSpeed": 90, "PitchAmplitude": 15, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2 },
+          "Modes": ["off", "hybrid+plugin._portals=0", "hybrid", "relight+plugin._portals=0", "relight"], "Screenshots": [2.5, 5] },
+        { "Name": "8-3 mirror", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Position": [-13.5, 26.0, 465.0], "Yaw": 270, "Pitch": 0, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 6 },
+          "Modes": ["off", "hybrid+plugin._portals=0", "hybrid", "relight+plugin._portals=0", "relight", "hybrid+plugin._compositeDebug=5"], "Screenshots": [2] },
+        { "Name": "8-3 b", "Scene": "Level 8-3", "Path": { "Type": "static", "Approach": "../recordings/8-3-b.json", "Duration": 6 },
+          "Modes": ["off", "hybrid+plugin._portals=0", "hybrid", "relight+plugin._portals=0", "relight", "hybrid+plugin._compositeDebug=5"], "Screenshots": [2] }
+    ]
+}
