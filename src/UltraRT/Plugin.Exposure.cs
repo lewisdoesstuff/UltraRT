@@ -95,7 +95,11 @@ namespace UltraRT
             {
                 // The kernel declares these in every mode, so they are always bound.
                 var buffer = _autoExposure != null ? _autoExposure.ExposureBuffer : null;
-                if (buffer != null) AutoExposure.BindComposite(_cmd, _denoiseShader, _denoiseCompositeKernel, buffer, _gHybrid);
+                if (buffer != null)
+                {
+                    AutoExposure.BindComposite(_cmd, _denoiseShader, _denoiseCompositeKernel, buffer, _gHybrid);
+                    _cmd.SetGlobalBuffer("_UltraRTExposureGlobal", buffer); // the water/glass overlay (TransparentOverlay.shader)
+                }
                 else ae = false;
             }
             _cmd.SetGlobalFloat(UltraRTAutoExposureId, ae ? 1f : 0f);

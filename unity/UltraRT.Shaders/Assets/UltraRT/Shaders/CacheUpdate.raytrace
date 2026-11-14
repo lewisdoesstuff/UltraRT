@@ -82,7 +82,7 @@ bool TracePrimary(float2 pixel, float2 dim, out RayDesc ray, out RayPayload p)
     ray.TMax = 1.0e5;
     p = (RayPayload)0;
     p.t = -1.0;
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, ray, p);
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, ray, p);
     return p.t >= 0.0;
 }
 
@@ -148,7 +148,7 @@ void UpdateRayGen()
         br.TMax = 1.0e4;
         RayPayload h = (RayPayload)0;
         h.t = -1.0;
-        TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, br, h);
+        TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, br, h);
         if (h.t < 0.0)
         {
             a[v] = SkyRadiance(br.Direction);

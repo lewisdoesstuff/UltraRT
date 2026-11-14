@@ -31,7 +31,7 @@ void RayGen()
 
     RayPayload p = (RayPayload)0;
     p.t = -1.0;
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, ray, p);
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, ray, p);
 
     float3 c;
     if (p.t < 0.0)

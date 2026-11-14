@@ -2,7 +2,7 @@
 
 Glossy, metal and ULTRAKILL `REFLECTION` surfaces trace one reflection ray per pixel. The result is filtered and then composited in all three paths (`pt`, `pt-dn`, `hybrid`). Rough surfaces trace nothing, so the cost follows how much of the screen is glossy, and specular weights stay low so the flat PSX look survives.
 
-Real mirrors (layer-8 `Portal` objects with `mirror == true`) are **out of scope**; they belong to the portal work.
+Real mirrors (layer-8 `Portal` objects with `mirror == true`) are **out of scope**; they belong to the portal work. Transparent water and glass have their own pass (section 12).
 
 Files:
 - `src/UltraRT/MaterialClasses.cs`: classification rules, the class table and the JSON overrides.
@@ -27,7 +27,7 @@ Files:
    - RS = 0 (most 7-S materials) falls through to the other rules.
 3. **Name allow-list.**
    - `Mirror`, `FerrymanMirror`, `MirrorTexture`, `GlassReflective`: class `Mirror`, roughness 0. Without the keyword (the two plain-texture fake mirrors) they also get `blend` with strength 0.6, which is a guess; override it if it looks wrong.
-   - Water (`Water 10A`, `Limbo Water …`, `M_7S_Water`, `M_WaterUps`, but not signs like `WaterControl1`): roughness 0.
+   - Water (`Water 10A`, `Limbo Water …`, `M_7S_Water`, `M_WaterUps`, but not signs like `WaterControl1`): roughness 0. This only reaches opaque water: the transparent water materials are traced by the water/glass pass (section 12).
    - A Master water material without the keyword: `specular`, f0 0.02, weight 1, so it reflects at grazing angles through Fresnel.
 4. **Unlit Master** (no `VERTEX_LIGHTING`, 226 materials: screens, signs, sky props): none.
 5. **`_SurfaceType` table.** With `VERTEX_BLENDING`, `_SecondarySurfaceType` becomes the secondary set. The hit shader selects it where vertex colour r < 0.5; on atlas geometry it uses the blend weight `|normal.w| − 1` instead (unverified equivalence).
@@ -333,3 +333,66 @@ Together about 0.05–0.15 ms. The resolve runs even with reflections off (about
   - `Reflection material variants` (record growth);
   - no `DispatchRays` failure: "mismatching output texture dimension" means a UAV problem.
 - **Tuning**: run with `-ultrart-matdump` and look at `BepInEx/ultrart/material-classes-<scene>.tsv`.
+
+## 12. Water and glass
+
+ULTRAKILL's water and glass are `ULTRAKILL/Master` materials with the `TRANSPARENCY` keyword: alpha blended (`_BlendMode` 2), in the transparent queue (3000; two glass variants use 2999/3001), almost all without depth writes. They were never in the RTAS (`Traceable` rejects queue ≥ 3000; the two 2999 glass materials were traced as opaque cutouts and cast RT shadows). Now they are traced, but only by a dedicated pass, and composited by an extra material drawn right after the game's own.
+
+### Survey (offline, UnityPy over `materials.bundle` and the level bundles; renderer counts per level, active or not)
+
+| Kind | Materials | Where (renderers) |
+|---|---|---|
+| Water | `Limbo Water*` (LIMBO_WATER_FADE, SCROLLING), `Water`, `Water 2`-`9`, `Water 3 Calm`, `Water 10A`-`D` and `1C` (REFLECTION cube, RAIN), `Sea water`, `Water GMod*`, `Slow Flowing Water`; most with VERTEX_DISPLACEMENT waves | 1-1 (7), 1-2 (20), 1-3 (55), 1-4 (7), 2-1 (6), 2-2 (23), 2-3 (21), 2-4 (47), 3-1 (12), 4-x (1-3), 5-1 (18), 5-3 (14), 6-1/6-2 (7/9), 7-1 (13), 7-2 (17), 7-3 (18), 8-1 (11), 8-2 (4, `Water 10A-D`), 8-3 (11) |
+| Glass | `Glass` (breakable panes, the most common), `GlassUnbreakable*`, `GlassNoCull`, `GlassLighter`, `StainedGlass1A 10-18` (coloured windows), `StainedGlassBigTransparent`, `Ice*` | 0-1 (49), 0-2 (28), 0-3 (22), 0-4 (29), 1-2 (48), 1-3 (148), 1-4 (25), 2-2 (179), 2-3 (16), 4-2 (76), 5-1 (40), 5-2 (64), 5-3 (84), 7-2 (37), 7-4 (10), 8-1 (98), 8-2 (218), 8-3 (285), 8-4 (21) |
+| Not water/glass | lava and acid (`_BlendMode` 3, additive, `Lava` writes depth), waterfalls and light shafts (DISTANCE_FADE), `WaterForceField`, ghost curtains, `Puppet` (ENEMY), `Succulent_*`, `Metal Light 21`; opaque look-alikes (`Lava Opaque`, `Water Fake`, `GlassFake`, `StainedGlassBlue/Red/Big`, `BloodPool`) are already traced as opaque | |
+
+Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy). Blood decals are particles/sprites.
+
+### Pipeline
+
+1. **Classification** (`TransparentSurfaces.cs`, `TransparentClassifier.Of`): Master + `TRANSPARENCY` + `_BlendMode` 2, not DISTANCE_FADE/LIMBO_WALLS/ENEMY, not excluded names; water = `Water`/`Sea` name with SurfaceType Wet (or plain `Water`), glass = `*Glass*` or `Ice*`. `Traceable` now rejects these, so they never enter the opaque scene.
+2. **Proxies** (`SceneProxies.Transparent.cs`): a second dynamic proxy per renderer with only its water/glass submeshes, instance mask `TransparentMask` 0x10, material class Wet (water) or Glass, roughness 0. Static-batched transparents are skipped (none in the survey). Every other ray now uses `ULTRART_MASK_SCENE` (0xEF), so water and glass still neither block light nor appear in the G-buffer. Emissive-light collection skips them.
+3. **Trace** (`PathTrace.raytrace`, `TraceTransparent`, at the end of `RayGen`): in hybrid and denoised modes, only while a transparent instance is active (`_TransParams.y`), the primary pixel also traces a ray with mask 0x10 and `TMax` = the opaque hit. At the water/glass hit it traces one mirror reflection ray (`TraceReflection`, mask 0xEF) about the rippled normal, shaded from the radiance cache (`cacheSpread` forces the cache path: no shadow-ray noise, since there is no temporal filter here). It writes `_Output` = (radiance, distance to the surface; < 0 none) instead of the composited colour, which those modes never read. So there is no new UAV, no new binding and no second `DispatchRays`. A first version used a second ray generation shader; its dispatch rebuilt the shader table and cost +0.2–0.3 ms of frame time beyond the GPU-timed work. Nothing is traced while the camera is inside a water renderer's bounds (see the overlay).
+4. **Ripples** (`UltraRTWater.hlsl`): four directional sines in the surface plane, deep-water dispersion (slowed), slope scale `-ultrart-water-waves`, fading out by 60 m. The same function runs in the ray generation shader and in the overlay, so reflection direction and Fresnel agree.
+5. **Overlay** (`TransparentOverlay.shader`, `TransparentOverlays`): appended as an extra material to each water/glass renderer (Unity draws the last submesh again with it), with the source material's render queue, so it draws right after the game's surface and before any particle in front of it. This is why it is not a camera command buffer: at `AfterForwardAlpha` everything transparent is already drawn (and PostProcessV2_Handler strips that event's buffers on reinit). Three passes, `ZTest LEqual`, no depth writes:
+   - `RefractAdd`/`RefractSub` (water): screen-space refraction. The game produced `W a + B (1 - a)`; the overlay adds `(1 - a)(B(uv') - B(uv))` (signed, hence two blended passes), where `B` = `_UltraRTPreAlpha` (a copy of the colour target taken right after the RT composite, before transparents) and `uv'` follows the rippled refraction offset scaled by the depth below the surface (`_UltraRTGameDepth`). Offsets that land on something in front of the water are rejected. `a` is estimated from the source's texture alpha × `_Color.a` × `_Opacity`.
+   - `Reflect`: `dst (1 - w) + w R` with `w` = Schlick Fresnel (f0 0.12 water, 0.08 glass, see below) at the rippled normal × strength, fog visibility, capped at 0.85. `R` is bilinear over the 2×2 trace texels whose transparent hit matches this fragment's distance, tone mapped like relight's composite when relight is on.
+   - Water seen from below (camera inside a water renderer's bounds, or under a horizontal surface) is left to the game's own underwater look: a mirror there would need total internal reflection.
+   Original material lists are restored when the RT scene is disposed. Nothing is drawn (all passes discard) unless the plugin traced this frame for this camera (`_UltraRTTransOn`, camera position match), so F7, debug modes and other cameras are unaffected.
+
+### Settings
+
+| Flag | Default |
+|---|---|
+| `-ultrart-notransparent` | on (F4 also switches the pass) |
+| `-ultrart-transparent-strength X` (Fresnel weight multiplier) | 1 |
+| `-ultrart-water-waves X` (ripple slope scale, 0 = flat mirror) | 1 |
+| `-ultrart-water-refraction X` (0 = off, skips the colour copy) | 1 |
+
+F0 is 0.12 (water) and 0.08 (glass), above the physical 0.02/0.04: the game's water and glass textures are bright and fairly opaque, and at physical strength the reflection only showed at grazing angles. GPU timer slot `prealpha`: the colour copy. The trace itself is part of `dispatch`.
+
+### Validation and cost
+
+`bench/suites/water-glass.json` (1-1 fountain from two poses, 1-4 garden glass planter, 7-1 dark pool, 7-1 under water). Run it twice for before/after: `-Extra '-ultrart-notransparent'`, then default. RTX 5070 Ti, 1920×1080, trace scale 0.5, GPU timer:
+
+| Pose | Mode | dispatch ms (before → after) | GPU total ms | prealpha copy |
+|---|---|---|---|---|
+| 1-1 fountain | hybrid / relight | 0.978 → 1.014 / 0.972 → 1.009 | 1.717 → 1.765 / 1.495 → 1.545 | 0.010 |
+| 1-1 fountain top | hybrid / relight | 0.965 → 0.989 / 0.960 → 0.980 | 1.702 → 1.766 / 1.487 → 1.519 | 0.010 |
+| 1-4 garden glass | hybrid / relight | 0.838 → 0.855 / 0.838 → 0.863 | 1.481 → 1.474 / 1.257 → 1.292 | 0.010 |
+| 7-1 pool (water fills the lower half of the screen) | hybrid / relight | 0.905 → 0.993 / 0.867 → 0.978 | 1.855 → 1.865 / 1.491 → 1.608 | 0.010 |
+| 7-1 under water (nothing traced) | hybrid / relight | 0.871 → 1.269 / 0.860 → 1.248 | 1.720 → 2.129 / 1.479 → 1.862 | 0 |
+
+So about +0.02–0.1 ms where water or glass is on screen, plus 0.01 ms for the copy; frame times are within run-to-run noise. The short suite is unchanged (1-1 pose hybrid GPU total 0.486 → 0.481 ms, doors run 1.922 → 1.984 ms, within noise). The under-water row is the exception, see below. Overlay raster cost is three extra draws per visible water/glass renderer; they discard early when nothing applies.
+
+### Limits
+
+- **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.
+- **Static-batched transparents are skipped**: 4-2 has 54 batched glass renderers, 2-1/2-4/7-1 a few. They would need StaticGroups support.
+- **No temporal filter**: one ray per trace texel. Reflection hits are shaded from the radiance cache, so they are smooth. Where a cache cell is missing, the hit falls back to `DirectOne` and shows speckle; ripples hide most of it.
+- **Game geometry vs. RT mesh**: VERTEX_DISPLACEMENT waves, SCROLLING UVs and LIMBO_WATER_FADE are not reproduced, so the reflection covers the undisplaced surface and the alpha estimate ignores scrolling. The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
+- **The game's own cubemap stays** on REFLECTION water (`Water 10A-D`, `1C`, `6 Still/Reflection`, `Limbo Water ... V2Arena`), on top of ours. For opaque materials it is removed (section 7), but here it is baked into the game's transparent draw.
+- **Renderers whose last material slot is not water/glass** get no overlay (logged as `without overlay`). Unity repeats only the last submesh for an extra material.
+- **Total internal reflection, caustics, glass thickness, frosted glass**: not done. Glass is a single mirror-Fresnel surface with no refraction.
+- **Relight tone mapping** is replicated in the overlay (`Tonemap`, from `Denoise.compute`). If the exposure/tone-mapping work changes that curve, update both.
+- Water/glass are now invisible to shadow, bounce, reflection and cache rays (mask 0xEF). Before, they were absent from the RTAS, except the two queue-2999 glass materials, which were traced as opaque cutouts and cast RT shadows. Those no longer do.

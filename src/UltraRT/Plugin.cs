@@ -105,6 +105,7 @@ namespace UltraRT
             ParseArgs();
             ParseCacheArgs();
             ParseExposureArgs();
+            ParseTransparentArgs();
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);
 
@@ -282,6 +283,7 @@ namespace UltraRT
             _reflFilter = new ReflectionFilter(reflections);
             LoadCacheShaders(bundle);
             LoadExposureShader(bundle, denoise);
+            LoadTransparentShaders(bundle);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -640,6 +642,7 @@ namespace UltraRT
             }
 
             _cmd.Clear();
+            TransparentFrameReset();
             if (_proxies?.Rtas == null || !_viewEnabled || _ptShader == null || _compositeMat == null) return;
             if (_proxies.Rtas.GetInstanceCount() == 0) return; // dispatching against an empty RTAS hangs the GPU
 
@@ -949,6 +952,7 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
                 _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
+                BindTransparents(shader, denoised); // water and glass (Plugin.Transparent.cs)
             }
             else
             {
@@ -1021,6 +1025,7 @@ namespace UltraRT
                 _gpu?.End(_cmd, SlotDenoise);
                 _cmd.EndSample(SampleDenoise);
                 _displayed = _denoised;
+                TraceTransparents(viewProj); // water and glass (Plugin.Transparent.cs)
             }
 
             // Composite into the camera's current target without changing render-target bindings.
@@ -1059,6 +1064,7 @@ namespace UltraRT
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);
+            CopyPreAlpha(); // refraction background for the water overlays (Plugin.Transparent.cs)
             _gpu?.End(_cmd, SlotTotal);
             if (_gpu != null)
             {
@@ -1079,8 +1085,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotCount = 7;
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotCount = 8;
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

@@ -29,6 +29,12 @@ struct RayPayload
 
 #define ULTRART_PAYLOAD_WANT_MOTION 0x40000000u // PathTrace's primary ray: return the hit's motion in p.motion
 
+// RTAS instance masks (SceneProxies.cs): 0x01 geometry, 0x02 sky walls, 0x04 light fixtures, 0x08 glowing fixtures,
+// 0x10 transparent water and glass. Transparent surfaces are seen only by the transparent pass (PathTrace.raytrace,
+// TransparentGen; docs/reflections.md "Water and glass"): every other ray uses ULTRART_MASK_SCENE and passes through them.
+#define ULTRART_MASK_SCENE       0xEFu
+#define ULTRART_MASK_TRANSPARENT 0x10u
+
 uint2 PackEmissionHalf(float3 e)
 {
     e = min(e, 65000.0);
