@@ -504,7 +504,9 @@ namespace UltraRT
                 {
                     case LightType.Point:
                         l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
-                        l3 = new Vector4(-1f, 1f, 0, 0);
+                        // A point light at the eye (the game's player light) shadows nothing the camera sees: evaluate it
+                        // with no ray, outside ReSTIR's competition (Plugin.Noise.cs, EyeLight).
+                        l3 = new Vector4(-1f, 1f, EyeLight(pos) ? 0.75f : 0f, 0);
                         break;
                     case LightType.Spot:
                     {

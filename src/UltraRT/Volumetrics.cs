@@ -30,6 +30,9 @@ namespace UltraRT
         /// <summary>The most the in-scattering may add to a pixel, in display units (a soft shoulder, not a clip); 0 = up to
         /// white. With strength 1 and no cap, dark levels (7-3, 4-4, 1-4 at night) read 1.4x to 10x brighter than the game.</summary>
         public float maxAdd = 0.25f;
+        /// <summary>Fog colour brightness (largest channel) at and above which the medium scatters fully; darker fog scatters
+        /// proportionally less, black fog not at all. 0 = off (black fog scattered white, as before).</summary>
+        public float darkFog = 0.25f;
         /// <summary>Henyey-Greenstein anisotropy: forward scattering makes shafts brighter looking toward the sun.</summary>
         public float anisotropy = 0.4f;
         /// <summary>How much of the fog colour's hue the medium takes (0 = white scattering, 1 = the fog colour's hue).</summary>
@@ -247,6 +250,10 @@ namespace UltraRT
             var tint = Vector3.one;
             if (RenderSettings.fog && m > 0.02f)
                 tint = Vector3.Lerp(Vector3.one, new Vector3(fc.r / m, fc.g / m, fc.b / m), Mathf.Clamp01(s.tint));
+            // A dark fog colour is a dark, absorbing medium (docs/volumetrics.md, "Balance"): the level fades into black, so
+            // the air must not glow. Scattering albedo = the fog colour's brightest channel / darkFog (1 from there up).
+            // Black fog (7-3, 2-x, 4-1) scatters nothing; 1-4's night blue (0.10) about 40%.
+            if (RenderSettings.fog && s.darkFog > 0f) tint *= Mathf.Clamp01(m / s.darkFog);
             return new Vector4(sigma, tint.x, tint.y, tint.z);
         }
 

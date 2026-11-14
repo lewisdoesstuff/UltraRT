@@ -203,7 +203,13 @@ The extra ray is only traced for pixels whose light sample passes V1's box (the 
 
 Settings: `plugin._playerSplit` (true; 0 = the old path), `dn.playerShadowBlend` (0.5; 0 = ignore the factor), `plugin._movers` (moving-object boxes for ReSTIR), `dn.moverAntilag` (0).
 
-RESULTS_MOVING
+**Results** ("0-2 v1 shadow walk", the user's recording of walking left and right at about 12 m/s with a light behind; motion replay, 96 frames at 360 Hz after 120 settle frames, `bench/suites/noise-pm-check.json` and `noise-pm-final.json`). Strip frames `0-2_v1_shadow_walk_motion_2.0s_<mode>_f88..f95.jpg` in the run folders:
+- Before: the denoised image shows at most a faint blob where the shadow was; the raw direct light (`pt-direct+relight`) has a crisp shadow in the same frames. A held screenshot (the bench holds the pose) shows the full shadow, which is why the problem never showed in bench screenshots.
+- After: the shadow (body, gun arm, wings) is visible in every strip frame while walking, at the same place as in the raw direct light, and as crisp as the held screenshot when standing still.
+- Motion noise (sigma, luma): 0.53 → 1.27 (`relight+plugin._playerSplit=0+plugin._movers=0` → `relight`; without V1 at all 0.44). The added error is on the shadow itself (the error map shows V1's head, wing and gun-arm shadow, a few pixels wide each): before, there was no shadow to be noisy. Where V1 blocks one of several lights the factor still varies from frame to frame; a longer factor history (`dn.playerShadowBlend` below 0.5) would calm it at the price of lag.
+- Static images are unchanged where V1's shadow isn't involved (the factor is 1 there).
+
+Cost: one extra any-hit ray against V1's few instances, only for pixels whose sample passes V1's box, and one RHalf history pair. See "Cost" in the run's GPU numbers (docs/light-sampling.md lists the per-feature totals).
 
 ## Presets and Ctrl+F3
 
