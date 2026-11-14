@@ -27,7 +27,8 @@ Shader "UltraRT/Composite"
             Texture2D _UltraRTNormalDepth;  // w < 0: the ray hit nothing (sky) -> keep the game's own sky
             Texture2D _UltraRTGameDepth;    // copy of the game's depth buffer (raw device depth)
             float4 _UltraRTDepthParams;     // x: guard x / P00, y: guard y / P11 (view ray from a trace uv), z: enabled
-            float4 _UltraRTUVScale;         // xy: visible size / traced size (guard band; 0 = no guard band)
+            float4 _UltraRTUVScale;         // xy: visible size / traced size (guard band; 0 = no guard band), z: _UltraRTUpsampled is set
+            Texture2D _UltraRTUpsampled;    // temporal upsampler output (Upsample.compute): screen res, a = 0 where there is no RT surface
             Texture2D _UltraRTLighting;     // denoised bounce (demodulated, HDR)
             Texture2D<uint4> _UltraRTHybrid;  // packed halves: unshadowed direct rgb, shadowed direct rgb; w: lit weight unorm8 | game cubemap term rgb unorm8 << 8
             Texture2D _UltraRTDirect;         // denoised shadowed direct (second denoiser instance)
@@ -67,6 +68,13 @@ Shader "UltraRT/Composite"
             float4 frag(v2f i) : SV_Target
             {
                 float2 screenUV = i.uv;
+                if (_UltraRTUVScale.z > 0.5)
+                {
+                    // Replace modes with the temporal upsampler: it already matched the game's depth per screen pixel.
+                    float4 up = _UltraRTUpsampled.Sample(my_point_clamp_sampler, screenUV);
+                    if (up.a <= 0.0) discard;
+                    return float4(up.rgb, 1.0);
+                }
                 // RT buffers may cover a slightly wider view than the screen (guard band): screen uv -> trace uv.
                 float2 uvScale = _UltraRTUVScale.x > 0.0 ? _UltraRTUVScale.xy : float2(1.0, 1.0);
                 float2 traceUV = (screenUV - 0.5) * uvScale + 0.5;

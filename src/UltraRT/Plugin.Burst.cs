@@ -56,6 +56,7 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("em", _emissiveSettings);
             yield return new KeyValuePair<string, object>("ae", _aeSettings);
             if (_denoiser != null) yield return new KeyValuePair<string, object>("dn", _denoiser.Settings);
+            if (_upsampler != null) yield return new KeyValuePair<string, object>("up", _upsampler.Settings);
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>
@@ -73,7 +74,8 @@ namespace UltraRT
         /// <summary>"mode+key=value+..." -> applies the variants, returns the view mode. Keys: lights=ref|ris|restir,
         /// cache=off|bounce|primary, refl=0|1, emissive=0|1, relight=0|1 (force the relight model), and
         /// &lt;object&gt;.&lt;field&gt;=value for any public field of ls (LightSamplingSettings), cache (RadianceCacheSettings),
-        /// refl (ReflectionSettings), em (EmissiveLightSettings) or dn (DenoiserSettings, both instances), e.g.
+        /// refl (ReflectionSettings), em (EmissiveLightSettings), dn (DenoiserSettings, both instances) or up (UpsamplerSettings;
+        /// taau=0|1 is up.enabled), e.g.
         /// dn.stability=0, dn.alphaMin=0.05, cache.historyFrames=64, ls.spatialSamples=2.</summary>
         private string ApplyBenchVariant(string spec)
         {
@@ -95,6 +97,7 @@ namespace UltraRT
                     case "refl": _reflSettings.enabled = on; break;
                     case "emissive": _emissiveSettings.enabled = on; break;
                     case "relight": _relightForce = on; break;
+                    case "taau": if (_upsampler != null) _upsampler.Settings.enabled = on; break;
                     case "preset":
                     {
                         // Ctrl+F3's presets: full | previous | legacy (also switches the guard band like the hotkey).

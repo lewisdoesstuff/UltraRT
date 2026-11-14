@@ -6,7 +6,7 @@ Files: `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/Denoise.compute` (in the `u
 
 ## Passes
 
-All passes use 8x8 thread groups and run at trace resolution, except Composite, which runs at output resolution.
+All passes use 8x8 thread groups and run at trace resolution, except Composite, which runs at output resolution. In the replace modes (pt-dn, relight, dn-*) the output then goes through the [temporal upsampler](#temporal-upsampling) to screen resolution.
 
 | # | Kernel | Reads | Writes |
 |---|---|---|---|
@@ -147,7 +147,42 @@ Ctrl+F3 cycles `DenoiserPreset` on both denoiser instances:
 
 `-ultrart-dn-previous` and `-ultrart-dn-legacy` start in those presets. Individual flags: `-ultrart-dn-alpha A`, `-ultrart-dn-spatialvar K`, `-ultrart-dn-nostabilize`, `-ultrart-dn-stabilize-alpha A`, `-ultrart-dn-stabilize-sigma K`, `-ultrart-guard X [Y]`, `-ultrart-restir-spatial N`, `-ultrart-restir-spatial-hybrid N`.
 
-**Not the denoiser**: in 1-1's start area, the tree canopies and grass are the game's own animated foliage, drawn over the RT image. The thin wires against the sky flicker because of the half-resolution depth-guided upsample. Neither changes with these settings.
+**Not the denoiser**: in 1-1's start area, the tree canopies and grass are the game's own animated foliage, drawn over the RT image. The thin wires against the sky used to flicker because of the half-resolution depth-guided upsample; the [temporal upsampler](#temporal-upsampling) fixes that in the replace modes.
+
+## Temporal upsampling
+
+The trace runs at `-ultrart-scale` (0.5) of the screen. The old composite picked, per screen pixel, the one of the 2x2 nearest trace texels whose depth matched the game's. That gave stair-stepped silhouettes, blocky textures and lighting (2x2 screen pixels per texel), and thin geometry (wires, railings) that switched between RT and the game's own shading. In the replace modes (pt-dn, relight, dn-\*) a TAAU pass now rebuilds a screen-resolution image: `Upsample.compute`, `src/UltraRT/TemporalUpsampler.cs`. Hybrid is unchanged: it keeps the game's full-resolution colour and applies only RT ratios.
+
+**Where it applies.** It works on the final RT colour (the denoiser's composite output), not on demodulated lighting. In relight and pt-dn the textures come from the RT hits too: no full-resolution albedo exists to remodulate with. Jittered exact-hit samples rebuild the textures at screen resolution as well.
+
+**Jitter.** Each frame the trace grid is offset by a sub-pixel jitter. The projection is `T(-2j / traceSize) · viewProj`, so pixel p's primary ray goes through trace position p + 0.5 + j. When the screen is exactly twice the visible trace size, j cycles through (±0.25, ±0.25) trace px: every screen pixel centre is traced exactly once per 4 frames. Otherwise j follows an 8-phase Halton(2, 3) sequence. Every temporal consumer (this denoiser, ReSTIR, reflections, the radiance cache) reprojects world positions with the same jittered matrices, so their histories stay consistent with no other change.
+
+**Per screen pixel** (one 8x8 group loads the 11x11 trace samples it needs into groupshared memory):
+1. **Geometry from the game.** The copied game depth buffer gives the eye depth and the exact world position. A trace sample belongs to this pixel's surface when its eye depth matches within 3% + 5 cm, the old composite's discard test. Sky, and anything the game draws that we don't trace, matches nothing, and the game's pixel is kept (output a = 0, the composite discards).
+2. **New samples.** Of the 3x3 matching samples around the nearest one, each counts with weight exp(−4 d²), where d is its distance to the pixel centre in screen px. An exact hit counts 1, a neighbour one pixel away 0.02, so edges and texels stay pixel sharp. A depth-matched Gaussian of the same samples (σ 0.6 trace px, weight 0.05) is the **edge-aware fallback** where there is no history.
+3. **History.** The world position is moved by the matching sample's object motion (`_InstanceId.y`) and projected with last frame's screen viewProj. The 4 bilinear taps of the screen-resolution history are validated against their stored eye depth (2%). With all 4 valid, a 5-tap Catmull-Rom resamples the history, clamped to the 4 taps' range. The history is clipped to the matching samples' min/max (+10%), but only when at least 3 samples match: an edge pixel with 1 or 2 would lose its history every frame. The weight is capped at 3 exact hits (`maxWeight`).
+4. **Thin geometry.** If no sample matches this frame but the history weight is ≥ 0.1, the history is kept, decaying ×0.95 per frame. A wire the jittered grid missed this frame stays RT-shaded instead of falling back to the game's pixel. The threshold matters: in 1-1 the game's sky dome sits at nearly the depth of the arch, and without it, tiny bilinear weights let the arch creep 25 px into the sky over a few seconds.
+
+**A/B**: F2 toggles it (off = the old 2x2 path, no jitter). `-ultrart-notaau`, `-ultrart-taau-nojitter`, `-ultrart-taau-weight N`, `-ultrart-taau-sharpness K`. In benchmark modes, `taau=0|1` and `up.<field>=value` (`UpsamplerSettings`). `up.debugView=1` shows r = matching samples, g = history weight, b = held without a sample (debug only: it breaks the history).
+
+**Results** (`bench/suites/upsample.json`; RTX 5070 Ti, 1920x1080, scale 0.5; masked σ / block σ, `taau=0` → on):
+
+| Pose | relight | pt-dn |
+|---|---|---|
+| 1-1 spawn (terminal) | 0.49 / 0.34 → 0.28 / 0.20 | 0.49 / 0.38 → 0.25 / 0.17 |
+| 1-1 start | 0.51 / 0.27 → 0.38 / 0.20 | 0.46 / 0.26 → 0.54 / 0.25 |
+| 1-1 user a | 0.70 / 0.39 → 0.71 / 0.39 | 0.87 / 0.45 → 0.72 / 0.39 |
+| cerberus | 0.29 / 0.17 → 0.28 / 0.18 | 0.40 / 0.26 → 0.39 / 0.23 |
+| 8-3 b | 0.36 / 0.33 → 0.37 / 0.33 | 1.25 / 1.22 → 0.48 / 0.44 |
+| 1-1 sweep (180°/s) | 0.09 / 0.04 → 0.10 / 0.05 | |
+
+Identical modes vary by about ±0.1 σ between bursts (butterflies, birds), so equal rows are equal. Visually: the shop terminal's STORE sign, keyboard and side panel resolve like the game's own frame; silhouettes follow the game's depth per pixel, with neither the old comb-like steps nor dark rims (cerberus, statues in pt-dn); wires against the sky are continuous RT. In motion the textures soften toward the old half-resolution look and sharpen again within about 4 frames of slowing down; no ghosting was seen on the sweep or the 0-2 run.
+
+**Cost**: the pass is 0.09–0.12 ms at 1080p, and the composite gets about 0.012 ms cheaper. Memory: RGBA16F colour + R32F depth at screen resolution, ×2 ping-pong (50 MB at 1080p). GPU total vs master in merge-regress: relight +0.09 to +0.13 ms, hybrid unchanged.
+
+**Trace scale**: 0.67 with the upsampler costs 50–60% more GPU (1-1 start 1.27 → 1.85 ms, 8-3 b 1.67 → 2.55 ms, 0-2 run 2.18 → 3.37 ms). A static view looks the same as 0.5, slightly softer even: the Halton jitter never lands exactly on pixel centres. Noise is no better. **Keep 0.5**, the only scale whose jitter hits every pixel centre exactly. The upsampler works at any scale.
+
+**Limits.** Thin features and silhouettes inherit more denoiser noise than before. Their trace texels alternate between surfaces as the grid jitters, so the denoiser's history there is short, and the cap of 3 exact hits only partly averages it. A pixel held without samples doesn't follow lighting changes until a sample lands on it again (≤ 4 frames static). The game's depth is assumed to be the main camera's, covering the same view as the composite target.
 
 ## Motion vectors
 
@@ -266,7 +301,7 @@ Call `Reset()` on each of these:
 There is no need to call it for camera motion or resolution changes. The denoiser handles those itself.
 
 ### Assumptions the integrator must satisfy
-- All five inputs have the same size and come from the same frame and the same `invViewProj` / `camPos` passed in `inputs`. The primary rays are **not jittered**. The progressive accumulation mode does jitter, so bypass the denoiser while accumulating.
+- All five inputs have the same size and come from the same frame and the same `invViewProj` / `camPos` passed in `inputs`. The primary rays may be jittered only through these matrices (the [temporal upsampler](#temporal-upsampling) does this: `viewProj` includes the jitter, so reprojection stays exact). The progressive accumulation mode jitters inside the ray generation shader, so bypass the denoiser while accumulating.
 - `normalDepth.w` is the ray t along the *normalized* primary direction and is negative for sky. The normal faces the camera.
 - `radiance` is demodulated, so `albedo * radiance + emission` reproduces the undenoised image. Sky pixels have albedo 1.
 - `instanceId` is an `RGInt` texture: x the instance (only the low 7 bits are compared), y the packed world-space motion (`PackMotion`, 0 = static).

@@ -44,6 +44,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/Reflections.compute",
                     "Assets/UltraRT/Shaders/TransparentOverlay.shader",
                     "Assets/UltraRT/Shaders/UnpackHybrid.compute",
+                    "Assets/UltraRT/Shaders/Upsample.compute",
                 },
             };
 
