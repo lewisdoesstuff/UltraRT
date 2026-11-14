@@ -108,6 +108,7 @@ namespace UltraRT
             ParseArgs();
             ParseCacheArgs();
             ParseExposureArgs();
+            ParseDlssArgs(); // DLSS Ray Reconstruction (Plugin.Dlss.cs)
             ParseTransparentArgs();
             ParseSkyArgs();
             ParseVolumetricsArgs();
@@ -319,6 +320,7 @@ namespace UltraRT
             LoadLavaShader(bundle);
             LoadVolumetricsShaders(bundle);
             LoadViewmodelShaders(bundle);
+            LoadDlssShader(bundle);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -368,6 +370,7 @@ namespace UltraRT
                     Toast($"Temporal upsampling {on} (F2)");
                 }
                 CacheHotkeys();
+                DlssUpdate(); // Ctrl+F8, native RR log (Plugin.Dlss.cs)
             }
             catch (InvalidOperationException) { /* legacy input disabled */ }
             _menu?.Update(); // the settings menu follows what the hotkeys changed
@@ -912,6 +915,8 @@ namespace UltraRT
             var depthBuf = pt && !_noDepthMatch ? MonoSingleton<PostProcessV2_Handler>.Instance?.depthBuffer : null;
             bool taau = kind == Kind.Denoised && _upsampler != null && _upsampler.Settings.enabled && depthBuf != null;
             _jitter = taau && _upsampler.Settings.jitter ? _upsampler.NextJitter(depthBuf.width, depthBuf.height, w, h) : Vector2.zero;
+            bool rr = RayReconstructionFor(kind, depthBuf); // DLSS RR replaces the denoiser and the upsampler (Plugin.Dlss.cs)
+            if (rr) _jitter = _rr.NextJitter();
             // Guard band (docs/denoiser.md): trace a slightly wider view than the screen, so surfaces entering the screen
             // while turning already have denoiser/ReSTIR history and warm cache cells. The visible part keeps its pixel grid.
             int gxPx = pt && _guardActive ? Mathf.RoundToInt(w * Mathf.Clamp(_guardX, 0f, 0.25f)) : 0;
@@ -1124,8 +1129,8 @@ namespace UltraRT
                 _gpu?.Begin(_cmd, SlotDenoise);
                 _denoiser.FrameTime = Time.unscaledDeltaTime;
                 BindExposure();
-                _denoiser.Execute(_cmd, inputs, _denoised);
-                RunExposure(w, h); // relight auto exposure: measured after the denoiser, applied from the next frame
+                if (!rr) _denoiser.Execute(_cmd, inputs, _denoised);
+                if (!rr) RunExposure(w, h); // relight auto exposure: measured after the denoiser, applied from the next frame
                 if (kind == Kind.Hybrid && _unpackHybrid != null)
                 {
                     // ReSTIR's shadowed direct light is a 1-shadow-ray estimate: unpack it and filter it separately.
@@ -1151,7 +1156,8 @@ namespace UltraRT
 
             BindGameDepth(pt);
             bool upsampled = false;
-            if (taau && _displayed == _denoised && _depthCopy != null)
+            if (rr && _depthCopy != null && RunRayReconstruction(w, h, viewProj, new Vector2Int(gxPx, gyPx))) upsampled = true;
+            else if (taau && _displayed == _denoised && _depthCopy != null)
             {
                 _gpu?.Begin(_cmd, SlotUpsample);
                 // Its history goes with the denoiser's, and is stale after frames it didn't run (F2, other modes).
@@ -1224,8 +1230,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 17; // 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs)
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 19; // 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

@@ -18,6 +18,7 @@
 #include "IUnityGraphics.h"
 #include "IUnityGraphicsD3D12.h"
 #include "UnityLocator.h"
+#include "Native.h"
 
 #define ULTRART_API extern "C" __declspec(dllexport)
 
@@ -290,6 +291,7 @@ namespace
 
     void UNITY_INTERFACE_API OnRenderEvent(int eventId, void* data)
     {
+        if (Dlss_OnRenderEvent(eventId, data)) return; // DLSS Ray Reconstruction events (Dlss.cpp)
         if (eventId < kEventBegin || eventId > kEventResolve) return;
         if (!s_RtInit)
         {
@@ -350,9 +352,11 @@ namespace
                 SetStatus("D3D12 interface v%d acquired, event flags 0x%X; waiting for first render event", s_D3D.version, s_EventFlags);
             }
             else SetStatus("IUnityGraphicsD3D12v6/v7 not available");
+            Dlss_OnDeviceEvent(type);
         }
         else if (type == kUnityGfxDeviceEventShutdown)
         {
+            Dlss_OnDeviceEvent(type);
             ReleaseResources();
             s_HaveD3D = false;
             SetStatus("graphics device shut down");
@@ -375,6 +379,8 @@ namespace
     }
 }
 
+IUnityInterfaces* Native_UnityInterfaces() { return s_Unity; }
+
 // ------------------------------------------------------------------ Unity entry points
 
 ULTRART_API void UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces* unityInterfaces)
@@ -389,6 +395,7 @@ ULTRART_API void UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces* unityInte
 ULTRART_API void UNITY_INTERFACE_API UnityPluginUnload()
 {
     if (s_Graphics) s_Graphics->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent);
+    Dlss_Unload();
     ReleaseResources();
     s_HaveD3D = false;
 }

@@ -33,9 +33,23 @@ if (-not (Test-Path (Join-Path $PluginApi 'IUnityGraphicsD3D12.h'))) { throw "Un
 
 $cflags = "/nologo /c /O2 /MT /EHsc /W4 /permissive- /std:c++17 /DUNICODE /D_UNICODE /DNDEBUG /Zi /I`"$PluginApi`" /Fo`"$obj\\`" /Fd`"$obj\\vc.pdb`""
 $dll = Join-Path $OutDir 'UltraRT.Native.dll'
+# DLSS Ray Reconstruction (docs/dlss.md): needs NVIDIA's SDK in lib\dlss (scripts\fetch-dlss.ps1, never committed).
+# Without it the stub is built and RR reports itself unavailable.
+$dlssSdk = Join-Path (Split-Path (Split-Path $src -Parent) -Parent) 'lib\dlss'
+$ngxLib = Join-Path $dlssSdk 'lib\nvsdk_ngx_s.lib'
+if (Test-Path $ngxLib) {
+    $dlssSrc = "`"$src\Dlss.cpp`""
+    $dlssObj = "`"$obj\Dlss.obj`" `"$ngxLib`" advapi32.lib version.lib user32.lib shell32.lib ole32.lib setupapi.lib"
+    $dlssFlags = "/I`"$dlssSdk\include`""
+} else {
+    Write-Warning "DLSS SDK not found in $dlssSdk (scripts\fetch-dlss.ps1): building without Ray Reconstruction"
+    $dlssSrc = "`"$src\DlssStub.cpp`""
+    $dlssObj = "`"$obj\DlssStub.obj`""
+    $dlssFlags = ''
+}
 $cmds = @(
-    "cl $cflags `"$src\GpuTimer.cpp`" `"$src\UnityLocator.cpp`"",
-    "link /nologo /DLL /DEBUG /OPT:REF /OPT:ICF /MACHINE:X64 /OUT:`"$dll`" /PDB:`"$OutDir\UltraRT.Native.pdb`" `"$obj\GpuTimer.obj`" `"$obj\UnityLocator.obj`" kernel32.lib"
+    "cl $cflags $dlssFlags `"$src\GpuTimer.cpp`" `"$src\UnityLocator.cpp`" $dlssSrc",
+    "link /nologo /DLL /DEBUG /OPT:REF /OPT:ICF /MACHINE:X64 /OUT:`"$dll`" /PDB:`"$OutDir\UltraRT.Native.pdb`" `"$obj\GpuTimer.obj`" `"$obj\UnityLocator.obj`" $dlssObj kernel32.lib"
 )
 if ($Test) {
     $exe = Join-Path $obj 'LocatorTest.exe'
