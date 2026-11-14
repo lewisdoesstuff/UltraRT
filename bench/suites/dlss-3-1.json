@@ -7,7 +7,7 @@
    "Path": {
     "Type": "static",
     "Approach": "../recordings/3-1-noisy-room.json",
-    "Duration": 4,
+    "Duration": 6,
     "Load": "checkpoint"
    },
    "Modes": [
@@ -16,13 +16,14 @@
     "relight+plugin._rrEnabled=1"
    ],
    "Screenshots": [
-    2
+    3
    ],
    "Burst": 48,
    "BurstModes": [
     "off",
     "relight",
-    "relight+plugin._rrEnabled=1"
+    "relight+plugin._rrEnabled=1",
+    "relight+plugin._rrEnabled=1+plugin._rrJitterPhases=64"
    ]
   }
  ]

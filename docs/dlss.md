@@ -99,4 +99,21 @@ ignores exposure parameters).
 
 ## Evaluation
 
-(filled in below)
+(EVAL)
+
+## License
+
+The DLSS SDK is under the "NVIDIA RTX SDKs" license (`lib\dlss\LICENSE.txt`; fetched, not committed). For this repo:
+- **Don't commit or redistribute NVIDIA's files.** You may distribute the SDK only "incorporated in object code format
+  into a software application" with "material additional functionality" and terms at least as protective as NVIDIA's,
+  and never under an open-source license. `fetch-dlss.ps1` keeps the binaries out of git.
+- **Release builds.** NVIDIA must be notified before a commercial release. Shipping the SDK requires NVIDIA attribution
+  (marks on a splash screen, about box or credits). The RR guide says the `dev` and `rel` DLLs in the public SDK are for
+  development and that a distributable DLL comes from NVIDIA. Public distribution of a mod with RR therefore needs
+  NVIDIA's involvement. Fine for local experiments; not something to ship in a release zip as is.
+- The NGX helper headers' notice ("This software contains source code provided by NVIDIA Corporation.") is in
+  `Dlss.cpp`.
+
+## Scope: what else NVIDIA's stack could do here (write-up only)
+
+(SCOPE)
