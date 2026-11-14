@@ -39,6 +39,8 @@ The source pdf is `(1 − uniformMix) · w_i / Σw + uniformMix / N`, with:
 
 Each pixel draws `candidates` (M, default 8) lights. Each candidate gets weight `p̂/pdf` and goes through single-sample weighted reservoir sampling. The final weight is `W = wSum / (M · p̂(y))`, and the estimate is `c(y) · V(y) · W`. The bounce hit does the same with `bounceCandidates` (default 4) and no reuse.
 
+**Portals** (`portalImportance`, default on). The camera's distance to a light assumes the camera sees the world around it. Through a portal it sees a place that can be hundreds of metres away in world space: 8-2's fake mirrors (`4 - Hub/MirrorBig/Portal`) join x = 19 and x = 281, so every light of the room seen "in the mirror" was 262 m from the camera and was drawn almost only through the uniform mix (0.2 / 110 lights). `SceneProxies.PortalViewpoints` adds the camera's image through each portal side it can look into (in front of the side, within 120 m, at most 8): travel matrix × camera position. A light's weight is the largest over the camera and these viewpoints. Bench: `ls.portalImportance=0`. Results in docs/portals.md, "Noise behind portals".
+
 ## Temporal reuse
 
 **Reservoir buffer.** `ComputeBuffer` of `uint4` per pixel at trace resolution, ping-ponged: `_ReservoirPrev` is read as an SRV and `_ReservoirCur` is written as a UAV.
@@ -83,6 +85,14 @@ Effect lights (docs/emissive-lights.md, "Effect lights") make the light set chan
 - More than 16 changes in one frame, or a change of the emissive triangle set, fall back to the whole-screen cap.
 - `lightChangeKept` (off) also lists lights that stay but change brightness (`lightChangeIntensity`, 10% per frame) or move (`lightChangeMove`, 5% of the range). Measured noisier: a fading muzzle light then shortens the history around it on every frame of its fade, while the stale share it leaves in a full history is small and smooth.
 - Cost: on frames with changes, two light evaluations per change per pixel (16 changes at most); nothing otherwise.
+
+### Penumbrae
+User report: in 3-1's ribbed cave ("3-1 noisy room", which needs `"Load": "checkpoint"`: its approach ends in the void), the walkway showed a smooth, slowly moving noise pattern while standing still. Burst (64 frames after a 480-frame settle, the walkway region): ReSTIR boils there, every light evaluated (`lights=ref`) is calm. The walkway is lit through the gaps between the ribs, i.e. it is one large penumbra. With soft shadows (a random point on the light, or the sun disk) each frame's shadow ray is one random visibility draw, and a blocked draw was stored with W = 0 and the full history M (up to `historyLimit` x `candidates` = 160): the pixel stayed dark for about 20 frames, then lit for about as long, independently of its neighbours, which the à-trous turned into drifting blobs. `occludedHistory` (2) caps the M an occluded history carries at that many x `candidates`, so a blocked draw is one vote among a few frames instead of twenty. Unshadowed pixels and fully shadowed ones are unaffected in expectation (a fully shadowed pixel still gets W = 0 every frame). Bench: `ls.occludedHistory=0` (no cap).
+
+RESULTS_PENUMBRA
+
+### Moving occluders
+A reservoir that was occluded last frame keeps its M with W = 0 (visibility reuse, above), so when an occluder moves away the pixel stays dark for up to `historyLimit` frames of M: a walking player or enemy left a trail behind its shadow. `SceneProxies.CollectMovers` (`SceneProxies.Movers.cs`) uploads every frame up to 8 boxes of dynamic objects that moved in the last 3 frames (V1's model first, then the nearest moving enemies and props within 60 m, at most 16 m in size), each the union of this frame's and last frame's bounds (`_UltraRTMovers`, `_UltraRTMoverCount`; PathTrace only, `ULTRART_MOVERS`). In `RestirMerge`, a history sample whose shadow segment crosses a box is re-weighted to at most `candidates` of M, and dropped when it was occluded. The final sample's crossing is flagged in `_Radiance.a` (+2) for the denoiser (docs/denoiser.md, "Moving shadows"). Bench: `plugin._movers=0` (also `plugin._moverOthers=0`: the player only).
 
 ### Fresh pixels
 A pixel whose temporal reservoir failed validation (a disocclusion, the screen edge while turning, the first frame) used to show an 8-candidate RIS sample. `freshCandidates` (24) adds that many candidates to it (`RestirReuse` returns whether the temporal reservoir merged; `ReservoirCombine` adds the second RIS stream). Light evaluations only, no rays, and only on those pixels. In the motion-noise measurements this alone cut the 180°/s sweep's noise by a fifth (docs/denoiser.md, "Motion noise"). Flag: `-ultrart-restir-fresh N` (0 = off).

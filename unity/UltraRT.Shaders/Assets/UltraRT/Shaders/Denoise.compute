@@ -255,7 +255,21 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         cnt += 1.0;
         if (dx != 0 || dy != 0) { n1 += l; n2 += l * l; ncnt += 1.0; }
     }
-    pf3 /= cnt;
+    // The player shadow factor gets a 5x5 (same-surface) mean: where V1 blocks one of several lights, the sampled light
+    // alternates between pixels and a 3x3 left visible speckle on the moving shadow.
+    {
+        float pfs = 0, pfn = 0;
+        [unroll] for (int py = -2; py <= 2; py++)
+        [unroll] for (int px = -2; px <= 2; px++)
+        {
+            float4 v = gsRadT[centerIdx + py * TILE + px];
+            if (v.w < 0.0 || abs(v.w - t) > 0.1 * t) continue;
+            float wgt = (abs(px) <= 1 && abs(py) <= 1) ? 1.0 : 0.5;
+            pfs += gsPF[centerIdx + py * TILE + px] * wgt;
+            pfn += wgt;
+        }
+        pf3 = pfs / max(pfn, 1e-3);
+    }
     s1 /= cnt; s2 /= cnt; l1 /= cnt; l2 /= cnt;
     float spatialVar = max(0.0, l2 - l1 * l1);
 

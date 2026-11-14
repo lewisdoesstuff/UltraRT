@@ -80,6 +80,15 @@ screenshot (`Benchmark: '<scenario>' ... relight: exposure x0.369 (-1.44 EV, tar
 bursts log a per-frame trace (`Burst AE '<scenario>' <mode>: settle ... EV; capture N frames: EV mean sd [min,max]
 step ...; target ...; band mean log2 ...; meter ...`).
 
+### Game match
+User reports (2026-11-14 evening): relight was "still a touch too bright" in many levels, while 8-2's start was "far too dark" against RT off. Both are global level differences against the game that one fixed key can't follow: 8-2's alley is lit in game by lights shining through walls (the game has no shadows; making its directional lights unshadowed changed almost nothing), torch rooms and 4-1 are brighter by the light reference and the dark-scene lift.
+
+So auto exposure also meters **the game's own frame**: `BindGameMatch` (Plugin.Exposure.cs) copies `PostProcessV2_Handler.mainTex` at the RT injection point (the game's opaques and sky, before our composite), and `Exposure.compute`'s Histogram bins, next to the usual histogram, the RT luminance (before haze) and the game's luminance at the same pixels, near ones only (game fog factor under `gameMatchFog`, 0.3: farther, the game's fog replaces the colour). `Adapt` takes the band mean of both (same 40-95% percentiles) and compares the game's with the RT image as it will be exposed (RT mean + target). Beyond a dead band of `gameMatchBand` (0.35 EV), a share of the difference moves the target: `gameMatchUp` (0.75) where RT is darker than the game, `gameMatchDown` (0.4) where it is brighter, so lit rooms may stay brighter than the game (the RT look) but less so. The correction is smoothed like the meter and the target still clamps to [min, max] EV. It needs at least a quarter of the measured pixels near; otherwise there is no correction. Bench lines show it: `game match: game -1.98 vs RT -3.39 log2 over 123906 near px, correction +0.76 EV`. Flags: `-ultrart-ae-match UP[,DOWN]` (0 = off), bench `ae.gameMatchUp`, `ae.gameMatchDown`, `ae.gameMatchBand`. Cost: a copy of the colour target (only in relight) and two more histograms in the same pass.
+
+Mean screen luma, game / relight before / relight now (game match and the haze rebalance of docs/volumetrics.md "Balance"; HUD and viewmodel left out; `bench/suites/exposure-pm2.json`, `exposure-pm3.json`):
+
+RESULTS_EXPOSURE
+
 ### Flicker
 `-ultrart-ae-max 0.5` (with the old full brightening) measured as flicker on 1-4 drift (masked burst sigma 0.97 vs 0.26).
 The per-frame trace shows what it was: the *target* is steady to 0.001 EV on every static pose tested (1-4 drift,

@@ -126,6 +126,19 @@ RTX 5070 Ti, 1920x1080, trace scale 0.5, GPU timer. Suites: `bench/suites/portal
 
 Where the camera looks through a portal, the dispatch now traces and lights a real room (often with layer-30 props) instead of escaping into sky, so it costs up to about 0.6 ms more in relight and 0.4 ms in hybrid; that is the price of the correct image, not overhead of the teleport itself (one extra any-hit and one more `TraceRay` per crossing). Away from portals nothing changes: the 8-3 route, which spends most of its time elsewhere, is identical within noise. Plugin CPU for `SyncPortals` is about 0.03 to 0.05 ms per frame with 22 sides (the scrolling and shifting sides move every frame, so their instance transforms and the matrix buffer are updated every frame).
 
+### Noise behind portals (2026-11-14 evening)
+User report: in 8-2, the far side of a fake-mirror portal is much noisier than the near side ("8-2 portal side 1" / "side 2" in `bench/suites/user-1114-pm.json`, on either side of `4 - Hub/4 Nonstuff/MirrorBig/Portal`, which joins x = 19 and x = 281). Reprojection was not the problem: the G-buffer stores the camera-side view, so the denoiser, ReSTIR and the upsampler already reproject through-portal pixels like any other. Light selection was. ReSTIR's alias table weights every light by its distance to the camera, and the room seen through the mirror is 262 m from it in world space, so its lights were picked almost only through the 20% uniform mix (over 110 lights). The importance now also counts the camera's image through every portal side it can look into (docs/light-sampling.md, "Portals"; `ls.portalImportance`).
+
+Burst block sigma (64 frames, regions of the frame; `noise-pm-diag3`), "8-2 portal side 1" (the camera's half is on the left, the mirrored half on the right):
+
+| | near wall | wall seen through the portal | floor |
+|---|---|---|---|
+| importance from the camera only (`ls.portalImportance=0`) | 0.15 | 0.79 | 0.13 |
+| with the portal viewpoints | 0.19 | **0.22** | 0.16 |
+| same, volumetrics off: camera only → portal viewpoints | 0.15 → 0.19 | 0.66 → **0.22** | 0.16 → 0.17 |
+
+The far side is now as calm as the near side. "Side 2" has a flickering lamp in view (`off` itself changes there), and its runs did not order consistently. CPU: one matrix-point multiply per portal side in front of the camera and one extra importance evaluation per light and viewpoint when the alias table is built (at most 8 viewpoints x 256 lights).
+
 ## 7. Limits
 
 - **The player in mirrors**: V1's third-person model (layer 30) now has its own instance mask, 0x80; camera rays add it after a hop through a `canSeePortalLayer` portal, as the game's views do (docs/reflections.md, section 13). The `8-3 mirror` pose is awkward: the CeilingSegment mirror hangs about 10 m above the floor, so V1 is half inside the ceiling there; use `Secret/Mirror` (`bench/suites/self-reflection-8-3.json`).

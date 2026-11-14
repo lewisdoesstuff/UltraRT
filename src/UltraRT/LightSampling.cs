@@ -57,6 +57,11 @@ namespace UltraRT
         public int freshCandidates = 24;
         /// <summary>Extra reservoirs reused from the previous frame around the reprojected pixel (0 = temporal only).</summary>
         public int spatialSamples = 0;
+        /// <summary>Occluded history (W = 0: its final shadow ray was blocked) counts at most this many x candidates of M
+        /// (docs/light-sampling.md, "Penumbrae"). With soft shadows each frame's visibility is one random draw, and a blocked
+        /// draw kept with the full history M (up to historyLimit x candidates) darkened the pixel for about 20 frames: slow,
+        /// smooth boiling in penumbra-covered areas (3-1's walkway under the ribs). 0 = no cap (the old behaviour).</summary>
+        public float occludedHistory = 2f;
         /// <summary>Radius of the spatial neighbourhood, in trace-resolution pixels.</summary>
         public float spatialRadius = 12f;
         /// <summary>Spatial reuse in hybrid (Bind's hybrid flag). Hybrid only uses ReSTIR's shadowed / unshadowed ratio, where
@@ -148,7 +153,8 @@ namespace UltraRT
             IdLightChanges = Shader.PropertyToID("_LightChanges"),
             IdLightChangeCount = Shader.PropertyToID("_LightChangeCount"),
             IdLightChangeTolerance = Shader.PropertyToID("_LightChangeTolerance"),
-            IdRestirFreshCandidates = Shader.PropertyToID("_RestirFreshCandidates");
+            IdRestirFreshCandidates = Shader.PropertyToID("_RestirFreshCandidates"),
+            IdRestirOccludedCap = Shader.PropertyToID("_RestirOccludedCap");
 
         public LightSampling(int maxLights)
         {
@@ -244,6 +250,7 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(shader, IdLightChangeCount, restir && _historyValid ? changes : 0);
             cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, Mathf.Max(1e-3f, s.lightChangeTolerance));
             cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, restir ? Mathf.Clamp(s.freshCandidates, 0, 64) : 0);
+            cmd.SetRayTracingFloatParam(shader, IdRestirOccludedCap, s.occludedHistory > 0f ? s.occludedHistory * candidates : 1e9f);
 
             if (restir)
             {
@@ -280,6 +287,7 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(shader, IdLightChangeCount, 0);
             cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, 1f);
             cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, 0);
+            cmd.SetRayTracingFloatParam(shader, IdRestirOccludedCap, 1e9f);
         }
 
         private int _prevCountForShader;

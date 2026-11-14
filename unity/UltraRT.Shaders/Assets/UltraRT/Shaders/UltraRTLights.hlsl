@@ -66,6 +66,7 @@ StructuredBuffer<float4>  _LightChanges;
 int       _LightChangeCount;
 float     _LightChangeTolerance; // share of a pixel's direct light that may be stale before its history is shortened
 int       _RestirFreshCandidates; // extra RIS candidates for a pixel whose temporal history failed (disocclusion, screen edge)
+float     _RestirOccludedCap;     // most M an occluded (W = 0) history may carry (docs/light-sampling.md, "Penumbrae")
 
 // Moving occluders (docs/denoiser.md, "Moving shadows"): world AABBs of dynamic objects that moved in the last frames (the
 // player's third-person model first, then the nearest moving enemies and props), each the union of this frame's and the
@@ -622,6 +623,9 @@ static float g_RestirCap = 1.0;
 bool RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, inout uint rng)
 {
     float M = min(RestirM(h), g_RestirCap);
+    // One blocked shadow-ray draw (soft shadows: a random point on the light) must not hold the pixel dark for the whole
+    // history: occluded history counts at most _RestirOccludedCap samples.
+    if (!(RestirW(h) > 0.0)) M = min(M, _RestirOccludedCap);
     uint prevLight = RestirLight(h);
     uint light = ULTRART_NO_LIGHT;
     uint bary = 0;
