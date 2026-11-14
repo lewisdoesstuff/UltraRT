@@ -660,7 +660,6 @@ namespace UltraRT
             var m = s.Material;
             var tex = EmissionTexture(m, out var st, out var tint, out bool _);
             var img = tex != null ? LowRes(tex) : null;
-            img = MaskByAlbedoAlpha(m, img);
             var baseLe = m.GetColor("_EmissiveColor") * m.GetFloat("_EmissiveIntensity");
             baseLe = new Color(baseLe.r * tint.r, baseLe.g * tint.g, baseLe.b * tint.b);
             Color avg = img != null ? Average(img) : Color.white;
@@ -698,24 +697,6 @@ namespace UltraRT
                 output.Add(new Candidate { Src = s, P0 = p0, E1 = e1, E2 = e2, Le = le, Area = area, Lum = lum });
             }
             return true;
-        }
-
-        /// <summary>_EmissiveMask (the proxy hit shader's emission x albedo alpha): the 32x32 emission times the
-        /// _MainTex alpha (x _Color.a), so a masked emitter (6-1's furnace coffin grills) only emits where the game's does.</summary>
-        private Color[] MaskByAlbedoAlpha(Material m, Color[] img)
-        {
-            if (!m.HasProperty("_EmissiveMask") || m.GetFloat("_EmissiveMask") < 0.5f || !m.HasProperty("_MainTex")) return img;
-            var main = m.GetTexture("_MainTex");
-            var alpha = main != null && main.dimension == TextureDimension.Tex2D ? LowRes(main) : null;
-            float ca = m.HasProperty("_Color") ? m.GetColor("_Color").a : 1f;
-            if (alpha == null) return img;
-            var o = new Color[alpha.Length];
-            for (int i = 0; i < o.Length; i++)
-            {
-                var e = img != null ? img[i] : Color.white;
-                o[i] = e * (Mathf.Clamp01(alpha[i].a * ca));
-            }
-            return o;
         }
 
         private static Vector2 Tile(Vector2 uv, Vector4 st) => new Vector2(uv.x * st.x + st.z, uv.y * st.y + st.w);

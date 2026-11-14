@@ -179,9 +179,6 @@ namespace UltraRT
         private bool LayerIncluded(int layer) => ((_cameraMask >> layer) & 1) != 0 || layer == 6 || layer == 7;
 
         /// <summary>Transparent, particle, additive and sky materials stay rasterised.</summary>
-        /// <summary>ULTRAKILL/Master's _EmissiveMask toggle: emission is multiplied by the albedo alpha (_MainTex.a x _Color.a).</summary>
-        public static bool EmissiveMasked(Material m) => m != null && m.HasProperty("_EmissiveMask") && m.GetFloat("_EmissiveMask") > 0.5f;
-
         private static bool Traceable(Material m)
         {
             if (m == null || m.shader == null) return false;
@@ -1033,8 +1030,6 @@ namespace UltraRT
                 bool albedoAsEmissive = src.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") ||
                                         src.HasProperty("_UseAlbedoAsEmissive") && src.GetFloat("_UseAlbedoAsEmissive") > 0.5f;
                 m.SetFloat("_UseAlbedoAsEmissive", albedoAsEmissive ? 1 : 0);
-                // "Use Emissive Mask (Color Alpha)": a float toggle, no keyword. Unmasked, 6-1's furnace coffins glowed lava all over.
-                m.SetFloat("_EmissiveMask", EmissiveMasked(src) ? 1 : 0);
             }
             // Unity Standard emission
             else if (src.IsKeywordEnabled("_EMISSION") && src.HasProperty("_EmissionColor"))

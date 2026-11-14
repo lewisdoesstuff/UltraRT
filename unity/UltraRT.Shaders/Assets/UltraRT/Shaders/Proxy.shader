@@ -10,9 +10,6 @@ Shader "UltraRT/Proxy"
         _EmissiveColor ("Emissive Color", Color) = (0,0,0,0)
         _EmissiveIntensity ("Emissive Intensity", Float) = 0
         _UseAlbedoAsEmissive ("Use Albedo As Emissive", Float) = 0
-        // ULTRAKILL/Master's _EmissiveMask toggle ("Use Emissive Mask (Color Alpha)"): emission x the albedo's alpha
-        // (6-1's furnace coffins: LavaSingle emission only through the grill, where T_FurnaceCoffin's alpha is set).
-        _EmissiveMask ("Emission masked by albedo alpha", Float) = 0
         _Cutoff ("Alpha cutoff", Float) = 0
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
         _BlendTex ("Blend atlas", 2D) = "white" {}
@@ -116,7 +113,6 @@ Shader "UltraRT/Proxy"
             float4 _EmissiveColor;
             float _EmissiveIntensity;
             float _UseAlbedoAsEmissive;
-            float _EmissiveMask;
             float _Cutoff;
             float _AtlasMode;
             float _SkyWall;
@@ -426,7 +422,6 @@ Shader "UltraRT/Proxy"
                         ? albedo.rgb
                         : _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, 0).rgb;
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
-                    if (_EmissiveMask > 0.5) emission *= saturate(albedo.a);
                 }
                 // Pattern cubes (_GameCubeLit): the game's cube term C on top of the surface, game = lit k + C with C lit by
                 // lerp(1, lighting, _LightingContribution) -> albedo k + C lc (lit by RT) and C (1 - lc) as emission.
