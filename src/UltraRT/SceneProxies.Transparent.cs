@@ -74,7 +74,7 @@ namespace UltraRT
             var proxy = CreateMeshProxy($"{r.name} (transparent) [UltraRT]", r.transform, mesh, proxyMats);
             bool twoSided = mats.Any(m => TransparentSource(m) && SourceTwoSided(m));
             AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: twoSided);
-            if (kind == TransparentKind.Water) { _transparentWater++; _waterSources.Add(r); }
+            if (kind == TransparentKind.Water || kind == TransparentKind.Blood) { _transparentWater++; _waterSources.Add(r); }
             else _transparentGlass++;
 
             if (_overlays == null && OverlayShader != null) _overlays = new TransparentOverlays(OverlayShader, Transparents);

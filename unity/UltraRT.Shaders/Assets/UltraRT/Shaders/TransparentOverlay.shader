@@ -16,7 +16,7 @@ Shader "UltraRT/TransparentOverlay"
         _MainTex ("Source albedo (alpha estimate)", 2D) = "white" {}
         _Color ("Source colour", Color) = (1,1,1,1)
         _Opacity ("Source opacity", Float) = 1
-        _Kind ("0 glass, 1 water", Float) = 0
+        _Kind ("0 glass, 1 water, 2 blood", Float) = 0
         _F0 ("F0", Float) = 0.04
         _Weight ("Reflection weight", Float) = 1
         _CullMode ("Cull", Float) = 2
@@ -96,7 +96,7 @@ Shader "UltraRT/TransparentOverlay"
             v /= dist;
             ng = normalize(i.wn);
             if (dot(ng, v) < 0.0) ng = -ng;
-            n = _Kind > 0.5 ? WaterNormal(ng, i.wpos, dist) : ng;
+            n = (_Kind > 0.5 && _Kind < 1.5) ? WaterNormal(ng, i.wpos, dist) : ng; // blood (2): thick, no ripples
             if (_UltraRTTransOn < 0.5) return false;
             // Water seen from below: the game draws its own underwater look, and a mirror there would be wrong (that is
             // total internal reflection, not handled). With the camera inside a water renderer's bounds the plugin does
@@ -127,7 +127,7 @@ Shader "UltraRT/TransparentOverlay"
         {
             float3 v, ng, n;
             float dist;
-            if (!Surface(i, v, dist, ng, n) || _Kind < 0.5 || _UltraRTTransCam.w < 0.5 || _UltraRTDepthParams.z < 0.5 || _UltraRTWater.w <= 0.0)
+            if (!Surface(i, v, dist, ng, n) || _Kind < 0.5 || _Kind > 1.5 || _UltraRTTransCam.w < 0.5 || _UltraRTDepthParams.z < 0.5 || _UltraRTWater.w <= 0.0)
                 discard;
             float2 suv = i.pos.xy / _ScreenParams.xy;
             float behind = LinearEyeDepth(_UltraRTGameDepth.SampleLevel(my_point_clamp_sampler, suv, 0).r) - i.eye;

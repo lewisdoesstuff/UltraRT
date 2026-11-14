@@ -11,7 +11,8 @@
       "Enemies": "blind",
       "Modes": [
         "off",
-        "relight"
+        "relight",
+        "hybrid"
       ],
       "Screenshots": [
         8,
@@ -22,6 +23,23 @@
         48,
         56,
         64
+      ]
+    },
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        2
       ]
     }
   ]

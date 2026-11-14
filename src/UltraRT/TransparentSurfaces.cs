@@ -9,7 +9,7 @@ using Object = UnityEngine.Object;
 namespace UltraRT
 {
     /// <summary>Ray-traced water and glass (docs/reflections.md, "Water and glass").</summary>
-    internal enum TransparentKind { None = 0, Glass = 1, Water = 2 }
+    internal enum TransparentKind { None = 0, Glass = 1, Water = 2, Blood = 3 }
 
     internal sealed class TransparentSettings
     {
@@ -30,6 +30,9 @@ namespace UltraRT
         /// <summary>Fresnel F0. Above the physical 0.02/0.04: the game's water and glass textures are bright and fairly
         /// opaque, which hides a physical-strength reflection everywhere but at grazing angles.</summary>
         public float waterF0 = 0.12f, glassF0 = 0.08f;
+        /// <summary>Liquid blood (0-2's river): thick and opaque, so a calmer, weaker sheen than water, no ripples in the
+        /// reflection ray (traced like glass), no refraction (overlay _Kind 2), and a lower cap on the reflection weight.</summary>
+        public float bloodF0 = 0.06f, bloodWeight = 0.7f;
     }
 
     /// <summary>
@@ -68,15 +71,16 @@ namespace UltraRT
             if (WaterName.IsMatch(n) && (st == (int)SurfaceClass.Wet || n.Equals("Water", StringComparison.OrdinalIgnoreCase))) return TransparentKind.Water;
             // Liquid blood: 0-2's blood river ("Mulch") is the same alpha-blended Master liquid as 6-2's blood (a water
             // material), so it gets the same treatment. Opaque BloodPool and particle/decal blood never reach here.
-            if (BloodLiquidName.IsMatch(n)) return TransparentKind.Water;
+            if (BloodLiquidName.IsMatch(n)) return TransparentKind.Blood;
             if (n.IndexOf("Glass", StringComparison.OrdinalIgnoreCase) >= 0) return TransparentKind.Glass;
             if (st == (int)SurfaceClass.Glass && n.StartsWith("Ice", StringComparison.OrdinalIgnoreCase)) return TransparentKind.Glass;
             return TransparentKind.None;
         }
 
         /// <summary>Reflection parameters of the transparent proxy (the hit shader packs them into the payload).</summary>
-        public static MaterialParams Params(TransparentKind kind, TransparentSettings s) => kind == TransparentKind.Water
-            ? MaterialParams.Spec(SurfaceClass.Wet, 0f, 0f, s.waterF0, 1f, "transparent water")
+        public static MaterialParams Params(TransparentKind kind, TransparentSettings s) =>
+            kind == TransparentKind.Water ? MaterialParams.Spec(SurfaceClass.Wet, 0f, 0f, s.waterF0, 1f, "transparent water")
+            : kind == TransparentKind.Blood ? MaterialParams.Spec(SurfaceClass.Glass, 0f, 0f, s.bloodF0, 1f, "transparent blood") // Glass class: no ripples
             : MaterialParams.Spec(SurfaceClass.Glass, 0f, 0f, s.glassF0, 1f, "transparent glass");
     }
 
@@ -123,9 +127,9 @@ namespace UltraRT
                 }
                 if (src.HasProperty("_Color")) overlay.SetColor("_Color", src.GetColor("_Color"));
                 overlay.SetFloat("_Opacity", src.HasProperty("_Opacity") ? src.GetFloat("_Opacity") : 1f);
-                overlay.SetFloat("_Kind", kind == TransparentKind.Water ? 1f : 0f);
-                overlay.SetFloat("_F0", kind == TransparentKind.Water ? _settings.waterF0 : _settings.glassF0);
-                overlay.SetFloat("_Weight", 1f);
+                overlay.SetFloat("_Kind", kind == TransparentKind.Water ? 1f : kind == TransparentKind.Blood ? 2f : 0f);
+                overlay.SetFloat("_F0", kind == TransparentKind.Water ? _settings.waterF0 : kind == TransparentKind.Blood ? _settings.bloodF0 : _settings.glassF0);
+                overlay.SetFloat("_Weight", kind == TransparentKind.Blood ? _settings.bloodWeight : 1f);
                 overlay.SetFloat("_CullMode", src.HasProperty("_CullMode") ? src.GetFloat("_CullMode") : 2f);
                 _materials[src] = overlay;
             }
