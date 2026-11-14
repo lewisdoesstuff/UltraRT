@@ -7,7 +7,21 @@
     { "Name": "8-2 pool oblique", "Scene": "Level 8-2",
       "Path": { "Type": "static", "Approach": "../recordings/8-2-a.json", "Position": [0, -11.6, 335], "Yaw": 0, "Pitch": -40, "Duration": 3 },
       "Modes": ["off", "relight", "relight+refl=0", "hybrid"], "Screenshots": [2] },
-    { "Name": "4-2 start", "Scene": "Level 4-2", "Path": { "Type": "static", "Load": "none", "Duration": 3 },
-      "Enemies": "blind", "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] }
+    { "Name": "8-2 pool up", "Scene": "Level 8-2",
+      "Path": { "Type": "static", "Approach": "../recordings/8-2-a.json", "Position": [0, -11.6, 345], "Yaw": 0, "Pitch": 89, "Duration": 3 },
+      "Modes": ["off", "relight"], "Screenshots": [2] },
+    { "Name": "4-2 solarium wall", "Scene": "Level 4-2",
+      "Path": { "Type": "static", "Load": "none", "Position": [-79, 42, 945], "Yaw": 180, "Pitch": 5, "Duration": 3 },
+      "Enemies": "blind", "Modes": ["off", "relight", "relight+refl=0", "hybrid"], "Screenshots": [2] },
+    { "Name": "4-2 solarium roof", "Scene": "Level 4-2",
+      "Path": { "Type": "static", "Load": "none", "Position": [-79, 45, 955], "Yaw": 0, "Pitch": 60, "Duration": 3 },
+      "Enemies": "blind", "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] },
+    { "Name": "2-1 start", "Scene": "Level 2-1", "Path": { "Type": "static", "Load": "none", "Duration": 2 },
+      "Enemies": "blind", "Modes": ["off", "relight"], "Screenshots": [1] },
+    { "Name": "2-4 start", "Scene": "Level 2-4", "Path": { "Type": "static", "Load": "none", "Duration": 2 },
+      "Enemies": "blind", "Modes": ["off", "relight"], "Screenshots": [1] },
+    { "Name": "0-2 blood river", "Scene": "Level 0-2",
+      "Path": { "Type": "static", "Approach": "../recordings/0-2-blood-river.json", "Duration": 3 },
+      "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] }
   ]
 }

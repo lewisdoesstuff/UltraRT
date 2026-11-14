@@ -114,7 +114,7 @@ namespace UltraRT
             if (_overlays == null && OverlayShader != null) _overlays = new TransparentOverlays(OverlayShader, Transparents);
             bool overlay = _overlays != null && _overlays.Attach(r);
             if (!overlay) _transparentNoOverlay++;
-            if (!late && _transparentLog.Count < 60)
+            if (!late && (kind != TransparentKind.Glass || _transparentLog.Count < 40))
             {
                 var src = r.sharedMaterials.LastOrDefault(TransparentSource);
                 _transparentLog.Add($"  {kind} (static batch, submesh {r.subMeshStartIndex}) '{GameControlPath(r.transform)}' mat '{src?.name}' at {r.bounds.center:F1} size {r.bounds.size:F1}" +
