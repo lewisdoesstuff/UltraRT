@@ -887,6 +887,7 @@ namespace UltraRT
                                        string.Join(", ", activeLights.GroupBy(l => l.type).Select(g => $"{g.Key}={g.Count()}")) +
                                        string.Concat(activeLights.Where(l => l.type == LightType.Directional)
                                            .Select(l => $" | sun '{l.name}' I={l.intensity:F2} mask=0x{l.cullingMask:X8}")));
+                        LogAreaLighting(sc.Name);
                         var camPos = GameControl.Cam != null ? GameControl.Cam.transform.position : Vector3.zero;
                         foreach (var r in FindObjectsOfType<Renderer>())
                         {

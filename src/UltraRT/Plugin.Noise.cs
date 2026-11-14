@@ -16,6 +16,17 @@ namespace UltraRT
         private ComputeBuffer _moverBuffer;
         /// <summary>Diagnostics: directional lights unshadowed (bench: plugin._sunsUnshadowed=1).</summary>
         private bool _sunsUnshadowed;
+
+        /// <summary>
+        /// A directional light within <see cref="_lowSideLightDeg"/> above the horizon that isn't the level's main sun
+        /// (the brightest directional from above) is a side light tinting facades, not a sun: 8-2's street has an orange one
+        /// and a blue-violet one at 5 degrees beside its pink sun, and the game (no shadows) colours both rows of buildings
+        /// with them. Shadowed, the street canyon blocked both and the street went dark brown. Such lights are unshadowed and
+        /// kept (fill cut leaves them). docs/relight.md "Area colour". Bench: plugin._lowSideLightDeg=0 for the old model.
+        /// </summary>
+        private float _lowSideLightDeg = 10f;
+        private bool LowSideLight(Light l, Light mainSun) =>
+            l != mainSun && mainSun != null && -l.transform.forward.y < Mathf.Sin(_lowSideLightDeg * Mathf.Deg2Rad);
         private readonly Vector4[] _moverData = new Vector4[32];
         private int _moverCount;
         /// <summary>Player shadow split (docs/denoiser.md, "Moving shadows"): V1's shadow is kept out of the denoised lighting

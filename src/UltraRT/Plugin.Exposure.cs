@@ -184,7 +184,8 @@ namespace UltraRT
             var m = _autoExposure.LastMatch;
             return FormattableString.Invariant(
                 $"exposure x{e.x:F3} ({e.y:+0.00;-0.00} EV, target {e.w:+0.00;-0.00}), mean lum {Mathf.Pow(2f, e.z):F3}, {_autoExposure.LastCount:F0} px; ") +
-                FormattableString.Invariant($"game match: game {m.x:+0.00;-0.00} vs RT {m.y:+0.00;-0.00} log2 over {m.w:F0} near px, correction {m.z:+0.00;-0.00} EV");
+                FormattableString.Invariant($"game match: game {m.x:+0.00;-0.00} vs RT {m.y:+0.00;-0.00} log2 over {m.w:F0} near px, correction {m.z:+0.00;-0.00} EV; ") +
+                FormattableString.Invariant($"colour match gain ({_autoExposure.LastBalance.x:F2}, {_autoExposure.LastBalance.y:F2}, {_autoExposure.LastBalance.z:F2})");
         }
 
         private RenderTexture _aeGameCopy;
@@ -196,7 +197,7 @@ namespace UltraRT
         private void BindGameMatch()
         {
             var s = _aeSettings;
-            var gameTex = (s.gameMatchUp > 0f || s.gameMatchDown > 0f) ? MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex : null;
+            var gameTex = (s.gameMatchUp > 0f || s.gameMatchDown > 0f || s.colorMatch > 0f) ? MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex : null;
             if (gameTex == null) { _autoExposure.GameColor = null; return; }
             if (_aeGameCopy == null || _aeGameCopy.width != gameTex.width || _aeGameCopy.height != gameTex.height || _aeGameCopy.format != gameTex.format)
             {

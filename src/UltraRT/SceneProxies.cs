@@ -44,6 +44,7 @@ namespace UltraRT
         /// <summary>Experiment (-ultrart-nostatic): leave static batches out of the RTAS.</summary>
         public static bool SkipStaticBatches;
         public int AlphaTestedMaterials { get; private set; }
+        public int LitAlbedoEmissionMaterials { get; private set; }
 
         /// <summary>Winding convention for RT back-face culling (-ultrart-ccw flips it).</summary>
         public static bool FrontCounterClockwise;
@@ -234,7 +235,7 @@ namespace UltraRT
                          $"in {StaticInstancesActive}/{_staticPartsTotal} group instances, dynamic {dynamicRecords} in {_active.Count} instances)");
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
-                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}), light fixtures {FixtureCount}");
+                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}, lit albedo-as-emissive {LitAlbedoEmissionMaterials}), light fixtures {FixtureCount}");
             LogMaterialClasses();
             LogTransparents();
             LogMirrorSurfaces();
@@ -376,7 +377,7 @@ namespace UltraRT
         private void NoteSky(Renderer r)
         {
             var m = r.sharedMaterial;
-            if (m != null && m.shader != null && m.shader.name == "Skybox/Panoramic" && !SkyRenderers.Contains(r)) SkyRenderers.Add(r);
+            if (Plugin.IsSkyMaterial(m) && !SkyRenderers.Contains(r)) SkyRenderers.Add(r);
         }
 
         /// <summary>
@@ -1061,6 +1062,27 @@ namespace UltraRT
                 bool albedoAsEmissive = src.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") ||
                                         src.HasProperty("_UseAlbedoAsEmissive") && src.GetFloat("_UseAlbedoAsEmissive") > 0.5f;
                 m.SetFloat("_UseAlbedoAsEmissive", albedoAsEmissive ? 1 : 0);
+                // _EmissiveMask: emission x main texture alpha^2.2 (6-1's furnace coffins glow only through their grate).
+                m.SetFloat("_EmissiveMask", src.HasProperty("_EmissiveMask") && src.GetFloat("_EmissiveMask") > 0.5f ? 1f : 0f);
+                if (albedoAsEmissive && src.IsKeywordEnabled("VERTEX_LIGHTING") && LitAlbedoEmission)
+                {
+                    // The Master shader's "albedo" here is _MainTex * the vertex term, and in a lit material that term is
+                    // the vertex lighting (decompiled: o1 = lighting * colour). So the "emission" is the lit, fogged albedo
+                    // times _EmissiveColor * _EmissiveIntensity, replacing the surface (_EmissiveReplaces) or added to it:
+                    // the surface never glows by itself. 6-1's chandelier candles (M_WhiteMarble, white, intensity 1,
+                    // replaces) are dark red in its red light; traced as albedo emission they were white and lit the hall
+                    // as emitters. Keep it a lit surface; the emissive factor becomes an albedo scale (at most 1: the
+                    // game's brightening of lit areas isn't kept, albedo above 1 would add energy to the bounce).
+                    // docs/relight.md "Area colour". -ultrart-albedo-emission-glow: the old behaviour.
+                    var ec = src.HasProperty("_EmissiveColor") ? src.GetColor("_EmissiveColor") : Color.white;
+                    float ei = src.HasProperty("_EmissiveIntensity") ? Mathf.Max(src.GetFloat("_EmissiveIntensity"), 0f) : 1f;
+                    bool replaces = src.HasProperty("_EmissiveReplaces") && src.GetFloat("_EmissiveReplaces") > 0.5f;
+                    var k = replaces ? ec * ei : Color.white + ec * ei;
+                    var c = m.GetColor("_Color");
+                    m.SetColor("_Color", new Color(c.r * Mathf.Min(k.r, 1f), c.g * Mathf.Min(k.g, 1f), c.b * Mathf.Min(k.b, 1f), c.a));
+                    m.SetFloat("_EmissiveIntensity", 0f);
+                    LitAlbedoEmissionMaterials++;
+                }
             }
             // Unity Standard emission
             else if (src.IsKeywordEnabled("_EMISSION") && src.HasProperty("_EmissionColor"))
