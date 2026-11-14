@@ -255,6 +255,7 @@ namespace UltraRT
                     case "-ultrart-viewprobe": SceneProxies.ViewProbe = true; break;
                     case "-ultrart-nomatsync": SceneProxies.MaterialSync = false; break;
                     case "-ultrart-lit-unlit": SceneProxies.FullbrightUnlit = false; break;
+                    case "-ultrart-albedo-emission-glow": SceneProxies.LitAlbedoEmission = false; break;
                     case "-ultrart-enemy-lit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.UnlitEnemyLitWeight); break;
                     case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
                     case "-ultrart-guard":
@@ -284,6 +285,8 @@ namespace UltraRT
             var shaders = bundle.LoadAllAssets<Shader>();
             var proxy = shaders.FirstOrDefault(s => s.name == "UltraRT/Proxy");
             var composite = shaders.FirstOrDefault(s => s.name == "UltraRT/Composite");
+            _skyConvertShader = shaders.FirstOrDefault(s => s.name == "Hidden/UltraRT/SkyConvert"); // optional: cubemap skies give no sky light without it
+            ReleaseSkyLatLong(); // reconvert with the reloaded shader
             SceneProxies.PortalShader = shaders.FirstOrDefault(s => s.name == "UltraRT/Portal"); // optional: no portals without it
             if (SceneProxies.PortalShader == null) Logger.LogWarning("UltraRT/Portal missing from the bundle: portals are not traced");
             var denoise = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Denoise");
@@ -466,7 +469,7 @@ namespace UltraRT
             {
                 _nextLightScan = Time.realtimeSinceStartup + 1f;
                 _proxies.PruneLights();
-                _skyMaterial = FindSkyMaterial(_proxies.SkyRenderers);
+                _skyMaterial = FindSkyMaterial(_proxies.SkyRenderers, _camera != null ? _camera.transform.position : (Vector3?)null);
             }
             // Most tracked lights are off (8-3: ~1,300 lights, ~100 on). Re-check the whole list at 4 Hz, and every frame
             // only the lights that were on (a light switching on is seen within 0.25 s; it used to take up to 1 s).
@@ -491,6 +494,15 @@ namespace UltraRT
                 if (_proxies != null) foreach (var line in _proxies.DescribeSkinnedNear(_camera.transform.position, 30f)) Logger.LogInfo($"skinned near camera: {line}");
             }
             _lightCount = 0;
+            // The main sun: the brightest directional light from above the horizon (LowSideLight below).
+            Light mainSun = null;
+            float mainSunLum = -1f;
+            foreach (var l in _activeLights)
+            {
+                if (l == null || l.type != LightType.Directional || !l.isActiveAndEnabled || l.intensity <= 0f || -l.transform.forward.y < -0.05f) continue;
+                float lum = (0.2126f * l.color.r + 0.7152f * l.color.g + 0.0722f * l.color.b) * l.intensity;
+                if (lum > mainSunLum) { mainSunLum = lum; mainSun = l; }
+            }
             foreach (var l in _activeLights)
             {
                 if (_lightCount >= MaxLights) break;
@@ -529,7 +541,8 @@ namespace UltraRT
                         // has no shadows). Shadowing them against the floor would remove them, so leave them unshadowed.
                         // _sunsUnshadowed (diagnostics): every directional light unshadowed (0.75: not a fill, so relight's
                         // fill cut leaves it).
-                        l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : _sunsUnshadowed ? 0.75f : 0f, 0);
+                        // Low side lights (LowSideLight) are unshadowed but kept (0.75) as well.
+                        l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : _sunsUnshadowed || LowSideLight(l, mainSun) ? 0.75f : 0f, 0);
                         break;
                     default:
                         continue;
@@ -818,49 +831,164 @@ namespace UltraRT
         private Material _skyMaterial;
 
         /// <summary>
-        /// The sky the player actually sees: ULTRAKILL draws fake skies as panoramic sky spheres (e.g. LimboSkybox/SkySphere),
-        /// often with RenderSettings.skybox left at an unused default. Prefer an active Skybox/Panoramic renderer.
+        /// The sky the player actually sees: ULTRAKILL draws fake skies as sky spheres (e.g. LimboSkybox/SkySphere, 8-2's
+        /// DaySkybox), often with RenderSettings.skybox left at an unused default. Prefer an active sky renderer. When the
+        /// active ones use different materials, take the one horizontally nearest the camera (0 inside its footprint):
+        /// 8-2 has a day dome over its street (DaySkybox) and a night backdrop (MirrorHider) beside the far side of its
+        /// portal, neither of which encloses the camera (docs/relight.md "Area colour").
         /// </summary>
-        private static Material FindSkyMaterial(List<Renderer> candidates)
+        private static Material FindSkyMaterial(List<Renderer> candidates, Vector3? cam = null)
         {
+            Material first = null, nearest = null;
+            bool several = false;
+            float best = float.MaxValue;
             foreach (var r in candidates)
             {
                 if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
                 var m = r.sharedMaterial;
-                if (m != null && m.shader != null && m.shader.name == "Skybox/Panoramic" && m.mainTexture != null) return m;
+                if (!IsSkyMaterial(m)) continue;
+                if (first == null) first = m;
+                else if (m != first) several = true;
+                if (!cam.HasValue) continue;
+                var b = r.bounds;
+                var c = cam.Value;
+                float dx = Mathf.Max(0f, Mathf.Max(b.min.x - c.x, c.x - b.max.x)), dz = Mathf.Max(0f, Mathf.Max(b.min.z - c.z, c.z - b.max.z));
+                float d = dx * dx + dz * dz;
+                if (d < best) { best = d; nearest = m; }
             }
+            if (several && nearest != null) return nearest;
+            if (first != null) return first;
             var s = RenderSettings.skybox;
-            return s != null && s.shader != null && s.shader.name == "Skybox/Panoramic" && s.mainTexture != null ? s : null;
+            return IsSkyMaterial(s) ? s : null;
+        }
+
+        /// <summary>Unity's / ULTRAKILL's panoramic sky with a lat-long texture, or ULTRAKILL/Skybox/Skybox in cubemap mode.</summary>
+        internal static bool IsSkyMaterial(Material m)
+        {
+            if (m == null || m.shader == null) return false;
+            var n = m.shader.name;
+            if (n == "Skybox/Panoramic" || n == "ULTRAKILL/Skybox/Panoramic")
+                return m.mainTexture != null && m.mainTexture.dimension == TextureDimension.Tex2D;
+            if (n == "ULTRAKILL/Skybox/Skybox")
+                return m.IsKeywordEnabled("_TEXMODE_CUBEMAP") && m.HasProperty("_Cubemap") && m.GetTexture("_Cubemap") is Cubemap;
+            return false;
+        }
+
+        // Cubemap skies (ULTRAKILL/Skybox/Skybox) are converted once per cubemap into the lat-long layout _SkyTex uses. One
+        // target per cubemap, so the sky table (keyed by texture) rebuilds when 8-2 switches between its day and night sky.
+        private Shader _skyConvertShader;
+        private Material _skyConvertMat;
+        private readonly Dictionary<Texture, RenderTexture> _skyLatLong = new Dictionary<Texture, RenderTexture>();
+
+        private Texture SkyLatLong(Texture cube)
+        {
+            if (cube == null || _skyConvertShader == null || !_skyConvertShader.isSupported) return null;
+            if (_skyLatLong.TryGetValue(cube, out var rt) && rt != null && rt.IsCreated()) return rt;
+            if (_skyLatLong.Count >= 4) ReleaseSkyLatLong();
+            if (_skyConvertMat == null) _skyConvertMat = new Material(_skyConvertShader) { name = "UltraRT SkyConvert" };
+            rt = new RenderTexture(1024, 512, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear)
+                { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Repeat, name = "UltraRT SkyLatLong " + cube.name };
+            rt.Create();
+            _skyConvertMat.SetTexture("_Cube", cube);
+            Graphics.Blit(null, rt, _skyConvertMat);
+            _skyLatLong[cube] = rt;
+            Logger.LogInfo($"RT sky: converted cubemap '{cube.name}' ({cube.width}px) to lat-long");
+            return rt;
+        }
+
+        private void ReleaseSkyLatLong()
+        {
+            foreach (var rt in _skyLatLong.Values) if (rt != null) rt.Release();
+            _skyLatLong.Clear();
         }
 
         private void BindSky(RayTracingShader shader)
         {
             var m = _skyMaterial;
-            if (m == null || m.mainTexture == null || m.mainTexture.dimension != TextureDimension.Tex2D) // _SkyTex is a Texture2D
+            Texture tex = null;
+            Color tint = Color.white;
+            float rot = 0f;
+            if (IsSkyMaterial(m))
+            {
+                if (m.shader.name == "ULTRAKILL/Skybox/Skybox")
+                {
+                    // Cubemap times _SkyColor (game units, no colour-space double).
+                    tex = SkyLatLong(m.GetTexture("_Cubemap"));
+                    tint = m.HasProperty("_SkyColor") ? m.GetColor("_SkyColor") : Color.white;
+                }
+                else
+                {
+                    tex = m.mainTexture;
+                    var t = m.HasProperty("_Tint") ? m.GetColor("_Tint") : Color.gray;
+                    float exposure = m.HasProperty("_Exposure") ? m.GetFloat("_Exposure") : 1f;
+                    rot = m.HasProperty("_Rotation") ? m.GetFloat("_Rotation") : 0f;
+                    // Skybox/Panoramic: tex * _Tint * unity_ColorSpaceDouble (2 in gamma space) * _Exposure.
+                    float k = (QualitySettings.activeColorSpace == ColorSpace.Gamma ? 2f : 4.59479f) * exposure;
+                    tint = new Color(t.r * k, t.g * k, t.b * k);
+                }
+            }
+            if (tex == null)
             {
                 _cmd.SetRayTracingTextureParam(shader, "_SkyTex", Texture2D.blackTexture);
                 _cmd.SetRayTracingVectorParam(shader, "_SkyTint", Vector4.one);
                 BindSkyLight(shader, Vector4.zero, null, Color.white, RenderSettings.ambientLight); // also sets _SkyParams
                 return;
             }
-            var tint = m.HasProperty("_Tint") ? m.GetColor("_Tint") : Color.gray;
-            float exposure = m.HasProperty("_Exposure") ? m.GetFloat("_Exposure") : 1f;
-            float rot = m.HasProperty("_Rotation") ? m.GetFloat("_Rotation") : 0f;
-            // Skybox/Panoramic: tex * _Tint * unity_ColorSpaceDouble (2 in gamma space) * _Exposure.
-            float k = (QualitySettings.activeColorSpace == ColorSpace.Gamma ? 2f : 4.59479f) * exposure;
-            _cmd.SetRayTracingTextureParam(shader, "_SkyTex", m.mainTexture);
-            _cmd.SetRayTracingVectorParam(shader, "_SkyTint", new Vector4(tint.r * k, tint.g * k, tint.b * k, 1));
-            BindSkyLight(shader, new Vector4(1f, rot * Mathf.Deg2Rad, 0, 0), m.mainTexture, new Color(tint.r * k, tint.g * k, tint.b * k), Color.black); // also sets _SkyParams
+            _cmd.SetRayTracingTextureParam(shader, "_SkyTex", tex);
+            _cmd.SetRayTracingVectorParam(shader, "_SkyTint", new Vector4(tint.r, tint.g, tint.b, 1));
+            BindSkyLight(shader, new Vector4(1f, rot * Mathf.Deg2Rad, 0, 0), tex, tint, Color.black); // also sets _SkyParams
         }
 
         private void LogLightingEnvironment()
         {
             var sky = RenderSettings.skybox;
-            var rtSky = _proxies != null ? FindSkyMaterial(_proxies.SkyRenderers) : null;
+            var rtSky = _proxies != null ? FindSkyMaterial(_proxies.SkyRenderers, _camera != null ? _camera.transform.position : (Vector3?)null) : null;
             Logger.LogInfo($"RT sky: {(rtSky != null ? $"{rtSky.name} tex {rtSky.mainTexture?.name} {rtSky.mainTexture?.dimension}" : "none (flat ambient colour)")}");
             Logger.LogInfo($"Lighting env: ambientMode={RenderSettings.ambientMode} ambient={RenderSettings.ambientLight} sky={(sky ? sky.shader.name : "none")} skyTex={(sky && sky.HasProperty("_MainTex") && sky.mainTexture ? sky.mainTexture.name : "-")} fog={RenderSettings.fog} fogColor={RenderSettings.fogColor}");
             foreach (var l in FindObjectsOfType<Light>().Where(l => l.type == LightType.Directional))
                 Logger.LogInfo($"  directional '{l.name}' enabled={l.isActiveAndEnabled} color={l.color} intensity={l.intensity:F2} mask=0x{l.cullingMask:X8} rot={l.transform.eulerAngles}");
+        }
+
+        /// <summary>Bench screenshots: the area's lighting state (what triggers change per area) and the strongest lights near
+        /// the camera, so a colour difference against the game can be traced to its source (docs/relight.md "Area colour").</summary>
+        private void LogAreaLighting(string tag)
+        {
+            var cam = Bench.GameControl.Cam != null ? Bench.GameControl.Cam.transform.position : Vector3.zero;
+            var sky = RenderSettings.skybox;
+            Logger.LogInfo(FormattableString.Invariant(
+                $"Area lighting '{tag}': ambientMode={RenderSettings.ambientMode} ambient={RenderSettings.ambientLight} sky/eq/gnd={RenderSettings.ambientSkyColor}/{RenderSettings.ambientEquatorColor}/{RenderSettings.ambientGroundColor} ") +
+                FormattableString.Invariant($"_AmbientStrength={Shader.GetGlobalFloat("_AmbientStrength"):F2} _HeightFog={Shader.GetGlobalFloat("_HeightFog"):F0} _Gamma={Shader.GetGlobalFloat("_Gamma"):F2} _LUT={(Shader.GetGlobalTexture("_LUT") ? Shader.GetGlobalTexture("_LUT").name : "-")} _PaletteTex={(Shader.GetGlobalTexture("_PaletteTex") ? Shader.GetGlobalTexture("_PaletteTex").name : "-")} fog={RenderSettings.fog} {RenderSettings.fogColor} {RenderSettings.fogStartDistance:F0}-{RenderSettings.fogEndDistance:F0} ") +
+                $"skybox={(sky ? sky.name + "/" + sky.shader.name : "none")} rtSky={(_skyMaterial ? _skyMaterial.name + "/" + _skyMaterial.shader.name : "none")}");
+            var lights = FindObjectsOfType<Light>().Where(l => l.isActiveAndEnabled && l.intensity > 0f).ToList();
+            foreach (var l in lights.Where(l => l.type == LightType.Directional))
+                Logger.LogInfo(FormattableString.Invariant($"  area sun '{Bench.GameControl.PathOf(l.transform)}' col {l.color} I {l.intensity:F2} fwd {l.transform.forward:F2} mask 0x{l.cullingMask:X8} shadows {l.shadows}"));
+            // Point/spot lights by how much they reach the camera's surroundings in the game's model: colour x intensity x g(d).
+            float Reach(Light l) { float d = (l.transform.position - cam).magnitude; float r = Mathf.Max(l.range, 1e-3f); return l.intensity * l.color.maxColorComponent / (1f + 25f * d * d / (4f * r * r)); }
+            var near = lights.Where(l => l.type != LightType.Directional).OrderByDescending(Reach).Take(10).ToList();
+            float total = lights.Where(l => l.type != LightType.Directional).Sum(Reach);
+            Logger.LogInfo($"  area lights: {lights.Count} on, reach-weighted top 10 of total {total:F2}:");
+            foreach (var l in near)
+                Logger.LogInfo(FormattableString.Invariant($"    {Reach(l) / Mathf.Max(total, 1e-4f):P0} '{Bench.GameControl.PathOf(l.transform)}' {l.type} col {l.color} I {l.intensity:F2} range {l.range:F0} dist {(l.transform.position - cam).magnitude:F1} mask 0x{l.cullingMask:X8}"));
+            // Game-unlit (fullbright) materials in view: their fog settings decide how the game's fog swallows them.
+            var fwd = Bench.GameControl.Cam != null ? Bench.GameControl.Cam.transform.forward : Vector3.forward;
+            var seen = new HashSet<Material>();
+            foreach (var r in FindObjectsOfType<Renderer>())
+            {
+                if (seen.Count >= 30) break;
+                if (r == null || !r.enabled || r.name.EndsWith("[UltraRT]")) continue;
+                var to = r.bounds.center - cam;
+                if (to.magnitude > 80f || Vector3.Dot(to.normalized, fwd) < 0.6f) continue;
+                foreach (var m in r.sharedMaterials)
+                {
+                    if (m == null || m.shader == null) continue;
+                    bool named = r.name.IndexOf("andle", StringComparison.OrdinalIgnoreCase) >= 0 || r.transform.parent != null && r.transform.parent.name.IndexOf("andle", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool unlitOrGlow = m.shader.name == "ULTRAKILL/Master" && (!m.IsKeywordEnabled("VERTEX_LIGHTING") || m.IsKeywordEnabled("EMISSIVE"));
+                    if (!(named || unlitOrGlow) || !seen.Add(m)) continue;
+                    float F(string p) => m.HasProperty(p) ? m.GetFloat(p) : float.NaN;
+                    Logger.LogInfo(FormattableString.Invariant($"  area unlit '{Bench.GameControl.PathOf(r.transform)}' L{r.gameObject.layer} d {to.magnitude:F0} mat '{m.name}' q{m.renderQueue} col {(m.HasProperty("_Color") ? m.GetColor("_Color") : Color.clear)} ") +
+                                   FormattableString.Invariant($"fog {F("_Fog")} customDists {F("_UseCustomFogDists")} emFog {F("_EmissiveFogStart"):F0}-{F("_EmissiveFogEnd"):F0} emI {F("_EmissiveIntensity"):F2} emCol {(m.HasProperty("_EmissiveColor") ? m.GetColor("_EmissiveColor") : Color.clear)} shader {m.shader.name} kw [{string.Join(" ", m.shaderKeywords)}]"));
+                }
+            }
         }
 
         private float _nextRescan;

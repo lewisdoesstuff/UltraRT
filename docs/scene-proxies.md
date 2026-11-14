@@ -145,6 +145,24 @@ Gabriel looked dim and red-brown instead of gold). Enemies (`ENEMY`) are also un
 enemies would lose all RT shadowing, so they keep half of it: `SceneProxies.UnlitEnemyLitWeight` = 0.5
 (`-ultrart-enemy-lit w`, 0 = like the game, 1 = the old relit look). `-ultrart-lit-unlit` restores the old behaviour.
 
+**Albedo as emissive in a lit material** (2026-11-14 late, user report: 6-1's chandelier candles pure white in relight,
+dark red in the game). The Master shader's emission with `_UseAlbedoAsEmissive` is its "albedo", `_MainTex` times the
+per-vertex term, and in a `VERTEX_LIGHTING` material that term is the vertex lighting (decompiled vertex shader:
+`o1 = lighting * colour`), fogged like the surface. So the emission is the **lit** albedo times
+`_EmissiveColor * _EmissiveIntensity` (with saturation), replacing the surface (`_EmissiveReplaces`) or added to it: such
+a surface never glows by itself. 6-1's `M_WhiteMarble` (white, intensity 1, replaces) is simply a lit surface in the game;
+traced as albedo emission it was white and lit the hall as an emitter. Proxies of lit Master materials with albedo as
+emissive now have no emission; the emissive factor (`emissive x intensity` when it replaces, `1 + that` otherwise) scales
+`_Color`, clamped to 1 (the game's brightening of a lit area isn't kept: albedo above 1 would add energy to the bounce).
+Counted in the scene line (`lit albedo-as-emissive N`: 6-1 2, 7-3 1, 8-2 2, 6-2 1; none in 1-1, 0-1, 0-5, 2-2).
+`-ultrart-albedo-emission-glow` restores the old emission. Unlit Master materials with albedo as emissive (their
+per-vertex term is only the vertex colour) still glow, as in the game.
+
+**Emissive mask** (`_EmissiveMask`, keyword `_EMISSIVEMASK_ON`): the game multiplies the emission by the main texture's
+alpha^2.2 (decompiled pixel shader). The proxy hit shader now does too, and the emitter table scales the material's
+emitted power by the mean of alpha^2.2 over the texture. 6-1's furnace coffins (`M_FurnaceCoffin`, orange, intensity
+1.5) glowed over their whole front; in the game only the grate glows.
+
 **Cost** (600-frame log line `Material sync: ...`, split into swap checks, blocks, re-copies and static checks): 0.006 to
 0.03 ms per frame in 0-2, 1-3, 4-4, 6-2 and 7-3 (visual runs; first version was 0.05 to 0.2 ms with larger slices and
 string property lookups). A swap creates a proxy material once per new source material (classification and material maps,

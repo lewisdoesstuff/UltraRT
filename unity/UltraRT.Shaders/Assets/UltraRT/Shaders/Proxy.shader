@@ -10,6 +10,8 @@ Shader "UltraRT/Proxy"
         _EmissiveColor ("Emissive Color", Color) = (0,0,0,0)
         _EmissiveIntensity ("Emissive Intensity", Float) = 0
         _UseAlbedoAsEmissive ("Use Albedo As Emissive", Float) = 0
+        // ULTRAKILL/Master _EmissiveMask: the emission is multiplied by the main texture's alpha^2.2 (decompiled).
+        _EmissiveMask ("Emissive Mask (albedo alpha)", Float) = 0
         _Cutoff ("Alpha cutoff", Float) = 0
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
         _BlendTex ("Blend atlas", 2D) = "white" {}
@@ -113,6 +115,7 @@ Shader "UltraRT/Proxy"
             float4 _EmissiveColor;
             float _EmissiveIntensity;
             float _UseAlbedoAsEmissive;
+            float _EmissiveMask;
             float _Cutoff;
             float _AtlasMode;
             float _SkyWall;
@@ -422,6 +425,7 @@ Shader "UltraRT/Proxy"
                         ? albedo.rgb
                         : _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, 0).rgb;
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
+                    if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
                 }
                 // Pattern cubes (_GameCubeLit): the game's cube term C on top of the surface, game = lit k + C with C lit by
                 // lerp(1, lighting, _LightingContribution) -> albedo k + C lc (lit by RT) and C (1 - lc) as emission.

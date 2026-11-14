@@ -1,0 +1,73 @@
+{
+  "Name": "v1-late",
+  "Scenarios": [
+    {
+      "Name": "0-2 v1 shadow a",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-0-2-v1-shadow-a.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-0-2-v1-shadow-a-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "0-2 v1 shadow b",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-0-2-v1-shadow-b.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-0-2-v1-shadow-b-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "7-3 flashlight shadow",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-7-3-flashlight-shadow.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-7-3-flashlight-shadow-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "P-2 v1 reflection",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-P-2-v1-reflection.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-P-2-v1-reflection-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    }
+  ]
+}

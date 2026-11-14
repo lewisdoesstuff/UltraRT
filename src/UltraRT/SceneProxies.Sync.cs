@@ -24,6 +24,9 @@ namespace UltraRT
         public static bool MaterialSync = true;
         /// <summary>ULTRAKILL/Master without VERTEX_LIGHTING is fullbright, as in game (-ultrart-lit-unlit: relight it).</summary>
         public static bool FullbrightUnlit = true;
+        /// <summary>Lit Master materials with _UseAlbedoAsEmissive are lit surfaces, not emitters, as in game
+        /// (SceneProxies.cs material setup; -ultrart-albedo-emission-glow: the old albedo emission).</summary>
+        public static bool LitAlbedoEmission = true;
         /// <summary>Lit weight of unlit ENEMY materials (the game draws enemies fullbright): 0 = fullbright like the game, 1 =
         /// fully relit. In between keeps RT shadows on enemies without darkening them (-ultrart-enemy-lit w).</summary>
         public static float UnlitEnemyLitWeight = 0.5f;
@@ -226,7 +229,7 @@ namespace UltraRT
             int subCount = d.Flags.Length;
             var flags = SubmeshFlags(mats, subCount);
             var proxyMats = new Material[mats.Length];
-            for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
+            for (int i = 0; i < mats.Length; i++) proxyMats[i] = d.Mask == PlayerMask ? PlayerProxyOrDisabled(mats[i]) : ProxyOrDisabled(mats[i]);
             ReleaseOwn(d);
             d.Proxy.sharedMaterials = proxyMats;
             SetSyncMaterials(d.Sync, mats);

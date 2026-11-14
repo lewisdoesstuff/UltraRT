@@ -29,7 +29,7 @@ the relit direct light. Shader side: `_Relight` (float4, zero = the game's model
 `Denoise.compute`'s Composite. The tone curve itself is `UltraRTToneCurve.hlsl`, shared with the water/glass
 reflection overlay (`TransparentOverlay.shader`), so the two can't drift apart.
 
-Not done yet: per-level/per-light JSON overrides, emissive exposure, a hybrid variant.
+Not done yet: per-level/per-light JSON overrides, emissive exposure, a hybrid variant. Per-area colour: see "Area colour".
 
 ## Auto exposure
 Physical falloff plus a sun makes outdoor areas several times brighter than torch-lit rooms (mean scene luminance about
@@ -111,6 +111,92 @@ Mean screen luma, game / relight before / relight now (game match and the haze r
 | P-2 vent smoke | 18.8 | 21.8 | 16.0 | 1.16 | 0.85 |
 
 "Before" is the same build with `ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0` (and, for 7-3 and 1-4, `vol.darkFog=0`), measured in the same run. Torch rooms, 6-2's start and 1-4's lamps keep their RT look and stay brighter than the game (1.2x to 2x), just less so; 8-2's alley comes up from 0.55x to 0.73-0.76x; 4-1's green corridor (light reference, docs "Light reference distance") is still the brightest departure.
+
+### Area colour
+User reports (2026-11-14 late): relight lost the per-area colour of several levels. 2-2 (all of layer 2) had no purple
+tint; 7-3's tree room was brighter than the game, with white walls instead of red; 6-1's candles were pure white and its
+corridors less red; 8-2's sunny street was dark brown with hard shadows where the game shows pink-red and blue-violet
+facades. Bench suites: `colour-diag` and `colour-diag2` (diagnostic variants), `colour-test` (the poses) and
+`colour-regress` (1-1 start, 0-1 metal, 6-2 start, 0-5 lava).
+
+**What it was not.** The suspected common cause, per-area `RenderSettings` read once at load, isn't there. Ambient is
+black (flat mode) in every one of these levels. Fog colour and distances are read every frame (docs/volumetrics.md), the
+sky material every second and the lights every frame. The game's colour-grading globals (`_LUT`, `_PaletteTex`,
+`_HeightFog`, `_AmbientStrength`) are unset or 0 in all of them. Every bench screenshot now logs the area's lighting for
+this kind of question (`LogAreaLighting`, Plugin.cs): `Area lighting '<pose>'` (ambient, sky colours, shader globals, fog,
+skybox, RT sky), each directional light (`area sun`), the 10 point/spot lights that reach the camera most in the game's
+model, and the game-unlit or emissive Master materials in view with their fog and emission settings.
+
+**Causes, per report.**
+- *2-2 purple, 7-3 red, 6-1 red.* The cause is lighting, not stale data. Every 2-2 light has zero green (magenta and
+  violet directionals) and 6-1's are pure red, but relight adds neutral light that the game doesn't have there. The
+  `colour-diag2` variants trace it to the direct light of whitish lights under the physical falloff: with
+  `plugin._relightFalloff=0` (the game's curve) the mean green drops from 37 to 29 in 2-2 and from 21 to 13 in 7-3, while
+  sky off, emissive off and cache off each change it by 0-3. Relight's inverse square with the light reference (see "Light
+  reference distance") is 2-3x the game's brightness near the end of a light's range. So 7-3's white spot lights (range
+  30-40, 30-40 m away) wash its walls white where the game's red tree light dominates. Changing the falloff to fix this
+  would undo the torch rooms.
+- *6-1 candles.* A material bug: see docs/scene-proxies.md, "Albedo as emissive in a lit material" (the candles were
+  traced as white emitters) and "Emissive mask" (the furnace coffins glowed over their whole front).
+- *8-2 time of day.* Two causes. First, the street's sky is `Exteriors/DaySkybox`, an `ULTRAKILL/Skybox/Skybox` dome
+  with a cubemap, and relight only recognised `Skybox/Panoramic`, so the street had no sky light at all (the log's
+  `sky table 'nightsky 2'` was a stale name left over from 7-3). Second, the game's day look comes from two directional
+  lights 5 degrees above the horizon, orange from one side and blue-violet from the other, beside the pink sun (35
+  degrees). Unshadowed in the game, they colour the two rows of facades. Relight shadowed them, the street canyon blocked
+  both, and the colour was gone.
+
+**Fixes.**
+1. *Colour match* (auto exposure; relight only). Next to the game match's histograms, `Exposure.compute` sums the RT
+   colour (pre-haze, `albedo x lighting x keep + specular`) and the game's colour over the same near pixels (fixed point,
+   6 counters after the histograms). `Adapt` normalises both means to their luminance and compares them per channel in
+   log2. Beyond a dead band (`colorMatchBand` 0.2), the difference becomes a per-channel gain on the lit part (strength
+   `colorMatch` 1, clamped to `colorMatchMax` 2 log2). The gain is rescaled so the RT mean keeps its channel average:
+   keeping its luminance instead pushed a red room's green back up, because green is 72% of luminance. A channel under 15%
+   of the brightest one in both images is corrected in proportion: 0-5's blue and 6-2's green have large but meaningless
+   log ratios, and correcting them fully would tint lit objects of another colour there. The gain is smoothed like the game
+   match, held while nothing is measurable, and stored in `_Exposure[3]`. The denoiser's Composite multiplies
+   `(albedo x lighting x keep + spec) x exposure` by it, weighted by the lit weight (`UltraRTPixelBalance`,
+   UltraRTExposure.hlsl). Emission, fullbright art, the sky and the game's own pixels are never touched. Flags:
+   `-ultrart-ae-color STRENGTH[,BAND[,MAX]]` (0 = off); bench `ae.colorMatch`, `ae.colorMatchBand`, `ae.colorMatchMax`.
+   Bench exposure lines end with `colour match gain (r, g, b)`. The DLSS-RR path doesn't apply it yet.
+2. *Lit albedo-as-emissive and emissive masks*, drawn as the game draws them (docs/scene-proxies.md).
+3. *Sky.* `ULTRAKILL/Skybox/Panoramic` and `ULTRAKILL/Skybox/Skybox` in cubemap mode (cubemap x `_SkyColor`) now count as
+   skies (`IsSkyMaterial`). A cubemap is converted once into a 1024x512 lat-long target (`Hidden/UltraRT/SkyConvert`), one
+   per cubemap so the sky table rebuilds when the sky changes. It is then used like a panoramic sky for sky light, misses
+   and reflections. When the active sky renderers use different materials, the one horizontally nearest the camera wins (0
+   inside its footprint): 8-2's street gets the day dome, its far side the night backdrop (`MirrorHider`, a wall at x 167).
+   Levels with a single sky material are unchanged.
+4. *Low side lights.* A directional light less than 10 degrees above the horizon that isn't the level's main sun (the
+   brightest directional from above) is unshadowed and kept by the fill cut (flag 0.75, as with `_sunsUnshadowed`), and
+   volumetrics don't take it as their sun. 1-1's directionals (a sun at 50 degrees, two fills from below) and the indoor
+   regress poses have none. Bench `plugin._lowSideLightDeg=0` gives the old model. This applies to hybrid too: 8-2 hybrid
+   now colours both facades as well.
+
+**Results.** Mean screen colour without the HUD and viewmodel: game / master relight / branch relight. Sources:
+`colour-diag`, `colour-test` and `colour-regress`, plus merge-regress 20261114-200713 for master's regress poses.
+
+| Pose | game | master | branch | gain |
+|---|---|---|---|---|
+| 2-2 floor noise purple | 53,21,57 | 51,37,61 | 59,26,63 | (1.21, 0.64, 1.04) |
+| 6-1 candles | 39,1,1 | 48,9,9 | 56,2,1 | (1.14, 0.48, 0.49) |
+| 6-1 coffins | 65,3,1 | 89,17,10 | 86,7,2 | (1.04, 0.76, 0.81) |
+| 7-3 tree room tint | 49,6,3 | 55,21,20 | 73,16,10 | (1.48, 0.73, 0.45) |
+| 8-2 intro day | 114,59,64 | 66,41,43 | 92,43,47 | (0.99, 0.99, 1.02) |
+| 1-1 start | 179,193,176 | - | 177,191,178 | (1.00, 1.00, 1.00) |
+| 0-1 metal | 96,36,16 | 129,47,19 | 127,46,19 | (1.00, 1.00, 1.00) |
+| 6-2 start | 56,1,1 | 90,6,4 | 92,4,3 | (1.08, 0.48, 0.65) |
+| 0-5 lava | 112,57,1 | 130,67,3 | 130,67,3 | (1.00, 1.00, 0.78) |
+
+Without the colour match (`ae.colorMatch=0`, same run): 2-2 50,36,60; 7-3 55,21,20; 6-1 candles 52,3,3 (the material
+fix alone); 8-2 88,41,45 (the sky and side lights alone; 59,34,38 with `plugin._lowSideLightDeg=0` as well). 8-2's street
+is now 0.76x the game's luma instead of 0.65x, and its colour matches. 1-1 start, 0-1 metal, 0-5 lava and 6-2 start look
+the same as master: 6-2's and 0-5's gains act on near-empty channels, so their mean colours move by at most 2. 7-3 keeps
+its RT brightness (game match down 0.4, see "Game match") and its white-lit back wall. The colour match is one gain per
+frame, so a room with both red and white light gets redder overall; it can't make the walls red under white spots.
+
+Cost: two more fixed-point sums per measured pixel in the histogram pass and a multiply in the Composite (not timed
+separately; the `exposure` GPU slot measured 0.004-0.008 ms before), plus one 1024x512 blit when a cubemap sky is first
+used.
 
 ### Flicker
 `-ultrart-ae-max 0.5` (with the old full brightening) measured as flicker on 1-4 drift (masked burst sigma 0.97 vs 0.26).

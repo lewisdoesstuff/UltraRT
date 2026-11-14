@@ -44,6 +44,7 @@ namespace UltraRT
         /// <summary>Experiment (-ultrart-nostatic): leave static batches out of the RTAS.</summary>
         public static bool SkipStaticBatches;
         public int AlphaTestedMaterials { get; private set; }
+        public int LitAlbedoEmissionMaterials { get; private set; }
 
         /// <summary>Winding convention for RT back-face culling (-ultrart-ccw flips it).</summary>
         public static bool FrontCounterClockwise;
@@ -209,7 +210,7 @@ namespace UltraRT
             var stats = new ScanStats();
             // Include inactive objects: ULTRAKILL keeps most enemies and room contents disabled until triggered.
             ScanRenderers(batches, stats);
-            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None)) AddLight(l);
+            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None)) { AddLight(l); _buildLights.Add(l); }
             // Debug (-ultrart-dumpverts): the largest renderers (sky boxes/domes show up here).
             if (DumpAtlasVertices) foreach (var r in Object.FindObjectsOfType<Renderer>(true).Where(r => r is MeshRenderer || r is SkinnedMeshRenderer)
                          .OrderByDescending(r => r.bounds.size.magnitude).Take(8))
@@ -237,7 +238,7 @@ namespace UltraRT
                          $"in {StaticInstancesActive}/{_staticPartsTotal} group instances, dynamic {dynamicRecords} in {_active.Count} instances)");
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
-                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}), light fixtures {FixtureCount}");
+                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}, lit albedo-as-emissive {LitAlbedoEmissionMaterials}), light fixtures {FixtureCount}");
             LogMaterialClasses();
             LogTransparents();
             LogMirrorSurfaces();
@@ -354,6 +355,15 @@ namespace UltraRT
         /// <summary>Renderers whose material is a panoramic sky (ULTRAKILL's fake sky spheres); the plugin picks the visible one.</summary>
         public readonly List<Renderer> SkyRenderers = new List<Renderer>();
 
+        /// <summary>Lights present when the scene was built (the level's own, active or not); later ones are spawned.</summary>
+        private readonly HashSet<Light> _buildLights = new HashSet<Light>();
+
+        /// <summary>
+        /// Was <paramref name="l"/> part of the level at scene build? Spawned lights (muzzle flashes, explosions, pickups)
+        /// are not; Plugin.FlagPlayerLights only exempts those from V1's shadow when they are inside the player box.
+        /// </summary>
+        public bool IsBuildLight(Light l) => _buildLights.Contains(l);
+
         private void AddLight(Light l)
         {
             if (l != null && _lightSet.Add(l)) Lights.Add(l);
@@ -364,12 +374,13 @@ namespace UltraRT
             for (int i = Lights.Count - 1; i >= 0; i--)
                 if (Lights[i] == null) { _lightSet.Remove(Lights[i]); Lights.RemoveAt(i); }
             _lightSet.RemoveWhere(l => l == null);
+            _buildLights.RemoveWhere(l => l == null);
         }
 
         private void NoteSky(Renderer r)
         {
             var m = r.sharedMaterial;
-            if (m != null && m.shader != null && m.shader.name == "Skybox/Panoramic" && !SkyRenderers.Contains(r)) SkyRenderers.Add(r);
+            if (Plugin.IsSkyMaterial(m) && !SkyRenderers.Contains(r)) SkyRenderers.Add(r);
         }
 
         /// <summary>
@@ -448,7 +459,7 @@ namespace UltraRT
             else
             {
                 var proxyMats = new Material[mats.Length];
-                for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
+                for (int i = 0; i < mats.Length; i++) proxyMats[i] = player ? PlayerProxyOrDisabled(mats[i]) : ProxyOrDisabled(mats[i]);
                 var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
                 AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
                 TrackSync(_dynamic[_dynamic.Count - 1], mats, mesh);
@@ -467,7 +478,7 @@ namespace UltraRT
             if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
             var mats = r.sharedMaterials;
             if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
-            var proxy = CreateSkinnedProxy(r, mats);
+            var proxy = CreateSkinnedProxy(r, mats, player);
             AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
             TrackSync(_dynamic[_dynamic.Count - 1], mats, r.sharedMesh);
             if (player) NotePlayerProxy(r);
@@ -591,7 +602,7 @@ namespace UltraRT
             return mr;
         }
 
-        private SkinnedMeshRenderer CreateSkinnedProxy(SkinnedMeshRenderer src, Material[] mats)
+        private SkinnedMeshRenderer CreateSkinnedProxy(SkinnedMeshRenderer src, Material[] mats, bool player)
         {
             var go = NewProxyObject($"{src.name} [UltraRT]", src.transform);
             var p = go.AddComponent<SkinnedMeshRenderer>();
@@ -600,7 +611,7 @@ namespace UltraRT
             p.rootBone = src.rootBone;
             p.localBounds = src.localBounds;
             p.updateWhenOffscreen = true;
-            p.sharedMaterials = mats.Select(ProxyOrDisabled).ToArray();
+            p.sharedMaterials = mats.Select(player ? (System.Func<Material, Material>)PlayerProxyOrDisabled : ProxyOrDisabled).ToArray();
             p.shadowCastingMode = ShadowCastingMode.Off;
             p.receiveShadows = false;
             p.rayTracingMode = RayTracingMode.DynamicGeometry;
@@ -822,6 +833,30 @@ namespace UltraRT
 
         private Material ProxyOrDisabled(Material src) => Traceable(src) ? Proxy(src) : _disabledMaterial;
 
+        /// <summary>V1's materials as lit variants (SceneProxies.Player.cs), keyed by source material.</summary>
+        private readonly Dictionary<Material, Material> _playerMaterialCache = new Dictionary<Material, Material>();
+
+        /// <summary>
+        /// Proxy material for V1's third-person model. Its body (<c>V1</c>), wings (<c>V1Wing</c>) and third-person guns
+        /// (<c>Pistol New Unlit</c>, ...) are ULTRAKILL/Master without VERTEX_LIGHTING, which <see cref="Proxy"/> makes
+        /// fullbright like the game. The model is only ever seen in reflections and portal views, where fullbright V1
+        /// stood out bright grey in dark rooms (P-2's red hall): its variant is lit like the scene (_Unlit 0; the wings
+        /// keep their emission). A copy, so other users of the same material (pickups) keep the game's look.
+        /// </summary>
+        private Material PlayerProxyOrDisabled(Material src)
+        {
+            if (!Traceable(src)) return _disabledMaterial;
+            var m = Proxy(src);
+            if (!PlayerModelLit || !m.HasProperty("_Unlit") || m.GetFloat("_Unlit") <= 0f) return m;
+            if (_playerMaterialCache.TryGetValue(src, out var pm) && pm != null) return pm;
+            pm = new Material(m) { name = m.name + " (V1 lit)" };
+            pm.SetFloat("_Unlit", 0f);
+            _playerMaterialCache[src] = pm;
+            NoteProxyMaterial(src, pm); // runtime colour/texture changes, like the shared proxy
+            if (IsTwoSided(m)) _twoSidedProxies.Add(pm);
+            return pm;
+        }
+
         /// <summary>
         /// Cutout (alpha-tested) materials, e.g. grass cards: their hits run the any-hit alpha test, so their submeshes must
         /// not be flagged opaque (ClosestHitOnly). Works on source or proxy materials.
@@ -1030,6 +1065,27 @@ namespace UltraRT
                 bool albedoAsEmissive = src.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") ||
                                         src.HasProperty("_UseAlbedoAsEmissive") && src.GetFloat("_UseAlbedoAsEmissive") > 0.5f;
                 m.SetFloat("_UseAlbedoAsEmissive", albedoAsEmissive ? 1 : 0);
+                // _EmissiveMask: emission x main texture alpha^2.2 (6-1's furnace coffins glow only through their grate).
+                m.SetFloat("_EmissiveMask", src.HasProperty("_EmissiveMask") && src.GetFloat("_EmissiveMask") > 0.5f ? 1f : 0f);
+                if (albedoAsEmissive && src.IsKeywordEnabled("VERTEX_LIGHTING") && LitAlbedoEmission)
+                {
+                    // The Master shader's "albedo" here is _MainTex * the vertex term, and in a lit material that term is
+                    // the vertex lighting (decompiled: o1 = lighting * colour). So the "emission" is the lit, fogged albedo
+                    // times _EmissiveColor * _EmissiveIntensity, replacing the surface (_EmissiveReplaces) or added to it:
+                    // the surface never glows by itself. 6-1's chandelier candles (M_WhiteMarble, white, intensity 1,
+                    // replaces) are dark red in its red light; traced as albedo emission they were white and lit the hall
+                    // as emitters. Keep it a lit surface; the emissive factor becomes an albedo scale (at most 1: the
+                    // game's brightening of lit areas isn't kept, albedo above 1 would add energy to the bounce).
+                    // docs/relight.md "Area colour". -ultrart-albedo-emission-glow: the old behaviour.
+                    var ec = src.HasProperty("_EmissiveColor") ? src.GetColor("_EmissiveColor") : Color.white;
+                    float ei = src.HasProperty("_EmissiveIntensity") ? Mathf.Max(src.GetFloat("_EmissiveIntensity"), 0f) : 1f;
+                    bool replaces = src.HasProperty("_EmissiveReplaces") && src.GetFloat("_EmissiveReplaces") > 0.5f;
+                    var k = replaces ? ec * ei : Color.white + ec * ei;
+                    var c = m.GetColor("_Color");
+                    m.SetColor("_Color", new Color(c.r * Mathf.Min(k.r, 1f), c.g * Mathf.Min(k.g, 1f), c.b * Mathf.Min(k.b, 1f), c.a));
+                    m.SetFloat("_EmissiveIntensity", 0f);
+                    LitAlbedoEmissionMaterials++;
+                }
             }
             // Unity Standard emission
             else if (src.IsKeywordEnabled("_EMISSION") && src.HasProperty("_EmissionColor"))
@@ -1153,6 +1209,8 @@ namespace UltraRT
             DisposeStatic();
             foreach (var m in _materialCache.Values) if (m != null) Object.Destroy(m);
             _materialCache.Clear();
+            foreach (var m in _playerMaterialCache.Values) if (m != null) Object.Destroy(m);
+            _playerMaterialCache.Clear();
             foreach (var m in _atlasVariants.Values) if (m != null) Object.Destroy(m);
             _atlasVariants.Clear();
             _atlasProxies.Clear();

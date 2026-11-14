@@ -41,7 +41,7 @@ Start-Sleep -Seconds 2
 Check 'perf e still waits for d' (-not ((Get-Content $o5 -Raw) -match 'acquired by e'))
 RunLock @('release', 'd') | Out-Null
 Check 'perf e acquires both' (WaitFor { (Get-Content $o5 -Raw) -match 'acquired by e' })
-Check 'status shows alt held' ((RunLock @('status')) -match 'slot alt: held by e')
+Check 'status shows alt held' ((RunLock @('status')) -match '^alt\s+e\b')
 Check 'release by a stranger refused' ((RunLock @('release', 'zed')) -match 'Lock is held by e, not zed')
 RunLock @('release', 'e') | Out-Null
 Check 'free again' ((RunLock @('status'))[0] -eq 'free')
