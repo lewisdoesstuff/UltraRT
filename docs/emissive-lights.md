@@ -108,7 +108,7 @@ Brute force over every emissive triangle is not feasible. In Reference mode, eac
 ## Risks and limitations
 
 - **EmissiveLightScale and EmissiveHybridAdd are untested in the game.** See above.
-- **Large emitters near receivers** (lava floors, wall-sized screens) are noisy, because uniform area sampling of a big triangle gives high variance close to it. The `minDistance` clamp (0.25 m) removes the worst fireflies at the cost of a little bias. Solid-angle sampling of the triangle would be the real fix.
+- **Large emitters near receivers** (lava floors, wall-sized screens) are noisy, because uniform area sampling of a big triangle gives high variance close to it. The `minDistance` clamp (0.25 m) removes the worst fireflies at the cost of a little bias. Solid-angle sampling of the triangle would be the real fix. Lava emitters are split into pieces of at most 1 m2 (docs/lava.md).
 - **Static material values only**: the proxy material copies emission parameters once, so flickering or animated emission isn't followed. The same is true of the existing hit shader.
 - **No light layers**: lights respect culling masks, but emitters light every layer.
 - **Bounce emission is dropped for emitters outside the list** (skinned, over the cap, failed readback). See Bounce above.

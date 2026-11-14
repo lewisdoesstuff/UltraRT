@@ -57,7 +57,7 @@ namespace UltraRT
         /// ULTRAKILL fakes the glow of lava with orange point lights along it. Now that the lava surface itself is an emitter,
         /// those lights would count the glow twice and flood the lava channel's floor (seen through the additive lava) with
         /// flat light, so they are dimmed to LavaSettings.pointLightScale. A light counts when it sits over an active lava
-        /// surface (its bounds widened by 2 m, up to 4 m above) and its colour matches the lava's. Packed lights only: the
+        /// surface (its bounds widened by 2 m, up to 6 m above) and its colour matches the lava's. Packed lights only: the
         /// game's own rendering is unchanged.
         /// </summary>
         private void DimLavaLights()

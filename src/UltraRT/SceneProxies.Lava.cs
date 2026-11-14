@@ -17,7 +17,7 @@ namespace UltraRT
         /// game's point lights are no longer dimmed. Unlike <see cref="enabled"/> this needs no scene rebuild.</summary>
         public bool active = true;
         /// <summary>-ultrart-lava-light: multiplies lava emission for direct lighting (on top of EmissiveLightScale). Read at the scene build.</summary>
-        public float lightScale = 2.5f;
+        public float lightScale = 1.5f;
         /// <summary>-ultrart-lava-glow: multiplies the emission reflection, bounce and cache rays see on the lava surface.</summary>
         public float glow = 1f;
         /// <summary>-ultrart-lava-pointlights: brightness of the game's point lights that stand in for the lava glow (lights
