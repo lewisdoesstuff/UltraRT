@@ -35,7 +35,7 @@ namespace UltraRT
         public float lights = 1f;
         public int lightCandidates = 8;
         /// <summary>Point/spot light samples (shadow rays) per low-res pixel and frame, stratified over one light CDF.</summary>
-        public int lightSamples = 2;
+        public int lightSamples = 1;
         /// <summary>Emissive surface samples (each RIS over 6 points, one shadow ray) per low-res pixel and frame.</summary>
         public int emissiveSamples = 1;
         /// <summary>Let lights attached to the player or the camera light the medium (off: the player's own light sits at
@@ -43,7 +43,7 @@ namespace UltraRT
         public bool playerLights = false;
         /// <summary>Range (m) at which a point/spot light's haze is halved (1 / (1 + (range / hazeRange)^3); 0 = off): lights
         /// that reach across a whole room are mood/fill lighting, not lamps the air glows around.</summary>
-        public float hazeRange = 0f;
+        public float hazeRange = 20f;
         /// <summary>Soft core of a light in the medium, as a fraction of its range (inverse square -> 1 / (d^2 + (core range)^2)).</summary>
         public float core = 0f;
         /// <summary>Sun scattering multiplier (0 = no sun shafts; for checking which term a look or noise comes from).</summary>
