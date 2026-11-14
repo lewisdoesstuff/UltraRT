@@ -351,7 +351,7 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 ### Pipeline
 
 1. **Classification** (`TransparentSurfaces.cs`, `TransparentClassifier.Of`): Master + `TRANSPARENCY` + `_BlendMode` 2, not DISTANCE_FADE/LIMBO_WALLS/ENEMY, not excluded names; water = `Water`/`Sea` name with SurfaceType Wet (or plain `Water`), glass = `*Glass*` or `Ice*`. `Traceable` now rejects these, so they never enter the opaque scene.
-2. **Proxies** (`SceneProxies.Transparent.cs`): a second dynamic proxy per renderer with only its water/glass submeshes, instance mask `TransparentMask` 0x10, material class Wet (water) or Glass, roughness 0. Static-batched transparents are skipped (none in the survey). Every other ray now uses `ULTRART_MASK_SCENE` (0xEF, now 0x6F: section 13), so water and glass still neither block light nor appear in the G-buffer. Emissive-light collection skips them.
+2. **Proxies** (`SceneProxies.Transparent.cs`): a second dynamic proxy per renderer with only its water/glass submeshes, instance mask `TransparentMask` 0x10, material class Wet (water) or Glass, roughness 0. Static-batched ones are slots of the static groups instead (see "Static-batched water and glass" below). Every other ray now uses `ULTRART_MASK_SCENE` (0xEF, now 0x6F: section 13), so water and glass still neither block light nor appear in the G-buffer. Emissive-light collection skips them.
 3. **Trace** (`PathTrace.raytrace`, `TraceTransparent`, at the end of `RayGen`): in hybrid and denoised modes, only while a transparent instance is active (`_TransParams.y`), the primary pixel also traces a ray with mask 0x10 and `TMax` = the opaque hit. At the water/glass hit it traces one mirror reflection ray (`TraceReflection`, the reflection ray's mask) about the rippled normal, shaded from the radiance cache (`cacheSpread` forces the cache path: no shadow-ray noise, since there is no temporal filter here). It writes `_Output` = (radiance, distance to the surface; < 0 none) instead of the composited colour, which those modes never read. So there is no new UAV, no new binding and no second `DispatchRays`. A first version used a second ray generation shader; its dispatch rebuilt the shader table and cost +0.2–0.3 ms of frame time beyond the GPU-timed work. Nothing is traced while the camera is inside a water renderer's bounds (see the overlay).
 4. **Ripples** (`UltraRTWater.hlsl`): four directional sines in the surface plane, deep-water dispersion (slowed), slope scale `-ultrart-water-waves`, fading out by 60 m. The same function runs in the ray generation shader and in the overlay, so reflection direction and Fresnel agree.
 5. **Overlay** (`TransparentOverlay.shader`, `TransparentOverlays`): appended as an extra material to each water/glass renderer (Unity draws the last submesh again with it), with the source material's render queue, so it draws right after the game's surface and before any particle in front of it. This is why it is not a camera command buffer: at `AfterForwardAlpha` everything transparent is already drawn (and PostProcessV2_Handler strips that event's buffers on reinit). Three passes, `ZTest LEqual`, no depth writes:
@@ -398,10 +398,48 @@ So about +0.02–0.1 ms where water or glass is on screen, plus 0.01 ms for the 
   (decompiled). The overlay applies the same factor to its reflection and refraction. The water itself really is there
   (faint, colour alpha 0.37); our reflection makes it visible over the beds, which the user accepted.
 
+### Static-batched water and glass (2026-11-14)
+
+Before, renderers in a static batch were skipped (`skipped static-batched N` in the log): 8-2 171 (2 water, 169 glass),
+4-2 54 glass, 0-2 8 blood (pieces of the `9-9B Tunnel` blood river), 2-1 2 water, 2-4 2 glass, 7-1 1 water. Now they are
+traced, all with an overlay (`static-batched W water, B blood, G glass` in the same log line; the build log lists every
+batched water/blood renderer and the first glass ones).
+
+- **8-2's starting pool** is `Exteriors/1 - Opening Hallway/1 Nonstuff/Upside/Sprite/Sprite(Clone)`: a static-batched
+  MeshRenderer (layer 24) with `Water 10B` (REFLECTION, TRANSPARENCY, VERTEX_LIGHTING), 15 x 60 m at y -12.3, 0.2 m
+  above the floor portal (`.../Portal`, y -12.5) that shows the upside-down street copy at x +300 (the game's fake
+  reflection). Its twin over the copy is `Downside/Sprite (1)/Sprite(Clone)` (`Water 10A`). With the water traced, the
+  pool reflects V1 and the hallway (ripples, Fresnel) on top of the portal view, in relight and hybrid
+  (`bench/suites/static-water.json`, poses `8-2 pool` straight down and `8-2 pool oblique`). Nothing portal-specific
+  was needed: the transparent ray (mask 0x10, `TMax` = the opaque hit, which is past the portal) hits the water first,
+  its reflection ray goes up (away from the portal) and sees V1 by bit 1 of `_playerRays`, and the overlay's depth
+  test passes because the game's depth at portal pixels is the portal plane, below the water.
+- **How**: transparent submeshes of a combined mesh become slots of the static groups (`StaticGroups.cs`) with part bit
+  2 (`TransparentPart`, so groups have up to 8 parts: two-sided x sky wall x transparent). A transparent part is its own
+  instance, mask `TransparentMask` 0x10, material the same transparent proxy as the dynamic ones (`TransparentProxy`),
+  counted in `ActiveTransparent`. So room activation (watchers, the slice poll, checkpoint clones as late sources),
+  partial group meshes and the merge by material work as for opaque slots. `ProcessMeshRenderer` lets batched renderers
+  with only water/glass materials through to the batch list (`TransparentCandidate`), but not into `IsLightFixture`:
+  lamp glass blocks no ray, and counting it as a "static housing" moved 8-2's street-light lifts and shaft lights (the
+  look-up view got darker before that was fixed). Emissive collection (`CollectStaticSubmeshes`) and static material
+  swaps skip transparent slots.
+- **Overlay on a batched renderer**: appending the overlay material works as for unbatched ones. Unity draws the extra
+  material with the renderer's own last submesh of the combined mesh, so the size check against `mesh.subMeshCount` is
+  skipped for batched renderers (it is the combined mesh's). Checkpoint clones copy the material list with our overlay
+  in it: `TransparentOverlays.Attach` adopts such a list (so Dispose removes it there too), and `CreateSource` ignores
+  overlay materials (their index would land on the next source's slot).
+- **Cost** (RTX 5070 Ti, 2560x1440, trace scale 0.5, relight, visual runs on the alt slot, dispatch ms master -> branch):
+  8-2 pool straight down (water fills the screen) 3.52 -> 4.89 (+1.37), 8-2 pool oblique (about 60 %) 3.45 -> 4.26
+  (+0.80), 4-2 glass roof filling the view 1.69 -> 2.01 (+0.32), 4-2 glass wall 2.15 -> 2.21; no change where none is in
+  view (8-2 look up, 2-1, 2-4, 0-2 blood river, all of `water-glass.json`). It is the transparent hit plus one reflection
+  ray per trace texel; 8-2's per-ray cost is higher than 7-1's (+0.1 ms for half a 1080p screen) in its bigger scene.
+  CPU: 8-2's static build 240 -> 245 ms, +18 shader-table records (480 -> 498, level 4), 54 -> 64 part instances;
+  4-2 +3 records. Per-frame static sync unchanged within noise.
+- **Regression**: `water-glass.json` and the blood river match master at the same resolution (mean luma within 0.5).
+
 ### Limits
 
 - **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.
-- **Static-batched transparents are skipped**: 4-2 has 54 batched glass renderers, 2-1/2-4/7-1 a few. They would need StaticGroups support.
 - **No temporal filter**: one ray per trace texel. Reflection hits are shaded from the radiance cache, so they are smooth. Where a cache cell is missing, the hit falls back to `DirectOne` and shows speckle; ripples hide most of it.
 - **Game geometry vs. RT mesh**: VERTEX_DISPLACEMENT waves and SCROLLING UVs are not reproduced (LIMBO_WATER_FADE is, see above), so the reflection covers the undisplaced surface and the alpha estimate ignores scrolling. The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
 - **The game's own cubemap stays** on REFLECTION water (`Water 10A-D`, `1C`, `6 Still/Reflection`, `Limbo Water ... V2Arena`), on top of ours. For opaque materials it is removed (section 7), but here it is baked into the game's transparent draw.

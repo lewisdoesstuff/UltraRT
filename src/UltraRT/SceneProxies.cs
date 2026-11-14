@@ -430,7 +430,8 @@ namespace UltraRT
             if (r.isPartOfStaticBatch)
             {
                 // Merged batches can't carry the fixture mask, but the light can still be lifted out (Plugin.cs).
-                IsLightFixture(r);
+                // Not for water/glass-only renderers (lamp glass): they block no ray, so they are no housing (light lifts, shafts).
+                if (AnyTraceable(mats)) IsLightFixture(r);
                 if (batches == null)
                 {
                     // Combined meshes only exist at load, but their renderers get cloned (CheckPoint rooms).
