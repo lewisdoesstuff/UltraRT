@@ -18,7 +18,9 @@
 //   [1] color * intensity, unused (culling masks live in _LightMasks)
 //   [2] forward, soft-shadow radius (m; 0 = _LightRadius; < 0 upper half-sphere). Lights lifted out of their fixture
 //       get the fixture's size.
-//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), unused
+//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light),
+//       hybrid weight: > 0 for lights the game doesn't draw (EffectLights' virtual lights for glowing effects); hybrid
+//       adds that much of their shadowed light on top of the game's image, like emissive surfaces
 StructuredBuffer<float4> _Lights;
 StructuredBuffer<uint>   _LightMasks; // per-light culling mask (separate: masks like ~0 are NaN bit patterns as floats)
 int      _LightCount;
@@ -550,11 +552,16 @@ void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
 static float3 g_DirectUnshadowed;
 // The emissive-triangle part of the last DirectLighting() result (shadowed, scaled), for the hybrid's additive term.
 static float3 g_DirectEmissive;
+// The part from lights the game doesn't draw (virtual effect lights, [3].w > 0), shadowed, scaled and weighted.
+static float3 g_DirectAdditive;
+
+float LightHybridWeight(uint i) { return _Lights[i * 4 + 3].w; }
 
 // Direct light at the primary hit. Writes this pixel's reservoir when temporal reuse is on.
 float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
 {
     g_DirectEmissive = 0;
+    g_DirectAdditive = 0;
     if (_LightSampling <= 0)
     {
         float3 shadowed = 0, unshadowed = 0;
@@ -564,7 +571,11 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
             float dist;
             if (!LightEval((uint)i, pos, n, layer, L, dist, c)) continue;
             unshadowed += c;
-            if (LightUnshadowed((uint)i) || LightVisible((uint)i, pos, n, L, dist)) shadowed += c;
+            if (LightUnshadowed((uint)i) || LightVisible((uint)i, pos, n, L, dist))
+            {
+                shadowed += c;
+                g_DirectAdditive += c * (LightHybridWeight((uint)i) * _LightScale);
+            }
         }
         float3 emUnshadowed;
         float3 em = EmissiveDirect(pos, n, _EmissiveRefSamples, rng, emUnshadowed);
@@ -588,6 +599,7 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
         {
             sum += r.c * W;
             if ((r.light & ULTRART_EMISSIVE) != 0u) g_DirectEmissive = r.c * (W * _LightScale);
+            else g_DirectAdditive = r.c * (W * _LightScale * LightHybridWeight(r.light));
         }
         else W = 0.0;
     }

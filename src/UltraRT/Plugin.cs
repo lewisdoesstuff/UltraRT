@@ -290,6 +290,7 @@ namespace UltraRT
         private void OnUpdate()
         {
             UpdateRecorder();
+            UpdateEffects();
             try
             {
                 if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
@@ -441,6 +442,7 @@ namespace UltraRT
                 _lightData[i + 3] = l3;
                 _lightCount++;
             }
+            AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
         }

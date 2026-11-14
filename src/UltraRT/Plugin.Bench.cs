@@ -61,6 +61,7 @@ namespace UltraRT
             if (patched < 0) { Logger.LogError("Benchmark aborted: could not install save protection."); return false; }
             BenchSafety.Active = true;
             PoseLoader.Log = Logger;
+            EffectSpawner.Log = Logger;
             PoseLoader.InstallDeterminism(harmony);
             Logger.LogInfo($"Benchmark: save/prefs/stats writes blocked ({patched} hooks)");
             _host.StartCoroutine(RunSuite());
@@ -710,6 +711,7 @@ namespace UltraRT
                 string current = null;
                 int sinceSwitch = 0;
                 float pathT = 0f;
+                float nextEffect = sc.Effects != null && sc.Effects.Every > 0f ? 0.5f : float.MaxValue;
                 long lastResolved = _gpu?.ResolvedFrames ?? 0;
 
                 while (pathT <= path.Duration)
@@ -742,6 +744,13 @@ namespace UltraRT
                         {
                             ApplyBenchMode(m);
                             for (int f = 0; f < 12; f++) { GameControl.HideCheatPanels(); yield return null; }
+                            if (sc.Effects != null)
+                            {
+                                // The same effect at the same age in every mode.
+                                EffectSpawner.Spawn(sc.Effects);
+                                float until = Time.realtimeSinceStartup + Mathf.Max(0f, sc.Effects.ShotDelay);
+                                while (Time.realtimeSinceStartup < until) { GameControl.HideCheatPanels(); yield return null; }
+                            }
                             yield return new WaitForEndOfFrame();
                             // What the player sees (RT composited under transparents/post/HUD), plus the raw RT image.
                             string file = $"{Sanitize(sc.Name)}_{at:F1}s_{Sanitize(m)}.png";
@@ -769,6 +778,7 @@ namespace UltraRT
                     Application.targetFrameRate = -1;
                     GameControl.SetPose(path.Sample(pathT));
                     GameControl.HideCheatPanels();
+                    if (pathT >= nextEffect) { EffectSpawner.Spawn(sc.Effects); nextEffect = pathT + sc.Effects.Every; }
                     yield return null;
 
                     float dt = Time.unscaledDeltaTime;
