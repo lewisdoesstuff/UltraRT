@@ -34,8 +34,9 @@ namespace UltraRT
         public bool shortenHistoryOnLightChange = true;
         /// <summary>Shorten the history per pixel, only where the changed lights matter (docs/light-sampling.md, "Light
         /// changes"), instead of over the whole screen. Also covers lights that change brightness or move. Falls back to the
-        /// whole-screen cap when more than <see cref="LightSampling.MaxChanges"/> lights changed in one frame.</summary>
-        public bool perPixelLightChange = true;
+        /// whole-screen cap when more than <see cref="LightSampling.MaxChanges"/> lights changed in one frame. Off by default: no
+        /// measurable noise benefit in the motion-noise runs (docs/denoiser.md, "Motion noise").</summary>
+        public bool perPixelLightChange = false;
         /// <summary>Per-pixel shortening: share of a pixel's direct light that may be stale before its history is shortened.</summary>
         public float lightChangeTolerance = 0.1f;
         /// <summary>Per-pixel shortening also for lights that stay but change brightness or move (off: only lights that appear or

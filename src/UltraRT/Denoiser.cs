@@ -94,7 +94,7 @@ namespace UltraRT
         public float cacheSeedTolerance = 0.5f;
         /// <summary>Anti-lag for changing lights: the history is shortened where the 5x5 mean of the input differs from it by
         /// more than this many standard errors plus <see cref="antilagTolerance"/> x the luminance. 0 = off.</summary>
-        public float antilag = 3f;
+        public float antilag = 0f;
         public float antilagTolerance = 0.15f;
         /// <summary>The anti-lag never cuts the history below this many frames. At the pre-blur length (boostFrames) a changed
         /// pixel only blends faster; lower values also put it back on the pre-blur, which follows sooner but is noisier.</summary>
