@@ -176,7 +176,7 @@ namespace UltraRT.Bench
     /// Motion noise of one mode over one path window (screen luma 0-255): sigma = RMS difference between passes / sqrt 2
     /// (the per-frame noise of a single pass), over the pixels the game keeps identical between its own passes.
     /// Classes (exclusive, in this priority): thin, edge, fresh (denoiser history &lt; 8 frames), screen edge (outer 10%),
-    /// interior; "none" = no traced surface (sky, game-only pixels).
+    /// young (8 to 31 frames, not on the screen edge), interior; "none" = no traced surface (sky, game-only pixels).
     /// </summary>
     public sealed class MotionStats
     {

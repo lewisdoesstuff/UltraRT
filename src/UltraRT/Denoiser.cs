@@ -94,6 +94,10 @@ namespace UltraRT
         /// more than this many standard errors plus <see cref="antilagTolerance"/> x the luminance. 0 = off.</summary>
         public float antilag = 0f;
         public float antilagTolerance = 0.15f;
+        /// <summary>A-trous step multiplier for pixels without history (disocclusions), fading out at
+        /// <see cref="freshSpreadFrames"/> frames of history. 1 = off.</summary>
+        public float freshSpread = 1f;
+        public float freshSpreadFrames = 8f;
 
         // ---- Temporal stabilisation of the filtered output (docs/denoiser.md, "Stabilisation"). Ctrl+F3 cycles
         //      stabilize + stability -> stability only -> neither.
@@ -302,6 +306,8 @@ namespace UltraRT
             IdSpatialVarFloor = Shader.PropertyToID("_SpatialVarFloor"),
             IdClassOut = Shader.PropertyToID("_ClassOut"),
             IdAntilag = Shader.PropertyToID("_Antilag"),
+            IdAtrousMoments = Shader.PropertyToID("_AtrousMoments"),
+            IdFreshSpread = Shader.PropertyToID("_FreshSpread"),
             IdClassFresh = Shader.PropertyToID("_ClassFresh");
 
         public Denoiser(ComputeShader shader)
@@ -410,6 +416,8 @@ namespace UltraRT
                 int kAtrous = s.wideKernel ? _kAtrous5 : _kAtrous3;
                 cmd.SetComputeFloatParam(cs, IdPhiLuminance, Mathf.Max(1e-3f, s.phiLuminance));
                 cmd.SetComputeTextureParam(cs, kAtrous, IdGeo, _geo[_cur]);
+                cmd.SetComputeTextureParam(cs, kAtrous, IdAtrousMoments, _moments[_cur]);
+                cmd.SetComputeVectorParam(cs, IdFreshSpread, new Vector4(s.stability ? Mathf.Clamp(s.freshSpread, 1f, 4f) : 1f, Mathf.Max(1f, s.freshSpreadFrames), 0f, 0f));
                 RenderTexture src = _t0;
                 for (int i = 0; i < iterations; i++)
                 {

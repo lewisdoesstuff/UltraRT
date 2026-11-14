@@ -26,7 +26,7 @@ namespace UltraRT
         /// <summary>Bench variant (plugin._motionJitterRotate=1): start each motion-noise pass at a different TAAU jitter phase.</summary>
         private bool _motionJitterRotate;
 
-        private static readonly string[] MotionClassNames = { "thin", "edge", "fresh", "screen edge", "interior", "none" };
+        private static readonly string[] MotionClassNames = { "thin", "edge", "fresh", "screen edge", "interior", "none", "young" };
 
         private IEnumerator RunMotionNoise(Scenario sc, ScenarioResult sr, string outDir, CameraPath path, float t0)
         {
@@ -273,7 +273,7 @@ namespace UltraRT
             if ((b & 2) != 0) return 1;
             if ((b & 1) != 0) return 2;
             if (x < w / 10 || x >= w - w / 10 || y < h / 10 || y >= h - h / 10) return 3;
-            return 4;
+            return (b & 8) != 0 ? 6 : 4;
         }
 
         private static void SaveClassImage(string path, byte[] c, int tw, int th, int w, int h, int visW, int visH, int gx, int gy, byte[] luma)
@@ -281,7 +281,7 @@ namespace UltraRT
             var colors = new[]
             {
                 new Color32(255, 255, 0, 255), new Color32(255, 0, 255, 255), new Color32(255, 64, 0, 255),
-                new Color32(0, 160, 255, 255), new Color32(0, 0, 0, 255), new Color32(0, 0, 0, 255),
+                new Color32(0, 160, 255, 255), new Color32(0, 0, 0, 255), new Color32(0, 0, 0, 255), new Color32(0, 255, 64, 255),
             };
             var px = new Color32[w * h];
             for (int y = 0; y < h; y++)
@@ -293,7 +293,7 @@ namespace UltraRT
                     int k = MotionClass(c[ty * tw + tx], x, y, w, h);
                     byte g = (byte)(luma[y * w + x] / 3);
                     var col = colors[k];
-                    px[y * w + x] = k >= 4 ? new Color32(g, g, g, 255)
+                    px[y * w + x] = k == 4 || k == 5 ? new Color32(g, g, g, 255)
                         : new Color32((byte)Math.Min(255, g + col.r * 2 / 3), (byte)Math.Min(255, g + col.g * 2 / 3), (byte)Math.Min(255, g + col.b * 2 / 3), 255);
                 }
             }
@@ -311,12 +311,13 @@ namespace UltraRT
             sb.AppendLine("Motion noise (screen luma 0-255; sigma = RMS difference between replays of the same path window / sqrt 2; " +
                           "block = the same on 4x4 pixel means; per class: sigma / share of pixels / share of the squared error):");
             sb.AppendLine();
-            sb.AppendLine("| Scenario | Window | Mode | sigma | block4 | " + string.Join(" | ", MotionClassNames.Take(5)) + " | offset |");
-            sb.AppendLine("|---|---|---|---|---|" + string.Concat(MotionClassNames.Take(5).Select(_ => "---|")) + "---|");
+            var cols = new[] { 0, 1, 2, 6, 3, 4 }; // thin, edge, fresh, young, screen edge, interior
+            sb.AppendLine("| Scenario | Window | Mode | sigma | block4 | " + string.Join(" | ", cols.Select(k => MotionClassNames[k])) + " | offset |");
+            sb.AppendLine("|---|---|---|---|---|" + string.Concat(cols.Select(_ => "---|")) + "---|");
             foreach (var sc in r.Scenarios)
                 foreach (var m in sc.MotionNoise)
                     sb.AppendLine($"| {sc.Name} | {m.Window:F1}s | {m.Mode} | {m.Sigma:F2} | {m.SigmaBlock:F2} | " +
-                                  string.Join(" | ", Enumerable.Range(0, 5).Select(k =>
+                                  string.Join(" | ", cols.Select(k =>
                                       k < m.ClassSigma.Count ? $"{m.ClassSigma[k]:F2} / {m.ClassShare[k] * 100:F0}% / {m.ClassEnergy[k] * 100:F0}%" : "-")) +
                                   $" | {m.Offset:F2} |");
         }

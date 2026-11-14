@@ -434,6 +434,8 @@ RWTexture2D<float4> _AtrousOut;
 int   _Step;
 int   _PrefilterVariance;
 float _PhiLuminance;
+float4 _FreshSpread; // x step multiplier for pixels with no history (1 = off), y history length where it has faded out
+Texture2D<float4> _AtrousMoments; // this frame's moments (z = history length), for _FreshSpread
 // _PhiNormal, _PhiDepth, _PixelAngle: declared with the temporal pass (the pre-blur shares them).
 
 float KernelWeight(int radius, int o)
@@ -481,6 +483,13 @@ void AtrousImpl(int2 id, int radius)
     float depthScale = t * _PixelAngle * _PhiDepth;
     float depthFloor = t * 1e-3; // half-precision ray t noise
 
+    // Young pixels (disocclusions, the screen edge in motion) spread their taps wider: same taps, step x up to
+    // _FreshSpread.x, fading out with the history length. Their input is a 1 spp pre-blur, so the wider footprint buys
+    // smoothness where the temporal accumulation has nothing yet; converged pixels keep the normal kernel.
+    float spread = 1.0;
+    if (_FreshSpread.x > 1.0)
+        spread = lerp(_FreshSpread.x, 1.0, saturate(_AtrousMoments[id].z / max(_FreshSpread.y, 1.0)));
+
     float wc = KernelWeight(radius, 0) * KernelWeight(radius, 0);
     float3 sumC = c.rgb * wc;
     float sumV = c.a * wc * wc;
@@ -490,13 +499,14 @@ void AtrousImpl(int2 id, int radius)
     [unroll] for (int dx = -radius; dx <= radius; dx++)
     {
         if (dx == 0 && dy == 0) continue;
-        int2 q = id + int2(dx, dy) * _Step;
+        int2 o = (int2)round(float2(dx, dy) * (_Step * spread));
+        int2 q = id + o;
         if (any(q < 0) || any(q >= dim)) continue;
         int4 gq = _Geo[q];
         if (!GeoValid(gq)) continue;
         float4 cq = _AtrousIn[q];
 
-        float stepLen = length(float2(dx, dy)) * _Step;
+        float stepLen = length((float2)o);
         float wz = exp(-abs(dot(GeoPos(gq) - pos, n)) / (depthScale * stepLen + depthFloor));
         float wn = pow(saturate(dot(n, GeoNormal(gq))), _PhiNormal);
         float wl = exp(-abs(Luma(cq.rgb) - lumC) / lumDenom);
@@ -694,7 +704,7 @@ void Composite(uint3 id : SV_DispatchThreadID)
 
 // Per trace pixel, for the motion-noise breakdown (bench/README.md, "Motion noise"): bit 6 = a traced surface, bit 0 =
 // short denoiser history (< _ClassFresh frames: disocclusions, screen edges), bit 1 = depth / instance edge in the 3x3
-// (silhouettes), bit 2 = thin (both opposite neighbours of an axis belong to another surface: wires, railings, slivers).
+// (silhouettes), bit 3 = young history (< 4 x _ClassFresh frames), bit 2 = thin (both opposite neighbours of an axis belong to another surface: wires, railings, slivers).
 // Reads this frame's _Geo and _Moments. Written as unorm8 (value / 255).
 RWTexture2D<float> _ClassOut;
 float _ClassFresh;
@@ -721,7 +731,9 @@ void Classify(uint3 id : SV_DispatchThreadID)
     float t = distance(p, _CamPos.xyz);
     float tol = 0.02 * t + 0.02;
     uint bits = 64u;
-    if (_Moments[c].z < _ClassFresh) bits |= 1u;
+    float len = _Moments[c].z;
+    if (len < _ClassFresh) bits |= 1u;
+    else if (len < 4.0 * _ClassFresh) bits |= 8u; // young: 8 to 31 frames
     bool l = ClassOther(c + int2(-1, 0), dim, inst, p, n, tol), r = ClassOther(c + int2(1, 0), dim, inst, p, n, tol);
     bool d = ClassOther(c + int2(0, -1), dim, inst, p, n, tol), u = ClassOther(c + int2(0, 1), dim, inst, p, n, tol);
     bool any4 = l || r || d || u;
