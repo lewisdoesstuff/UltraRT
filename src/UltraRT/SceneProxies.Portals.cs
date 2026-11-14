@@ -52,6 +52,7 @@ namespace UltraRT
             public Matrix4x4 Pose;  // TRS(pos, rot, size) of the quad when last placed
             public Matrix4x4 Travel;
             public bool Seen;       // active this frame
+            public int CreatedFrame; // Time.frameCount when the proxy was made (see PortalAddDelay)
         }
 
         private readonly Dictionary<long, PortalSide> _portalSides = new Dictionary<long, PortalSide>();
@@ -60,9 +61,24 @@ namespace UltraRT
         private Vector4[] _portalRows = new Vector4[3 * 16];
         private bool _portalRowsDirty = true;
         private Mesh _portalQuad;
+        private int _portalQuadFrame;
+        /// <summary>
+        /// Frames a new portal quad mesh and proxy wait before AddInstance. Added in the frame they were made, the sides
+        /// were never hit (all of them, for the whole level: the RTAS built the shared quad's acceleration structure
+        /// before the mesh was usable, and nothing rebuilt it while any side used it), until something removed and
+        /// re-added every side (docs/portals.md, "Portal quads added too early").
+        /// </summary>
+        public static int PortalAddDelay = 2;
         private static FieldInfo _portalListField;
         private static readonly int IdPortals = Shader.PropertyToID("_UltraRTPortals");
         private static readonly int IdPortalHops = Shader.PropertyToID("_UltraRTPortalHops");
+        private static readonly int IdMirrors = Shader.PropertyToID("_UltraRTMirrors");
+        /// <summary>
+        /// Camera rays reflect off portal mirrors (Plugin._rtMirrors: -ultrart-rtmirrors, bench plugin._rtMirrors=1).
+        /// Off (default): they stop at a mirror and every composite keeps the game's own mirror view there, which
+        /// shows V1 and is sharper than a traced reflection. Bounce and reflection rays always follow mirrors.
+        /// </summary>
+        public static bool TraceMirrors;
         /// <summary>Teleports per ray before portals are ignored (the game's views go 3 to 4 deep).</summary>
         public static int PortalHops = 3;
         private int _portalLogs;
@@ -106,7 +122,7 @@ namespace UltraRT
             bool changed = false;
             foreach (var s in _portalSideList)
             {
-                if (s.Seen && !s.InRtas)
+                if (s.Seen && !s.InRtas && Time.frameCount - s.CreatedFrame >= PortalAddDelay && Time.frameCount - _portalQuadFrame >= PortalAddDelay)
                 {
                     Rtas.AddInstance(s.Proxy, new[] { RayTracingSubMeshFlags.Enabled }, enableTriangleCulling: false,
                         frontTriangleCounterClockwise: false, mask: PortalMask, id: 0);
@@ -167,12 +183,13 @@ namespace UltraRT
             if (!_portalSides.TryGetValue(key, out var s))
             {
                 if (_portalSideList.Count >= MaxPortalSides) return;
-                if (_portalQuad == null) _portalQuad = BuildPortalQuad();
-                s = new PortalSide { Portal = portal, Exit = exitSide, Index = _portalSideList.Count };
+                if (_portalQuad == null) { _portalQuad = BuildPortalQuad(); _portalQuadFrame = Time.frameCount; }
+                s = new PortalSide { Portal = portal, Exit = exitSide, Index = _portalSideList.Count, CreatedFrame = Time.frameCount };
                 s.Material = new Material(PortalShader) { name = $"UltraRT Portal {s.Index}" };
                 s.Material.SetFloat("_PortalIndex", s.Index);
                 s.Material.SetFloat("_PortalNoRecursion", portal.appearsInRecursions ? 0f : 1f);
                 s.Material.SetFloat("_PortalSeesLayer", portal.canSeePortalLayer ? 1f : 0f);
+                s.Material.SetFloat("_PortalMirror", portal.mirror ? 1f : 0f);
                 s.Proxy = CreateMeshProxy($"{portal.name} {(exitSide ? "exit" : "enter")} [UltraRT]", null, _portalQuad, new[] { s.Material });
                 _portalSides[key] = s;
                 _portalSideList.Add(s);
@@ -221,6 +238,7 @@ namespace UltraRT
             }
             Shader.SetGlobalBuffer(IdPortals, _portalBuffer);
             Shader.SetGlobalInt(IdPortalHops, Mathf.Clamp(PortalHops, 0, 8));
+            Shader.SetGlobalInt(IdMirrors, TraceMirrors ? 1 : 0);
         }
 
         /// <summary>A unit quad in the side's local xy plane (PortalVertices: width along x, height along y).</summary>

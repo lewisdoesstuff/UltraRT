@@ -207,6 +207,7 @@ namespace UltraRT
                     case "-ultrart-noportals": _portals = false; break;
                     case "-ultrart-noportallayer": SceneProxies.TracePortalLayer = false; break;
                     case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
+                    case "-ultrart-rtmirrors": _rtMirrors = true; break;
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
                     case "-ultrart-player-noanimate": SceneProxies.PlayerAlwaysAnimate = false; break;
@@ -654,6 +655,7 @@ namespace UltraRT
         private int _compositeDebug; // -ultrart-compdebug 1..6: shadow ratio / unshadowed direct / shadowed direct / bounce / portal depth / game-albedo overlay
         private bool _portals = true; // -ultrart-noportals (bench variant: plugin._portals=0): rays ignore portals (docs/portals.md)
         private int _portalHops = 3;  // -ultrart-portal-hops N (bench variant: plugin._portalHops=N): teleports per ray
+        private bool _rtMirrors;      // -ultrart-rtmirrors (bench: plugin._rtMirrors=1): camera rays reflect off portal mirrors instead of keeping the game's mirror view
         // Which rays see V1's third-person model (SceneProxies.PlayerMask; docs/reflections.md, "The player in reflections"):
         // 1 reflection rays (incl. water/glass), 2 bounce rays, 4 shadow rays, 8 camera rays after a portal hop (8-x
         // mirrors, as the game's portal views). Camera rays never see it directly. -ultrart-player-rays N, bench plugin._playerRays=N.
@@ -920,6 +922,7 @@ namespace UltraRT
             }
             _proxies.SyncDynamic();
             SceneProxies.PortalHops = _portalHops;
+            SceneProxies.TraceMirrors = _rtMirrors;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
             Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? _playerRays & 15 : 0);
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))
