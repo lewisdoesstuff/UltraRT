@@ -739,22 +739,29 @@ namespace UltraRT
             int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * (pt ? _scale : 1f)));
             EnsureTargets(w, h);
 
+            long traceStart = Perf.Now;
             var cpu = Stopwatch.StartNew();
             if (Patches.PendingHierarchies.Count > 0)
             {
+                long th = Perf.Now;
                 foreach (var go in Patches.PendingHierarchies) _proxies.AddHierarchy(go);
                 Patches.PendingHierarchies.Clear();
+                Perf.Add(Perf.Sec.Hierarchies, th);
             }
             if (Time.realtimeSinceStartup >= _nextRescan)
             {
                 // Safety net for renderers that don't come through a hook (e.g. Cyber Grind's runtime combined mesh).
                 _nextRescan = Time.realtimeSinceStartup + 30f;
+                long tr = Perf.Now;
                 var sw = Stopwatch.StartNew();
                 _proxies.Rescan();
+                Perf.Add(Perf.Sec.Rescan, tr);
                 Logger.LogInfo($"Rescan took {sw.Elapsed.TotalMilliseconds:F2} ms");
             }
             _proxies.SyncDynamic();
+            long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);
+            Perf.Add(Perf.Sec.Emissive, te);
             _cpuMs += cpu.Elapsed.TotalMilliseconds;
             _cpuFrames++;
             if (_cpuFrames >= 600)
@@ -797,13 +804,17 @@ namespace UltraRT
 
             if (pt)
             {
+                long tl = Perf.Now;
                 GatherLights();
+                Perf.Add(Perf.Sec.Lights, tl);
                 var ambient = RenderSettings.ambientLight;
 
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
+                long tls = Perf.Now;
                 _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged);
+                Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSamplingSettings.mode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
                 _cmd.SetRayTracingIntParam(shader, "_AccumFrames", (int)_accumFrames);
@@ -938,6 +949,7 @@ namespace UltraRT
             }
 
             _frameIndex++;
+            Perf.Add(Perf.Sec.Trace, traceStart);
             if (pt && _accumulate) _accumFrames++;
             if (_tracedFrames++ == 0) Logger.LogInfo($"First trace OK: {w}x{h}, instances={_proxies.Rtas.GetInstanceCount()}, lights={_lightCount}, cache={(_radianceCache?.Active == true ? $"{_cacheSettings.mode} {_radianceCache.Capacity} slots {_radianceCache.GpuBytes >> 20} MB" : "off")}");
         }

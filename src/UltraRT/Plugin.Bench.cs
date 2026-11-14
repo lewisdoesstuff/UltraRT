@@ -60,6 +60,7 @@ namespace UltraRT
             int patched = BenchSafety.Install(harmony, Logger);
             if (patched < 0) { Logger.LogError("Benchmark aborted: could not install save protection."); return false; }
             BenchSafety.Active = true;
+            Perf.InstallFrameMarkers();
             PoseLoader.Log = Logger;
             PoseLoader.InstallDeterminism(harmony);
             Logger.LogInfo($"Benchmark: save/prefs/stats writes blocked ({patched} hooks)");
@@ -703,6 +704,19 @@ namespace UltraRT
             var gpuSum = sc.Modes.ToDictionary(m => m, _ => new double[SlotCount]);
             var gpuN = sc.Modes.ToDictionary(m => m, _ => new int[SlotCount]);
             var shots = new Queue<float>(sc.Screenshots.OrderBy(x => x));
+            // Per-frame CPU breakdown (Perf.cs): plugin sections, main-thread scripts/render, GC.
+            int nSec = (int)Perf.Sec.Count;
+            var secMs = new float[nSec];
+            var cpuSum = sc.Modes.ToDictionary(m => m, _ => new double[nSec]);
+            var cpuMax = sc.Modes.ToDictionary(m => m, _ => new float[nSec]);
+            var mainSum = sc.Modes.ToDictionary(m => m, _ => new double[2]);
+            var gcCount = sc.Modes.ToDictionary(m => m, _ => 0);
+            var allocSum = sc.Modes.ToDictionary(m => m, _ => 0.0);
+            var csv = new StringBuilder("t,mode,dt_ms,scripts_ms,render_ms,gc0,alloc_kb," + string.Join(",", Perf.Names.Select(n => n + "_ms")) + ",instances,static_records,dyn_active\n");
+            int gc0 = GC.CollectionCount(0);
+            long heap = GC.GetTotalMemory(false);
+            float nextKill = 0f;
+            Perf.Take(null);
 
             for (int round = 0; round < Math.Max(1, sc.Rounds); round++)
             {
@@ -769,12 +783,37 @@ namespace UltraRT
                     Application.targetFrameRate = -1;
                     GameControl.SetPose(path.Sample(pathT));
                     GameControl.HideCheatPanels();
+                    if (sc.KillEnemies && Time.time >= nextKill)
+                    {
+                        nextKill = Time.time + 0.25f;
+                        KillEnemies();
+                    }
                     yield return null;
 
                     float dt = Time.unscaledDeltaTime;
                     pathT += dt;
-                    if (++sinceSwitch > sc.SwitchSkipFrames)
+                    // The previous frame's plugin sections and main-thread markers (dt is that frame's duration too).
+                    Perf.Take(secMs);
+                    Perf.LastFrame(out float scriptsMs, out float renderMs);
+                    int gcNow = GC.CollectionCount(0);
+                    long heapNow = GC.GetTotalMemory(false);
+                    int gcd = gcNow - gc0;
+                    float allocKb = gcd == 0 ? Math.Max(0, heapNow - heap) / 1024f : 0f;
+                    gc0 = gcNow;
+                    heap = heapNow;
+                    bool counted = ++sinceSwitch > sc.SwitchSkipFrames;
+                    csv.Append(pathT.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(current).Append(counted ? "" : "*").Append(',')
+                        .Append(F(dt * 1000f)).Append(',').Append(F(scriptsMs)).Append(',').Append(F(renderMs)).Append(',').Append(gcd).Append(',').Append(F(allocKb));
+                    for (int k = 0; k < nSec; k++) csv.Append(',').Append(F(secMs[k]));
+                    csv.Append(',').Append(_proxies?.Rtas?.GetInstanceCount() ?? 0).Append(',').Append(_proxies?.StaticRecordsActive ?? 0)
+                        .Append(',').Append(_proxies?.ActiveDynamicCount ?? 0).Append('\n');
+                    if (counted)
                     {
+                        for (int k = 0; k < nSec; k++) { cpuSum[current][k] += secMs[k]; cpuMax[current][k] = Math.Max(cpuMax[current][k], secMs[k]); }
+                        mainSum[current][0] += scriptsMs;
+                        mainSum[current][1] += renderMs;
+                        gcCount[current] += gcd;
+                        allocSum[current] += allocKb;
                         frames[current].Add(dt * 1000f);
                         if (_gpu != null && current != "off" && _gpu.ResolvedFrames != lastResolved)
                         {
@@ -791,8 +830,20 @@ namespace UltraRT
                 var st = Stats(frames[m]);
                 for (int s = 0; s < SlotCount; s++)
                     if (gpuN[m][s] > 0) st.GpuMs[SlotNames[s]] = (float)(gpuSum[m][s] / gpuN[m][s]);
+                int n = Math.Max(1, st.Frames);
+                for (int k = 0; k < nSec; k++)
+                {
+                    st.CpuMs[Perf.Names[k]] = (float)(cpuSum[m][k] / n);
+                    st.CpuMaxMs[Perf.Names[k]] = cpuMax[m][k];
+                }
+                st.ScriptsMs = (float)(mainSum[m][0] / n);
+                st.RenderMs = (float)(mainSum[m][1] / n);
+                st.GcCollections = gcCount[m];
+                st.AllocKbPerFrame = (float)(allocSum[m] / n);
                 sr.Modes[m] = st;
             }
+            try { File.WriteAllText(Path.Combine(outDir, $"frames_{Sanitize(sc.Name)}.csv"), csv.ToString()); }
+            catch (Exception e) { Logger.LogWarning($"Benchmark: frame log not written: {e.Message}"); }
             sr.Instances = (int)(_proxies?.Rtas?.GetInstanceCount() ?? 0);
             sr.Lights = _lightCount;
             ApplyBenchMode("off"); // the player stays taken over: a chained scenario may continue from here
@@ -853,8 +904,13 @@ namespace UltraRT
             st.P50Ms = P(0.5); st.P95Ms = P(0.95); st.P99Ms = P(0.99); st.MaxMs = s[s.Count - 1];
             st.AvgFps = 1000f / st.AvgMs;
             st.Low1Fps = 1000f / s.Skip((int)(s.Count * 0.99)).DefaultIfEmpty(s[s.Count - 1]).Average();
+            st.Over16 = s.Count(x => x > 1000f / 60f);
+            st.Over33 = s.Count(x => x > 1000f / 30f);
+            st.WorstMs = s.Skip(Math.Max(0, s.Count - 5)).Reverse().ToList();
             return st;
         }
+
+        private static string F(float v) => v.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);
 
         private static string Summarize(SuiteResult r)
         {
@@ -863,8 +919,8 @@ namespace UltraRT
             sb.AppendLine($"{r.Started} | {r.Gpu} | {r.Resolution} | trace scale {r.TraceScale}{(r.GpuTimer ? " | GPU timer" : "")}");
             sb.AppendLine($"{r.TotalSeconds:F0} s, {r.LevelLoads} level loads for {r.Scenarios.Count} scenarios ({(r.Chaining ? "chaining" : "no chaining")})");
             sb.AppendLine();
-            sb.AppendLine("| Scenario | Mode | Avg ms | fps | 1% low | p99 ms | delta vs off | GPU ms (total/dispatch/denoise) |");
-            sb.AppendLine("|---|---|---|---|---|---|---|---|");
+            sb.AppendLine("| Scenario | Mode | Avg ms | fps | 1% low | p99 ms | worst ms | >16.7 ms | delta vs off | GPU ms (total/dispatch/denoise) | main ms (scripts/render) | plugin ms (avg/worst) |");
+            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
             foreach (var sc in r.Scenarios)
             {
                 if (sc.Error != null) { sb.AppendLine($"| {sc.Name} | **failed** | {sc.Error} |||||| "); continue; }
@@ -875,7 +931,24 @@ namespace UltraRT
                     string delta = off != null && kv.Key != "off" ? (m.AvgMs - off.AvgMs).ToString("+0.000;-0.000") : "";
                     string gpu = m.GpuMs.Count == 0 ? "" :
                         $"{Get(m.GpuMs, "total")}/{Get(m.GpuMs, "dispatch")}/{Get(m.GpuMs, "denoise")}";
-                    sb.AppendLine($"| {sc.Name} | {kv.Key} | {m.AvgMs:F3} | {m.AvgFps:F0} | {m.Low1Fps:F0} | {m.P99Ms:F3} | {delta} | {gpu} |");
+                    sb.AppendLine($"| {sc.Name} | {kv.Key} | {m.AvgMs:F3} | {m.AvgFps:F0} | {m.Low1Fps:F0} | {m.P99Ms:F3} | {m.MaxMs:F1} | {m.Over16} | {delta} | {gpu} | " +
+                                  $"{m.ScriptsMs:F2}/{m.RenderMs:F2} | {Get(m.CpuMs, "trace")}/{Get(m.CpuMaxMs, "trace")} |");
+                }
+            }
+            sb.AppendLine();
+            sb.AppendLine("Plugin CPU per section, ms per frame, average / worst frame (Perf.cs). GC = gen-0 collections, alloc = managed heap growth per frame:");
+            sb.AppendLine();
+            sb.AppendLine("| Scenario | Mode | " + string.Join(" | ", Perf.Names) + " | GC | alloc KB/frame |");
+            sb.AppendLine("|---|---|" + string.Concat(Perf.Names.Select(_ => "---|")) + "---|---|");
+            foreach (var sc in r.Scenarios)
+            {
+                if (sc.Error != null) continue;
+                foreach (var kv in sc.Modes)
+                {
+                    if (kv.Key == "off") continue;
+                    var m = kv.Value;
+                    sb.AppendLine($"| {sc.Name} | {kv.Key} | " + string.Join(" | ", Perf.Names.Select(n => $"{Get(m.CpuMs, n)}/{Get(m.CpuMaxMs, n)}")) +
+                                  $" | {m.GcCollections} | {m.AllocKbPerFrame:F1} |");
                 }
             }
             sb.AppendLine();

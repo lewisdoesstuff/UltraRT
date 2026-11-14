@@ -39,6 +39,8 @@ namespace UltraRT.Bench
         public int Rounds = 1;
         /// <summary>Path times (s) at which every mode is screenshotted (first round only).</summary>
         public List<float> Screenshots = new List<float>();
+        /// <summary>Kill enemies as they spawn during the measurement (recordings of a route: finished arenas open the next rooms).</summary>
+        public bool KillEnemies;
     }
 
     public sealed class PathSpec
@@ -154,5 +156,16 @@ namespace UltraRT.Bench
         public float AvgFps, Low1Fps;
         /// <summary>Average GPU ms per timer slot (empty without -ultrart-gputimer).</summary>
         public Dictionary<string, float> GpuMs = new Dictionary<string, float>();
+        /// <summary>Frames slower than 1/60 s and 1/30 s; the 5 slowest frame times.</summary>
+        public int Over16, Over33;
+        public List<float> WorstMs = new List<float>();
+        /// <summary>Main thread per frame (Perf.cs PlayerLoop markers): scripts/physics/animation, rendering (incl. our Trace).</summary>
+        public float ScriptsMs, RenderMs;
+        /// <summary>Plugin CPU per section (Perf.Sec): average and worst frame, ms.</summary>
+        public Dictionary<string, float> CpuMs = new Dictionary<string, float>();
+        public Dictionary<string, float> CpuMaxMs = new Dictionary<string, float>();
+        /// <summary>Gen-0 collections during the measured frames, and managed heap growth per frame (KB, collections excluded).</summary>
+        public int GcCollections;
+        public float AllocKbPerFrame;
     }
 }

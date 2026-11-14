@@ -116,6 +116,7 @@ namespace UltraRT
         }
 
         public RayTracingAccelerationStructure Rtas { get; private set; }
+        public int ActiveDynamicCount => _active.Count;
         public int SkinnedCount { get; private set; }
         public MotionVectors Motion { get; }
 
@@ -444,7 +445,10 @@ namespace UltraRT
         /// </summary>
         public void SyncDynamic(bool force = false)
         {
+            long ts = Perf.Now;
             SyncStatic(force);
+            Perf.Add(Perf.Sec.Static, ts);
+            long td = Perf.Now;
 
             // 1) Hierarchy (de)activations arrive as events via ProxyTracker.
             if (force) foreach (var d in _dynamic) _dirty.Add(d);
@@ -507,7 +511,10 @@ namespace UltraRT
                 }
             }
 
+            Perf.Add(Perf.Sec.Dynamic, td);
+            long tm = Perf.Now;
             Motion.Upload(); // motion slots changed above, before this frame's trace
+            Perf.Add(Perf.Sec.Motion, tm);
         }
 
         private int _pollCursor;
@@ -558,6 +565,13 @@ namespace UltraRT
         public void RecordMotionCopies(CommandBuffer cmd)
         {
             if (!Motion.CanCopySkin) return;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { RecordMotionCopiesCore(cmd); }
+            finally { Perf.Add(Perf.Sec.Motion, t0); }
+        }
+
+        private void RecordMotionCopiesCore(CommandBuffer cmd)
+        {
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             foreach (var d in _active)
             {
