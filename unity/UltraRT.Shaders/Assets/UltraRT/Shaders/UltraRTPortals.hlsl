@@ -11,6 +11,9 @@
 // in the any-hit shader, so the level behind a portal stays visible from behind, as in game.
 
 #define ULTRART_FLAG_PORTAL 0x20000000u // payload flags (portal hit -> ray gen); bit 29 is free in the material flags
+// The same bit as a request (ray gen -> hit): this ray already went through a portal. Sides with appearsInRecursions off
+// ignore such rays, as the game skips them in portal views (PortalRenderV2.GetOnscreenPortalsBurst, depth > 0).
+#define ULTRART_PORTAL_IN_RECURSION 0x20000000u
 
 #ifndef ULTRART_PORTALS_DEFINES_ONLY
 
@@ -41,7 +44,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     {
         p = (RayPayload)0;
         p.t = -1.0;
-        p.flags = inFlags;
+        p.flags = inFlags | (i > 0u ? ULTRART_PORTAL_IN_RECURSION : 0u);
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
         if (path.firstT < 0.0) path.firstT = p.t;

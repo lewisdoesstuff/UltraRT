@@ -6,6 +6,7 @@ Shader "UltraRT/Portal"
     Properties
     {
         _PortalIndex ("Portal side index", Float) = 0
+        _PortalNoRecursion ("Hidden in portal views (appearsInRecursions off)", Float) = 0
     }
 
     SubShader
@@ -38,6 +39,7 @@ Shader "UltraRT/Portal"
             #include "UltraRTPortals.hlsl"
 
             float _PortalIndex;
+            float _PortalNoRecursion;
 
             // Only rays crossing the side from its back half-space along its forward axis enter it (PortalMath.Raycast);
             // from behind, the quad is not there.
@@ -47,6 +49,8 @@ Shader "UltraRT/Portal"
                 float3x4 o2w = ObjectToWorld3x4();
                 float3 fwd = float3(o2w[0][2], o2w[1][2], o2w[2][2]);
                 if (dot(WorldRayDirection(), fwd) <= 0.0) IgnoreHit();
+                // Seen from inside another portal's view: the game doesn't draw this side there.
+                if (_PortalNoRecursion > 0.5 && (p.flags & ULTRART_PORTAL_IN_RECURSION) != 0u) IgnoreHit();
             }
 
             [shader("closesthit")]

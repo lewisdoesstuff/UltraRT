@@ -53,6 +53,7 @@ namespace UltraRT
         private static FieldInfo _portalListField;
         private static readonly int IdPortals = Shader.PropertyToID("_UltraRTPortals");
         private int _portalLogs;
+        private bool _portalLayerChecked;
         private int _portalSidesInRtas;
 
         /// <summary>Portal sides in the RTAS right now.</summary>
@@ -76,6 +77,15 @@ namespace UltraRT
                     var player = MonoSingleton.GetInstance(typeof(NewMovement)) as NewMovement;
                     Vector3? playerPos = player != null ? player.transform.position : (Vector3?)null;
                     foreach (var portal in portals) SyncPortal(portal, playerPos);
+                    if (!_portalLayerChecked)
+                    {
+                        // Layer 30 ("Portal"): portal views with canSeePortalLayer add it to their culling mask (PortalRenderV2).
+                        _portalLayerChecked = true;
+                        int onLayer = 0, active = 0;
+                        foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                            if (r.gameObject.layer == 30) { onLayer++; if (r.enabled && r.gameObject.activeInHierarchy) active++; }
+                        _log.LogInfo($"Portals: {onLayer} renderers on layer 30 ({active} active); main camera traces layer 30: {((_cameraMask >> 30) & 1) != 0}");
+                    }
                 }
             }
 
@@ -148,13 +158,15 @@ namespace UltraRT
                 s = new PortalSide { Portal = portal, Exit = exitSide, Index = _portalSideList.Count };
                 s.Material = new Material(PortalShader) { name = $"UltraRT Portal {s.Index}" };
                 s.Material.SetFloat("_PortalIndex", s.Index);
+                s.Material.SetFloat("_PortalNoRecursion", portal.appearsInRecursions ? 0f : 1f);
                 s.Proxy = CreateMeshProxy($"{portal.name} {(exitSide ? "exit" : "enter")} [UltraRT]", null, _portalQuad, new[] { s.Material });
                 _portalSides[key] = s;
                 _portalSideList.Add(s);
                 if (s.Index < 64)
                     _log.LogInfo($"Portal side {s.Index}: '{Bench.GameControl.PathOf(portal.transform)}' {(portal.mirror ? "mirror" : exitSide ? "exit" : "enter")} " +
                                  $"{shape.width:F2}x{shape.height:F2} at {side.GetColumn(3)} fwd {side.GetColumn(2)}, render {portal.renderSettings}, " +
-                                 $"recursions {portal.maxRecursions}, disableRange {portal.disableRange}");
+                                 $"recursions {portal.maxRecursions}, disableRange {portal.disableRange}, appearsInRecursions {portal.appearsInRecursions}, " +
+                                 $"canSeeItself {portal.canSeeItself}, canSeePortalLayer {portal.canSeePortalLayer}, clipping {portal.clippingMethod}");
                 s.Pose = Matrix4x4.zero;
             }
             if (s.Proxy == null) return; // destroyed with the scene
