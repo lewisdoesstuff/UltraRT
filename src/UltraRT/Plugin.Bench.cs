@@ -699,6 +699,22 @@ namespace UltraRT
             sr.Duration = path.Duration;
             GameControl.TakeControl(path.Start);
             yield return new WaitForSecondsRealtime(0.5f);
+            // The route was fast-forwarded with RT off, so the RT scene hasn't seen what it switched on yet (8-3's
+            // checkpoint clones ~3,000 renderers). Trace until that is registered, so it doesn't land in the measurement.
+            string warm = sc.Modes.FirstOrDefault(m => m != "off");
+            if (warm != null && _proxies != null)
+            {
+                ApplyBenchMode(warm);
+                float until = Time.realtimeSinceStartup + 5f;
+                int warmFrames = 0;
+                while (Time.realtimeSinceStartup < until && (warmFrames++ < 30 || _proxies.DeferredCount > 0 || Patches.PendingSpawns.Count > 0))
+                {
+                    GameControl.SetPose(path.Start);
+                    GameControl.HideCheatPanels();
+                    yield return null;
+                }
+                ApplyBenchMode("off");
+            }
 
             var frames = sc.Modes.ToDictionary(m => m, _ => new List<float>(8192));
             var gpuSum = sc.Modes.ToDictionary(m => m, _ => new double[SlotCount]);
