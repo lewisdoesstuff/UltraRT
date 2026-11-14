@@ -295,6 +295,7 @@ namespace UltraRT
             if (IsTwoSided(atlasProxy)) _twoSidedProxies.Add(v);
             if (IsSkyWall(atlasProxy)) _skyWallProxies.Add(v);
             Maps.AddAtlasMaterial(atlasProxy.GetTexture("_MainTex"), v);
+            RegisterRainVariant(atlasProxy, v);
             _atlasVariants[key] = v;
             return v;
         }
@@ -866,6 +867,7 @@ namespace UltraRT
         {
             if (_pointLights == null) BuildLightGrid();
             var rb = r.bounds;
+            if (r.isPartOfStaticBatch && rb.size.magnitude <= 6f && Mathf.Max(rb.size.x, rb.size.z) <= 2f) NoteStaticEnclosure(rb);
             if (rb.size.magnitude > 4f) return false;
             var b = rb;
             b.Expand(0.2f);
@@ -899,6 +901,26 @@ namespace UltraRT
         }
 
         private const float FixtureSupportGap = 0.5f;
+
+        /// <summary>
+        /// Point/spot lights inside a small static-batched renderer (8-2's standing lamps: the light sits in the shade of a
+        /// 4 m floor lamp). Merged batches can't carry the fixture mask, so the shade keeps shadowing its own light and the
+        /// light escapes through its openings; with the global soft-shadow radius those openings cast wide penumbrae that
+        /// boiled into a slow flicker. Plugin.GatherLights gives these lights a small radius instead (unless lifted).
+        /// </summary>
+        public readonly HashSet<Light> StaticEnclosed = new HashSet<Light>();
+
+        private void NoteStaticEnclosure(Bounds rb)
+        {
+            var lo = Cell(rb.min);
+            var hi = Cell(rb.max);
+            for (int x = lo.x; x <= hi.x; x++)
+            for (int y = lo.y; y <= hi.y; y++)
+            for (int z = lo.z; z <= hi.z; z++)
+                if (_lightGrid.TryGetValue(new Vector3Int(x, y, z), out var cell))
+                    foreach (var l in cell)
+                        if (l != null && rb.Contains(l.transform.position) && StaticEnclosed.Add(l)) FixtureVersion++;
+        }
         private Light[] _pointLights;
 
         // Point/spot lights by position (4 m cells), so classifying a renderer looks at nearby lights only: with thousands
@@ -1019,6 +1041,7 @@ namespace UltraRT
             }
 
             _materialCache[src] = m;
+            RegisterRain(src, m); // the game's rain on surfaces (SceneProxies.Rain.cs)
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
             if (SourceSkyWall(src)) { _skyWallProxies.Add(m); m.SetFloat("_SkyWall", 1f); }
             return m;

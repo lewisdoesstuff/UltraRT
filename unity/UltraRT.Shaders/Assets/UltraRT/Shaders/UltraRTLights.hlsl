@@ -15,7 +15,9 @@
 
 // Per light, 4 x float4:
 //   [0] position (or -forward for directional), range (0 = directional)
-//   [1] color * intensity, unused (culling masks live in _LightMasks)
+//   [1] color * intensity, flags: 1 = the player's own light (attached to the player or the camera: the held torch, the
+//       7-3 flashlight, muzzle flashes; Plugin.FlagPlayerLights): V1's model never shadows it. Culling masks live in
+//       _LightMasks.
 //   [2] forward, soft-shadow radius (m; 0 = _LightRadius; < 0 upper half-sphere). Lights lifted out of their fixture
 //       get the fixture's size.
 //   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light),
@@ -179,7 +181,13 @@ bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
 #endif
     }
     uint mask = _FixtureShadows > 0.5 ? 0x05u : 0x01u; // fixtures (0x04) cast shadows unless disabled
-    return VisibleMasked(p, n, L, dist - min(kLightFixtureClearance, 0.5 * dist), mask);
+    // The player's own lights (a head-mounted flashlight, the held torch) sit inside V1's model: it never shadows them,
+    // wherever they are relative to the camera box (VisibleMasked).
+    uint playerMask = g_ShadowPlayerMask;
+    if (_Lights[i * 4 + 1].w > 0.5) g_ShadowPlayerMask = 0u;
+    bool vis = VisibleMasked(p, n, L, dist - min(kLightFixtureClearance, 0.5 * dist), mask);
+    g_ShadowPlayerMask = playerMask;
+    return vis;
 }
 
 float LightLuminance(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }

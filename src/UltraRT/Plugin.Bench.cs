@@ -961,7 +961,7 @@ namespace UltraRT
                         nextKill = Time.time + 0.25f;
                         KillEnemies();
                     }
-                    if (pathT >= nextEffect) { EffectSpawner.Spawn(sc.Effects); nextEffect = pathT + sc.Effects.Every; }
+                    if (pathT >= nextEffect) { EffectSpawner.Spawn(sc.Effects, periodic: true); nextEffect = pathT + sc.Effects.Every; }
                     yield return null;
 
                     float dt = Time.unscaledDeltaTime;

@@ -84,6 +84,9 @@ namespace UltraRT.Bench
     public sealed class EffectSpec
     {
         public List<string> Kinds = new List<string> { "revolver" };
+        /// <summary>Kinds spawned on the Every timer instead of <see cref="Kinds"/> (null = Kinds); Kinds still spawn at
+        /// screenshots. E.g. hold the torch and light the brazier on the way, whiplash only at the screenshots.</summary>
+        public List<string> PeriodicKinds;
         /// <summary>Seconds between spawns (all kinds at once); 0 = only at screenshots.</summary>
         public float Every = 0.5f;
         /// <summary>Distance in front of the camera (m), shortened to stay in front of walls.</summary>

@@ -60,6 +60,9 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("vol", _volSettings);
             yield return new KeyValuePair<string, object>("mat", MaterialMaps.Settings); // per-texel detail (docs/materials.md)
             yield return new KeyValuePair<string, object>("lava", SceneProxies.Lava); // docs/lava.md, e.g. lava.active=0
+            yield return new KeyValuePair<string, object>("fx", _effectSettings);   // effect lights, e.g. fx.flicker=0
+            yield return new KeyValuePair<string, object>("pl", _particleSettings); // lit particles, e.g. pl.additiveSmoke=0
+            yield return new KeyValuePair<string, object>("shaft", _shaftSettings); // lamp cones, e.g. shaft.keepFakes=1
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>

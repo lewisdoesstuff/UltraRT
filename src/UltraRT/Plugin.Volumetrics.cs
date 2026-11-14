@@ -145,6 +145,7 @@ namespace UltraRT
                 rtas = _proxies.Rtas,
                 lights = _lightBuffer,
                 skip = VolumetricsSkipMask(),
+                cones = VolumetricsConeBuffer(), // lamp cones (Plugin.Shafts.cs)
                 lightCount = _lightCount,
                 sunDir = sunDir,
                 sunColor = sunColor,

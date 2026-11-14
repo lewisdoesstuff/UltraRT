@@ -32,7 +32,7 @@ namespace UltraRT
         private static readonly int PLTexId = Shader.PropertyToID("_UltraRTPL"), PLViewProjId = Shader.PropertyToID("_UltraRTPLViewProj"),
             PLCamId = Shader.PropertyToID("_UltraRTPLCam"), PLFwdId = Shader.PropertyToID("_UltraRTPLFwd"),
             PLDepthId = Shader.PropertyToID("_UltraRTPLDepth"), PLFogColorId = Shader.PropertyToID("_UltraRTPLFogColor"),
-            PLFogParamsId = Shader.PropertyToID("_UltraRTPLFogParams");
+            PLFogParamsId = Shader.PropertyToID("_UltraRTPLFogParams"), PLAdditiveMaxId = Shader.PropertyToID("_UltraRTPLAdditiveMax");
 
         private void ParseParticleArgs()
         {
@@ -179,6 +179,7 @@ namespace UltraRT
             var fc = RenderSettings.fogColor;
             _cmd.SetGlobalVector(PLFogColorId, new Vector4(fc.r, fc.g, fc.b, RenderSettings.fog ? 1f : 0f));
             _cmd.SetGlobalVector(PLFogParamsId, new Vector4(RenderSettings.fogStartDistance, RenderSettings.fogEndDistance, 0, 0));
+            _cmd.SetGlobalVector(PLAdditiveMaxId, new Vector4(Mathf.Max(0f, _particleSettings.additiveScale), Mathf.Max(0f, _particleSettings.additiveMax), 0, 0));
 
             if (Time.realtimeSinceStartup >= _particleNextLog)
             {
