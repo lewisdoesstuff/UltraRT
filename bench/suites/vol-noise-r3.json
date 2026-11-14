@@ -194,8 +194,7 @@
         "relight+vol.lightSamples=1+vol.atrous=0+vol.playerLights=1",
         "relight",
         "relight+vol.lightSamples=1"
-      ],
-      "Screenshots": []
+      ]
     },
     {
       "Name": "1-1 cerberus perf",
@@ -210,8 +209,7 @@
         "relight+vol.lightSamples=1+vol.atrous=0+vol.playerLights=1",
         "relight",
         "relight+vol.lightSamples=1"
-      ],
-      "Screenshots": []
+      ]
     },
     {
       "Name": "1-1 start",
