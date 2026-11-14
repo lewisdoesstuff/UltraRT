@@ -33,6 +33,14 @@ namespace UltraRT
         /// <summary>Set by -ultrart-skinned-visible: let skinned proxies "render" (via the no-op pass) so Unity keeps skinning them.</summary>
         public static bool SkinnedProxiesVisible;
 
+        /// <summary>
+        /// Manual-mode RTAS instances keep the transform they were added with until UpdateInstanceTransform. A skinned
+        /// instance's transform is its root bone (Unity skins into root-bone space), so it must be updated whenever the root
+        /// moves, or the re-skinned BLAS stays where the enemy was added: a "ghost" at its spawn spot that animates and casts
+        /// shadows while the real enemy is missing. -ultrart-skinned-noupdate turns the update off, to reproduce that.
+        /// </summary>
+        public static bool SkinnedTransformUpdates = true;
+
         /// <summary>Experiment (-ultrart-nostatic): leave static batches out of the RTAS.</summary>
         public static bool SkipStaticBatches;
         public int AlphaTestedMaterials { get; private set; }
@@ -98,6 +106,7 @@ namespace UltraRT
             public Matrix4x4 CurM, PrevM;
             public bool Moved;
             public Transform Root;
+            public Vector3 AddedRootPos; // diagnostics: where the root was when the instance entered the RTAS
             public int SkinBase = -1, SkinVerts, SkinGen;
             public bool SkinPrevValid;
         }
@@ -128,7 +137,8 @@ namespace UltraRT
                 else
                 {
                     var off = d.Proxy != null ? (d.Proxy.bounds.center - r.bounds.center).magnitude : -1f;
-                    state = $"proxy visible {d.Visible} offset {off:F2} m mask {d.Mask}";
+                    var moved = d.Visible && d.Root != null ? (d.Root.position - d.AddedRootPos).magnitude : 0f;
+                    state = $"proxy visible {d.Visible} offset {off:F2} m mask {d.Mask} root moved {moved:F2} m since added";
                 }
                 yield return $"{Bench.GameControl.PathOf(r.transform)} L{r.gameObject.layer} enabled {r.enabled}/{r.gameObject.activeInHierarchy} at {r.bounds.center}: {state}";
             }
@@ -480,11 +490,14 @@ namespace UltraRT
                 if (d.Source == null || d.Proxy == null || !d.Source.enabled) { Evaluate(d); continue; }
                 if (d.SkinnedProxy != null)
                 {
-                    // DynamicGeometry instances are re-read on Build(); only blend shapes need copying.
+                    // DynamicGeometry: Build() re-reads the skinned vertices (in root-bone space) every frame, but not the
+                    // instance transform (Manual mode). Blend shapes are copied here, the transform below.
                     for (int i = 0; i < d.BlendShapes; i++) d.SkinnedProxy.SetBlendShapeWeight(i, d.SkinnedSource.GetBlendShapeWeight(i));
+                    // The instance transform is the root bone's: follow it (see SkinnedTransformUpdates).
+                    var m = MotionMatrix(d);
+                    if (SkinnedTransformUpdates && m != d.CurM) { Rtas.UpdateInstanceTransform(d.Proxy); SkinnedTransformUpdateCount++; }
                     // Skinned: root motion as a matrix, the pose itself from last frame's copy (RecordMotionCopies).
                     long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
-                    var m = MotionMatrix(d);
                     d.PrevM = d.CurM;
                     d.CurM = m;
                     bool pose = d.SkinPrevValid && d.SkinGen == Motion.Generation;
@@ -531,6 +544,9 @@ namespace UltraRT
 
         private int _pollCursor;
 
+        /// <summary>Skinned instance transform updates since the last reset (Plugin's 600-frame scene-sync log).</summary>
+        public int SkinnedTransformUpdateCount;
+
         private void Evaluate(DynamicProxy d)
         {
             bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled;
@@ -542,6 +558,7 @@ namespace UltraRT
                 _active.Add(d);
                 // Newly in the RTAS: no motion history (it appears where it is).
                 d.CurM = d.PrevM = MotionMatrix(d);
+                if (d.Root != null) d.AddedRootPos = d.Root.position;
                 d.Moved = false;
                 d.SkinPrevValid = false;
                 if (d.SkinnedProxy != null && d.SkinBase < 0) d.SkinBase = Motion.AllocSkin(d.SkinVerts);

@@ -55,6 +55,22 @@ Correctness never depends on the level. Visibility is always tracked per slot. A
 - **Memory**: the CPU copy of every combined mesh (vertices and indices) is kept for rebuilds, and logged as `CPU copy N MB`. 1-1's static geometry is about 90k tris, a few MB.
 - **A batch root that moves**: static proxies are parented to `staticBatchRootTransform` (or the scene root), not to the sources, as before.
 
+## Skinned meshes (enemies)
+
+Each enemy `SkinnedMeshRenderer` gets a proxy `SkinnedMeshRenderer`: a hidden child of the source that shares its mesh, `bones` and `rootBone`, with `rayTracingMode = DynamicGeometry`, `updateWhenOffscreen` and `forceRenderingOff` (unless `-ultrart-skinned-visible`). It enters and leaves the RTAS like any dynamic proxy.
+
+Two things place a skinned instance in the RTAS, and they are updated differently:
+- **The pose.** Unity skins into the root bone's space (without scale; `-ultrart-motion-probe` checks this). Because the instance is `DynamicGeometry`, every `Build()` re-reads the skinned vertex buffer and rebuilds its BLAS. Animation therefore always shows, even with rendering forced off.
+- **The instance transform**, which is the root bone's. The RTAS is in `Manual` mode, so `AddInstance` stores the transform once and only `UpdateInstanceTransform` changes it. `SyncDynamic` calls it for an active skinned proxy whenever the root bone's position or rotation changed since last frame (`MotionMatrix` != `CurM`, which motion vectors compute anyway).
+
+**The bug this fixed: ghosts at spawn spots.** Before 2026-11-14, only rigid proxies got `UpdateInstanceTransform`. A skinned instance stayed at the root-bone transform it had when it entered the RTAS, usually where the enemy was activated, while its pose kept animating. In 0-3 (`bench/suites/ghosts.json`) the Filth walk 7 to 12 m from their spawn points (`root moved ... since added` in the `-ultrart-logfixtures` lines). The RT image showed them, animating, at their spawn spots and cast their shadows there; at the enemies' real positions there was no RT geometry. The composite mostly hid the copies, so in game they read as dark enemy-shaped shadows. Two things made the bug hard to see:
+- The proxy's `Renderer.bounds` followed the enemy, because Unity computes those from the bones, not from the RTAS.
+- The original check (`-ultrart-spawn-test`) only checked that enemies animate.
+
+The motion vectors of skinned hits were wrong too, because the hit shader's `ObjectToWorld` was the stale matrix.
+
+`-ultrart-skinned-noupdate` turns the update off, to reproduce the bug. The 600-frame scene-sync log line reports `skinned transform updates/frame`: up to about 17 per frame in the 0-2 run, at well under a microsecond each. Measured cost is within run-to-run noise: 0-2 run pt-dn GPU total 1.949 ms without the update against 1.971 and 1.987 ms with it, dispatch 1.262 against 1.277 and 1.289 ms. The short suite is unchanged.
+
 ## Logs
 
 - `Static activation groups: level L (...), G groups, I part instances, R records (budget B; by level a/b/c/d/e), W watchers (mode), T toggle targets, S sources, F tiny groups folded, ...`, followed by the 8 largest groups.
