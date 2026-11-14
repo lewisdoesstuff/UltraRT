@@ -32,7 +32,7 @@ struct RayPayload
 };
 
 #define ULTRART_PAYLOAD_WANT_MOTION 0x40000000u // PathTrace's primary ray: return the hit's motion in p.motion
-#define ULTRART_FLAG_DETAIL 0x8u // ray gen -> hit: apply per-texel detail (primary and reflection rays only; bounce, cache and
+#define ULTRART_FLAG_DETAIL 0x8u // ray gen -> hit: apply per-texel detail (primary rays only; reflection, bounce, cache and
                                  // volumetric rays skip it). Hit -> ray gen: p.normal carries a per-texel detail normal; on
                                  // primary rays (WANT_MOTION) the vertex normal is in p.primitive bits 0-23 (PackOct24)
 

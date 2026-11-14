@@ -228,11 +228,8 @@ Shader "UltraRT/Proxy"
             // Shading normal n tilted by the tangent-space slope xy. The tangent frame comes from the triangle's positions
             // and UV0 (meshes may have no tangents): T = dp/du, B = dp/dv in world space, made orthogonal to n. Atlas UVs
             // map into their rect with the same orientation, so UV0 works for both; _MainTex_ST's sign flips the axes.
-            float3 DetailNormal(uint3 tri, float3 p0, float3 p1, float3 p2, float3 n, float2 xy)
+            float3 DetailNormal(float2 u0, float2 u1, float2 u2, float3 p0, float3 p1, float3 p2, float3 n, float2 xy)
             {
-                float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
-                float2 u1 = UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0);
-                float2 u2 = UnityRayTracingFetchVertexAttribute2(tri.z, kVertexAttributeTexCoord0);
                 float2 st = _AtlasMode > 0.5 ? float2(1.0, 1.0) : _MainTex_ST.xy;
                 float2 d1 = (u1 - u0) * st, d2 = (u2 - u0) * st;
                 float det = d1.x * d2.y - d1.y * d2.x;
@@ -271,7 +268,7 @@ Shader "UltraRT/Proxy"
             void ClosestHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
             {
                 bool wantGameCube = (p.flags & ULTRART_FLAG_GAMECUBE) != 0u; // request from the ray gen (hybrid primary rays)
-                bool wantDetail = (p.flags & ULTRART_FLAG_DETAIL) != 0u;     // primary and reflection rays
+                bool wantDetail = (p.flags & ULTRART_FLAG_DETAIL) != 0u;     // primary rays only
                 // The game draws these as the sky (by view direction): the ray "escapes" here.
                 if (_SkyWall > 0.5) { p.t = -1.0; return; }
                 bool wantMotion = (p.flags & ULTRART_PAYLOAD_WANT_MOTION) != 0u;
@@ -295,7 +292,10 @@ Shader "UltraRT/Proxy"
                 float3 n = normalize(mul(nObj, (float3x3)WorldToObject3x4()));
                 if (dot(n, WorldRayDirection()) > 0.0) n = -n; // treat everything as two-sided for now
 
-                float2 uv = FetchUV(tri, b);
+                float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
+                float2 u1 = UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0);
+                float2 u2 = UnityRayTracingFetchVertexAttribute2(tri.z, kVertexAttributeTexCoord0);
+                float2 uv = u0 * b.x + u1 * b.y + u2 * b.z;
                 float litWeight, blendWeight;
                 float2 texUV;
                 float4 albedo = SampleAlbedo(tri, b, uv, litWeight, blendWeight, texUV);
@@ -308,7 +308,7 @@ Shader "UltraRT/Proxy"
                 if (hasDetail)
                 {
                     float2 xy = (detail.rg * 2.0 - 1.0) * (_DetailParams.x * _UltraRTDetail.y);
-                    n = DetailNormal(tri, p0, p1, p2, n, xy);
+                    n = DetailNormal(u0, u1, u2, p0, p1, p2, n, xy);
                     flags |= ULTRART_FLAG_DETAIL;
                 }
 

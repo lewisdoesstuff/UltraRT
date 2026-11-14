@@ -1,0 +1,97 @@
+{
+ "Name": "materials-cost",
+ "Scenarios": [
+  {
+   "Name": "1-1 terminal",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-terminal-glancing.json",
+    "Duration": 16
+   },
+   "Modes": [
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.roughness=0",
+    "relight+mat.normalStrength=0",
+    "relight+refl.enabled=0+mat.enabled=0",
+    "relight+refl.enabled=0",
+    "hybrid+mat.enabled=0",
+    "hybrid"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    8
+   ]
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 16
+   },
+   "Modes": [
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.roughness=0",
+    "relight+mat.normalStrength=0",
+    "relight+refl.enabled=0+mat.enabled=0",
+    "relight+refl.enabled=0",
+    "hybrid+mat.enabled=0",
+    "hybrid"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    8
+   ]
+  },
+  {
+   "Name": "0-5 lava",
+   "Scene": "Level 0-5",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-5-approach.json",
+    "Duration": 16
+   },
+   "Modes": [
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.roughness=0",
+    "relight+mat.normalStrength=0",
+    "relight+refl.enabled=0+mat.enabled=0",
+    "relight+refl.enabled=0",
+    "hybrid+mat.enabled=0",
+    "hybrid"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    8
+   ]
+  },
+  {
+   "Name": "1-1 indoor a",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-indoor-a.json",
+    "Duration": 16
+   },
+   "Modes": [
+    "relight+mat.enabled=0",
+    "relight",
+    "relight+mat.roughness=0",
+    "relight+mat.normalStrength=0",
+    "relight+refl.enabled=0+mat.enabled=0",
+    "relight+refl.enabled=0",
+    "hybrid+mat.enabled=0",
+    "hybrid"
+   ],
+   "Segment": 1.0,
+   "Screenshots": [
+    8
+   ]
+  }
+ ]
+}

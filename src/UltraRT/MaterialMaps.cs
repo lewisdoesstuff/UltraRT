@@ -15,15 +15,18 @@ namespace UltraRT
         public bool enabled = true;
         /// <summary>-ultrart-materials-source ai|proc: the cache folder under BepInEx/ultrart/materials (tools/materials).</summary>
         public string source = "ai";
-        /// <summary>-ultrart-materials-normal F: global multiplier on the per-class normal strength.</summary>
-        public float normalStrength = 1f;
+        /// <summary>-ultrart-materials-normal F: global multiplier on the per-class normal strength (relight, pt-dn, pt).</summary>
+        public float normalStrength = 2f;
+        /// <summary>-ultrart-materials-hybrid-normal F: the same in hybrid, whose shadow ratio scales the game's lit colour
+        /// (half-resolution, ambient included), so it takes less before texel rows look dirty.</summary>
+        public float hybridNormalStrength = 1f;
         /// <summary>-ultrart-materials-roughness F: global multiplier on the per-class roughness variation.</summary>
         public float roughness = 1f;
         /// <summary>-ultrart-materials-guided on|off: hybrid composite picks the trace texel by albedo as well as depth
         /// (Composite.shader), so per-texel shading follows texel edges instead of the half-resolution trace grid.</summary>
         public bool guidedPick = true;
 
-        public override string ToString() => $"{(enabled ? "on" : "off")}, source {source}, normal x{normalStrength:0.##}, roughness x{roughness:0.##}, guided pick {(guidedPick ? "on" : "off")}";
+        public override string ToString() => $"{(enabled ? "on" : "off")}, source {source}, normal x{normalStrength:0.##} (hybrid x{hybridNormalStrength:0.##}), roughness x{roughness:0.##}, guided pick {(guidedPick ? "on" : "off")}";
     }
 
     /// <summary>
