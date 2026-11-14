@@ -23,6 +23,9 @@ namespace UltraRT
     /// </summary>
     public partial class Plugin
     {
+        /// <summary>Bench variant (plugin._motionJitterRotate=1): start each motion-noise pass at a different TAAU jitter phase.</summary>
+        private bool _motionJitterRotate;
+
         private static readonly string[] MotionClassNames = { "thin", "edge", "fresh", "screen edge", "interior", "none" };
 
         private IEnumerator RunMotionNoise(Scenario sc, ScenarioResult sr, string outDir, CameraPath path, float t0)
@@ -69,7 +72,7 @@ namespace UltraRT
                     {
                         ResetHistories();
                         _upsampler?.Reset();
-                        if (_upsampler != null) _upsampler.JitterIndex = sc.MotionJitterRotate ? (uint)Math.Max(0, pass) : 0u;
+                        if (_upsampler != null) _upsampler.JitterIndex = sc.MotionJitterRotate || _motionJitterRotate ? (uint)Math.Max(0, pass) : 0u;
                         for (int f = 0; f < total; f++)
                         {
                             GameControl.SetPose(path.Sample(moving ? Mathf.Min(tStart + f / 360f, path.Duration) : t0));
@@ -135,6 +138,7 @@ namespace UltraRT
                                 else
                                 {
                                     var mask = offMask != null && offMask[ci] != null && offMask[ci].Length == px.Length ? offMask[ci] : null;
+                                    var excl = Exclusion(sc, W, H);
                                     var c = cls[ci];
                                     var r = refL[ci];
                                     // The pass's global offset (auto exposure settles slightly differently each pass) is not noise.
@@ -160,7 +164,7 @@ namespace UltraRT
                                             for (int xx = 0; xx < 4; xx++)
                                             {
                                                 int x = bx + xx, i = y * W + x;
-                                                if (mask != null && mask[i] != 0) { maskedOut++; continue; }
+                                                if ((mask != null && mask[i] != 0) || excl[i]) { maskedOut++; continue; }
                                                 float d = LumaOf(px[i]) - r[i] - off;
                                                 int k = 5;
                                                 if (c != null && tw > 0)
@@ -230,6 +234,28 @@ namespace UltraRT
                 RestoreVariantState(saved);
                 ApplyBenchMode("off");
             }
+        }
+
+        private bool[] _exclusion;
+        private int _exclusionW, _exclusionH;
+        private Scenario _exclusionFor;
+
+        /// <summary>Pixels left out of the statistics (Scenario.MotionExclude), bottom-up like GetPixels32.</summary>
+        private bool[] Exclusion(Scenario sc, int w, int h)
+        {
+            if (_exclusion != null && _exclusionW == w && _exclusionH == h && ReferenceEquals(_exclusionFor, sc)) return _exclusion;
+            _exclusion = new bool[w * h];
+            _exclusionW = w; _exclusionH = h; _exclusionFor = sc;
+            if (sc.MotionExclude != null)
+                foreach (var r in sc.MotionExclude)
+                {
+                    if (r == null || r.Length < 4) continue;
+                    int x0 = Mathf.Clamp((int)(r[0] * w), 0, w), x1 = Mathf.Clamp((int)(r[2] * w), 0, w);
+                    int y0 = Mathf.Clamp((int)((1f - r[3]) * h), 0, h), y1 = Mathf.Clamp((int)((1f - r[1]) * h), 0, h);
+                    for (int y = y0; y < y1; y++)
+                        for (int x = x0; x < x1; x++) _exclusion[y * w + x] = true;
+                }
+            return _exclusion;
         }
 
         private static int LumaOf(Color32 c) => (2126 * c.r + 7152 * c.g + 722 * c.b + 5000) / 10000;

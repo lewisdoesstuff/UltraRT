@@ -66,9 +66,12 @@ namespace UltraRT.Bench
         /// <summary>Modes ("off" first: its two passes give the mask of what the game itself animates); default Modes.</summary>
         public List<string> MotionModes;
         /// <summary>Start each pass at a different TAAU jitter phase (pass index), so jitter-dependent flicker counts too.</summary>
-        public bool MotionJitterRotate = true;
+        public bool MotionJitterRotate;
         /// <summary>Consecutive frames of the first pass saved as PNG at the end of the window (frame strips).</summary>
         public int MotionStrip = 4;
+        /// <summary>Screen rectangles left out of the motion-noise statistics, [x0, y0, x1, y1] as fractions of the screen from
+        /// the top left: by default the viewmodel and the HUD panel (drawn by the game over the RT image).</summary>
+        public List<float[]> MotionExclude = new List<float[]> { new[] { 0.5f, 0.5f, 0.84f, 1f }, new[] { 0f, 0.55f, 0.32f, 1f } };
     }
 
     /// <summary>
