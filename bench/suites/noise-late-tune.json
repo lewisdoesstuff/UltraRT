@@ -1,0 +1,137 @@
+{
+ "Name": "noise-late-tune",
+ "Scenarios": [
+  {
+   "Name": "8-2 building boil",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-8-2-building-boil.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-8-2-building-boil-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Burst": 64,
+   "BurstModes": [
+    "off",
+    "relight+ls.occludedRetest=0",
+    "relight",
+    "relight+ls.retestUmbra=0",
+    "relight+ls.occludedRetest=0",
+    "relight"
+   ]
+  },
+  {
+   "Name": "2-2 floor noise purple",
+   "Scene": "Level 2-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-2-2-floor-noise-purple.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-2-2-floor-noise-purple-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Burst": 64,
+   "BurstModes": [
+    "off",
+    "relight+ls.occludedRetest=0",
+    "relight",
+    "relight+ls.retestUmbra=0",
+    "relight+ls.occludedRetest=0",
+    "relight"
+   ]
+  },
+  {
+   "Name": "1-4 drift",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-4-drift-a.json",
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Burst": 64,
+   "BurstModes": [
+    "off",
+    "relight+ls.occludedRetest=0",
+    "relight",
+    "relight+ls.retestUmbra=0",
+    "relight+ls.occludedRetest=0",
+    "relight"
+   ]
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "hybrid"
+   ],
+   "Screenshots": [
+    4
+   ],
+   "Burst": 64,
+   "BurstModes": [
+    "off",
+    "relight+ls.occludedRetest=0",
+    "relight",
+    "relight+ls.retestUmbra=0",
+    "relight+ls.occludedRetest=0",
+    "relight",
+    "hybrid+ls.occludedRetest=0",
+    "hybrid"
+   ]
+  },
+  {
+   "Name": "6-2 start",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/6-2-start.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "hybrid"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Burst": 64,
+   "BurstModes": [
+    "off",
+    "relight+ls.occludedRetest=0",
+    "relight",
+    "relight+ls.occludedRetest=0",
+    "relight",
+    "hybrid+ls.occludedRetest=0",
+    "hybrid"
+   ]
+  }
+ ]
+}

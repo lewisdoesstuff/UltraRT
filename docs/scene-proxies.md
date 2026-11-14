@@ -55,6 +55,16 @@ Correctness never depends on the level. Visibility is always tracked per slot. A
 - **Memory**: the CPU copy of every combined mesh (vertices and indices) is kept for rebuilds, and logged as `CPU copy N MB`. 1-1's static geometry is about 90k tris, a few MB.
 - **A batch root that moves**: static proxies are parented to `staticBatchRootTransform` (or the scene root), not to the sources, as before.
 
+- **Vertex-shader motion (`VERTEX_DISPLACEMENT`)**: the RTAS holds the rest pose of the mesh, so geometry the game moves in
+  its vertex shader does not move in RT. 3-2's flesh hallway before the Gabriel fight (`4 - Heart Chamber/4 Nonstuff/Intro
+  Hallway/Cube(Clone) (1)`, materials `Flesh3s` / `Flesh3sb`: VERTEX_DISPLACEMENT, RECALCULATENORMALS) and the heart
+  (`SM_Heart`) are the "moving walls" of the user's pose `3-2 moving walls` (bench/suites/user-1114-late.json): dynamic
+  proxies (not static-batched, `0.0 rigid updates/frame`: their transforms never change), so motion vectors are zero and
+  the traced walls and shadows sit where the walls rest while the game draws them displaced. Water and lava have the same
+  limit (docs/reflections.md, docs/lava.md). Fixing it needs the game's displacement formula (decompile the Master
+  VERTEX_DISPLACEMENT variant) applied by a compute pass to a per-renderer vertex buffer each frame, with a BLAS rebuild
+  (DynamicGeometry) and per-vertex motion like the skinned pose copies.
+
 ## Skinned meshes (enemies)
 
 Each enemy `SkinnedMeshRenderer` gets a proxy `SkinnedMeshRenderer`: a hidden child of the source that shares its mesh, `bones` and `rootBone`, with `rayTracingMode = DynamicGeometry`, `updateWhenOffscreen` and `forceRenderingOff` (unless `-ultrart-skinned-visible`). It enters and leaves the RTAS like any dynamic proxy.
