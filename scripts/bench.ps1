@@ -56,6 +56,7 @@ if ($Perf) { $NoScreenshots = $true; $NoBursts = $true }
 
 if ($Stop) {
     if (Get-Resident $GameDir) { Stop-Resident $GameDir; "Quit the resident game of $GameDir" } else { "No resident game in $GameDir" }
+    $restored = Restore-DisplayPrefs (Get-SlotDir 'main'); if ($restored) { "Restored the user's display settings ($restored)" }
     return
 }
 
@@ -187,6 +188,9 @@ if ($KeepOpen -or $resident) {
     }
 }
 if (Test-Path $lockFile) { (Get-Item $lockFile).LastWriteTime = Get-Date }
+# Unity saved this game's window monitor/resolution into the registry the user's game reads: put the user's back.
+$restored = Restore-DisplayPrefs (Get-SlotDir 'main')
+if ($restored) { "Restored the user's display settings ($restored)" }
 if ($runs.Count -eq 1) { "Ran $($runs[0].Name) in $([int]$sw.Elapsed.TotalSeconds)s -> $($runs[0].Out)" }
 else {
     foreach ($r in $runs) { "Ran $($r.Name) -> $($r.Out)" }

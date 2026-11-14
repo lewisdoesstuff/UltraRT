@@ -344,6 +344,11 @@ switch ($Action) {
         if ($mine.Count -eq 0 -and @($others | Where-Object { $_.slot -eq 'main' }).Count -gt 0) { throw "Lock is held by $(@($others | Where-Object { $_.slot -eq 'main' })[0].owner), not $Owner" }
         Remove-MyTicket
         foreach ($m in $mine) { Stop-Resident $dirs[$m.Slot] }
+        # Only once no agent game is left running (Unity writes these prefs when a game quits).
+        if (@(Get-GameProcs | Where-Object { $_.Agent }).Count -eq 0) {
+            $restored = Restore-DisplayPrefs $GameDir
+            if ($restored) { "restored the user's display settings ($restored)" }
+        }
         if ($mine.Count -gt 0) { Start-Sleep -Milliseconds 300; $procs = Get-GameProcs }
         $restored = $true
         if ($NoRestore) { 'main build restore skipped' }

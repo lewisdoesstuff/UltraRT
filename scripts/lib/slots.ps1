@@ -117,3 +117,39 @@ function Get-QuickHash([string] $path) {
     $sha = [Security.Cryptography.SHA1]::Create()
     try { return [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($path))) } finally { $sha.Dispose() }
 }
+
+# ---------------------------------------------------------------- the user's display settings
+# Both installs share Unity's registry prefs (HKCU\Software\Hakita\ULTRAKILL), and Unity writes the window's monitor,
+# resolution and fullscreen mode there when a game quits. A bench game that ended up on another monitor (two games at
+# once) overwrote the user's 2560x1440 / monitor 0 on 2026-11-14. The user's values are kept in
+# <main>\BepInEx\ultrart\display-prefs.json (scripts\display-prefs.ps1 save) and put back after every agent game.
+$script:DisplayPrefsKey = 'HKCU:\Software\Hakita\ULTRAKILL'
+$script:DisplayPrefsPattern = '^(UnitySelectMonitor|Screenmanager (Resolution Width|Resolution Height|Fullscreen mode|Window Position X|Window Position Y|Resolution Use Native))_h\d+$'
+
+function Get-DisplayPrefsFile([string] $MainDir) { Join-Path $MainDir 'BepInEx\ultrart\display-prefs.json' }
+
+function Save-DisplayPrefs([string] $MainDir) {
+    $p = Get-ItemProperty $script:DisplayPrefsKey -ErrorAction SilentlyContinue
+    if (-not $p) { return $false }
+    $o = [ordered]@{}
+    foreach ($x in $p.PSObject.Properties) { if ($x.Name -match $script:DisplayPrefsPattern) { $o[$x.Name] = [int] $x.Value } }
+    Write-JsonFile (Get-DisplayPrefsFile $MainDir) $o
+    return $true
+}
+
+# Puts the saved user values back where they differ. Returns a short description of what changed ('' if nothing).
+function Restore-DisplayPrefs([string] $MainDir) {
+    $want = Read-JsonFile (Get-DisplayPrefsFile $MainDir)
+    if (-not $want) { return '' }
+    $cur = Get-ItemProperty $script:DisplayPrefsKey -ErrorAction SilentlyContinue
+    if (-not $cur) { return '' }
+    $changed = @()
+    foreach ($x in $want.PSObject.Properties) {
+        $now = $cur.($x.Name)
+        if ($null -ne $now -and [int] $now -ne [int] $x.Value) {
+            Set-ItemProperty $script:DisplayPrefsKey $x.Name ([int] $x.Value) -Type DWord
+            $changed += "$($x.Name -replace '_h\d+$','') $now -> $($x.Value)"
+        }
+    }
+    return ($changed -join '; ')
+}
