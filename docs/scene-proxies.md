@@ -13,12 +13,12 @@ ULTRAKILL hides and shows whole rooms and areas by deactivating GameObjects: roo
 - **Group**: an activation group, a partition of a combined mesh's slots. Each group has up to 4 parts (two-sided × sky wall, which need their own instance for culling and the instance mask). Each part is one proxy instance whose mesh contains only that part's slots, merged to **one submesh per material**, as before.
   - Whole group visible: the prebuilt "full" mesh, added with `Rtas.AddInstance`.
   - Nothing visible: `Rtas.RemoveInstance`. Its shader-table records disappear too.
-  - Partly visible: a mesh of just the visible slots, built on the CPU from a copy of the combined mesh taken at load (no GPU readback at runtime). It is cached, so re-entering a room in the same state reuses it. At most 4 are built per frame and the rest wait. Replaced meshes are destroyed 4 frames later.
+  - Partly visible: a mesh of just the visible slots, built on the CPU from a copy of the combined mesh taken at load (no GPU readback at runtime). The last two are cached, so re-entering a room in the same state, or a source that keeps switching on and off, reuses them. At most 4 are built per frame and the rest wait. Replaced meshes are destroyed 4 frames later.
 - **Flags mode** (fallback): if a combined mesh can't be read back, or with `-ultrart-nomerge`, it keeps its original layout with one group, and visibility is applied through submesh flags. Correct, but it costs one record per visible submesh.
 
 ## Detecting changes (per frame, in `SyncDynamic`)
 
-1. **Checkpoint clones**: each `CheckPoint.newRooms` list is compared by reference. A new clone is registered at once: its toggle targets, its checkpoints, and `AddHierarchy(root)`. That registers its static renderers as extra sources of known slots, and its dynamic renderers too, which previously waited up to 30 s for `Rescan`.
+1. **Checkpoint clones**: each `CheckPoint.newRooms` list is compared by reference. A new clone's toggle targets, checkpoints and static-batched renderers (extra sources of known slots) are registered at once. Its other renderers go to the proxy queue (see [New objects](#new-objects)).
 2. **Watchers**: `activeInHierarchy` is polled for every watcher, every frame (about 30 ns each, capped at 1500). A watcher is a source's deepest known *toggle point* below depth 2, or its depth-2 ancestor. When a watcher turns off, all its sources go invisible without being checked one by one; when it turns on, they are re-evaluated. Because a deeper watcher's `activeInHierarchy` includes every ancestor, toggles at or above the watcher are picked up in the same frame.
 3. **Slice poll**: 256 sources per frame are checked (`renderer.enabled`, `activeInHierarchy`, destroyed). This catches what the watchers can't: `renderer.enabled` toggles, toggles below the watcher, and destroyed walls. A full cycle takes `sources / 256` frames (about 6 frames for 1-1's 1,441 sources).
 4. Groups whose visible set changed are added, removed or rebuilt.
@@ -50,7 +50,7 @@ Correctness never depends on the level. Visibility is always tracked per slot. A
 
 - **A toggle below the watcher, or `renderer.enabled`**: the scene is correct after at most one slice cycle (`sources / 256` frames). Examples: a destroyed wall, or an object toggled by a script through a field not in the name list.
 - **A level with an unusual hierarchy**, such as rooms at depth 0 or very deep: level 0 still follows the real toggle points. The depth fallback just picks a different granularity.
-- **Room clones from something other than `CheckPoint`**: picked up by the 30 s `Rescan`, which now also registers static-batched renderers whose combined mesh is known. Until then, those slots show only if another source is visible.
+- **Room clones from something other than `CheckPoint`**: picked up by the instantiate hook (see [New objects](#new-objects)), or by the 120 s `Rescan`. Static-batched renderers whose combined mesh is known become extra sources. Until then, those slots show only if another source is visible.
 - **Combined meshes created at runtime** (Cyber Grind): unknown to the build, so they are ignored, as before.
 - **Memory**: the CPU copy of every combined mesh (vertices and indices) is kept for rebuilds, and logged as `CPU copy N MB`. 1-1's static geometry is about 90k tris, a few MB.
 - **A batch root that moves**: static proxies are parented to `staticBatchRootTransform` (or the scene root), not to the sources, as before.
@@ -71,12 +71,46 @@ The motion vectors of skinned hits were wrong too, because the hit shader's `Obj
 
 `-ultrart-skinned-noupdate` turns the update off, to reproduce the bug. The 600-frame scene-sync log line reports `skinned transform updates/frame`: up to about 17 per frame in the 0-2 run, at well under a microsecond each. Measured cost is within run-to-run noise: 0-2 run pt-dn GPU total 1.949 ms without the update against 1.971 and 1.987 ms with it, dispatch 1.262 against 1.277 and 1.289 ms. The short suite is unchanged.
 
+## New objects
+
+Everything found after the build goes through one path, `AddHierarchy` (`src/UltraRT/SceneProxies.cs`):
+
+- **Sources**: `Patches.InstantiatePatch` hooks every non-generic `Object.Instantiate` overload. A separate patch covers the generic `Instantiate<T>(T)`, which goes straight to native code; Mono shares one body for every reference type, so patching `Instantiate<Object>` covers them all. The game uses that overload at 86 call sites (gibs, fire pools, `BulkInstantiate`). Enemies waking up (`EnemyIdentifier.OnEnable`) and checkpoint clones are hooked as before. Spawns are collected only while an RT scene exists, at most 4,096 per frame, and handled oldest first within 0.5 ms per frame. If the list overflows, a rescan runs.
+- **Static-batched renderers** register at once, because they decide whether a slot is visible. **All other renderers** go to a queue, and their proxies are made within a per-frame budget: 0.75 ms, or 2 ms while more than 256 are waiting. 8-3's checkpoint re-clones whole areas: about 3,300 proxies, roughly 90 ms of work. Made in one frame, that was a 700 ms freeze (with `IsLightFixture`'s all-pairs light test, now a 4 m grid); the queue now spreads it over about 45 frames.
+- **Lights and sky spheres** are tracked here as well (`Lights`, `SkyRenderers`), from the build, spawned hierarchies and rescans. The plugin used to call `FindObjectsOfType<Light>` and `FindObjectsOfType<Renderer>` (for the sky) every second, about 7 ms each time in 8-3. Now the full light list (about 1,300 in 8-3, about 150 of them on) is re-checked at 4 Hz, and every frame only the lights that are on.
+- **`Rescan`** is a safety net for objects that appear any other way (`new GameObject`, `AddComponent`). It runs every 120 s instead of 30 s, and not right after the build. It uses `FindObjectsByType(..., FindObjectsSortMode.None)`, and the proxies we create are already marked known, so it no longer walks them. 8-3 still costs about 7 ms to find 27k mesh renderers, plus 2 ms to scan them.
+- **Copies of our proxies**: `Instantiate` copies a source's proxy child, hideFlags included, into the clone. `IsProxyClone` skips these copies by flag, name or shader, so they never become sources.
+
+## Performance in 8-3
+
+8-3's heavy parts are the game's own: the "8-3 b" area runs at about 10 ms per frame with RT off, and the checkpoint clone is a 145 ms game frame. What UltraRT added on top, before this change (RTX 5070 Ti, 1920x1080, trace scale 0.5, `bench/suites/perf-8-3.json`, the user's route replayed in real time):
+
+- a **700 ms freeze** at the checkpoint (registering the clone), plus 16 ms (enemies) and 24 ms (emissive) in the same frame;
+- a **7 ms frame every second** (the light and sky scan);
+- a **10 to 13 ms frame every 30 s** (the rescan);
+- **0.9 ms of plugin CPU per frame**: emissive owner transforms read every frame, alias rebuilds every 8 frames while moving, all dynamic instances checked in full every frame, a partial mesh rebuilt every time a source flickered.
+
+Measured with `scripts/bench.ps1 -Suite perf-8-3`, the base build and this one run back to back:
+
+| Scenario | Mode | Avg ms (before / after) | 1% low fps | Worst frame ms | Plugin CPU avg / worst ms |
+|---|---|---|---|---|---|
+| 8-3 route (75 s, real time) | off | 4.72 / 5.09 | 84 / 80 | 149 / 143 | - |
+| | hybrid | 7.39 / 7.28 | 44 / 60 | 903 / 159 | 0.91 / 754 -> 0.70 / 15 |
+| | relight | 7.21 / 6.51 | 45 / 70 | 887 / 179 | 0.88 / 741 -> 0.65 / 23 |
+| 8-3 b (static pose) | hybrid | 11.34 / 10.79 | 56 / 71 | 19.2 / 14.2 | 0.83 / 8.1 -> 0.61 / 0.9 |
+| 8-3 portals sweep | hybrid | 7.92 / 7.52 | 91 / 101 | 13.6 / 10.7 | 0.89 / 1.3 -> 0.75 / 1.1 |
+
+The remaining worst frame on the route is the game's own clone. RT off shows the same frame, at 143 to 149 ms. Run-to-run noise is about 5 % on averages; compare the RT-off rows. Where the rest of the RT cost goes: 0.7 ms of plugin CPU and about 0.5 ms of Unity's own main-thread work for our command buffer (RTAS build, ray dispatch), all of it main-thread bound. The GPU needs about 2 ms of the 7 ms frame.
+
 ## Logs
 
 - `Static activation groups: level L (...), G groups, I part instances, R records (budget B; by level a/b/c/d/e), W watchers (mode), T toggle targets, S sources, F tiny groups folded, ...`, followed by the 8 largest groups.
 - `Shader-table hit records (enabled submeshes): N (static x of y in i/j group instances, dynamic ...)`.
 - Every 600 frames, if anything happened: `Static activation (level L): instances and records in the RTAS; watcher flips, source flips, add/remove, partial builds (ms), cached partials, deferred, late sources`.
 - The first 12 partial builds individually: `Partial group mesh ...`.
+- `Room clone 'X': N behaviours scanned for toggle points in ms, +S late static sources and R renderers queued in ms`.
+- `Rescan: find ms (counts), scan ms: ...; dynamic proxies, cloned proxies skipped, lights tracked`.
+- The plugin's 600-frame line (`RT scene sync CPU avg ...`) also reports the proxy queue (`deferred proxies: made, ms, queue max`), hierarchies and instantiations seen, lights tracked and on, emissive costs (alias rebuilds, visibility, transforms) and the dynamic loops (dirty evaluations, active loop, dormant poll).
 
 ## Tunables (static fields; no command-line flags yet)
 

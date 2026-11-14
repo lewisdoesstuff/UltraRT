@@ -74,8 +74,9 @@ namespace UltraRT
         private readonly uint[] _lightMasks = new uint[MaxLights];
         private ComputeBuffer _lightMaskBuffer;
         private int _lightCount;
-        private Light[] _sceneLights = Array.Empty<Light>();
-        private float _nextLightScan;
+        private float _nextLightScan, _nextActiveLights;
+        private readonly List<Light> _activeLights = new List<Light>();
+        private SceneProxies _activeLightsOwner;
         private CommandBuffer _cmd;
         private Camera _camera;
         private CoroutineHost _host;
@@ -133,7 +134,12 @@ namespace UltraRT
                 else Logger.LogWarning($"GPU timer unavailable: {gpuError}");
             }
 
-            if (!_noHook) Patches.Apply(Info.Metadata.GUID);
+            if (!_noHook)
+            {
+                Patches.Apply(Info.Metadata.GUID);
+                Logger.LogInfo(Patches.GenericInstantiateHooked ? "Instantiate hooks installed (incl. generic Instantiate<T>)"
+                    : $"Instantiate hooks installed; generic Instantiate<T> not hooked ({Patches.GenericInstantiateError}), the periodic rescan covers it");
+            }
             _cmd = new CommandBuffer { name = "UltraRT" };
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
@@ -329,6 +335,10 @@ namespace UltraRT
                 Logger.LogInfo($"ResetScene: disposed in {sw.Elapsed.TotalMilliseconds:F1} ms");
             }
             _proxies = null;
+            Patches.CollectSpawns = false;
+            Patches.PendingSpawns.Clear();
+            _spawnCursor = 0;
+            _spawnSeen.Clear();
             _accumFrames = 0;
             _denoiser?.Reset();
             _denoiserDirect?.Reset();
@@ -364,6 +374,11 @@ namespace UltraRT
                 _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy);
                 _proxies.Build();
                 _emissive.Build(_proxies);
+                Patches.PendingSpawns.Clear();
+                _spawnCursor = 0;
+                _spawnSeen.Clear();
+                Patches.CollectSpawns = true;
+                _nextRescan = Time.realtimeSinceStartup + RescanInterval; // the build just scanned everything
                 Logger.LogInfo($"Scene RT setup took {sw.Elapsed.TotalMilliseconds:F0} ms");
                 LogLightingEnvironment();
             }
@@ -376,11 +391,23 @@ namespace UltraRT
 
         private void GatherLights()
         {
+            // Lights and sky spheres are tracked by SceneProxies (scene build, spawned hierarchies, rescans). Scanning the
+            // scene for them here (FindObjectsOfType<Light/Renderer> every second) cost several ms per call in 8-3.
             if (Time.realtimeSinceStartup >= _nextLightScan)
             {
                 _nextLightScan = Time.realtimeSinceStartup + 1f;
-                _sceneLights = FindObjectsOfType<Light>();
-                _skyMaterial = FindSkyMaterial();
+                _proxies.PruneLights();
+                _skyMaterial = FindSkyMaterial(_proxies.SkyRenderers);
+            }
+            // Most tracked lights are off (8-3: ~1,300 lights, ~100 on). Re-check the whole list at 4 Hz, and every frame
+            // only the lights that were on (a light switching on is seen within 0.25 s; it used to take up to 1 s).
+            if (Time.realtimeSinceStartup >= _nextActiveLights || _activeLightsOwner != _proxies)
+            {
+                _nextActiveLights = Time.realtimeSinceStartup + 0.25f;
+                _activeLightsOwner = _proxies;
+                _activeLights.Clear();
+                foreach (var l in _proxies.Lights)
+                    if (l != null && l.isActiveAndEnabled) _activeLights.Add(l);
             }
             // Layout must match PathTrace.raytrace: 4 x float4 per light (see the comment on _Lights there).
             UpdateFixtureLifts();
@@ -394,7 +421,7 @@ namespace UltraRT
                 if (_proxies != null) foreach (var line in _proxies.DescribeSkinnedNear(_camera.transform.position, 30f)) Logger.LogInfo($"skinned near camera: {line}");
             }
             _lightCount = 0;
-            foreach (var l in _sceneLights)
+            foreach (var l in _activeLights)
             {
                 if (_lightCount >= MaxLights) break;
                 if (l == null || !l.isActiveAndEnabled || l.intensity <= 0f) continue;
@@ -685,12 +712,13 @@ namespace UltraRT
         /// The sky the player actually sees: ULTRAKILL draws fake skies as panoramic sky spheres (e.g. LimboSkybox/SkySphere),
         /// often with RenderSettings.skybox left at an unused default. Prefer an active Skybox/Panoramic renderer.
         /// </summary>
-        private static Material FindSkyMaterial()
+        private static Material FindSkyMaterial(List<Renderer> candidates)
         {
-            foreach (var r in FindObjectsOfType<Renderer>())
+            foreach (var r in candidates)
             {
+                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
                 var m = r.sharedMaterial;
-                if (r.enabled && m != null && m.shader != null && m.shader.name == "Skybox/Panoramic" && m.mainTexture != null) return m;
+                if (m != null && m.shader != null && m.shader.name == "Skybox/Panoramic" && m.mainTexture != null) return m;
             }
             var s = RenderSettings.skybox;
             return s != null && s.shader != null && s.shader.name == "Skybox/Panoramic" && s.mainTexture != null ? s : null;
@@ -718,7 +746,7 @@ namespace UltraRT
         private void LogLightingEnvironment()
         {
             var sky = RenderSettings.skybox;
-            var rtSky = FindSkyMaterial();
+            var rtSky = _proxies != null ? FindSkyMaterial(_proxies.SkyRenderers) : null;
             Logger.LogInfo($"RT sky: {(rtSky != null ? $"{rtSky.name} tex {rtSky.mainTexture?.name} {rtSky.mainTexture?.dimension}" : "none (flat ambient colour)")}");
             Logger.LogInfo($"Lighting env: ambientMode={RenderSettings.ambientMode} ambient={RenderSettings.ambientLight} sky={(sky ? sky.shader.name : "none")} skyTex={(sky && sky.HasProperty("_MainTex") && sky.mainTexture ? sky.mainTexture.name : "-")} fog={RenderSettings.fog} fogColor={RenderSettings.fogColor}");
             foreach (var l in FindObjectsOfType<Light>().Where(l => l.type == LightType.Directional))
@@ -726,6 +754,34 @@ namespace UltraRT
         }
 
         private float _nextRescan;
+        private const float RescanInterval = 120f;
+        private readonly HashSet<GameObject> _spawnSeen = new HashSet<GameObject>();
+        private int _spawnCursor;
+        private const double SpawnBudgetMs = 0.5;
+
+        /// <summary>
+        /// Objects the game instantiated (Patches.InstantiatePatch): register their renderers and lights, oldest first, within
+        /// a small time budget per frame. Most are short-lived effects; destroyed ones cost nothing.
+        /// </summary>
+        private void RegisterSpawns()
+        {
+            long t0 = Perf.Now;
+            var list = Patches.PendingSpawns;
+            long budget = (long)(SpawnBudgetMs / Perf.TickMs);
+            while (_spawnCursor < list.Count && Perf.Now - t0 < budget)
+            {
+                var go = list[_spawnCursor++];
+                if (go == null || !_spawnSeen.Add(go)) continue;
+                _proxies.AddHierarchy(go);
+            }
+            if (_spawnCursor >= list.Count)
+            {
+                list.Clear();
+                _spawnCursor = 0;
+                _spawnSeen.Clear();
+            }
+            Perf.Add(Perf.Sec.Hierarchies, t0);
+        }
         private double _cpuMs;
         private int _cpuFrames;
         private bool _spawnTest;
@@ -745,22 +801,45 @@ namespace UltraRT
             int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * (pt ? _scale : 1f)));
             EnsureTargets(w, h);
 
+            long traceStart = Perf.Now;
             var cpu = Stopwatch.StartNew();
             if (Patches.PendingHierarchies.Count > 0)
             {
+                long th = Perf.Now;
                 foreach (var go in Patches.PendingHierarchies) _proxies.AddHierarchy(go);
                 Patches.PendingHierarchies.Clear();
+                Perf.Add(Perf.Sec.Hierarchies, th);
+            }
+            if (Patches.PendingSpawns.Count > 0) RegisterSpawns();
+            if (_proxies.DeferredCount > 0)
+            {
+                long tq = Perf.Now;
+                // Proxies for renderers found after the build. A checkpoint clones whole areas (8-3: ~3,000 renderers),
+                // which made one 700 ms frame; a larger queue gets a larger share so it still drains within seconds.
+                _proxies.ProcessDeferred(_proxies.DeferredCount > 256 ? 2.0 : 0.75);
+                Perf.Add(Perf.Sec.Hierarchies, tq);
+            }
+            if (Patches.SpawnsOverflowed)
+            {
+                Patches.SpawnsOverflowed = false;
+                _nextRescan = Mathf.Min(_nextRescan, Time.realtimeSinceStartup); // lost some: let the rescan find them
             }
             if (Time.realtimeSinceStartup >= _nextRescan)
             {
                 // Safety net for renderers that don't come through a hook (e.g. Cyber Grind's runtime combined mesh).
-                _nextRescan = Time.realtimeSinceStartup + 30f;
+                // Spawns come through Patches.InstantiatePatch now, so this is rare: the scene-wide find alone costs
+                // ~7 ms in 8-3 (27k mesh renderers).
+                _nextRescan = Time.realtimeSinceStartup + RescanInterval;
+                long tr = Perf.Now;
                 var sw = Stopwatch.StartNew();
                 _proxies.Rescan();
+                Perf.Add(Perf.Sec.Rescan, tr);
                 Logger.LogInfo($"Rescan took {sw.Elapsed.TotalMilliseconds:F2} ms");
             }
             _proxies.SyncDynamic();
+            long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);
+            Perf.Add(Perf.Sec.Emissive, te);
             _cpuMs += cpu.Elapsed.TotalMilliseconds;
             _cpuFrames++;
             if (_cpuFrames >= 600)
@@ -768,7 +847,16 @@ namespace UltraRT
                 var mv = _proxies.Motion;
                 Logger.LogInfo($"RT scene sync CPU avg {_cpuMs / _cpuFrames:F3} ms/frame; motion vectors {(MotionVectors.Enabled ? "on" : "off")}: " +
                                $"{mv.SlotCount} slots, {mv.CopiesLastFrame} skinned pose copies/frame, {mv.SkinVertices} pose vertices, " +
-                               $"{(double)mv.RigidUpdates / _cpuFrames:F1} rigid updates/frame, {(double)_proxies.SkinnedTransformUpdateCount / _cpuFrames:F1} skinned transform updates/frame, motion CPU {mv.Ticks * 1000.0 / Stopwatch.Frequency / _cpuFrames:F3} ms/frame");
+                               $"{(double)mv.RigidUpdates / _cpuFrames:F1} rigid updates/frame, {(double)_proxies.SkinnedTransformUpdateCount / _cpuFrames:F1} skinned transform updates/frame, motion CPU {mv.Ticks * 1000.0 / Stopwatch.Frequency / _cpuFrames:F3} ms/frame; " +
+                               $"deferred proxies: {_proxies.DeferredMade} made in {_proxies.DeferredMs:F1} ms (queue max {_proxies.DeferredMaxQueue}, now {_proxies.DeferredCount}), " +
+                               $"{_proxies.HierarchiesAdded} hierarchies ({Patches.SpawnCount} instantiated), {_proxies.Lights.Count} lights tracked ({_activeLights.Count} on); " +
+                               $"emissive: {_emissive.AliasBuilds} alias rebuilds ({_emissive.AliasTicks * 1000.0 / Stopwatch.Frequency:F1} ms), {_emissive.ActiveUpdates} active-set updates, " +
+                               $"new {_emissive.PendingTicks * 1000.0 / Stopwatch.Frequency:F1} ms, visibility {_emissive.VisibilityTicks * 1000.0 / Stopwatch.Frequency:F1} ms, transforms {_emissive.TransformTicks * 1000.0 / Stopwatch.Frequency:F1} ms; " +
+                               $"{_emissive.EmitterCount} emitters, {_emissive.OwnerCount} owners; dynamic: {_proxies.DirtyEvaluations} dirty evaluations " +
+                               $"({_proxies.DirtyTicks * Perf.TickMs:F1} ms), active loop {_proxies.ActiveTicks * Perf.TickMs:F1} ms over {_proxies.ActiveDynamicCount}, poll {_proxies.PollTicks * Perf.TickMs:F1} ms");
+                _proxies.DirtyEvaluations = 0; _proxies.DirtyTicks = _proxies.ActiveTicks = _proxies.PollTicks = 0;
+                _emissive.AliasBuilds = 0; _emissive.AliasTicks = 0; _emissive.ActiveUpdates = 0; _emissive.PendingTicks = _emissive.VisibilityTicks = _emissive.TransformTicks = 0;
+                _proxies.DeferredMade = 0; _proxies.DeferredMs = 0; _proxies.DeferredMaxQueue = 0; _proxies.HierarchiesAdded = 0; Patches.SpawnCount = 0;
                 mv.Ticks = 0; mv.RigidUpdates = 0; _proxies.SkinnedTransformUpdateCount = 0;
                 _cpuMs = 0; _cpuFrames = 0;
             }
@@ -803,13 +891,17 @@ namespace UltraRT
 
             if (pt)
             {
+                long tl = Perf.Now;
                 GatherLights();
+                Perf.Add(Perf.Sec.Lights, tl);
                 var ambient = RenderSettings.ambientLight;
 
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
+                long tls = Perf.Now;
                 _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged);
+                Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSamplingSettings.mode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
                 _cmd.SetRayTracingIntParam(shader, "_AccumFrames", (int)_accumFrames);
@@ -944,6 +1036,7 @@ namespace UltraRT
             }
 
             _frameIndex++;
+            Perf.Add(Perf.Sec.Trace, traceStart);
             if (pt && _accumulate) _accumFrames++;
             if (_tracedFrames++ == 0) Logger.LogInfo($"First trace OK: {w}x{h}, instances={_proxies.Rtas.GetInstanceCount()}, lights={_lightCount}, cache={(_radianceCache?.Active == true ? $"{_cacheSettings.mode} {_radianceCache.Capacity} slots {_radianceCache.GpuBytes >> 20} MB" : "off")}");
         }

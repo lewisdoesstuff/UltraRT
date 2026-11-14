@@ -145,6 +145,10 @@ namespace UltraRT
         }
 
         public RayTracingAccelerationStructure Rtas { get; private set; }
+        public int ActiveDynamicCount => _active.Count;
+        /// <summary>Diagnostics for the periodic log: dirty evaluations, and ticks in the dirty / active / dormant-poll parts of SyncDynamic.</summary>
+        public int DirtyEvaluations;
+        public long DirtyTicks, ActiveTicks, PollTicks;
         public int SkinnedCount { get; private set; }
         public MotionVectors Motion { get; }
 
@@ -191,6 +195,7 @@ namespace UltraRT
             var stats = new ScanStats();
             // Include inactive objects: ULTRAKILL keeps most enemies and room contents disabled until triggered.
             ScanRenderers(batches, stats);
+            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None)) AddLight(l);
             // Debug (-ultrart-dumpverts): the largest renderers (sky boxes/domes show up here).
             if (DumpAtlasVertices) foreach (var r in Object.FindObjectsOfType<Renderer>(true).Where(r => r is MeshRenderer || r is SkinnedMeshRenderer)
                          .OrderByDescending(r => r.bounds.size.magnitude).Take(8))
@@ -287,9 +292,18 @@ namespace UltraRT
         public int Rescan()
         {
             var stats = new ScanStats();
-            ScanRenderers(null, stats);
-            int added = stats.Dynamic + stats.Skinned + stats.LateStatic;
-            if (added > 0) _log.LogInfo($"Rescan: +{stats.Dynamic} dynamic, +{stats.Skinned} skinned, +{stats.LateStatic} static-batched (late sources)");
+            long t0 = Perf.Now;
+            // ByType without sorting: FindObjectsOfType sorts by instance id, which we don't need.
+            var meshes = Object.FindObjectsByType<MeshRenderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var skinned = Object.FindObjectsByType<SkinnedMeshRenderer>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var lights = Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            long t1 = Perf.Now;
+            ScanRenderers(null, stats, meshes, skinned, defer: true);
+            foreach (var l in lights) AddLight(l);
+            int added = _deferred.Count + stats.LateStatic;
+            _log.LogInfo($"Rescan: find {(t1 - t0) * Perf.TickMs:F2} ms ({meshes.Length} mesh, {skinned.Length} skinned renderers, {lights.Length} lights), " +
+                         $"scan {(Perf.Now - t1) * Perf.TickMs:F2} ms: +{stats.LateStatic} static-batched (late sources), {_deferred.Count} queued for proxies; " +
+                         $"{_dynamic.Count} dynamic proxies, {_proxyClones} cloned proxies skipped, {Lights.Count} lights tracked");
             return added;
         }
 
@@ -298,62 +312,166 @@ namespace UltraRT
         {
             if (root == null) return;
             var stats = new ScanStats();
-            ScanRenderers(null, stats, root.GetComponentsInChildren<MeshRenderer>(true), root.GetComponentsInChildren<SkinnedMeshRenderer>(true));
+            int before = _deferred.Count;
+            ScanRenderers(null, stats, root.GetComponentsInChildren<MeshRenderer>(true), root.GetComponentsInChildren<SkinnedMeshRenderer>(true), defer: true);
+            root.GetComponentsInChildren(true, _lightScratch);
+            foreach (var l in _lightScratch) AddLight(l);
+            _lightScratch.Clear();
+            HierarchiesAdded++;
+            ProxiesFromHierarchies += _deferred.Count - before;
         }
+
+        public int HierarchiesAdded, ProxiesFromHierarchies;
+
+        // ---------------------------------------------------------------- lights and sky (tracked, so the plugin never scans the scene per frame)
+
+        /// <summary>Every Light of the scene seen so far (active or not); destroyed ones are pruned by <see cref="PruneLights"/>.</summary>
+        public readonly List<Light> Lights = new List<Light>();
+        private readonly HashSet<Light> _lightSet = new HashSet<Light>();
+        private readonly List<Light> _lightScratch = new List<Light>();
+
+        /// <summary>Renderers whose material is a panoramic sky (ULTRAKILL's fake sky spheres); the plugin picks the visible one.</summary>
+        public readonly List<Renderer> SkyRenderers = new List<Renderer>();
+
+        private void AddLight(Light l)
+        {
+            if (l != null && _lightSet.Add(l)) Lights.Add(l);
+        }
+
+        public void PruneLights()
+        {
+            for (int i = Lights.Count - 1; i >= 0; i--)
+                if (Lights[i] == null) { _lightSet.Remove(Lights[i]); Lights.RemoveAt(i); }
+            _lightSet.RemoveWhere(l => l == null);
+        }
+
+        private void NoteSky(Renderer r)
+        {
+            var m = r.sharedMaterial;
+            if (m != null && m.shader != null && m.shader.name == "Skybox/Panoramic" && !SkyRenderers.Contains(r)) SkyRenderers.Add(r);
+        }
+
+        /// <summary>
+        /// Copies of our proxies: Instantiate clones a source's hierarchy with its proxy child (checkpoint rooms, spawned
+        /// props). The clone's proxy is an orphan (its tracker has no owner); never treat it as a source.
+        /// </summary>
+        private bool IsProxyClone(Renderer r)
+        {
+            if (IsProxyObject(r.gameObject)) return true;
+            var m = r.sharedMaterial;
+            if ((m != null && m.shader == _proxyShader) || r.name.EndsWith("[UltraRT]", StringComparison.Ordinal)) { _proxyClones++; return true; }
+            return false;
+        }
+
+        private int _proxyClones;
 
         private sealed class ScanStats { public int Batched, Dynamic, Skinned, LateStatic, SkippedLayer, SkippedMaterial, SkippedMesh, SkippedBackdrop; }
 
         private readonly HashSet<Renderer> _known = new HashSet<Renderer>();
 
         private void ScanRenderers(Dictionary<Mesh, List<MeshRenderer>> batches, ScanStats stats,
-            MeshRenderer[] meshRenderers = null, SkinnedMeshRenderer[] skinnedRenderers = null)
+            MeshRenderer[] meshRenderers = null, SkinnedMeshRenderer[] skinnedRenderers = null, bool defer = false)
         {
             foreach (var r in meshRenderers ?? Object.FindObjectsOfType<MeshRenderer>(true))
             {
                 if (!_known.Add(r)) continue;
-                if (IsProxyObject(r.gameObject)) continue; // our own proxies
-                if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; continue; }
-                if (IsBackdrop(r)) { stats.SkippedBackdrop++; continue; }
-                var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
-                if (mesh == null) { stats.SkippedMesh++; continue; }
-                if (!r.sharedMaterials.Any(Traceable)) { stats.SkippedMaterial++; continue; }
-
-                if (r.isPartOfStaticBatch)
-                {
-                    // Merged batches can't carry the fixture mask, but the light can still be lifted out (Plugin.cs).
-                    IsLightFixture(r);
-                    if (batches == null)
-                    {
-                        // Combined meshes only exist at load, but their renderers get cloned (CheckPoint rooms).
-                        if (AddLateStaticSource(r, mesh)) stats.LateStatic++;
-                        continue;
-                    }
-                    if (!batches.TryGetValue(mesh, out var list)) batches[mesh] = list = new List<MeshRenderer>();
-                    list.Add(r);
-                    stats.Batched++;
-                }
-                else
-                {
-                    var mats = r.sharedMaterials;
-                    var proxy = CreateMeshProxy($"{r.name} [UltraRT]", r.transform, mesh, mats.Select(ProxyOrDisabled).ToArray());
-                    AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount));
-                    stats.Dynamic++;
-                }
+                // After the build, only static-batched renderers are registered at once (they decide whether a slot of
+                // the combined mesh is visible); proxies for the rest are made a few per frame (ProcessDeferred).
+                if (defer && !r.isPartOfStaticBatch) { _deferred.Enqueue(r); continue; }
+                ProcessMeshRenderer(r, batches, stats);
             }
 
             foreach (var r in skinnedRenderers ?? Object.FindObjectsOfType<SkinnedMeshRenderer>(true))
             {
                 if (!_known.Add(r)) continue;
-                if (IsProxyObject(r.gameObject)) continue;
-                if (r.sharedMesh == null) { stats.SkippedMesh++; continue; }
-                if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; continue; }
-                if (IsBackdrop(r)) { stats.SkippedBackdrop++; continue; }
-                if (!r.sharedMaterials.Any(Traceable)) { stats.SkippedMaterial++; continue; }
-                var proxy = CreateSkinnedProxy(r);
-                AddDynamic(r, proxy, SubmeshFlags(r.sharedMaterials, r.sharedMesh.subMeshCount));
-                stats.Skinned++;
+                if (defer) { _deferred.Enqueue(r); continue; }
+                ProcessSkinnedRenderer(r, stats);
             }
             SkinnedCount += stats.Skinned;
+        }
+
+        private void ProcessMeshRenderer(MeshRenderer r, Dictionary<Mesh, List<MeshRenderer>> batches, ScanStats stats)
+        {
+            if (IsProxyClone(r)) return; // our own proxies (and copies of them)
+            NoteSky(r);
+            if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; return; }
+            if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
+            var mf = r.GetComponent<MeshFilter>();
+            var mesh = mf != null ? mf.sharedMesh : null;
+            if (mesh == null) { stats.SkippedMesh++; return; }
+            var mats = r.sharedMaterials;
+            if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
+
+            if (r.isPartOfStaticBatch)
+            {
+                // Merged batches can't carry the fixture mask, but the light can still be lifted out (Plugin.cs).
+                IsLightFixture(r);
+                if (batches == null)
+                {
+                    // Combined meshes only exist at load, but their renderers get cloned (CheckPoint rooms).
+                    if (AddLateStaticSource(r, mesh)) stats.LateStatic++;
+                    return;
+                }
+                if (!batches.TryGetValue(mesh, out var list)) batches[mesh] = list = new List<MeshRenderer>();
+                list.Add(r);
+                stats.Batched++;
+            }
+            else
+            {
+                var proxyMats = new Material[mats.Length];
+                for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
+                var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
+                AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats);
+                stats.Dynamic++;
+            }
+        }
+
+        private void ProcessSkinnedRenderer(SkinnedMeshRenderer r, ScanStats stats)
+        {
+            if (IsProxyClone(r)) return;
+            if (r.sharedMesh == null) { stats.SkippedMesh++; return; }
+            if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; return; }
+            if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
+            var mats = r.sharedMaterials;
+            if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
+            var proxy = CreateSkinnedProxy(r, mats);
+            AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats);
+            stats.Skinned++;
+        }
+
+        private static bool AnyTraceable(Material[] mats)
+        {
+            foreach (var m in mats) if (Traceable(m)) return true;
+            return false;
+        }
+
+        /// <summary>Renderers found after the build (spawns, room clones, rescans) waiting for their proxy.</summary>
+        private readonly Queue<Renderer> _deferred = new Queue<Renderer>();
+        public int DeferredCount => _deferred.Count;
+        public int DeferredMade, DeferredMaxQueue;
+        public double DeferredMs;
+
+        /// <summary>Make proxies for queued renderers until <paramref name="budgetMs"/> is spent. Returns how many were taken.</summary>
+        public int ProcessDeferred(double budgetMs)
+        {
+            if (_deferred.Count == 0) return 0;
+            DeferredMaxQueue = Math.Max(DeferredMaxQueue, _deferred.Count);
+            long t0 = Perf.Now;
+            long budget = (long)(budgetMs / Perf.TickMs);
+            var stats = new ScanStats();
+            int n = 0;
+            while (_deferred.Count > 0 && Perf.Now - t0 < budget)
+            {
+                var r = _deferred.Dequeue();
+                n++;
+                if (r == null) continue; // destroyed while waiting
+                if (r is SkinnedMeshRenderer smr) ProcessSkinnedRenderer(smr, stats);
+                else if (r is MeshRenderer mr) ProcessMeshRenderer(mr, null, stats);
+            }
+            SkinnedCount += stats.Skinned;
+            DeferredMade += stats.Dynamic + stats.Skinned;
+            DeferredMs += (Perf.Now - t0) * Perf.TickMs;
+            return n;
         }
 
         private static RayTracingSubMeshFlags[] SubmeshFlags(Material[] mats, int subMeshCount)
@@ -367,7 +485,7 @@ namespace UltraRT
             return flags;
         }
 
-        private void AddDynamic(Renderer source, Renderer proxy, RayTracingSubMeshFlags[] flags)
+        private void AddDynamic(Renderer source, Renderer proxy, RayTracingSubMeshFlags[] flags, Material[] mats)
         {
             var ss = source as SkinnedMeshRenderer;
             int slot = Motion.AllocSlot();
@@ -385,8 +503,8 @@ namespace UltraRT
                 Slot = slot,
                 Root = ss != null ? (ss.rootBone != null ? ss.rootBone : ss.transform) : null,
                 SkinVerts = ss != null && ss.sharedMesh != null ? ss.sharedMesh.vertexCount : 0,
-                TwoSided = source.sharedMaterials.Any(m => Traceable(m) && SourceTwoSided(m)),
-                Mask = source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask,
+                TwoSided = mats.Any(m => Traceable(m) && SourceTwoSided(m)),
+                Mask = mats.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask,
             };
             _dynamic.Add(entry);
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
@@ -433,10 +551,11 @@ namespace UltraRT
             mr.shadowCastingMode = ShadowCastingMode.Off;
             mr.receiveShadows = false;
             mr.forceRenderingOff = true; // never rasterised; still eligible for the RTAS
+            _known.Add(mr); // so rescans skip our own proxies without looking at them
             return mr;
         }
 
-        private SkinnedMeshRenderer CreateSkinnedProxy(SkinnedMeshRenderer src)
+        private SkinnedMeshRenderer CreateSkinnedProxy(SkinnedMeshRenderer src, Material[] mats)
         {
             var go = NewProxyObject($"{src.name} [UltraRT]", src.transform);
             var p = go.AddComponent<SkinnedMeshRenderer>();
@@ -445,7 +564,7 @@ namespace UltraRT
             p.rootBone = src.rootBone;
             p.localBounds = src.localBounds;
             p.updateWhenOffscreen = true;
-            p.sharedMaterials = src.sharedMaterials.Select(ProxyOrDisabled).ToArray();
+            p.sharedMaterials = mats.Select(ProxyOrDisabled).ToArray();
             p.shadowCastingMode = ShadowCastingMode.Off;
             p.receiveShadows = false;
             p.rayTracingMode = RayTracingMode.DynamicGeometry;
@@ -453,6 +572,7 @@ namespace UltraRT
             p.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
             // If Unity stops skinning never-rendered renderers, the NoDraw pass keeps them "visible" at the cost of an empty draw.
             p.forceRenderingOff = !SkinnedProxiesVisible;
+            _known.Add(p);
             return p;
         }
 
@@ -473,21 +593,30 @@ namespace UltraRT
         /// </summary>
         public void SyncDynamic(bool force = false)
         {
+            long ts = Perf.Now;
             SyncStatic(force);
+            Perf.Add(Perf.Sec.Static, ts);
+            long td = Perf.Now;
 
             // 1) Hierarchy (de)activations arrive as events via ProxyTracker.
             if (force) foreach (var d in _dynamic) _dirty.Add(d);
             if (_dirty.Count > 0)
             {
+                DirtyEvaluations += _dirty.Count;
                 foreach (var d in _dirty) Evaluate(d);
                 _dirty.Clear();
             }
+            long tActive = Perf.Now;
+            DirtyTicks += tActive - td;
 
             // 2) Per frame, only for instances currently in the RTAS: renderer.enabled toggles, transforms, blend shapes.
+            // renderer.enabled is checked for a quarter of the instances per frame (a disabled renderer leaves the RTAS
+            // within 4 frames); destruction and transforms every frame.
+            _enabledPhase = (_enabledPhase + 1) & 3;
             for (int k = _active.Count - 1; k >= 0; k--)
             {
                 var d = _active[k];
-                if (d.Source == null || d.Proxy == null || !d.Source.enabled) { Evaluate(d); continue; }
+                if (d.Source == null || ((k & 3) == _enabledPhase && (d.Proxy == null || !d.Source.enabled))) { Evaluate(d); continue; }
                 if (d.SkinnedProxy != null)
                 {
                     // DynamicGeometry: Build() re-reads the skinned vertices (in root-bone space) every frame, but not the
@@ -526,6 +655,8 @@ namespace UltraRT
                 }
             }
 
+            long tPoll = Perf.Now;
+            ActiveTicks += tPoll - tActive;
             // 3) Renderers that were disabled (but whose GameObject stayed active) can come back without an event.
             //    Check a slice of the dormant set each frame.
             int n = _dynamic.Count;
@@ -539,10 +670,14 @@ namespace UltraRT
                 }
             }
 
+            PollTicks += Perf.Now - tPoll;
+            Perf.Add(Perf.Sec.Dynamic, td);
+            long tm = Perf.Now;
             Motion.Upload(); // motion slots changed above, before this frame's trace
+            Perf.Add(Perf.Sec.Motion, tm);
         }
 
-        private int _pollCursor;
+        private int _pollCursor, _enabledPhase;
 
         /// <summary>Skinned instance transform updates since the last reset (Plugin's 600-frame scene-sync log).</summary>
         public int SkinnedTransformUpdateCount;
@@ -594,6 +729,13 @@ namespace UltraRT
         public void RecordMotionCopies(CommandBuffer cmd)
         {
             if (!Motion.CanCopySkin) return;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            try { RecordMotionCopiesCore(cmd); }
+            finally { Perf.Add(Perf.Sec.Motion, t0); }
+        }
+
+        private void RecordMotionCopiesCore(CommandBuffer cmd)
+        {
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             foreach (var d in _active)
             {
@@ -694,14 +836,21 @@ namespace UltraRT
         /// </summary>
         private bool IsLightFixture(Renderer r)
         {
-            if (_pointLights == null)
-                _pointLights = Object.FindObjectsOfType<Light>(true).Where(l => l.type == LightType.Point || l.type == LightType.Spot).ToArray();
+            if (_pointLights == null) BuildLightGrid();
             var rb = r.bounds;
             if (rb.size.magnitude > 4f) return false;
             var b = rb;
             b.Expand(0.2f);
             var encloses = false;
-            foreach (var l in _pointLights)
+            // Candidate lights from the grid cells the (expanded) bounds and the support gap above them touch.
+            _lightCandidates.Clear();
+            var lo = Cell(b.min);
+            var hi = Cell(new Vector3(b.max.x, Mathf.Max(b.max.y, rb.max.y + FixtureSupportGap), b.max.z));
+            for (int x = lo.x; x <= hi.x; x++)
+            for (int y = lo.y; y <= hi.y; y++)
+            for (int z = lo.z; z <= hi.z; z++)
+                if (_lightGrid.TryGetValue(new Vector3Int(x, y, z), out var cell)) _lightCandidates.AddRange(cell);
+            foreach (var l in _lightCandidates)
             {
                 if (l == null) continue;
                 var p = l.transform.position;
@@ -723,6 +872,25 @@ namespace UltraRT
 
         private const float FixtureSupportGap = 0.5f;
         private Light[] _pointLights;
+
+        // Point/spot lights by position (4 m cells), so classifying a renderer looks at nearby lights only: with thousands
+        // of lights and renderers (8-3) the all-pairs test took most of a room clone's registration time.
+        private const float LightCell = 4f;
+        private readonly Dictionary<Vector3Int, List<Light>> _lightGrid = new Dictionary<Vector3Int, List<Light>>();
+        private readonly List<Light> _lightCandidates = new List<Light>();
+        private static Vector3Int Cell(Vector3 p) => new Vector3Int(Mathf.FloorToInt(p.x / LightCell), Mathf.FloorToInt(p.y / LightCell), Mathf.FloorToInt(p.z / LightCell));
+
+        private void BuildLightGrid()
+        {
+            _pointLights = Object.FindObjectsOfType<Light>(true).Where(l => l.type == LightType.Point || l.type == LightType.Spot).ToArray();
+            _lightGrid.Clear();
+            foreach (var l in _pointLights)
+            {
+                var c = Cell(l.transform.position);
+                if (!_lightGrid.TryGetValue(c, out var list)) _lightGrid[c] = list = new List<Light>(2);
+                list.Add(l);
+            }
+        }
 
         /// <summary>World bounds of the fixture(s) each light sits in (union when several renderers enclose it).</summary>
         public readonly Dictionary<Light, Bounds> FixtureBounds = new Dictionary<Light, Bounds>();
@@ -899,6 +1067,7 @@ namespace UltraRT
             _dynamic.Clear();
             _active.Clear();
             _dirty.Clear();
+            _deferred.Clear();
             DisposeStatic();
             foreach (var m in _materialCache.Values) if (m != null) Object.Destroy(m);
             _materialCache.Clear();

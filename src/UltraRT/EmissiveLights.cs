@@ -64,6 +64,8 @@ namespace UltraRT
 
         /// <summary>Triangles in the list / in the RTAS this frame (alias table entries).</summary>
         public int TriangleCount => _triCount;
+        public int EmitterCount => _emitters.Count;
+        public int OwnerCount => _owners.Count;
         public int ActiveCount { get; private set; }
         /// <summary>True on frames where the set of active emitters changed (pass to LightSampling to shorten history).</summary>
         public bool SetChanged { get; private set; }
@@ -88,6 +90,8 @@ namespace UltraRT
             public bool World;
             public Matrix4x4 Matrix;
             public float AreaScale = 1f;
+            /// <summary>Space is one of our proxy transforms, so its hasChanged flag is ours to consume.</summary>
+            public bool OwnTransform;
         }
 
         private readonly List<Emitter> _emitters = new List<Emitter>();
@@ -202,6 +206,7 @@ namespace UltraRT
         {
             SetChanged = false;
             if (proxies == null || !Settings.enabled) return;
+            long tStart = System.Diagnostics.Stopwatch.GetTimestamp();
             if (!_built) { Build(proxies); SetChanged = true; } // enabled after the scene build
 
             // New dynamic proxies (rescans, spawned hierarchies). Readbacks stall the GPU, so only a few per frame.
@@ -209,6 +214,8 @@ namespace UltraRT
             if (proxies.DynamicProxyCount > _dynamicCursor) _dynamicCursor = proxies.CollectDynamicSubmeshes(IsEmissive, _dynamicCursor, _pending);
             if (_pending.Count > 0) ProcessPending();
 
+            long tVis = System.Diagnostics.Stopwatch.GetTimestamp();
+            PendingTicks += tVis - tStart;
             // Visibility.
             for (int i = 0; i < _emitters.Count; i++)
             {
@@ -227,11 +234,23 @@ namespace UltraRT
             }
             if (_deadTris > 4096 && _deadTris * 2 > _triCount) Compact();
 
+            long tXf = System.Diagnostics.Stopwatch.GetTimestamp();
+            VisibilityTicks += tXf - tVis;
             // Transforms.
+            // Reading localToWorldMatrix of every owner each frame cost ~0.1 ms in 8-3. Proxy transforms report changes
+            // through hasChanged (set when the source or any ancestor moves); other spaces (static batch roots, which
+            // don't move in practice) are re-read in turn, 1/16 per frame.
+            _ownerPhase = (_ownerPhase + 1) & 15;
             for (int o = 0; o < _owners.Count; o++)
             {
                 var ow = _owners[o];
                 if (ow.World || ow.Space == null) continue;
+                if (ow.OwnTransform)
+                {
+                    if (!ow.Space.hasChanged) continue;
+                    ow.Space.hasChanged = false;
+                }
+                else if ((o & 15) != _ownerPhase) continue;
                 var m = ow.Space.localToWorldMatrix;
                 if (m == ow.Matrix) continue;
                 ow.Matrix = m;
@@ -240,6 +259,7 @@ namespace UltraRT
                 _ownersDirty = true;
             }
 
+            TransformTicks += System.Diagnostics.Stopwatch.GetTimestamp() - tXf;
             UploadTriangles();
             if (_ownersDirty)
             {
@@ -248,21 +268,40 @@ namespace UltraRT
                 _ownersDirty = false;
             }
 
+            // The alias table is rebuilt over every active triangle (20k+ in 8-3, ~1 ms). While moving, at most every
+            // AliasInterval seconds; after visibility changes, at most every 4 frames (new emitters wait that long).
+            float now = Time.realtimeSinceStartup;
             bool moved = Settings.importance && (camPos - _aliasCam).sqrMagnitude > Settings.rebuildDistance * Settings.rebuildDistance
-                         && Time.frameCount - _aliasFrame >= 8;
+                         && now - _aliasTime >= AliasInterval;
             if (_activeDirty)
             {
                 SetChanged = true;
+                ActiveUpdates++;
                 UpdateActive();
+                _aliasPending = true;
             }
-            if (_activeDirty || moved)
+            if ((_aliasPending && Time.frameCount - _aliasFrame >= 4) || moved)
             {
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 BuildAlias(camPos);
+                AliasBuilds++;
+                AliasTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
                 _aliasCam = camPos;
                 _aliasFrame = Time.frameCount;
+                _aliasTime = now;
+                _aliasPending = false;
             }
             _activeDirty = false;
         }
+
+        private const float AliasInterval = 0.1f;
+        private int _ownerPhase;
+        private float _aliasTime;
+        private bool _aliasPending;
+        /// <summary>Alias table rebuilds and their CPU ticks, read and reset by the plugin's periodic log.</summary>
+        public int AliasBuilds, ActiveUpdates;
+        public long PendingTicks, VisibilityTicks, TransformTicks;
+        public long AliasTicks;
 
         /// <summary>Bind everything UltraRTLights.hlsl declares for emitters. Call on every PathTrace dispatch, after LightSampling.Bind.</summary>
         public void Bind(CommandBuffer cmd, RayTracingShader shader, LightSamplingMode mode)
@@ -369,7 +408,7 @@ namespace UltraRT
             var key = s.Owner ?? s;
             if (_ownerByKey.TryGetValue(key, out int o)) return o;
             if (_owners.Count >= MaxOwners) return -1;
-            var ow = new OwnerEntry { Space = s.Space, World = s.Space == null };
+            var ow = new OwnerEntry { Space = s.Space, World = s.Space == null, OwnTransform = s.Space != null && SceneProxies.IsProxyObject(s.Space.gameObject) };
             ow.Matrix = ow.World ? Matrix4x4.identity : s.Space.localToWorldMatrix;
             ow.AreaScale = AreaScale(ow.Matrix);
             o = _owners.Count;
@@ -522,16 +561,30 @@ namespace UltraRT
             var basis = _threshold; // scratch: lum * area
             double sumW = 0, sumB = 0;
             float r2 = Mathf.Max(0.01f, Settings.importanceRadius * Settings.importanceRadius);
+            bool importance = Settings.importance;
+            int lastEmitter = -1;
+            OwnerEntry ow = null;
+            Matrix4x4 m = Matrix4x4.identity;
             for (int t = 0; t < _triCount; t++)
             {
                 if ((_activeBits[t >> 5] & (1u << (t & 31))) == 0) continue;
-                var ow = _owners[_emitters[_triEmitter[t]].Owner];
+                int e = _triEmitter[t];
+                if (e != lastEmitter)
+                {
+                    // Triangles of one emitter are mostly contiguous: look its owner up once per run.
+                    lastEmitter = e;
+                    ow = _owners[_emitters[e].Owner];
+                    m = ow.World ? Matrix4x4.identity : ow.Matrix;
+                }
                 float la = _triLum[t] * _triArea[t] * ow.AreaScale;
                 float w = la;
-                if (Settings.importance)
+                if (importance)
                 {
-                    var c = ow.World ? _triCentroid[t] : ow.Matrix.MultiplyPoint3x4(_triCentroid[t]);
-                    w *= r2 / (r2 + (c - camPos).sqrMagnitude);
+                    var p = _triCentroid[t];
+                    float dx = m.m00 * p.x + m.m01 * p.y + m.m02 * p.z + m.m03 - camPos.x;
+                    float dy = m.m10 * p.x + m.m11 * p.y + m.m12 * p.z + m.m13 - camPos.y;
+                    float dz = m.m20 * p.x + m.m21 * p.y + m.m22 * p.z + m.m23 - camPos.z;
+                    w *= r2 / (r2 + dx * dx + dy * dy + dz * dz);
                 }
                 _aliasTri[n] = t;
                 _prob[n] = w;

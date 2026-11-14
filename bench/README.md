@@ -15,6 +15,12 @@ Each run launches the game on DX12 and plays every scenario in `bench/suites/<su
 - The player is taken over the way noclip does it, and the camera follows `Path`.
 - `Modes` alternate every `Segment` seconds *within* the same pass (off / pt-dn / off / ...). This keeps the comparison fair even when the scene isn't deterministic, such as enemies or physics. The first `SwitchSkipFrames` frames after each switch aren't counted.
 - Frame times are uncapped (vsync off, no frame limit). GPU per-pass times come from the native timer (`-NoGpuTimer` turns it off).
+- Before measuring, the first RT mode runs until the RT scene has registered everything the pose load switched on, for at least 30 frames and at most 5 s. Pose loads run with RT off, and 8-3's checkpoint clones about 3,000 renderers.
+
+### What is reported
+- `summary.md`, per mode: average, fps, 1% low, p99, the worst frame, and frames over 16.7 ms. Also GPU ms, the main thread split into scripts (Update, LateUpdate, physics, animation) and rendering (culling, our `Trace`, command submission), and plugin CPU (average and worst frame). These come from PlayerLoop markers and Stopwatch sections in `src/UltraRT/Perf.cs`; Unity's Profiler isn't available in the player.
+- A second table splits plugin CPU per section (`hier` new objects, `rescan`, `static` groups, `dynamic` proxies, `motion`, `emissive`, `lights`, `lightsamp`, `trace` total), average / worst frame. It also lists gen-0 GC collections and managed heap growth per frame.
+- `frames_<scenario>.csv`: one row per frame, with the same columns plus RTAS instances and static records. Frames skipped after a mode switch are marked `mode*`. Use it to tie a spike to its section.
 
 ## Path types
 | Type | Fields | Use |
@@ -33,6 +39,8 @@ Each run launches the game on DX12 and plays every scenario in `bench/suites/<su
      "Path": { "Type": "recording", "File": "../recordings/Level_0-5_20261113-180000.json" },
      "Enemies": "active", "Modes": ["off", "pt-dn"], "Screenshots": [5, 15] }
    ```
+
+`"KillEnemies": true` kills enemies as they spawn while the recording plays, as the approach replay does. Arenas then finish, and the doors and rooms they open load on time. With that, a pose's approach route (F11) can be replayed as a real-time run: `bench/suites/perf-8-3.json` walks the user's 8-3 route that way, with one mode per pass, so the cost of rooms loading, clones and spawns is measured as it happens in play. `perf-8-3-route-hybrid.json` is the hybrid pass only, about 2 minutes; `perf-regress.json` covers 1-1 and 0-2.
 
 A recording stores the player's position and look angles at 60 Hz, plus every arena (`ActivateArena`) that triggered and when. On replay the camera follows the path exactly and the same arenas trigger at the same times, so fights happen in the same places.
 

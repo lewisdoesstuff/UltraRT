@@ -121,6 +121,10 @@ namespace UltraRT
             public Mesh Partial;
             public Material[] PartialMaterials;
             public bool[] PartialSet;
+            // The partial before that: a source that keeps switching (flicker, a door) alternates between two sets.
+            public Mesh Partial2;
+            public Material[] PartialMaterials2;
+            public bool[] PartialSet2;
             public bool[] Shown;            // slots in the instance currently in the RTAS
             public bool InRtas;
             public int Records, FullRecords;
@@ -685,10 +689,16 @@ namespace UltraRT
         /// <summary>A room clone appeared: learn its toggle points and checkpoints, then register its renderers.</summary>
         private void RegisterRoot(GameObject root)
         {
+            long t0 = Perf.Now;
+            int lateBefore = _sumLate, queuedBefore = DeferredCount;
             _toggles.Add(root);
-            CollectToggleTargets(root.GetComponentsInChildren<MonoBehaviour>(true));
+            var behaviours = root.GetComponentsInChildren<MonoBehaviour>(true);
+            CollectToggleTargets(behaviours);
             foreach (var cp in root.GetComponentsInChildren<CheckPoint>(true)) TrackCheckpoint(cp);
+            long t1 = Perf.Now;
             AddHierarchy(root);
+            _log.LogInfo($"Room clone '{root.name}': {behaviours.Length} behaviours scanned for toggle points in {(t1 - t0) * Perf.TickMs:F1} ms, " +
+                         $"+{_sumLate - lateBefore} late static sources and {DeferredCount - queuedBefore} renderers queued in {(Perf.Now - t1) * Perf.TickMs:F1} ms");
         }
 
         // ---------------------------------------------------------------- per frame
@@ -881,8 +891,19 @@ namespace UltraRT
                 mats = gp.FullMaterials;
                 flags = AllOn(mats);
             }
-            else if (gp.Partial != null && gp.PartialSet.SequenceEqual(want))
+            else if (gp.Partial != null && SameSet(gp.PartialSet, want))
             {
+                mesh = gp.Partial;
+                mats = gp.PartialMaterials;
+                flags = AllOn(mats);
+                _sumReused++;
+            }
+            else if (gp.Partial2 != null && SameSet(gp.PartialSet2, want))
+            {
+                // Swap, so the most recent one stays first.
+                (gp.Partial, gp.Partial2) = (gp.Partial2, gp.Partial);
+                (gp.PartialMaterials, gp.PartialMaterials2) = (gp.PartialMaterials2, gp.PartialMaterials);
+                (gp.PartialSet, gp.PartialSet2) = (gp.PartialSet2, gp.PartialSet);
                 mesh = gp.Partial;
                 mats = gp.PartialMaterials;
                 flags = AllOn(mats);
@@ -905,7 +926,10 @@ namespace UltraRT
                 }
                 else
                 {
-                    if (gp.Partial != null) _retired.Add((gp.Partial, Time.frameCount));
+                    if (gp.Partial2 != null) _retired.Add((gp.Partial2, Time.frameCount));
+                    gp.Partial2 = gp.Partial;
+                    gp.PartialMaterials2 = gp.PartialMaterials;
+                    gp.PartialSet2 = gp.PartialSet;
                     gp.Partial = mesh = built;
                     gp.PartialMaterials = mats = builtMats;
                     gp.PartialSet = want;
@@ -930,6 +954,13 @@ namespace UltraRT
             gp.Records = flags.Count(f => f != RayTracingSubMeshFlags.Disabled);
             StaticRecordsActive += gp.Records;
             StaticInstancesActive++;
+            return true;
+        }
+
+        private static bool SameSet(bool[] a, bool[] b)
+        {
+            if (a == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
             return true;
         }
 
@@ -959,6 +990,7 @@ namespace UltraRT
                     if (gp == null) continue;
                     if (gp.Full != null && !g.Combined.FlagsMode) Object.Destroy(gp.Full);
                     if (gp.Partial != null) Object.Destroy(gp.Partial);
+                    if (gp.Partial2 != null) Object.Destroy(gp.Partial2);
                 }
             foreach (var (mesh, _) in _retired) if (mesh != null) Object.Destroy(mesh);
             _retired.Clear();
