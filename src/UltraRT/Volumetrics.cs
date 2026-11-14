@@ -24,7 +24,7 @@ namespace UltraRT
         public float densityScale = 1f;
         /// <summary>Density where the game's fog is off or thinner (per metre): sun shafts and light halos without haze.</summary>
         public float minDensity = 0.002f;
-        public float maxDensity = 0.012f;
+        public float maxDensity = 0.008f;
         /// <summary>In-scattering multiplier.</summary>
         public float strength = 1f;
         /// <summary>Henyey-Greenstein anisotropy: forward scattering makes shafts brighter looking toward the sun.</summary>
