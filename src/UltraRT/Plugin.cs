@@ -390,6 +390,7 @@ namespace UltraRT
                 LogLightsNear(_camera.transform.position, 25f);
                 LogEnclosing(_camera.transform.position);
                 if (_proxies != null) foreach (var line in _proxies.DescribeVisibleAround(_camera.transform.position)) Logger.LogInfo($"proxy around camera: {line}");
+                if (_proxies != null) foreach (var line in _proxies.DescribeSkinnedNear(_camera.transform.position, 30f)) Logger.LogInfo($"skinned near camera: {line}");
             }
             _lightCount = 0;
             foreach (var l in _sceneLights)

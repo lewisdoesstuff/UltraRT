@@ -115,6 +115,25 @@ namespace UltraRT
             }
         }
 
+        /// <summary>Diagnostics: every enemy skinned mesh within <paramref name="radius"/> of p, with its proxy's state.</summary>
+        public IEnumerable<string> DescribeSkinnedNear(Vector3 p, float radius)
+        {
+            var bySource = new Dictionary<Renderer, DynamicProxy>();
+            foreach (var d in _dynamic) if (d.Source != null) bySource[d.Source] = d;
+            foreach (var r in Object.FindObjectsOfType<SkinnedMeshRenderer>())
+            {
+                if (r.name.EndsWith("[UltraRT]") || (r.bounds.center - p).magnitude > radius) continue;
+                string state;
+                if (!bySource.TryGetValue(r, out var d)) state = _known.Contains(r) ? "known, no proxy (skipped)" : "NO PROXY (never scanned)";
+                else
+                {
+                    var off = d.Proxy != null ? (d.Proxy.bounds.center - r.bounds.center).magnitude : -1f;
+                    state = $"proxy visible {d.Visible} offset {off:F2} m mask {d.Mask}";
+                }
+                yield return $"{Bench.GameControl.PathOf(r.transform)} L{r.gameObject.layer} enabled {r.enabled}/{r.gameObject.activeInHierarchy} at {r.bounds.center}: {state}";
+            }
+        }
+
         public RayTracingAccelerationStructure Rtas { get; private set; }
         public int SkinnedCount { get; private set; }
         public MotionVectors Motion { get; }
