@@ -18,9 +18,9 @@ The log says which case applies (`BepInEx/LogOutput.log`):
 |---|---|
 | View | Ray tracing on/off (F7), view mode (Page Up / Down: hybrid, relight, pt-dn, and the debug views) |
 | Quality and performance | Trace resolution (Performance 0.5x, Balanced 0.67x, Quality 1x), temporal upsampler (F2), denoiser preset (Ctrl+F3), radiance cache mode (F3), light sampling (F6) |
-| Lighting | Light reference, light exposure, fill light cut, sky light and linear transport (Ctrl+F5), sky sampling, sky light, glowing surfaces as lights (F5) and their brightness |
+| Lighting | Light reference, light exposure, fill light cut, sky + linear light (Ctrl+F5), sky sampling, sky light, emissive lighting (F5: glowing surfaces as lights) and its brightness |
 | Auto exposure | On/off (Ctrl+F4), target brightness, darkest and brightest exposure (EV) |
-| Effects | Volumetric light and fog (Ctrl+F6), fog density, light shaft strength; surface detail maps (Ctrl+F1), detail strength in relight/pt-dn and in hybrid, roughness variation; reflections (F4) and their strength, V1 in reflections, ray-traced mirrors; lights from muzzle flashes, explosions and fire; lava and acid |
+| Effects | Volumetric light and fog (Ctrl+F6), fog density, light shaft strength; surface detail maps (Ctrl+F1), detail strength in relight/pt-dn and in hybrid, roughness variation; reflections (F4) and their strength, V1 in reflections, ray-traced mirrors; effect lights (muzzle flashes, explosions, fire); lava and acid |
 | Tools | Reload shaders (F9), reset all UltraRT settings |
 | Keybinds (sub page) | A read-only list of the hotkeys |
 

@@ -59,15 +59,15 @@ namespace UltraRT
                 _viewEnabled = v;
                 _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset();
             }, "-ultrart-off").SessionOnly();
-            m.Choice("View", "DefaultMode", "View mode  [Page Up / Down]",
+            m.Choice("View", "DefaultMode", "View mode  [PgUp/PgDn]",
                 () => { foreach (var kv in modeOf) if (kv.Value == _mode) return kv.Key; return ViewModeChoice.Hybrid; },
                 v => { if (modeOf.TryGetValue(v, out int i)) _mode = i; },
                 v => modeOf.TryGetValue(v, out int i) ? Modes[i].name : v.ToString(),
                 v => v switch
                 {
-                    ViewModeChoice.Hybrid => "hybrid (the game's lighting + RT)",
-                    ViewModeChoice.Relight => "relight (full RT lighting)",
-                    ViewModeChoice.PtDn => "pt-dn (path traced + denoiser)",
+                    ViewModeChoice.Hybrid => "hybrid (game + RT)",
+                    ViewModeChoice.Relight => "relight (full RT)",
+                    ViewModeChoice.PtDn => "pt-dn (path traced)",
                     _ => modeOf.TryGetValue(v, out int i) ? Modes[i].name : v.ToString(),
                 }, "-ultrart-view").Legacy();
 
@@ -102,18 +102,18 @@ namespace UltraRT
                 v => v == LightSamplingMode.Reference ? "Reference (every light, slow)" : v == LightSamplingMode.Ris ? "RIS" : "ReSTIR", "-ultrart-lights");
 
             m.Group = "Lighting";
-            m.Float("Relight", "LightReference", "Light reference (fraction of range)", 0.05f, 1f, 2, () => _relightRef, v => { _relightRef = v; _radianceCache?.NotifyLightsChanged(); }, "-ultrart-relight-ref");
+            m.Float("Relight", "LightReference", "Light reference", 0.05f, 1f, 2, () => _relightRef, v => { _relightRef = v; _radianceCache?.NotifyLightsChanged(); }, "-ultrart-relight-ref");
             m.Float("Relight", "Exposure", "Light exposure", 0.25f, 4f, 2, () => _relightExposure, v => _relightExposure = v, "-ultrart-relight-exposure");
             m.Float("Relight", "FillCut", "Fill light cut", 0f, 1f, 2, () => _relightFillCut, v => _relightFillCut = v, "-ultrart-relight-fill");
-            m.Bool("Relight", "SkyGI", "Sky light and linear transport  [Ctrl+F5]", () => _skyGI, v => { _skyGI = v; _denoiser?.Reset(); _lightSampling?.Reset(); });
+            m.Bool("Relight", "SkyGI", "Sky + linear light  [Ctrl+F5]", () => _skyGI, v => { _skyGI = v; _denoiser?.Reset(); _lightSampling?.Reset(); });
             m.Bool("Relight", "SkySampling", "Sample the sky directly", () => _skySampling, v => { _skySampling = v; _denoiser?.Reset(); _lightSampling?.Reset(); }, "-ultrart-sky-sampling");
             m.Float("Relight", "SkyScale", "Sky light", 0f, 3f, 2, () => _skyScale, v => _skyScale = v, "-ultrart-sky-scale");
-            m.Bool("Lighting", "EmissiveLights", "Glowing surfaces light the scene  [F5]", () => _emissiveSettings.enabled, v =>
+            m.Bool("Lighting", "EmissiveLights", "Emissive lighting  [F5]", () => _emissiveSettings.enabled, v =>
             {
                 _emissiveSettings.enabled = v;
                 _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset();
             }, "-ultrart-noemissive");
-            m.Float("Lighting", "EmissiveScale", "Glowing surface brightness", 0f, 8f, 2, () => _emissiveSettings.lightScale, v => _emissiveSettings.lightScale = v, "-ultrart-emissive-scale");
+            m.Float("Lighting", "EmissiveScale", "Emissive brightness", 0f, 8f, 2, () => _emissiveSettings.lightScale, v => _emissiveSettings.lightScale = v, "-ultrart-emissive-scale");
 
             m.Group = "Auto exposure";
             m.Bool("Relight", "AutoExposure", "Auto exposure  [Ctrl+F4]", () => _aeSettings.enabled, v => { _aeSettings.enabled = v; _autoExposure?.Reset(); }, "-ultrart-relight-autoexposure").Legacy();
@@ -133,7 +133,7 @@ namespace UltraRT
             m.Float("Reflections", "Strength", "Reflection strength", 0f, 2f, 2, () => _reflSettings.reflStrength, v => _reflSettings.reflStrength = v, "-ultrart-refl-strength");
             m.Bool("Reflections", "PlayerInReflections", "V1 in reflections", () => _playerRays != 0, v => _playerRays = v ? 15 : 0, "-ultrart-player-rays", "-ultrart-noplayer");
             m.Bool("Reflections", "RtMirrors", "Ray-traced mirrors", () => _rtMirrors, v => _rtMirrors = v, "-ultrart-rtmirrors");
-            m.Bool("Effects", "EffectLights", "Lights from muzzle flashes, explosions and fire",
+            m.Bool("Effects", "EffectLights", "Effect lights",
                 () => _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker,
                 v => _effectSettings.spawnedLights = _effectSettings.virtualLights = _effectSettings.flicker = v);
             m.Bool("Effects", "Lava", "Ray-traced lava and acid", () => LavaCfg.active, v => LavaCfg.active = v, "-ultrart-nolava");
@@ -411,7 +411,7 @@ namespace UltraRT
             var pc = PluginConfig.API.PluginConfigurator.Create("UltraRT", "ooo.lew.ultrart");
             pc.saveToFile = false; // the values live in the BepInEx config; the page only shows and edits them
             var ui = new SettingsMenuUi(pc.rootPanel);
-            new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel, "Changes here apply at once and are saved. Hotkeys change the session only.", 14);
+            new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel, "Changes apply and save at once. Hotkeys: session only.", 14);
             string group = null;
             foreach (var s in menu.All)
             {
