@@ -38,7 +38,12 @@ namespace UltraRT
         public bool perPixelLightChange = false;
         /// <summary>Per-pixel shortening: share of a pixel's direct light that may be stale before its history is shortened.</summary>
         public float lightChangeTolerance = 0.1f;
-        /// <summary>A kept light counts as changed when its luminance changes by more than this fraction since the previous frame,</summary>
+        /// <summary>Per-pixel shortening also for lights that stay but change brightness or move (off: only lights that appear or
+        /// disappear). Measured noisier: a fading muzzle light then shortens the history around it on every frame of the fade,
+        /// while the stale share it leaves in a full history is small and smooth.</summary>
+        public bool lightChangeKept = false;
+        /// <summary>With <see cref="lightChangeKept"/>: a light counts as changed when its luminance changes by more than this
+        /// fraction since the previous frame,</summary>
         public float lightChangeIntensity = 0.1f;
         /// <summary>or it moves by more than this fraction of its range (a spot turning: 1 - cos above a quarter of this).</summary>
         public float lightChangeMove = 0.05f;
@@ -286,7 +291,7 @@ namespace UltraRT
                     _remapData[i] = (uint)j;
                     kept++;
                     _isNew[j] = false;
-                    if (LightChanged(i, lightData, j)) AddChange(i, lightData, j);
+                    if (Settings.lightChangeKept && LightChanged(i, lightData, j)) AddChange(i, lightData, j);
                 }
                 else
                 {

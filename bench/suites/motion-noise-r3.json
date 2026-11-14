@@ -61,6 +61,74 @@
    ]
   },
   {
+   "Name": "1-1 spawn flash",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 4
+   },
+   "Effects": {
+    "Kinds": [
+     "flash"
+    ],
+    "Every": 0.1,
+    "ShotDelay": 0.03
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionModes": [
+    "off",
+    "relight+vol=0",
+    "relight+vol=0+ls.perPixelLightChange=1",
+    "relight+vol=0+dn.antilag=3",
+    "relight+vol=0+ls.perPixelLightChange=1+dn.antilag=3",
+    "relight+vol=0+ls.perPixelLightChange=1+ls.lightChangeKept=1",
+    "hybrid+vol=0",
+    "hybrid+vol=0+ls.perPixelLightChange=1+dn.antilag=3"
+   ]
+  },
+  {
+   "Name": "1-1 spawn blast",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 4
+   },
+   "Effects": {
+    "Kinds": [
+     "blast"
+    ],
+    "Every": 0.3,
+    "Distance": 6,
+    "ShotDelay": 0.1
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionStrip": 0,
+   "MotionModes": [
+    "off",
+    "relight+vol=0",
+    "relight+vol=0+ls.perPixelLightChange=1",
+    "relight+vol=0+dn.antilag=3",
+    "relight+vol=0+ls.perPixelLightChange=1+dn.antilag=3",
+    "relight+vol=0+ls.perPixelLightChange=1+ls.lightChangeKept=1",
+    "hybrid+vol=0",
+    "hybrid+vol=0+ls.perPixelLightChange=1+dn.antilag=3"
+   ]
+  },
+  {
    "Name": "1-1 start sweep",
    "Scene": "Level 1-1",
    "Path": {
@@ -112,6 +180,41 @@
     "relight+vol=0+dn.cacheSeed=4+ls.freshCandidates=24+dn.freshSpread=2",
     "hybrid+vol=0",
     "hybrid+vol=0+dn.cacheSeed=4+ls.freshCandidates=24+dn.freshSpread=2"
+   ]
+  },
+  {
+   "Name": "4-1 indoor A flash",
+   "Scene": "Level 4-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/4-1-approach-a.json",
+    "Duration": 4
+   },
+   "Effects": {
+    "Kinds": [
+     "flash"
+    ],
+    "Every": 0.1,
+    "ShotDelay": 0.03
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionStrip": 0,
+   "MotionModes": [
+    "off",
+    "relight+vol=0",
+    "relight+vol=0+ls.perPixelLightChange=1",
+    "relight+vol=0+dn.antilag=3",
+    "relight+vol=0+ls.perPixelLightChange=1+dn.antilag=3",
+    "relight+vol=0+ls.perPixelLightChange=1+ls.lightChangeKept=1",
+    "hybrid+vol=0",
+    "hybrid+vol=0+ls.perPixelLightChange=1+dn.antilag=3"
    ]
   },
   {
