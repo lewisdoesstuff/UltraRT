@@ -1,0 +1,13 @@
+{
+  "Name": "infra-burst",
+  "Scenarios": [
+    {
+      "Name": "1-1 pose burst",
+      "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Position": [-7.32, 3.0, 323.24], "Yaw": 63.64, "Pitch": -6.76, "Duration": 6 },
+      "Modes": ["off", "hybrid", "pt-dn"],
+      "Screenshots": [3],
+      "Burst": 48
+    }
+  ]
+}

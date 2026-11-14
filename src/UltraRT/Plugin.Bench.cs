@@ -81,6 +81,8 @@ namespace UltraRT
             int patched = BenchSafety.Install(harmony, Logger);
             if (patched < 0) { Logger.LogError("Benchmark aborted: could not install save protection."); return false; }
             BenchSafety.Active = true;
+            // Two games can run at once (alt install): one that loses focus while it boots must not freeze at the loading screen.
+            Application.runInBackground = true;
             Perf.InstallFrameMarkers();
             PoseLoader.Log = Logger;
             EffectSpawner.Log = Logger;

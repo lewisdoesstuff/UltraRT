@@ -28,6 +28,13 @@ if ($Owner -and (-not $held -or $held.owner -ne $Owner)) { throw "The $Slot slot
 if (-not $held) { Write-Warning "The $Slot slot is not locked: run game-lock.ps1 acquire first (other agents may be using it)" }
 else { (Get-Item $lockFile).LastWriteTime = Get-Date }   # activity: keeps the hold from looking stale
 
+# A running game keeps UltraRT.dll mapped, so a changed one cannot be copied: stop our own resident game first (bench.ps1 -KeepOpen).
+if (Get-Resident $GameDir) {
+    foreach ($n in 'UltraRT.dll', 'UltraRT.Native.dll') {
+        $s = Join-Path $Stage $n; $d = Join-Path $GameDir "BepInEx\plugins\UltraRT\$n"
+        if ((Test-Path $s) -and (Test-Path $d) -and (Get-QuickHash $s) -ne (Get-QuickHash $d)) { "$n changed: stopping the resident game"; Stop-Resident $GameDir; break }
+    }
+}
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $copied = @(Sync-Stage -From $Stage -GameDir $GameDir)
 $note = ''

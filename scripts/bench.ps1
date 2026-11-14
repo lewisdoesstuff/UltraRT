@@ -66,8 +66,13 @@ foreach ($s in @($Suite | ForEach-Object { $_ -split ',' } | ForEach-Object { $_
     $path = if (Test-Path $s) { (Resolve-Path $s).Path } else { Join-Path $root "bench\suites\$s.json" }
     if (-not (Test-Path $path)) { throw "Suite not found: $path" }
     $name = [IO.Path]::GetFileNameWithoutExtension($path)
-    $out = Join-Path $root "bench\results\${stamp}_$name"
-    for ($n = 2; (Test-Path $out) -or ($runs | Where-Object { $_.Out -eq $out }); $n++) { $out = Join-Path $root "bench\results\${stamp}_${name}_$n" }
+    # Created at once and atomically: two runs started in the same second (other slot, other agent) never share a folder.
+    $base = "bench\results\${stamp}_$name" + $(if ($Slot -eq 'alt') { '_alt' } else { '' })
+    $out = Join-Path $root $base
+    for ($n = 2; ; $n++) {
+        try { New-Item -ItemType Directory -Path $out -ErrorAction Stop | Out-Null; break }
+        catch { if ($n -gt 50) { throw }; $out = Join-Path $root "${base}_$n" }
+    }
     $runs += [pscustomobject]@{ Name = $name; Path = $path; Out = $out; Summary = (Join-Path $out 'summary.md') }
 }
 if (-not $runs) { throw 'No suite given' }

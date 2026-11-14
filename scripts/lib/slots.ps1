@@ -72,7 +72,7 @@ function Sync-Stage {
         if (Test-Path $d) {
             $di = Get-Item $d
             if ($di.Length -eq $f.Length) {
-                $same = ((Get-FileHash $d -Algorithm SHA1).Hash -eq (Get-FileHash $f.FullName -Algorithm SHA1).Hash)
+                $same = ((Get-QuickHash $d) -eq (Get-QuickHash $f.FullName))
             }
         }
         if ($same) { continue }
@@ -110,4 +110,10 @@ function Stop-Resident([string] $GameDir) {
     Write-JsonFile (Join-Path $srv ("cmd-{0:yyyyMMddHHmmssfff}.json" -f (Get-Date))) @{ Quit = $true }
     if (-not $res.Process.WaitForExit(30000)) { Stop-Process -Id $res.Pid -Force }
     Remove-Item (Join-Path $srv 'ready.json') -Force -ErrorAction SilentlyContinue
+}
+
+# SHA1 of a file, much faster than Get-FileHash in Windows PowerShell 5.1.
+function Get-QuickHash([string] $path) {
+    $sha = [Security.Cryptography.SHA1]::Create()
+    try { return [BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($path))) } finally { $sha.Dispose() }
 }
