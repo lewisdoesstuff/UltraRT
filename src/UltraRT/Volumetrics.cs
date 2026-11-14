@@ -34,6 +34,20 @@ namespace UltraRT
         /// <summary>Point/spot light scattering multiplier (0 = sun only) and RIS candidates per pixel.</summary>
         public float lights = 1f;
         public int lightCandidates = 8;
+        /// <summary>Point/spot light samples (shadow rays) per low-res pixel and frame, stratified over one light CDF.</summary>
+        public int lightSamples = 1;
+        /// <summary>Emissive surface samples (each RIS over 6 points, one shadow ray) per low-res pixel and frame.</summary>
+        public int emissiveSamples = 1;
+        /// <summary>Let lights attached to the player or the camera light the medium (off: the player's own light sits at
+        /// the eye and lit the air over the whole screen).</summary>
+        public bool playerLights = false;
+        /// <summary>Range (m) at which a point/spot light's haze is halved (1 / (1 + (range / hazeRange)^3); 0 = off): lights
+        /// that reach across a whole room are mood/fill lighting, not lamps the air glows around.</summary>
+        public float hazeRange = 20f;
+        /// <summary>Soft core of a light in the medium, as a fraction of its range (inverse square -> 1 / (d^2 + (core range)^2)).</summary>
+        public float core = 0f;
+        /// <summary>Sun scattering multiplier (0 = no sun shafts; for checking which term a look or noise comes from).</summary>
+        public float sun = 1f;
         /// <summary>Emissive surface scattering multiplier (lava, glowing panels; one sample per pixel, 0 = off).</summary>
         public float emissive = 0.5f;
         /// <summary>Firefly clamp: max luminance (linear) of a pixel's one-sample light + emissive estimate.</summary>
@@ -47,6 +61,18 @@ namespace UltraRT
         public float clipSigma = 3f;
         public float depthTolerance = 0.1f;
         public float spatialDepthSigma = 0.05f;
+        /// <summary>Variance-guided a-trous passes over the accumulated in-scattering (step 1, 2, 4, ...; 0 = none).</summary>
+        public int atrous = 3;
+        /// <summary>A-trous luminance edge stop, in standard deviations of the estimate (larger = blurrier).</summary>
+        public float atrousLumSigma = 4f;
+        /// <summary>A-trous depth edge stop (relative ray length).</summary>
+        public float atrousDepthSigma = 0.1f;
+        /// <summary>Samples the temporal pass's 5x5 prefilter is credited with in the variance estimate.</summary>
+        public float prefilterSamples = 8f;
+        /// <summary>Fastest blend of the luminance moments (their variance must follow lighting changes).</summary>
+        public float momentsAlpha = 0.1f;
+        /// <summary>How much of the haze auto exposure meters with the image (0 = none: a hazy dark scene is lifted as dark).</summary>
+        public float meterHaze = 0f;
         /// <summary>1 = show the exposed in-scattering only, 2 = the same without the temporal filter (raw samples).</summary>
         public int debugView;
 
@@ -83,7 +109,8 @@ namespace UltraRT
 
         public override string ToString() =>
             FormattableString.Invariant($"{(enabled ? "on" : "off")}, 1/{block} res, {steps} steps, {maxDistance} m, density x{densityScale} (min {minDensity}/m), ") +
-            FormattableString.Invariant($"strength {strength}, g {anisotropy}, lights {lights} ({lightCandidates} candidates), emissive {emissive}, game fog {(gameFog ? "on" : "off")}");
+            FormattableString.Invariant($"strength {strength}, g {anisotropy}, lights {lights} ({lightSamples} spp, {lightCandidates} candidates), emissive {emissive} ({emissiveSamples} spp), ") +
+            FormattableString.Invariant($"a-trous {atrous}, game fog {(gameFog ? "on" : "off")}");
     }
 
     /// <summary>What the plugin knows about the frame for the volumetric pass.</summary>
@@ -94,6 +121,7 @@ namespace UltraRT
         public Texture target;              // the camera's colour target (PostProcessV2_Handler.mainTex)
         public RayTracingAccelerationStructure rtas;
         public ComputeBuffer lights;
+        public ComputeBuffer skip;         // one bit per light: skipped by the medium (attached to the player / camera)
         public int lightCount;
         public Vector4 sunDir;             // xyz towards the sun, w cos(angular radius); w = 0: no sun
         public Color sunColor;             // linear irradiance
@@ -118,13 +146,18 @@ namespace UltraRT
         /// <summary>The ray tracing shader, for binding shared scene inputs (emissive triangles) before <see cref="Execute"/>.</summary>
         public RayTracingShader RtShader => _rt;
         public string MediumSource { get; private set; } = "-";
+        /// <summary>The last frame's filtered low-res in-scattering (linear, unexposed) and its size, for auto exposure.</summary>
+        public Texture Result { get; private set; }
+        public Vector2 ResultSize { get; private set; }
 
         private readonly RayTracingShader _rt;
         private readonly ComputeShader _cs;
-        private readonly int _kDepth, _kTemporal;
+        private readonly int _kDepth, _kTemporal, _kAtrous;
         private RenderTexture _raw, _depth;
         private readonly RenderTexture[] _hist = new RenderTexture[2];
         private readonly RenderTexture[] _histDepth = new RenderTexture[2];
+        private readonly RenderTexture[] _mom = new RenderTexture[2];
+        private readonly RenderTexture[] _filt = new RenderTexture[2];
         private RenderTexture _sceneCopy;
         private int _cur;
         private bool _historyValid;
@@ -152,7 +185,12 @@ namespace UltraRT
             IdVolDepthTex = Shader.PropertyToID("_VolDepthTex"), IdVolExposure = Shader.PropertyToID("_VolExposure"),
             IdVolViewRay = Shader.PropertyToID("_VolViewRay"), IdVolFog = Shader.PropertyToID("_VolFog"),
             IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
-            IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp");
+            IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
+            IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
+            IdVolSkip = Shader.PropertyToID("_VolSkip"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
+            IdTemporalParams3 = Shader.PropertyToID("_TemporalParams3"), IdAtrousIn = Shader.PropertyToID("_AtrousIn"),
+            IdAtrousMom = Shader.PropertyToID("_AtrousMom"), IdAtrousOut = Shader.PropertyToID("_AtrousOut"),
+            IdAtrousParams = Shader.PropertyToID("_AtrousParams"), IdAtrousParams2 = Shader.PropertyToID("_AtrousParams2");
 
         private const float SkyDistance = 1e4f;
 
@@ -162,6 +200,7 @@ namespace UltraRT
             _cs = cs ? cs : throw new ArgumentNullException(nameof(cs));
             _kDepth = cs.FindKernel("Depth");
             _kTemporal = cs.FindKernel("Temporal");
+            _kAtrous = cs.FindKernel("Atrous");
             Settings = settings;
             rt.SetShaderPass("UltraRTHit");
         }
@@ -207,7 +246,8 @@ namespace UltraRT
             return new Vector4(sigma, tint.x, tint.y, tint.z);
         }
 
-        public void Execute(CommandBuffer cmd, in VolumetricsFrame f)
+        /// <param name="lateCmd">Runs after the game's transparents (CameraEvent.AfterForwardAlpha); null = all in cmd.</param>
+        public void Execute(CommandBuffer cmd, CommandBuffer lateCmd, in VolumetricsFrame f)
         {
             var s = Settings;
             var cam = f.camera;
@@ -255,10 +295,15 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(_rt, IdVolParams, new Vector4(Mathf.Clamp(s.steps, 1, 64), Mathf.Max(1f, s.maxDistance),
                 Mathf.Clamp(s.anisotropy, -0.95f, 0.95f), f.frameIndex & 0xFFFFF));
             cmd.SetRayTracingVectorParam(_rt, IdVolSunDir, f.sunDir.w > 0f ? f.sunDir : new Vector4(0, 1, 0, 1));
-            cmd.SetRayTracingVectorParam(_rt, IdVolSunColor, new Vector4(f.sunColor.r, f.sunColor.g, f.sunColor.b, f.sunDir.w > 0f ? 1f : 0f));
+            float sunScale = Mathf.Max(0f, s.sun);
+            cmd.SetRayTracingVectorParam(_rt, IdVolSunColor, new Vector4(f.sunColor.r * sunScale, f.sunColor.g * sunScale, f.sunColor.b * sunScale,
+                f.sunDir.w > 0f && sunScale > 0f ? 1f : 0f));
+            cmd.SetRayTracingVectorParam(_rt, IdVolLightShape, new Vector4(Mathf.Max(0f, s.hazeRange), Mathf.Max(0f, s.core), 0, 0));
+            cmd.SetRayTracingVectorParam(_rt, IdVolSamples, new Vector4(Mathf.Clamp(s.lightSamples, 1, 8), Mathf.Clamp(s.emissiveSamples, 1, 8), 0, 0));
             cmd.SetRayTracingVectorParam(_rt, IdVolLightParams, new Vector4(f.localLightCount, Mathf.Clamp(s.lightCandidates, 1, 32), Mathf.Max(0f, s.lights), 0.01f));
             cmd.SetRayTracingVectorParam(_rt, IdVolFalloff, f.falloff);
             cmd.SetRayTracingBufferParam(_rt, IdLights, f.lights);
+            cmd.SetRayTracingBufferParam(_rt, IdVolSkip, f.skip);
             cmd.SetRayTracingFloatParam(_rt, IdVolEmissive, Mathf.Max(0f, s.emissive));
             cmd.SetRayTracingFloatParam(_rt, IdVolClamp, Mathf.Max(0f, s.maxSample));
             cmd.DispatchRays(_rt, "VolumeRayGen", (uint)w, (uint)h, 1);
@@ -271,6 +316,9 @@ namespace UltraRT
             cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistDepthIn, _histDepth[prev]);
             cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistOut, _hist[_cur]);
             cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistDepthOut, _histDepth[_cur]);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdMomIn, _mom[prev]);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdMomOut, _mom[_cur]);
+            cmd.SetComputeVectorParam(_cs, IdTemporalParams3, new Vector4(Mathf.Clamp01(s.momentsAlpha), 0, 0, 0));
             cmd.SetComputeMatrixParam(_cs, IdInvViewProj, invVP * LowResToScreen(W, H, w, h, blk));
             cmd.SetComputeMatrixParam(_cs, IdPrevViewProj, ScreenToLowRes(W, H, w, h, blk) * (_historyValid ? _prevVP : vp));
             cmd.SetComputeVectorParam(_cs, IdCamPos, cam.transform.position);
@@ -278,14 +326,32 @@ namespace UltraRT
             cmd.SetComputeVectorParam(_cs, IdTemporalParams, new Vector4(Mathf.Clamp01(s.alphaMin), Mathf.Max(1f, s.maxHistory), Mathf.Max(0.5f, s.clipSigma), _historyValid ? 1f : 0f));
             cmd.SetComputeVectorParam(_cs, IdTemporalParams2, new Vector4(Mathf.Max(0.01f, s.depthTolerance), Mathf.Max(0.001f, s.spatialDepthSigma), 0.5f / Mathf.Max(0.1f, s.spatialSigma * s.spatialSigma), s.debugView == 2 ? 1f : 0f));
             cmd.DispatchCompute(_cs, _kTemporal, (w + 7) / 8, (h + 7) / 8, 1);
-            var result = _hist[_cur];
+            Texture result = _hist[_cur];
+
+            // 4. variance-guided a-trous passes (output only: the history keeps the unfiltered accumulation)
+            int passes = s.debugView == 2 ? 0 : Mathf.Clamp(s.atrous, 0, 5);
+            for (int i = 0; i < passes; i++)
+            {
+                var dst = _filt[i & 1];
+                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousIn, result);
+                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousMom, _mom[_cur]);
+                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousOut, dst);
+                cmd.SetComputeTextureParam(_cs, _kAtrous, IdVolDepth, _depth);
+                cmd.SetComputeVectorParam(_cs, IdAtrousParams, new Vector4(1 << i, i == 0 ? 1f : 0f, Mathf.Max(0.1f, s.atrousLumSigma), Mathf.Max(0.01f, s.atrousDepthSigma)));
+                cmd.SetComputeVectorParam(_cs, IdAtrousParams2, new Vector4(Mathf.Max(1f, s.prefilterSamples), i == passes - 1 ? 1f : 0f, 0, 0));
+                cmd.DispatchCompute(_cs, _kAtrous, (w + 7) / 8, (h + 7) / 8, 1);
+                result = dst;
+            }
             _cur = prev;
             _prevVP = vp;
             _prevCamPos = cam.transform.position;
             _historyValid = true;
 
-            // 4. composite into the camera target, from a copy of it
-            cmd.CopyTexture(f.target, _sceneCopy);
+            Result = result;
+            ResultSize = new Vector2(w, h);
+
+            // 5. composite into the camera target: the game's fog now (blended, before the game's transparents), the
+            // in-scattering after the transparents (late, from a copy of the target; in this buffer when there is none)
             var m = f.composite;
             m.SetTexture(IdSceneColor, _sceneCopy);
             m.SetTexture(IdVolHist, result);
@@ -299,7 +365,11 @@ namespace UltraRT
             var fc = RenderSettings.fogColor;
             m.SetVector(IdVolFogColor, new Vector4(fc.r, fc.g, fc.b, f.applyGameFog && s.gameFog && fogMode > 0f ? 1f : 0f));
             m.SetVector(IdVolComposite, new Vector4(Mathf.Max(0f, s.strength), f.autoExposure && f.exposure != null ? 1f : 0f, 1f, s.debugView));
-            cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
+            if (f.applyGameFog && s.gameFog && fogMode > 0f && s.debugView == 0)
+                cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
+            var late = lateCmd ?? cmd;
+            late.CopyTexture(f.target, _sceneCopy);
+            late.DrawProcedural(Matrix4x4.identity, m, 1, MeshTopology.Triangles, 3);
         }
 
         /// <summary>Maps a low-res NDC position to the screen NDC of the pixel it was traced through (i * blk + blk / 2).</summary>
@@ -340,6 +410,8 @@ namespace UltraRT
                 {
                     _hist[i] = Create(w, h, RenderTextureFormat.ARGBHalf, $"UltraRT Volumetrics History {i}");
                     _histDepth[i] = Create(w, h, RenderTextureFormat.RFloat, $"UltraRT Volumetrics History Depth {i}");
+                    _mom[i] = Create(w, h, RenderTextureFormat.RGFloat, $"UltraRT Volumetrics Moments {i}");
+                    _filt[i] = Create(w, h, RenderTextureFormat.ARGBHalf, $"UltraRT Volumetrics Filtered {i}");
                 }
                 _cur = 0;
                 _historyValid = false;
@@ -376,7 +448,7 @@ namespace UltraRT
             void Rel(ref RenderTexture t) { if (t != null) { t.Release(); Object.Destroy(t); t = null; } }
             Rel(ref _raw);
             Rel(ref _depth);
-            for (int i = 0; i < 2; i++) { Rel(ref _hist[i]); Rel(ref _histDepth[i]); }
+            for (int i = 0; i < 2; i++) { Rel(ref _hist[i]); Rel(ref _histDepth[i]); Rel(ref _mom[i]); Rel(ref _filt[i]); }
         }
 
         public void Dispose()

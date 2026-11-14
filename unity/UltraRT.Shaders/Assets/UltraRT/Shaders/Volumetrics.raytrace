@@ -27,6 +27,9 @@ float4   _VolFalloff;              // x relight falloff blend, y light exposure 
 // The plugin's light list (UltraRTLights.hlsl layout, 4 x float4 per light). Directional lights are skipped here: the
 // sun comes in through _VolSun*, fill lights are fakes.
 StructuredBuffer<float4> _Lights;
+// One bit per light: lights the medium skips (the player's own light and anything else attached to the player or the
+// camera: every view ray starts inside them, which lit the air in front of the eyes over the whole screen).
+StructuredBuffer<uint>   _VolSkip;
 
 // Emissive triangles (EmissiveLights.cs; layout in UltraRTLights.hlsl), bound by EmissiveLights.Bind.
 StructuredBuffer<uint4>  _EmissiveTris;
@@ -38,6 +41,8 @@ int      _EmissiveTriCount;
 float4   _EmissiveParams;   // y: EmissiveLightScale / pi, z: min squared distance
 float    _VolEmissive;      // emissive scattering multiplier (0 = off)
 float    _VolClamp;         // max luminance of the one-sample light + emissive estimate per pixel (linear, 0 = none)
+float4   _VolSamples;       // x light samples per pixel, y emissive samples per pixel
+float4   _VolLightShape;    // x haze range (m; lights with a larger range scatter less, 0 = off), y soft core (x range)
 
 static const float kPi = 3.14159265;
 
@@ -87,6 +92,18 @@ float3 ToLightV(float3 g) { return _VolFalloff.z > 0.5 ? pow(max(g, 0.0), 2.2) :
 // A point/spot light's (unshadowed) radiance arriving at x, as the relight light model computes it at a surface but
 // without the cosine (UltraRTLights.hlsl, LightEval). Lights are evaluated with linear transport's curves when that is
 // on, else the game's gamma curves: either way the result is used as linear light here.
+// The haze a light makes is weighted down for large ranges: a light reaching across a whole room is the level's mood or
+// fill lighting (a broad source in the designer's mind), not a lamp the air glows around (docs/volumetrics.md).
+float HazeWeight(float range)
+{
+    if (_VolLightShape.x <= 0.0) return 1.0;
+    float x = range / _VolLightShape.x;
+    return 1.0 / (1.0 + x * x * x);
+}
+
+// Soft core radius^2 of a light in the medium: the inverse square becomes 1 / (d^2 + R^2), R = core x range.
+float CoreR2(float range) { float r = _VolLightShape.y * range; return r * r; }
+
 float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
 {
     float4 l0 = _Lights[i * 4];
@@ -94,7 +111,7 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
     float4 l2 = _Lights[i * 4 + 2];
     float4 l3 = _Lights[i * 4 + 3];
     float3 toL = l0.xyz - x;
-    float d2 = max(dot(toL, toL), _VolLightParams.w);
+    float d2 = max(dot(toL, toL) + CoreR2(l0.w), _VolLightParams.w);
     float d = sqrt(d2);
     L = toL / max(sqrt(dot(toL, toL)), 1e-4);
     dist = sqrt(dot(toL, toL));
@@ -118,12 +135,49 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
         phys = min(phys, 3.0 * game + 0.05);
         atten = lerp(game, phys, saturate(_VolFalloff.x)) * spot;
     }
-    return ToLightV(l1.rgb * _VolFalloff.y) * atten;
+    return ToLightV(l1.rgb * _VolFalloff.y) * atten * HazeWeight(r);
 }
 
-// Rough importance of light i for the ray segment [0, tMax]: intensity times the integral of 1/d^2 along the segment
-// (exact for an inverse-square light), limited to the light's reach (2 x range).
-// The part [tA, tB] of the ray segment [0, tMax] inside a light's reach (2 x range: its falloff window ends there).
+// A spot light's cone (half angle: cos l3.x, apex at the light, axis l2.xyz) clips the ray segment [tA, tB] to the part
+// inside it (the hull of the inside pieces), so samples are not wasted on air the spot never lights. Point lights pass.
+bool ClipSpot(uint i, float3 o, float3 dir, inout float tA, inout float tB)
+{
+    float c = _Lights[i * 4 + 3].x;
+    if (c <= -0.5) return true;
+    float3 a = _Lights[i * 4 + 2].xyz;
+    float3 v = o - _Lights[i * 4].xyz;
+    float da = dot(dir, a), va = dot(v, a), vd = dot(v, dir), vv = dot(v, v);
+    // (va + t da)^2 - c^2 |v + t dir|^2 = A t^2 + 2 B t + C changes sign at the cone surface (both nappes)
+    float A = da * da - c * c, B = va * da - c * c * vd, C = va * va - c * c * vv;
+    float r0 = tA, r1 = tA;
+    if (abs(A) > 1e-6)
+    {
+        float disc = B * B - A * C;
+        if (disc > 0.0)
+        {
+            float sq = sqrt(disc);
+            float x0 = (-B - sq) / A, x1 = (-B + sq) / A;
+            r0 = min(x0, x1); r1 = max(x0, x1);
+        }
+    }
+    else if (abs(B) > 1e-9) { r0 = -C / (2.0 * B); r1 = r0; }
+    r0 = clamp(r0, tA, tB);
+    r1 = clamp(r1, tA, tB);
+    float s[4] = { tA, r0, r1, tB };
+    float lo = 1e30, hi = -1e30;
+    [unroll] for (int k = 0; k < 3; k++)
+    {
+        if (s[k + 1] <= s[k]) continue;
+        float3 x = v + dir * (0.5 * (s[k] + s[k + 1]));
+        if (dot(x, a) >= c * length(x)) { lo = min(lo, s[k]); hi = max(hi, s[k + 1]); }
+    }
+    if (!(hi > lo)) return false;
+    tA = lo; tB = hi;
+    return true;
+}
+
+// The part [tA, tB] of the ray segment [0, tMax] inside a light's reach (2 x range: its falloff window ends there) and,
+// for a spot, inside its cone.
 bool LightSegment(uint i, float3 o, float3 dir, float tMax, out float tA, out float tB)
 {
     float4 l0 = _Lights[i * 4];
@@ -137,23 +191,25 @@ bool LightSegment(uint i, float3 o, float3 dir, float tMax, out float tA, out fl
     float k = sqrt(k2);
     tA = max(delta - k, 0.0);
     tB = min(delta + k, tMax);
-    return tB > tA;
+    return tB > tA && ClipSpot(i, o, dir, tA, tB);
 }
 
 float LightTarget(uint i, float3 o, float3 dir, float tMax)
 {
     float4 l0 = _Lights[i * 4];
     if (l0.w == 0.0 || _Lights[i * 4 + 3].z > 0.5) return 0.0; // directional / fill
+    if ((_VolSkip[i >> 5] >> (i & 31u)) & 1u) return 0.0;      // attached to the player / camera
     float3 c = _Lights[i * 4 + 1].rgb;
     float lum = dot(c, float3(0.2126, 0.7152, 0.0722));
     if (lum <= 0.0) return 0.0;
     float tA, tB;
     if (!LightSegment(i, o, dir, tMax, tA, tB)) return 0.0;
     float delta = dot(l0.xyz - o, dir);
-    float h = max(length(l0.xyz - (o + dir * delta)), 0.05);
+    float3 perp = l0.xyz - (o + dir * delta);
+    float h = max(sqrt(dot(perp, perp) + CoreR2(l0.w)), 0.05);
     float angle = atan((tB - delta) / h) - atan((tA - delta) / h);
     float rRef = 0.5 * l0.w;
-    return lum * rRef * rRef * angle / h;
+    return lum * rRef * rRef * angle / h * HazeWeight(l0.w);
 }
 
 // One point on an emissive triangle, drawn from the alias table (power and distance to the camera), uniform in area.
@@ -197,14 +253,83 @@ bool SampleEmissivePoint(inout uint rng, out float3 x, out float3 nl, out bool t
 }
 
 // Equiangular distance along the ray [tStart, tEnd] for a point source at lp (Kulla & Fajardo 2012). Returns t and its pdf.
-float Equiangular(float3 o, float3 dir, float tStart, float tEnd, float3 lp, float u, out float pdf)
+float Equiangular(float3 o, float3 dir, float tStart, float tEnd, float3 lp, float u, out float pdf, float core2 = 0.0)
 {
     float delta = dot(lp - o, dir);
-    float h = max(length(lp - (o + dir * delta)), 0.05);
+    float3 perp = lp - (o + dir * delta);
+    float h = max(sqrt(dot(perp, perp) + core2), 0.05);
     float thA = atan((tStart - delta) / h), thB = atan((tEnd - delta) / h);
     float t = clamp(delta + h * tan(lerp(thA, thB, u)), tStart, tEnd);
     pdf = h / (max(thB - thA, 1e-6) * (h * h + (t - delta) * (t - delta)));
     return t;
+}
+
+// One light sample: light i (1 / selection probability w), equiangular distance from uT, one shadow ray.
+float3 LightSample(uint i, float w, float uT, float3 o, float3 dir, float tEnd, float3 sigmaS, float sigmaT)
+{
+    float pdf, tA, tB;
+    LightSegment(i, o, dir, tEnd, tA, tB);
+    float t = Equiangular(o, dir, tA, tB, _Lights[i * 4].xyz, uT, pdf, CoreR2(_Lights[i * 4].w));
+    float3 x = o + dir * t;
+    float3 L;
+    float dist;
+    float3 Li = LocalLight(i, x, L, dist);
+    if (!any(Li > 0.0) || !(pdf > 0.0)) return 0;
+    // Stop short of the light like surface shadow rays do (lights sit inside their fixtures).
+    float clear = min(0.35, 0.5 * dist);
+    if (!Unoccluded(x, L, dist - clear)) return 0;
+    float trans = exp(-sigmaT * (t + dist));
+    return Li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdf) * w;
+}
+
+// One emissive sample: RIS over 6 points from the emissive table, equiangular distance from uT, one shadow ray.
+float3 EmissiveSample(inout uint rng, float uT, float3 o, float3 dir, float tEnd, float3 sigmaS, float sigmaT)
+{
+    float3 bx = 0, bn = 0, ble = 0;
+    bool b2 = false;
+    float wSum = 0.0, bTarget = 0.0;
+    const int M = 6;
+    for (int c = 0; c < M; c++)
+    {
+        float3 xe, nl, le;
+        bool twoSided;
+        float pdfA;
+        if (!SampleEmissivePoint(rng, xe, nl, twoSided, le, pdfA)) continue;
+        float delta = dot(xe - o, dir);
+        float3 closest = o + dir * clamp(delta, 0.0, tEnd);
+        float h = max(length(xe - (o + dir * delta)), 0.05);
+        float angle = atan((tEnd - delta) / h) - atan((0.0 - delta) / h);
+        // Facing: the sign of dot(nl, x - xe) is linear along the ray, so a one-sided emitter that faces away from both
+        // ends of the segment faces away from all of it (exact rejection). The cosine itself is taken at the closest point.
+        float s0 = dot(nl, o - xe), s1 = dot(nl, o + dir * tEnd - xe);
+        if (!twoSided && s0 <= 0.0 && s1 <= 0.0) continue;
+        float cosL = abs(dot(nl, normalize(closest - xe + 1e-5)));
+        float target = dot(le, float3(0.2126, 0.7152, 0.0722)) * max(cosL, 0.05) * angle / h;
+        if (!(target > 0.0)) continue;
+        float w = target / pdfA;
+        wSum += w;
+        if (Rand(rng) * wSum < w) { bx = xe; bn = nl; ble = le; b2 = twoSided; bTarget = target; }
+    }
+    if (!(bTarget > 0.0)) return 0;
+    float W = wSum / (M * bTarget);
+    float pdfT;
+    float t = Equiangular(o, dir, 0.0, tEnd, bx, uT, pdfT);
+    float3 x = o + dir * t;
+    float3 toE = bx - x;
+    float d2 = dot(toE, toE);
+    float dist = sqrt(d2);
+    float3 L = toE / max(dist, 1e-4);
+    float cosL = -dot(bn, L);
+    if (b2) cosL = abs(cosL);
+    if (!(cosL > 1e-4) || !(pdfT > 0.0) || !Unoccluded(x, L, dist * 0.999 - 0.02)) return 0;
+    float3 li = ble * (cosL / max(d2, _EmissiveParams.z));
+    float trans = exp(-sigmaT * (t + dist));
+    float3 em = li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdfT) * W * _VolEmissive;
+    // Small hot emitters (lamp bulbs) behind their housings make rare, very bright samples: clamp this part tighter
+    // (a quarter of the light clamp). Large emitters (lava, panels) give dense, moderate samples.
+    float lumE = dot(em, float3(0.2126, 0.7152, 0.0722)) * kPi;
+    if (_VolClamp > 0.0 && lumE > 0.25 * _VolClamp) em *= 0.25 * _VolClamp / lumE;
+    return em;
 }
 
 // ---------------------------------------------------------------- ray generation
@@ -258,118 +383,71 @@ void VolumeRayGen()
         sum += _VolSunColor.rgb * (phase * lit) * sigmaS;
     }
 
-    // ---- local lights: one light picked in proportion to LightTarget (all lights enumerated up to 128, else RIS over
-    // _VolLightParams.y uniform candidates), equiangular distance, one shadow ray
+    // ---- local lights: _VolSamples.x lights per pixel, picked in proportion to LightTarget (all lights enumerated up to
+    // 128, one walk over the CDF with stratified numbers; else RIS over _VolLightParams.y uniform candidates per sample),
+    // equiangular distance, one shadow ray each
     float3 local = 0;
     int count = (int)_VolLightParams.x;
+    int nL = clamp((int)_VolSamples.x, 1, 8);
     if (count > 0 && _VolLightParams.z > 0.0)
     {
-        uint pick = 0xFFFFFFFFu;
-        float pickW = 0.0; // 1 / selection probability (estimated with RIS)
+        float uT0 = BlueOffset(id.yx, frame + 17u);
         if (count <= 128)
         {
             float total = 0.0;
             for (int i = 0; i < count; i++) total += LightTarget(i, o, dir, tEnd);
             if (total > 0.0)
             {
-                float u = BlueOffset(id, frame + 29u) * total, run = 0.0;
-                for (int j = 0; j < count && pick == 0xFFFFFFFFu; j++)
+                float u0 = BlueOffset(id, frame + 29u);
+                float run = 0.0;
+                int k = 0;
+                for (int j = 0; j < count && k < nL; j++)
                 {
                     float tj = LightTarget(j, o, dir, tEnd);
+                    if (!(tj > 0.0)) continue;
                     run += tj;
-                    if (u < run && tj > 0.0) { pick = j; pickW = total / tj; }
+                    while (k < nL && ((float)k + u0) * total < run * (float)nL)
+                    {
+                        local += LightSample(j, total / tj, frac(uT0 + 0.618034 * k), o, dir, tEnd, sigmaS, sigmaT);
+                        k++;
+                    }
                 }
             }
         }
         else
         {
             int cands = max((int)_VolLightParams.y, 1);
-            float wSum = 0.0, pickTarget = 0.0;
-            for (int c = 0; c < cands; c++)
+            for (int k = 0; k < nL; k++)
             {
-                uint i = min((uint)(Rand(rng) * count), (uint)count - 1u);
-                float target = LightTarget(i, o, dir, tEnd);
-                if (target <= 0.0) continue;
-                wSum += target;
-                if (Rand(rng) * wSum < target) { pick = i; pickTarget = target; }
-            }
-            // RIS weight: (1 / target) * (1 / M) * sum(target / p) with the uniform source pdf p = 1 / count.
-            if (pick != 0xFFFFFFFFu) pickW = count * wSum / (cands * pickTarget);
-        }
-        if (pick != 0xFFFFFFFFu)
-        {
-            float pdf, tA, tB;
-            LightSegment(pick, o, dir, tEnd, tA, tB);
-            float t = Equiangular(o, dir, tA, tB, _Lights[pick * 4].xyz, BlueOffset(id.yx, frame + 17u), pdf);
-            float3 x = o + dir * t;
-            float3 L;
-            float dist;
-            float3 Li = LocalLight(pick, x, L, dist);
-            if (any(Li > 0.0) && pdf > 0.0)
-            {
-                float trans = exp(-sigmaT * (t + dist));
-                float phase = PhaseHG(dot(dir, L), _VolParams.z);
-                // Stop short of the light like surface shadow rays do (lights sit inside their fixtures).
-                float clear = min(0.35, 0.5 * dist);
-                if (Unoccluded(x, L, dist - clear))
-                    local += Li * sigmaS * (trans * phase / pdf) * pickW * _VolLightParams.z;
+                uint pick = 0xFFFFFFFFu;
+                float wSum = 0.0, pickTarget = 0.0;
+                for (int c = 0; c < cands; c++)
+                {
+                    uint i = min((uint)(Rand(rng) * count), (uint)count - 1u);
+                    float target = LightTarget(i, o, dir, tEnd);
+                    if (target <= 0.0) continue;
+                    wSum += target;
+                    if (Rand(rng) * wSum < target) { pick = i; pickTarget = target; }
+                }
+                // RIS weight: (1 / target) * (1 / M) * sum(target / p) with the uniform source pdf p = 1 / count.
+                if (pick != 0xFFFFFFFFu)
+                    local += LightSample(pick, count * wSum / (cands * pickTarget), frac(uT0 + 0.618034 * k), o, dir, tEnd, sigmaS, sigmaT);
             }
         }
+        local *= _VolLightParams.z / (float)nL;
     }
 
-    // ---- emissive surfaces (lava, glowing panels, screens): RIS over points from the emissive table, the target being
-    // the point's emitted luminance times the integral of 1/d^2 along the ray; equiangular distance, one shadow ray
+    // ---- emissive surfaces (lava, glowing panels, screens): _VolSamples.y samples, each RIS over 6 points from the
+    // emissive table, the target being the point's emitted luminance times the integral of 1/d^2 along the ray;
+    // equiangular distance, one shadow ray
     if (_VolEmissive > 0.0 && _EmissiveCount > 0)
     {
-        float3 bx = 0, bn = 0, ble = 0;
-        bool b2 = false;
-        float wSum = 0.0, bTarget = 0.0;
-        const int M = 6;
-        for (int c = 0; c < M; c++)
-        {
-            float3 xe, nl, le;
-            bool twoSided;
-            float pdfA;
-            if (!SampleEmissivePoint(rng, xe, nl, twoSided, le, pdfA)) continue;
-            float delta = dot(xe - o, dir);
-            float3 closest = o + dir * clamp(delta, 0.0, tEnd);
-            float h = max(length(xe - (o + dir * delta)), 0.05);
-            float angle = atan((tEnd - delta) / h) - atan((0.0 - delta) / h);
-            // Facing: the sign of dot(nl, x - xe) is linear along the ray, so a one-sided emitter that faces away from both
-            // ends of the segment faces away from all of it (exact rejection). The cosine itself is taken at the closest point.
-            float s0 = dot(nl, o - xe), s1 = dot(nl, o + dir * tEnd - xe);
-            if (!twoSided && s0 <= 0.0 && s1 <= 0.0) continue;
-            float cosL = abs(dot(nl, normalize(closest - xe + 1e-5)));
-            float target = dot(le, float3(0.2126, 0.7152, 0.0722)) * max(cosL, 0.05) * angle / h;
-            if (!(target > 0.0)) continue;
-            float w = target / pdfA;
-            wSum += w;
-            if (Rand(rng) * wSum < w) { bx = xe; bn = nl; ble = le; b2 = twoSided; bTarget = target; }
-        }
-        if (bTarget > 0.0)
-        {
-            float W = wSum / (M * bTarget);
-            float pdfT;
-            float t = Equiangular(o, dir, 0.0, tEnd, bx, BlueOffset(id.yx, frame + 41u), pdfT);
-            float3 x = o + dir * t;
-            float3 toE = bx - x;
-            float d2 = dot(toE, toE);
-            float dist = sqrt(d2);
-            float3 L = toE / max(dist, 1e-4);
-            float cosL = -dot(bn, L);
-            if (b2) cosL = abs(cosL);
-            if (cosL > 1e-4 && pdfT > 0.0 && Unoccluded(x, L, dist * 0.999 - 0.02))
-            {
-                float3 li = ble * (cosL / max(d2, _EmissiveParams.z));
-                float trans = exp(-sigmaT * (t + dist));
-                float3 em = li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdfT) * W * _VolEmissive;
-                // Small hot emitters (lamp bulbs) behind their housings make rare, very bright samples: clamp this part
-                // tighter (a quarter of the light clamp). Large emitters (lava, panels) give dense, moderate samples.
-                float lumE = dot(em, float3(0.2126, 0.7152, 0.0722)) * kPi;
-                if (_VolClamp > 0.0 && lumE > 0.25 * _VolClamp) em *= 0.25 * _VolClamp / lumE;
-                local += em;
-            }
-        }
+        int nE = clamp((int)_VolSamples.y, 1, 8);
+        float uE0 = BlueOffset(id.yx, frame + 41u);
+        float3 emSum = 0;
+        for (int k = 0; k < nE; k++)
+            emSum += EmissiveSample(rng, frac(uE0 + 0.618034 * k), o, dir, tEnd, sigmaS, sigmaT);
+        local += emSum / (float)nE;
     }
     // Firefly clamp on the one-sample estimates (the sun's stratified march does not need it).
     float lumLocal = dot(local, float3(0.2126, 0.7152, 0.0722)) * kPi;
