@@ -206,7 +206,7 @@ namespace UltraRT
             var stats = new ScanStats();
             // Include inactive objects: ULTRAKILL keeps most enemies and room contents disabled until triggered.
             ScanRenderers(batches, stats);
-            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None)) AddLight(l);
+            foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None)) { AddLight(l); _buildLights.Add(l); }
             // Debug (-ultrart-dumpverts): the largest renderers (sky boxes/domes show up here).
             if (DumpAtlasVertices) foreach (var r in Object.FindObjectsOfType<Renderer>(true).Where(r => r is MeshRenderer || r is SkinnedMeshRenderer)
                          .OrderByDescending(r => r.bounds.size.magnitude).Take(8))
@@ -351,6 +351,15 @@ namespace UltraRT
         /// <summary>Renderers whose material is a panoramic sky (ULTRAKILL's fake sky spheres); the plugin picks the visible one.</summary>
         public readonly List<Renderer> SkyRenderers = new List<Renderer>();
 
+        /// <summary>Lights present when the scene was built (the level's own, active or not); later ones are spawned.</summary>
+        private readonly HashSet<Light> _buildLights = new HashSet<Light>();
+
+        /// <summary>
+        /// Was <paramref name="l"/> part of the level at scene build? Spawned lights (muzzle flashes, explosions, pickups)
+        /// are not; Plugin.FlagPlayerLights only exempts those from V1's shadow when they are inside the player box.
+        /// </summary>
+        public bool IsBuildLight(Light l) => _buildLights.Contains(l);
+
         private void AddLight(Light l)
         {
             if (l != null && _lightSet.Add(l)) Lights.Add(l);
@@ -361,6 +370,7 @@ namespace UltraRT
             for (int i = Lights.Count - 1; i >= 0; i--)
                 if (Lights[i] == null) { _lightSet.Remove(Lights[i]); Lights.RemoveAt(i); }
             _lightSet.RemoveWhere(l => l == null);
+            _buildLights.RemoveWhere(l => l == null);
         }
 
         private void NoteSky(Renderer r)
@@ -445,7 +455,7 @@ namespace UltraRT
             else
             {
                 var proxyMats = new Material[mats.Length];
-                for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
+                for (int i = 0; i < mats.Length; i++) proxyMats[i] = player ? PlayerProxyOrDisabled(mats[i]) : ProxyOrDisabled(mats[i]);
                 var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
                 AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
                 TrackSync(_dynamic[_dynamic.Count - 1], mats, mesh);
@@ -464,7 +474,7 @@ namespace UltraRT
             if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
             var mats = r.sharedMaterials;
             if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
-            var proxy = CreateSkinnedProxy(r, mats);
+            var proxy = CreateSkinnedProxy(r, mats, player);
             AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
             TrackSync(_dynamic[_dynamic.Count - 1], mats, r.sharedMesh);
             if (player) NotePlayerProxy(r);
@@ -588,7 +598,7 @@ namespace UltraRT
             return mr;
         }
 
-        private SkinnedMeshRenderer CreateSkinnedProxy(SkinnedMeshRenderer src, Material[] mats)
+        private SkinnedMeshRenderer CreateSkinnedProxy(SkinnedMeshRenderer src, Material[] mats, bool player)
         {
             var go = NewProxyObject($"{src.name} [UltraRT]", src.transform);
             var p = go.AddComponent<SkinnedMeshRenderer>();
@@ -597,7 +607,7 @@ namespace UltraRT
             p.rootBone = src.rootBone;
             p.localBounds = src.localBounds;
             p.updateWhenOffscreen = true;
-            p.sharedMaterials = mats.Select(ProxyOrDisabled).ToArray();
+            p.sharedMaterials = mats.Select(player ? (System.Func<Material, Material>)PlayerProxyOrDisabled : ProxyOrDisabled).ToArray();
             p.shadowCastingMode = ShadowCastingMode.Off;
             p.receiveShadows = false;
             p.rayTracingMode = RayTracingMode.DynamicGeometry;
@@ -818,6 +828,30 @@ namespace UltraRT
         }
 
         private Material ProxyOrDisabled(Material src) => Traceable(src) ? Proxy(src) : _disabledMaterial;
+
+        /// <summary>V1's materials as lit variants (SceneProxies.Player.cs), keyed by source material.</summary>
+        private readonly Dictionary<Material, Material> _playerMaterialCache = new Dictionary<Material, Material>();
+
+        /// <summary>
+        /// Proxy material for V1's third-person model. Its body (<c>V1</c>), wings (<c>V1Wing</c>) and third-person guns
+        /// (<c>Pistol New Unlit</c>, ...) are ULTRAKILL/Master without VERTEX_LIGHTING, which <see cref="Proxy"/> makes
+        /// fullbright like the game. The model is only ever seen in reflections and portal views, where fullbright V1
+        /// stood out bright grey in dark rooms (P-2's red hall): its variant is lit like the scene (_Unlit 0; the wings
+        /// keep their emission). A copy, so other users of the same material (pickups) keep the game's look.
+        /// </summary>
+        private Material PlayerProxyOrDisabled(Material src)
+        {
+            if (!Traceable(src)) return _disabledMaterial;
+            var m = Proxy(src);
+            if (!PlayerModelLit || !m.HasProperty("_Unlit") || m.GetFloat("_Unlit") <= 0f) return m;
+            if (_playerMaterialCache.TryGetValue(src, out var pm) && pm != null) return pm;
+            pm = new Material(m) { name = m.name + " (V1 lit)" };
+            pm.SetFloat("_Unlit", 0f);
+            _playerMaterialCache[src] = pm;
+            NoteProxyMaterial(src, pm); // runtime colour/texture changes, like the shared proxy
+            if (IsTwoSided(m)) _twoSidedProxies.Add(pm);
+            return pm;
+        }
 
         /// <summary>
         /// Cutout (alpha-tested) materials, e.g. grass cards: their hits run the any-hit alpha test, so their submeshes must
@@ -1150,6 +1184,8 @@ namespace UltraRT
             DisposeStatic();
             foreach (var m in _materialCache.Values) if (m != null) Object.Destroy(m);
             _materialCache.Clear();
+            foreach (var m in _playerMaterialCache.Values) if (m != null) Object.Destroy(m);
+            _playerMaterialCache.Clear();
             foreach (var m in _atlasVariants.Values) if (m != null) Object.Destroy(m);
             _atlasVariants.Clear();
             _atlasProxies.Clear();

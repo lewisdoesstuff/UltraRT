@@ -226,7 +226,7 @@ namespace UltraRT
             int subCount = d.Flags.Length;
             var flags = SubmeshFlags(mats, subCount);
             var proxyMats = new Material[mats.Length];
-            for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
+            for (int i = 0; i < mats.Length; i++) proxyMats[i] = d.Mask == PlayerMask ? PlayerProxyOrDisabled(mats[i]) : ProxyOrDisabled(mats[i]);
             ReleaseOwn(d);
             d.Proxy.sharedMaterials = proxyMats;
             SetSyncMaterials(d.Sync, mats);

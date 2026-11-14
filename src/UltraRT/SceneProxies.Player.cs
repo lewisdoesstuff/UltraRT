@@ -26,6 +26,12 @@ namespace UltraRT
         /// </summary>
         public static bool PlayerAlwaysAnimate = true;
 
+        /// <summary>
+        /// Light V1's fullbright materials like the scene in RT (<see cref="PlayerProxyOrDisabled"/>); false = fullbright
+        /// as in the game's own mirrors (read when the model's proxies are made: bench variant needs a level reload).
+        /// </summary>
+        public static bool PlayerModelLit = true;
+
         private Transform _playerModelRoot;
         private Animator _playerAnimator;
         private AnimatorCullingMode _playerAnimatorCulling;
@@ -55,9 +61,9 @@ namespace UltraRT
             _log.LogInfo($"Player model: '{GameControlPath(_playerModelRoot)}' active {anims.gameObject.activeInHierarchy}, layer {anims.gameObject.layer}, " +
                          $"animator {(_playerAnimator != null ? $"enabled {_playerAnimator.enabled}, culling {_playerAnimator.cullingMode}, update {_playerAnimator.updateMode}" : "none")}, " +
                          $"{rs.Length} renderers:");
-            foreach (var r in rs.Take(24))
+            foreach (var r in rs.Take(40))
                 _log.LogInfo($"  player renderer '{GameControlPath(r.transform)}' {r.GetType().Name} layer {r.gameObject.layer} active {r.gameObject.activeInHierarchy} " +
-                             $"enabled {r.enabled} mats [{string.Join(", ", r.sharedMaterials.Select(m => m != null ? $"{m.name} ({m.shader?.name})" : "null"))}]");
+                             $"enabled {r.enabled} mats [{string.Join(", ", r.sharedMaterials.Select(m => m != null ? $"{m.name} ({m.shader?.name}; {string.Join(" ", m.shaderKeywords)})" : "null"))}]");
             ApplyPlayerAnimatorCulling();
         }
 
