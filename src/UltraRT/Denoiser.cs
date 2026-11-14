@@ -305,7 +305,10 @@ namespace UltraRT
         }
 
         /// <summary>Forget all history (scene load, teleport, respawn, camera cut, shader reload).</summary>
-        public void Reset() => _historyValid = false;
+        public void Reset() { _historyValid = false; Generation++; }
+
+        /// <summary>Counts <see cref="Reset"/> calls (the temporal upsampler drops its history along with the denoiser's).</summary>
+        public int Generation { get; private set; }
 
         /// <summary>The filtered, demodulated lighting (ARGBHalf, trace resolution) from the last Execute. For the ratio composite.</summary>
         public RenderTexture FilteredLighting { get; private set; }

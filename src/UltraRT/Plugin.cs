@@ -274,6 +274,12 @@ namespace UltraRT
             _denoiserDirect = new Denoiser(denoise);
             _unpackHybrid = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "UnpackHybrid");
             if (_unpackHybrid == null) Logger.LogWarning("UnpackHybrid compute shader missing from bundle");
+            var upsample = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Upsample");
+            var upSettings = _upsampler?.Settings;
+            _upsampler?.Dispose();
+            _upsampler = upsample != null ? new TemporalUpsampler(upsample) : null;
+            if (_upsampler == null) Logger.LogWarning("Upsample compute shader missing from bundle: replace modes use the 2x2 depth-guided composite");
+            else if (upSettings != null) _upsampler.Settings = upSettings;
             _motionCopy = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "MotionCopy");
             if (_motionCopy == null) Logger.LogWarning("MotionCopy compute shader missing from bundle: skinned meshes get root motion only");
             if (settings != null) _denoiser.Settings = settings;
@@ -313,6 +319,13 @@ namespace UltraRT
                 if (Input.GetKeyDown(KeyCode.PageDown)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.PageUp)) { _mode = (_mode + Modes.Length - 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
+                if (Input.GetKeyDown(KeyCode.F2) && _upsampler != null)
+                {
+                    _upsampler.Settings.enabled = !_upsampler.Settings.enabled;
+                    string on = _upsampler.Settings.enabled ? "on" : "off (2x2 depth-guided)";
+                    Logger.LogInfo($"Temporal upsampling: {on}");
+                    Toast($"Temporal upsampling {on} (F2)");
+                }
                 CacheHotkeys();
             }
             catch (InvalidOperationException) { /* legacy input disabled */ }
@@ -616,6 +629,11 @@ namespace UltraRT
         private int _recordedFrame = -1;
         private int _camSwitchLogs;
         private Material _compositeMat;
+        private TemporalUpsampler _upsampler; // replace modes: jittered trace -> screen-res history (docs/denoiser.md, "Temporal upsampling")
+        private int _upsamplerGen;
+        private uint _upsampledFrame = uint.MaxValue - 1;
+        private Vector2 _jitter;
+        private static readonly int UltraRTUpsampledId = Shader.PropertyToID("_UltraRTUpsampled");
 
         private void OnCameraPreRender(Camera cam)
         {
@@ -814,6 +832,11 @@ namespace UltraRT
             if (resolve) _accumulate = false; // the denoiser and the reflection filter need unjittered primary rays
             int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * (pt ? _scale : 1f)));
             int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * (pt ? _scale : 1f)));
+            // Temporal upsampling (pt-dn, relight, dn-*): jitter the trace grid over the screen pixels; Upsample.compute
+            // accumulates the result at screen resolution using the game's depth buffer.
+            var depthBuf = pt && !_noDepthMatch ? MonoSingleton<PostProcessV2_Handler>.Instance?.depthBuffer : null;
+            bool taau = kind == Kind.Denoised && _upsampler != null && _upsampler.Settings.enabled && depthBuf != null;
+            _jitter = taau && _upsampler.Settings.jitter ? _upsampler.NextJitter(depthBuf.width, depthBuf.height, w, h) : Vector2.zero;
             // Guard band (docs/denoiser.md): trace a slightly wider view than the screen, so surfaces entering the screen
             // while turning already have denoiser/ReSTIR history and warm cache cells. The visible part keeps its pixel grid.
             int gxPx = pt && _guardActive ? Mathf.RoundToInt(w * Mathf.Clamp(_guardX, 0f, 0.25f)) : 0;
@@ -884,6 +907,9 @@ namespace UltraRT
             }
 
             var viewProj = Matrix4x4.Scale(new Vector3(1f / _guardScale.x, 1f / _guardScale.y, 1f)) * _camera.projectionMatrix * _camera.worldToCameraMatrix;
+            // Jitter: pixel p's primary ray goes through trace position p + 0.5 + _jitter. Every temporal consumer reprojects
+            // world positions with this (jittered) matrix, so their histories stay consistent.
+            if (_jitter != Vector2.zero) viewProj = Matrix4x4.Translate(new Vector3(-2f * _jitter.x / w, -2f * _jitter.y / h, 0f)) * viewProj;
             if (!_accumulate || !Approximately(viewProj, _lastViewProj) || _mode != _lastMode) _accumFrames = 0;
             _lastViewProj = viewProj;
             _lastMode = _mode;
@@ -1017,10 +1043,26 @@ namespace UltraRT
                 _displayed = _denoised;
             }
 
+            BindGameDepth(pt);
+            bool upsampled = false;
+            if (taau && _displayed == _denoised && _depthCopy != null)
+            {
+                _gpu?.Begin(_cmd, SlotUpsample);
+                // Its history goes with the denoiser's, and is stale after frames it didn't run (F2, other modes).
+                bool reset = _denoiser.Generation != _upsamplerGen || _upsampledFrame != _frameIndex - 1;
+                _upsamplerGen = _denoiser.Generation;
+                _upsampledFrame = _frameIndex;
+                _upsampler.Execute(_cmd, _camera, _denoised, _gNormalDepth, _gInstanceId, _depthCopy,
+                    new Vector2Int(gxPx, gyPx), _guardScale, _jitter, reset);
+                _gpu?.End(_cmd, SlotUpsample);
+                _cmd.SetGlobalTexture(UltraRTUpsampledId, _upsampler.Output);
+                upsampled = true;
+            }
+
             // Composite into the camera's current target without changing render-target bindings.
             _gpu?.Begin(_cmd, SlotBlit);
             _cmd.SetGlobalTexture(UltraRTImageId, _displayed);
-            _cmd.SetGlobalVector(UltraRTUVScaleId, new Vector4(1f / _guardScale.x, 1f / _guardScale.y, 0f, 0f));
+            _cmd.SetGlobalVector(UltraRTUVScaleId, new Vector4(1f / _guardScale.x, 1f / _guardScale.y, upsampled ? 1f : 0f, 0f));
             // Hybrid: keep the game's shaded colour and apply the RT/game lighting ratio. Needs a copy of the game's
             // colour target as it is right now (opaques + sky drawn), since the composite draws into it.
             var gameTex = kind == Kind.Hybrid ? MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex : null;
@@ -1049,7 +1091,6 @@ namespace UltraRT
             }
             _cmd.SetGlobalFloat(UltraRTModeId, ratio ? (_compositeDebug > 0 ? 1f + _compositeDebug : 1f) : 0f);
             _cmd.SetGlobalTexture(UltraRTNormalDepthId, pt ? (Texture)_gNormalDepth : Texture2D.whiteTexture);
-            BindGameDepth(pt);
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);
@@ -1073,8 +1114,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotCount = 6;
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotUpsample = 6, SlotCount = 7;
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "upsample" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

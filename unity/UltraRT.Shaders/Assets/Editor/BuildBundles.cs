@@ -42,6 +42,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/Proxy.shader",
                     "Assets/UltraRT/Shaders/Reflections.compute",
                     "Assets/UltraRT/Shaders/UnpackHybrid.compute",
+                    "Assets/UltraRT/Shaders/Upsample.compute",
                 },
             };
 
