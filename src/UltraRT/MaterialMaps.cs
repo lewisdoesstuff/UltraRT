@@ -105,8 +105,9 @@ namespace UltraRT
                 case SurfaceClass.Glass: case SurfaceClass.Hologram: case SurfaceClass.Mirror: return 0f;
                 case SurfaceClass.Wet: return 0.3f;
                 case SurfaceClass.Snow: case SurfaceClass.Carpet: return 0.5f;
+                case SurfaceClass.Marble: return 0.4f; // PBRify carves marble veins into grooves; polished marble is flat
                 case SurfaceClass.Flesh: case SurfaceClass.MetalHigh: return 0.6f;
-                case SurfaceClass.Marble: case SurfaceClass.MetalThin: case SurfaceClass.MetalLow: return 0.7f;
+                case SurfaceClass.MetalThin: case SurfaceClass.MetalLow: return 0.7f;
                 case SurfaceClass.MetalStumpy: case SurfaceClass.MetalGrill: case SurfaceClass.Wood: case SurfaceClass.WoodThin:
                 case SurfaceClass.Sand: case SurfaceClass.Grass: return 0.8f;
                 default: return 1f; // Generic, Gravel, Rubble, Dirt, Crunchy, Other: stone, brick, concrete

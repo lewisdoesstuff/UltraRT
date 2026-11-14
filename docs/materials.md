@@ -108,8 +108,9 @@ keep):
 skipped (they were covered by other slots). The composition takes about 7 ms.
 
 **Hit shader** (`Proxy.shader`): the ray generation shader requests detail with payload flag bit 3
-(`ULTRART_FLAG_DETAIL`) on primary and reflection rays only; bounce, radiance-cache and volumetric rays skip it (their
-hits are blurred by the cache and denoiser anyway). With detail:
+(`ULTRART_FLAG_DETAIL`) on primary rays only. Reflection, bounce, radiance-cache and volumetric hits skip it: at
+reflection hits it cost about 0.2 ms in metal rooms (section 5) and is invisible after the reflection filter. With
+detail:
 - **Normal**: the tangent frame comes from the triangle's positions and UV0 (`dP/du`, `dP/dv`, object to world,
   Gram-Schmidt against the shading normal; handedness from `dP/dv`), because many meshes have no tangents and the baked
   ones have none. Atlas UVs map into their rect with the same orientation, so UV0 works there too; `_MainTex_ST`'s
@@ -135,7 +136,9 @@ hits are blurred by the cache and denoiser anyway). With detail:
   denominator stays at the vertex normal (what the game used), and only the shadowed numerator is re-shaded with the
   detail normal (`c x max(0, n_d.L) / n_v.L`). That ratio would also scale the game's ambient, which doesn't depend on
   the normal, and at grazing light it swings from 0 to 2: tilted texel rows went black on 0-5's lava-lit walls. So the
-  detail is applied as `direct_vertex x (lum(direct_detail) + ambient) / (lum(direct_vertex) + ambient)`.
+  detail is applied as `direct_vertex x clamp((lum(direct_detail) + ambient) / (lum(direct_vertex) + ambient), 0.3,
+  1.5)`. The clamp is for night scenes: next to a lamp, a texel tilted towards it saw several times the vertex
+  normal's light and glowed (1-4).
 - Hybrid's composite picks one of the 2x2 nearest trace texels per screen pixel by depth. Per-texel shading made that
   visible as staircase edges along texel boundaries (the trace runs at half resolution). With detail on, the pick also
   compares albedo chromaticity with the game's pixel and prefers the trace texel of the same texture texel
@@ -149,7 +152,8 @@ Per class (`MaterialMaps.ClassNormal` / `ClassRoughness`), multiplied by the glo
 |---|---|---|
 | Generic, Gravel, Rubble, Dirt, Crunchy, Other (stone, brick, concrete, baked level geometry) | 1.0 | 0.6 |
 | Wood, WoodThin, MetalStumpy, MetalGrill, Sand, Grass | 0.8 | 0.6 (metals 0.8) |
-| Marble, MetalThin, MetalLow | 0.7 | 0.6 / 0.8 |
+| MetalThin, MetalLow | 0.7 | 0.8 |
+| Marble (PBRify carves the veins into grooves) | 0.4 | 0.6 |
 | Flesh, MetalHigh | 0.6 | 0.6 / 0.8 |
 | Snow, Carpet | 0.5 | 0.6 |
 | Wet | 0.3 | 0.3 |
@@ -165,10 +169,11 @@ secondary set alone.
 |---|---|---|
 | `-ultrart-materials on\|off`, `[Materials] Enabled`, **Ctrl+F1** | on | shader-side switch, instant |
 | `-ultrart-materials-source ai\|proc`, `[Materials] Source` | ai | which cache folder; read at scene build |
-| `-ultrart-materials-normal F`, `[Materials] NormalStrength` | 1 | global multiplier on the class normal strength |
+| `-ultrart-materials-normal F`, `[Materials] NormalStrength` | 2 | global multiplier on the class normal strength (relight, pt-dn, pt) |
+| `-ultrart-materials-hybrid-normal F`, `[Materials] HybridNormalStrength` | 1 | the same in hybrid |
 | `-ultrart-materials-roughness F`, `[Materials] Roughness` | 1 | global multiplier on the roughness variation |
 | `-ultrart-materials-guided on\|off` | on | hybrid composite: albedo-guided trace texel pick |
-| bench variants `mat.enabled=0`, `mat.normalStrength=2`, `mat.roughness=0`, `mat.guidedPick=0` | | e.g. `"relight+mat.enabled=0"` |
+| bench variants `mat.enabled=0`, `mat.normalStrength=2`, `mat.hybridNormalStrength=1`, `mat.roughness=0`, `mat.guidedPick=0` | | e.g. `"relight+mat.enabled=0"` |
 
 Log lines: `Material maps: N textures in ...`, per atlas `Material maps: atlas '' WxH: cells with detail ...`,
 `Material maps: atlas slots mapped per original submesh ..., by dominant material ..., skipped ...`, and after the
