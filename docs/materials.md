@@ -10,7 +10,8 @@ Code: `tools/materials/` (offline pipeline, [README](../tools/materials/README.m
 (cache, detail textures, atlas composition), `src/UltraRT/Plugin.Materials.cs` (settings, Ctrl+F1), the
 `AddAtlasCells` part of `StaticGroups.cs`, `Proxy.shader` (`DetailSample`, `DetailNormal`), `PathTrace.raytrace` and
 `UltraRTLights.hlsl` (vertex vs detail normal, hybrid ratio), `Composite.shader` (albedo-guided pick). Bench suites
-`materials` (looks and GPU cost, detail on/off within one run) and `materials-tune` (strengths, guided pick).
+`materials` (looks and GPU cost, detail on/off within one run), `materials-tune` (strengths, guided pick) and
+`materials-cost` (what the cost is made of).
 
 ## 1. Offline pipeline
 
@@ -105,7 +106,7 @@ keep):
 4. The atlas proxy and all its variants get the composed texture with `_DetailParams` = (1, 1, 0, 1).
 
 1-1: 74 of 74 atlas cells mapped, no conflicts; 257 slots split per original submesh, 875 by their only material, 238
-skipped (they were covered by other slots). The composition takes about 7 ms.
+skipped (their cells were covered by other slots). 0-1: 76/76 cells; 4-1: 62/62. Composition takes 3-10 ms per atlas.
 
 **Hit shader** (`Proxy.shader`): the ray generation shader requests detail with payload flag bit 3
 (`ULTRART_FLAG_DETAIL`) on primary rays only. Reflection, bounce, radiance-cache and volumetric hits skip it: at
@@ -181,7 +182,83 @@ build `Material maps (settings): N proxy materials bound, M without maps, K text
 
 ## 5. Results
 
-RESULTS_PLACEHOLDER
+Bench suites: `materials` (10 poses: 1-1 start, indoor a/b/c, terminal room, torch hall; 0-1 metal; 4-1 indoor A;
+0-5 lava; 1-4 lamps; modes `off`, `hybrid+mat.enabled=0`, `hybrid`, `relight+mat.enabled=0`, `relight`, alternating
+every 1.25 s so on/off are timed in the same pass), `materials-tune` (strength 1/2/3, guided pick on/off),
+`materials-cost` (what the cost is made of). RTX 5070 Ti, 2560x1440, trace scale 0.5, GPU timer. Run with
+`-ultrart-materials-source proc` for the procedural set. Crops are local (derived from the game's art, not committed):
+`%LOCALAPPDATA%\UltraRT\crops\` (`tune\`, `aiproc\`, `final\`, `final2\`), made from the bench screenshots.
+
+### Looks
+
+- **Relight is where it pays off.** At the old strength 1 the detail was there but subtle; `materials-tune` settled the
+  default at 2: torch-lit brick walls in 1-1 (indoor a, torch hall) get per-brick relief and light falloff across each
+  brick; 0-1's louvres and window frames get lit slats and shadowed gaps, and its metal highlights break up along the
+  panel seams; 0-5's carved walls read as carved; the 1-4 column shows its stone blocks under the lamp; 4-1's green
+  panels show their bevels. Strength 3 turns noisy and blotchy (4-1, 1-1 indoor a), so 2 is the default.
+- **Pixel art survives**: point-sampled per-texel normals give each texel one flat facet, so the relief is blocky in
+  the same grid as the albedo; nothing is smoothed or upscaled.
+- **Reflections**: per-texel normals and roughness break up the glossy floors and metal walls (1-1 terminal room: the
+  ceiling-light streaks become broken, rougher smears instead of clean stripes).
+- **Hybrid** is subtler and harder: its shadow ratio is at half resolution and multiplies the game's whole lit colour.
+  With the vertex-normal denominator, the ambient term, the clamp and the guided pick it looks right on 1-1's sunlit
+  walls and 1-4 at hybrid strength 1; at 2 it gets dirty (dark texel rows, stair-steps at texel edges). Single-hue
+  textures still show some stair-stepping where the guided pick can't tell texels apart.
+- **AI vs procedural in game** (`aiproc\`): with the same strength, PBRify's maps give bricks, panels and bevels a
+  consistent shape; the procedural maps are fainter and follow albedo specks, so walls look grainy rather than built.
+  The terminal room's reflections break up along real panel lines with PBRify, randomly with the procedural maps.
+
+### GPU cost
+
+Final build at the defaults (detail on primary rays only; relight normal strength 2, hybrid 1), GPU total ms, detail
+off -> on in the same pass (`bench/results/20261114-134928_materials`):
+
+| Pose | hybrid | relight |
+|---|---|---|
+| 1-1 start | 2.332 -> 2.371 (+0.04) | 2.859 -> 2.983 (+0.12) |
+| 1-1 indoor a | 3.385 -> 3.637 (+0.25; this pose swings by about 0.2 between runs) | 4.026 -> 4.173 (+0.15) |
+| 1-1 indoor b | 3.589 -> 3.645 (+0.06) | 4.118 -> 4.313 (+0.19) |
+| 1-1 indoor c | 3.197 -> 3.242 (+0.04) | 3.714 -> 3.862 (+0.15) |
+| 1-1 terminal | 3.974 -> 3.968 (-0.01) | 4.441 -> 4.618 (+0.18) |
+| 1-1 torch hall | 3.241 -> 3.298 (+0.06) | 3.838 -> 4.053 (+0.21) |
+| 0-1 metal | 4.322 -> 4.488 (+0.17) | 4.453 -> 4.752 (+0.30) |
+| 4-1 indoor A | 3.243 -> 3.298 (+0.06) | 3.301 -> 3.439 (+0.14) |
+| 0-5 lava | 4.247 -> 4.365 (+0.12) | 4.311 -> 4.688 (+0.38) |
+| 1-4 lamps | 2.240 -> 2.282 (+0.04) | 2.600 -> 2.684 (+0.08) |
+
+So hybrid (strength 1) costs about +0.05 ms, up to +0.17 ms in metal rooms, and relight at strength 2 about
++0.1-0.2 ms, up to +0.3-0.4 ms in 0-1's metal room and 0-5. The same build at relight strength 1 measured +0.04-0.10
+ms (0-5 +0.19): the texture work is small, and most of the cost grows with the tilt, because shadow, bounce and
+reflection rays from bumpy surfaces go in more divergent directions. Average frame times (4-6 ms here) swing by up
+to 0.6 ms either way between 1.25 s segments, so the GPU timer is the number to trust: relight frames were mostly
+slower with detail (up to +0.9 ms in the terminal room), hybrid ones not measurably.
+
+What it is made of (`materials-cost`, relight dispatch ms over detail off, all at strength 1):
+
+| Pose | detail on, at reflection hits too (first build) | ... per-texel roughness off | ... normal strength 0 | reflections off | detail on, primary rays only |
+|---|---|---|---|---|---|
+| 1-1 terminal | +0.38 | +0.36 | +0.19 | +0.06 | +0.10 |
+| 0-1 metal | +0.40 | +0.46 | +0.24 | +0.11 | +0.16 |
+| 0-5 lava | +0.49 | +0.48 | +0.17 | +0.12 | +0.17 |
+
+Per-texel roughness costs nothing. Most of the first build's cost was in the reflections: the detail work at every
+reflection hit (about 0.2 ms even with flat normals), plus reflection rays that bumpy surfaces scatter into more
+divergent directions (the look itself). Dropping detail at reflection hits removed the first part; the reflected
+surfaces are filtered and blurred anyway, so nothing visible was lost. The remaining +0.1-0.2 ms in metal rooms is
+mostly the divergence.
+
+Load, per level build: 65-140 ms for the 100-160 detail textures a level uses (one `LoadImage` of `<key>_d.png`
+each; the first version decoded two PNGs and made three textures per entry, 1.1 s for 1-1) plus 3-10 ms per atlas
+composition. 1-1, 0-1 and 4-1 atlases: 74/74, 76/76 and 62/62 cells mapped (2 conflicting votes in 4-1, first one
+kept).
+
+### Recommended defaults
+
+- **On, PBRify (`ai`) maps**, strength 2 in relight / pt-dn / pt, 1 in hybrid, per-class table as in section 3,
+  guided pick on. Detail matters most in relight, which shades with the normals directly. If the +0.3-0.4 ms in
+  metal-heavy rooms matters more than the relief, 1.5 is a reasonable middle.
+- Procedural maps only as a fallback where no AI maps exist: they are cheap to generate but mostly add albedo noise.
+- Keep `"detail": 0` overrides in mind for printed art the class table misses (signs and posters on lit materials).
 
 ## 6. Limits and next steps
 
@@ -195,4 +272,5 @@ RESULTS_PLACEHOLDER
   colour, not on single-hue textures.
 - **No parallax or height**: PBRify's height model was not used (its author disables it by default because baked
   lighting in the albedo misleads it). Per-texel normals on flat quads also can't self-shadow.
-- **Bounce and cache hits ignore detail** by design (cost); the indirect light is smooth anyway.
+- **Reflection, bounce and cache hits ignore detail** by design (cost); reflections are filtered and the indirect light
+  is smooth anyway.
