@@ -174,6 +174,7 @@ namespace UltraRT
                                                 }
                                                 sum[k] += d * d; cnt[k]++;
                                                 considered++;
+                                                if (k == 5) continue; // no traced surface: the game's own foliage, birds, sky
                                                 bs += d; bn++;
                                                 if (err != null) err[i] = Math.Abs(d) * 0.70710678f;
                                             }
@@ -202,10 +203,12 @@ namespace UltraRT
                     if (!isOff && considered > 0)
                     {
                         double all = sum.Sum();
+                        long surf = considered - cnt[5];
                         var ms = new MotionStats
                         {
                             Mode = spec, Window = t0, Frames = caps, Passes = nPasses, Width = W, Height = H,
-                            Sigma = (float)Math.Sqrt(all / considered / 2.0),
+                            // Headline: traced surfaces only ("none" is what the game draws itself: foliage, birds, sky).
+                            Sigma = surf > 0 ? (float)Math.Sqrt((all - sum[5]) / surf / 2.0) : 0f,
                             SigmaBlock = blocks > 0 ? (float)Math.Sqrt(blockSum / blocks / 2.0) : 0f,
                             Offset = offsetN > 0 ? (float)(offsetSum / offsetN) : 0f,
                             MaskedShare = (float)((double)maskedOut / Math.Max(1, considered + maskedOut)),
@@ -216,7 +219,7 @@ namespace UltraRT
                             ms.Classes.Add(MotionClassNames[k]);
                             ms.ClassShare.Add((float)((double)cnt[k] / considered));
                             ms.ClassSigma.Add(cnt[k] > 0 ? (float)Math.Sqrt(sum[k] / cnt[k] / 2.0) : 0f);
-                            ms.ClassEnergy.Add(all > 0 ? (float)(sum[k] / all) : 0f);
+                            ms.ClassEnergy.Add(k != 5 && all - sum[5] > 0 ? (float)(sum[k] / (all - sum[5])) : 0f);
                         }
                         sr.MotionNoise.Add(ms);
                         Logger.LogInfo($"Motion noise '{sc.Name}' @ {t0:F1}s {spec}: sigma {ms.Sigma:F2} block4 {ms.SigmaBlock:F2} offset {ms.Offset:F2} masked {ms.MaskedShare:P0}; " +
@@ -308,18 +311,19 @@ namespace UltraRT
         {
             if (!r.Scenarios.Any(s => s.MotionNoise.Count > 0)) return;
             sb.AppendLine();
-            sb.AppendLine("Motion noise (screen luma 0-255; sigma = RMS difference between replays of the same path window / sqrt 2; " +
-                          "block = the same on 4x4 pixel means; per class: sigma / share of pixels / share of the squared error):");
+            sb.AppendLine("Motion noise (screen luma 0-255; sigma = RMS difference between replays of the same path window / sqrt 2, over traced " +
+                          "surfaces; block = the same on 4x4 pixel means; per class: sigma / share of pixels / share of the squared error; " +
+                          "none = pixels without a traced surface, not in sigma):");
             sb.AppendLine();
             var cols = new[] { 0, 1, 2, 6, 3, 4 }; // thin, edge, fresh, young, screen edge, interior
-            sb.AppendLine("| Scenario | Window | Mode | sigma | block4 | " + string.Join(" | ", cols.Select(k => MotionClassNames[k])) + " | offset |");
-            sb.AppendLine("|---|---|---|---|---|" + string.Concat(cols.Select(_ => "---|")) + "---|");
+            sb.AppendLine("| Scenario | Window | Mode | sigma | block4 | " + string.Join(" | ", cols.Select(k => MotionClassNames[k])) + " | none | offset |");
+            sb.AppendLine("|---|---|---|---|---|" + string.Concat(cols.Select(_ => "---|")) + "---|---|");
             foreach (var sc in r.Scenarios)
                 foreach (var m in sc.MotionNoise)
                     sb.AppendLine($"| {sc.Name} | {m.Window:F1}s | {m.Mode} | {m.Sigma:F2} | {m.SigmaBlock:F2} | " +
                                   string.Join(" | ", cols.Select(k =>
                                       k < m.ClassSigma.Count ? $"{m.ClassSigma[k]:F2} / {m.ClassShare[k] * 100:F0}% / {m.ClassEnergy[k] * 100:F0}%" : "-")) +
-                                  $" | {m.Offset:F2} |");
+                                  $" | {(m.ClassSigma.Count > 5 ? $"{m.ClassSigma[5]:F2} / {m.ClassShare[5] * 100:F0}%" : "-")} | {m.Offset:F2} |");
         }
     }
 }
