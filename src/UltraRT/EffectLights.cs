@@ -33,6 +33,12 @@ namespace UltraRT
         public float hybridWeight = 1f;
         /// <summary>Flicker: the light's intensity follows flame brightness / its running mean, clamped to [1 - x, 1 + x].</summary>
         public float flickerRange = 0.35f;
+        /// <summary>
+        /// Virtual lights also for additive trails, lines and meshes. Off by default: in the levels surveyed those are enemy
+        /// motion streaks, light-shaft decor (LightPillar) and lava overlays (lit by EmissiveLights), and every beam that
+        /// matters (revolver, railcannon) has its own Light.
+        /// </summary>
+        public bool virtualTrailsAndMeshes = false;
     }
 
     /// <summary>
@@ -110,6 +116,8 @@ namespace UltraRT
         private readonly Dictionary<Texture, Color> _texCache = new Dictionary<Texture, Color>();
         private readonly Dictionary<Sprite, Color> _spriteCache = new Dictionary<Sprite, Color>();
         private Texture2D _readTex;
+        private readonly MaterialPropertyBlock _mpb = new MaterialPropertyBlock();
+        private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         private const int TexRes = 16;
         private const int MaxFlickers = 16;
 
@@ -117,7 +125,7 @@ namespace UltraRT
 
         // Glowing-looking effects that are not light sources: dust and smoke puffs drawn additively, checkpoint holograms,
         // water. Matched against material and texture names (lower case).
-        private static readonly string[] Excluded = { "smoke", "dust", "gas", "fog", "cloud", "mist", "steam", "checkpoint", "water", "splash", "glass", "shockwave", "hole" };
+        private static readonly string[] Excluded = { "smoke", "dust", "gas", "fog", "cloud", "mist", "steam", "checkpoint", "water", "splash", "glass", "shockwave", "hole", "lava", "pillar" };
         private const float MaxRadius = 6f;
 
         private readonly List<Light> _tmpLights = new List<Light>(16);
@@ -213,6 +221,7 @@ namespace UltraRT
             else if (r is TrailRenderer) kind = Kind.Trail;
             else if (r is MeshRenderer) kind = Kind.Mesh;
             else return;
+            if (!Settings.virtualTrailsAndMeshes && kind != Kind.Sprite && kind != Kind.Particles) return; // see the setting
             var m = r.sharedMaterial;
             if (m == null) return;
             var info = Analyse(m);
@@ -482,6 +491,7 @@ namespace UltraRT
                         continue;
                     }
                     if (!s.virtualLights || e.OnLight || e.Strength < s.minStrength) continue;
+                    if (!s.virtualTrailsAndMeshes && e.Kind != Kind.Sprite && e.Kind != Kind.Particles) continue;
                     e.Score = e.Strength * (e.Radius + 0.5f) / (1f + d2 / 25f) * (was ? 1.5f : 1f);
                     Insert(e, Math.Max(0, s.maxVirtual));
                 }
@@ -582,6 +592,17 @@ namespace UltraRT
                     var a = SpriteAverage(sp);
                     var c = e.SR.color;
                     col = new Color(col.r * a.r * c.r * c.a, col.g * a.g * c.g * c.a, col.b * a.b * c.b * c.a, 1f);
+                    // Flames animate with AnimatedTexture, which swaps _MainTex frames through a property block.
+                    e.R.GetPropertyBlock(_mpb);
+                    if (!_mpb.isEmpty)
+                    {
+                        var frame = _mpb.GetTexture(MainTexId);
+                        if (frame != null)
+                        {
+                            var f = TexAverage(frame);
+                            col = new Color(col.r * f.r, col.g * f.g, col.b * f.b, 1f);
+                        }
+                    }
                     break;
                 }
             }
