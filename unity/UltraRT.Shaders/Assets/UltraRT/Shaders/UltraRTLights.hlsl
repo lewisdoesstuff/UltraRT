@@ -70,6 +70,19 @@ float    _EmissiveHybridAdd;    // hybrid: emissive direct light added on top of
 
 // ---------------------------------------------------------------- light model
 
+// Sky and GI (relight; docs/relight.md, "Sky and GI"). Unbound (zero) = the game's gamma-space model, hard sun shadows,
+// no sky sampling.
+//   x: 1 = linear light transport. Game colours (light colours, albedo, emission, sky) are gamma encoded; lighting is
+//      computed on their linear values (^2.2) and the composites convert the filtered result back (LightToDisplay).
+//   y: sun angular radius (radians) for shadowed directional lights; 0 = hard shadows
+//   z: 1 = sample the sky directly (UltraRTSky.hlsl, SkyDirect)
+//   w: sky light scale (0 = 1)
+float4 _SkyLight;
+
+bool   LinearLight() { return _SkyLight.x > 0.5; }
+float3 ToLight(float3 g) { return LinearLight() ? pow(max(g, 0.0), 2.2) : g; }
+float3 LightToDisplay(float3 l) { return LinearLight() ? pow(max(l, 0.0), 1.0 / 2.2) : l; }
+
 bool VisibleMasked(float3 p, float3 n, float3 dir, float dist, uint mask)
 {
     RayDesc r;
@@ -102,7 +115,20 @@ bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
     float radius = _Lights[i * 4 + 2].w != 0.0 ? _Lights[i * 4 + 2].w : _LightRadius;
     bool upper = radius < 0.0;
     radius = abs(radius);
-    if (radius > 0.0 && dist < 1.0e3)
+    if (dist >= 1.0e3 && _SkyLight.y > 0.0)
+    {
+        // Directional light (the sun): a random direction within its disk, for penumbrae that widen with distance.
+        float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+        float u2 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+        float cosT = 1.0 - u1 * (1.0 - cos(_SkyLight.y));
+        float sinT = sqrt(max(0.0, 1.0 - cosT * cosT));
+        float phi = u2 * 6.28318530718;
+        float3 t = abs(L.y) < 0.999 ? normalize(cross(L, float3(0, 1, 0))) : float3(1, 0, 0);
+        float3 b = cross(L, t);
+        L = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + L * cosT);
+        if (dot(L, n) <= 0.0) return false;
+    }
+    else if (radius > 0.0 && dist < 1.0e3)
     {
         float3 lp = p + L * dist;
         float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
@@ -154,7 +180,30 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
 
     float atten = 1.0;
     dist = 1.0e4;
-    if (local)
+    bool lin = LinearLight();
+    if (local && lin)
+    {
+        // Linear transport: the same curves on linear values. The physical curve is inverse-square in linear light,
+        // equal to the game's at half the range ((1/7.25)^2.2 there), windowed to 2r and capped at 3x the game.
+        float4 l2 = _Lights[i * 4 + 2];
+        float4 l3 = _Lights[i * 4 + 3];
+        float r = max(l0.w, 1e-6);
+        float game = (1.0 / (1.0 + d2 * 25.0 / (r * r))) * saturate(2.0 - d / r);
+        float gameL = pow(game, 2.2);
+        if (_Relight.x > 0.0)
+        {
+            float rRef = 0.5 * r;
+            float x = d / (2.0 * r);
+            float window = saturate(1.0 - x * x * x * x);
+            float phys = 0.012820 * (rRef * rRef) / max(d2, 0.01) * window * window; // (1/7.25)^2.2
+            phys = min(phys, pow(3.0 * game + 0.05, 2.2));
+            gameL = lerp(gameL, phys, saturate(_Relight.x));
+        }
+        atten = gameL * pow(saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y), 2.2);
+        dist = d;
+        if (atten < 2.5e-7) return false; // 1e-3 in gamma
+    }
+    else if (local)
     {
         float4 l2 = _Lights[i * 4 + 2];
         float4 l3 = _Lights[i * 4 + 3];
@@ -176,11 +225,12 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
         atten = game * saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
         dist = d;
     }
-    if (atten < 1e-3) return false;
+    if (!lin && atten < 1e-3) return false;
     float scale = RelightExposure();
     if (_Lights[i * 4 + 3].z > 0.5) scale *= 1.0 - saturate(_Relight.y); // unshadowed fill light
     if (scale <= 0.0) return false;
-    c = _Lights[i * 4 + 1].rgb * (atten * ndl * scale);
+    // Exposure and fill cut scale the light's (gamma) colour, so a light on its own keeps its brightness either way.
+    c = ToLight(_Lights[i * 4 + 1].rgb * scale) * (atten * ndl);
     return true;
 }
 
@@ -256,7 +306,7 @@ bool EmissiveEval(uint tri, uint bary, float3 p, float3 n, out float3 L, out flo
     if ((flags & 1u) != 0u) cosL = abs(cosL);
     if (cosL <= 1e-4) return false;
 
-    float3 le = float3(f16tof32(t1.w), f16tof32(t1.w >> 16), f16tof32(t2.w));
+    float3 le = ToLight(float3(f16tof32(t1.w), f16tof32(t1.w >> 16), f16tof32(t2.w)));
     c = le * (_EmissiveParams.y * cosS * cosL / max(d2, _EmissiveParams.z));
     return true;
 }

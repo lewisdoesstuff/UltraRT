@@ -54,6 +54,7 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("cache", _cacheSettings);
             yield return new KeyValuePair<string, object>("refl", _reflSettings);
             yield return new KeyValuePair<string, object>("em", _emissiveSettings);
+            yield return new KeyValuePair<string, object>("ae", _aeSettings);
             if (_denoiser != null) yield return new KeyValuePair<string, object>("dn", _denoiser.Settings);
         }
 
@@ -66,6 +67,7 @@ namespace UltraRT
             _denoiserDirect?.Reset();
             _lightSampling?.Reset();
             _reflFilter?.Reset();
+            _autoExposure?.Reset(); // snap to the variant's exposure (same base mode: no automatic snap)
         }
 
         /// <summary>"mode+key=value+..." -> applies the variants, returns the view mode. Keys: lights=ref|ris|restir,

@@ -12,6 +12,14 @@ Texture2D<uint4>         _UltraRTLitWeight; // PathTrace's _HybridLight: w & 0xF
 float  _UltraRTAutoExposure;                // global: 1 = apply _UltraRTExposure, 0 = off
 float  _UltraRTTonemapWhite;                // global, relight: luminance (or max channel) that maps to 1; 0 = no tone map
 float4 _UltraRTTonemapParams;               // global: x curve (0 = luminance shoulder, 1 = max-channel shoulder), y knee (0 = 0.75)
+float  _UltraRTLinear;                      // global, relight: 1 = lighting is linear (linear light transport, docs/relight.md)
+
+// Filtered lighting -> the game's gamma lighting units (albedo * lighting is then the displayed colour). After the
+// denoiser, so the noisy samples are averaged in linear space.
+float3 UltraRTDisplayLighting(float3 l)
+{
+    return _UltraRTLinear > 0.5 ? pow(max(l, 0.0), 1.0 / 2.2) : l;
+}
 
 // Exposure multiplier for the lit part of trace pixel s.
 float UltraRTPixelExposure(uint2 s)

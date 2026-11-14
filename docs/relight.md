@@ -6,13 +6,19 @@ everything is derived from each light's colour, intensity and range, plus a few 
 | Knob | Flag | Default | Effect |
 |---|---|---|---|
 | Falloff | `-ultrart-relight-falloff` | 1 | 0 = ULTRAKILL's curve, 1 = inverse-square, matched to the game's brightness at half the light's range, windowed smoothly to 2x range (where the game's lights end), clamped within 0.1 m |
-| Fill cut | `-ultrart-relight-fill` | 0.25 | how much of the game's unshadowed fill lights (upward-facing directional "ground bounce" fakes) to remove; 1 removes them all. See "Fill lights" below |
+| Fill cut | `-ultrart-relight-fill` | 1 | how much of the game's unshadowed fill lights (upward-facing directional "ground bounce" fakes) to remove; 1 removes them all (sky light and bounce replace them). See "Fill lights" below |
 | Ambient cut | `-ultrart-relight-ambient` | 1 | removes the game's flat ambient term |
 | Exposure | `-ultrart-relight-exposure` | 1.5 | multiplier on every point/spot/directional light (emissive triangles keep their own scale) |
 | White point | `-ultrart-relight-white` | 3 | shoulder tone map in the denoiser's composite: values below the knee are untouched, the white point maps to 1, so hotspots roll off instead of clipping |
 | Tone curve | `-ultrart-relight-tonemap` | `lum` | `lum` scales by luminance (the original curve); `max` scales by the largest channel (keeps hue and saturation, never clips below the white point, but dims hot saturated colours such as torch-lit orange walls a little) |
 | Knee | `-ultrart-relight-knee` | 0.75 | where the shoulder starts |
 | Auto exposure | `-ultrart-relight-autoexposure on\|off` | on | see below; config `[Relight] AutoExposure`; **Ctrl+F4** toggles in game |
+| Linear transport | `-ultrart-relight-linear on\|off` | on | light transport on linear values; see "Sky and GI" |
+| Sun disk | `-ultrart-sun-angle DEG` | 0.5 | angular radius of shadowed directional lights (soft sun shadows); 0 = hard |
+| Sky sampling | `-ultrart-sky-sampling on\|off` | on | one sky light sample with a visibility ray per pixel |
+| Sky scale | `-ultrart-sky-scale F` | 1 | sky light multiplier (1 = the sky lights the level as brightly as it is drawn) |
+
+**Ctrl+F5** toggles the last four together (A/B against the gamma-space relight).
 
 The radiance cache uses the same light model (it shares `UltraRTLights.hlsl`), so the bounce is consistent with
 the relit direct light. Shader side: `_Relight` (float4, zero = the game's model) in `UltraRTLights.hlsl`,
@@ -57,14 +63,118 @@ Measured (bench suite `exposure`, `bench/suites/exposure.json`): 1-1 start -0.39
 Cost (RTX 5070 Ti, 1920x1080, trace scale 0.5): 0.004-0.008 ms GPU for both kernels (GPU timer slot `exposure`), plus
 one extra texture read per pixel in Composite. The histogram buffer is 256 bytes.
 
+## Sky and GI
+Relight computes light transport on linear values, lights the scene with the sky, and gives the sun a disk. Code:
+`UltraRTSky.hlsl` (sky radiance, sky table, `SkyDirect`, `SkyMissWeight`), `_SkyLight` and `ToLight`/`LightToDisplay`
+in `UltraRTLights.hlsl`, `src/UltraRT/Plugin.SkyGI.cs` (knobs, sky table, `_UltraRTLinear`, radiance statistics).
+
+**Linear transport.** The game lights in gamma space: `albedo * sum(lights)` on sRGB-encoded values. That is the
+look of every forward-lit Unity game in gamma colour space, but it is wrong for GI. Averaging light over a hemisphere
+(sky visibility, soft shadows, bounce) in gamma space crushes partial values: a surface that sees half the sky gets
+0.5 of the sky, where the linear answer displays as 0.5^(1/2.2) = 0.73. Albedo products are the same either way
+(`(a*b)^(1/2.2) = a^(1/2.2) * b^(1/2.2)`), so the only difference is how light *adds up*. With `_SkyLight.x` set,
+every game colour that acts as light or reflectance (light colours after exposure and fill cut, falloff curves, spot
+cones, emissive triangles, the sky, albedo and emission at bounce hits, ambient) is raised to ^2.2 first.
+PathTrace, the cache and the denoiser then work on linear lighting. The denoiser's Composite and `Exposure.compute`
+convert the *filtered* lighting back (`UltraRTDisplayLighting`), so the conversion never sees noisy samples (that
+would bias dark). The physical falloff is inverse-square in linear light, equal to the game's at half the range
+((1/7.25)^2.2), so a light on its own keeps its brightness there and falls off as `1/d^0.91` in display terms
+(it used to be `1/d^2` in gamma, i.e. `1/d^4.4` in linear). Reflections convert each reflection sample's hit
+lighting back to gamma, because the reflection filter works in display units. `pt` with `-ultrart-accumulate`
+accumulates displayed colour, so it is slightly biased dark in linear mode. Use the radiance statistics (below) for
+energy comparisons.
+
+**Sky light.** The sky is the level's panoramic sky (`FindSkyMaterial`: an active Skybox/Panoramic sphere such as
+1-1's `LimboSkySky` / `green-fields`, else `RenderSettings.skybox`; with neither, the flat `_SkyColor` = ambient).
+Sky walls (LIMBO_WALLS, mask 0x02) report a miss, so rays that hit them get sky radiance, and visibility rays pass
+through them. Sky light is estimated two ways, combined with the balance heuristic:
+- `SkyDirect`: one direction from a luminance-weighted alias table over a 64x32 lat-long grid of the sky (cell weight
+  = linear luminance x solid angle + a 2% uniform floor), uniform in solid angle within the cell, one visibility ray
+  (geometry + fixtures). Weight `p_cos / (p_cos + p_sky)`.
+- The cosine bounce ray: when it escapes, it gets `SkyLightRadiance * p_cos / (p_cos + p_sky)` (`SkyMissWeight`).
+
+Together they are unbiased for any table: measured means with and without sky sampling agree within 0.5% (1-1
+cerberus 0.641 vs 0.642, user d 0.425 vs 0.424, start 0.535 vs 0.538, linear). The table is built on the CPU from an
+async readback of the sky texture (blitted to 512x256, mipped to 64x32) whenever the texture or tint changes. Until
+it arrives, a 1-entry uniform-sphere table is bound. A flat sky colour uses that uniform table, and a black one turns
+sampling off (0-5, 4-1: no extra cost). The radiance cache's update paths don't take sky samples
+(`ULTRART_SKY_NO_NEE`): cells average hundreds of cosine paths, so the ray cost 0.06 ms for no visible gain. Their
+cosine misses carry the full sky.
+
+**Sun.** Shadowed directional lights (the game's sun; directional lights from below the horizon stay unshadowed
+fills) aim their shadow ray at a uniform point in a cone of `-ultrart-sun-angle` (0.5 deg) around the light direction.
+The penumbra is about 1.7 cm per metre of occluder distance.
+
+**Cache energy.** The cache's multi-bounce is energy-correct: 2 bounces plus the 0.8 feedback tail measure the same as
+4 explicit bounces without feedback (1-1 cerberus 0.640 vs 0.641, user d 0.421 vs 0.425, torch hall 0.066 vs 0.068,
+pt-indirect, linear). Feedback 1.0 adds 1-4%. In the gamma model the cache added 27% (outdoors) to 62% (torch hall)
+over one bounce. With linear albedo (~0.15 instead of ~0.45) further bounces carry less, as they should.
+
+### Diagnosis: the "bounce is a tenth of the fill" claim
+Measured with the radiance statistics (bench `sky-diag`; mean demodulated lighting by surface orientation, game
+units), 1-1 cerberus pose, gamma-space relight (exposure 1.5):
+
+| | up | side | down |
+|---|---|---|---|
+| sun (direct, no fill) | 1.70 | 0.63 | 0.03 |
+| fill at 0.75 (`(3)` + `(4)`) | 0.00 | 0.17 | 0.20 |
+| RT sky + bounce (cache) | 0.75 | 0.83 | 0.59 |
+
+On average the RT indirect light was already 2-5x the fill on the surfaces the fill lights (side, down), not a tenth.
+The dark cerberus statues came from **exposure**: with the old model, sunlit ground reached 2.5 and auto exposure
+pulled the whole frame down by 1.4 EV (user d: 2.0 EV), which pushed shaded bronze to near black. With linear
+transport the same poses need -1.0 / -0.7 EV, because shaded surfaces (lit by averaged sky and bounce) are no longer
+crushed relative to sunlit ones. Sky light is about 12% of the sun on open ground (up-facing: sun 4.1, sky 0.51,
+linear), within the usual 10-20% of a clear day, so the sky scale stays 1.
+
+### Defaults
+- **Fill cut 1** (fully ray traced). With linear transport, the 0.25 fill changes outdoor side-facing lighting by about
+  4% and down-facing (statue undersides) from 0.74 to 0.86 display. Auto exposure is the same within 0.07 EV, and
+  the screenshots are near identical. Fill lights only reach outdoor layers, so rooms are unaffected.
+- **Auto exposure max stays 0 EV.** Linear transport makes torch-lit rooms about 0.6 EV darker (1-1 torch hall mean
+  0.34 to 0.23, indoor a 0.38 to 0.23), because gamma-space sums of direct and bounce light over-brighten. `maxEV`
+  0.5 restores them, but where the target falls inside the clamp (1-4 drift at night, +0.3 EV) the exposure follows
+  the noisy histogram and flickers (masked burst sigma 0.97 vs 0.26). Use `-ultrart-ae-max 0.5` for brighter rooms.
+- Sky scale 1, sun 0.5 deg, sky sampling on.
+
+### Cost and noise (RTX 5070 Ti, 1920x1080, trace scale 0.5)
+GPU total vs the gamma relight (bench `sky-validate`): +0.06 to +0.26 ms in 1-1 (sky in view: start +0.11, cerberus
++0.15, user b/c +0.20/+0.22, grass +0.26; indoors +0.09/+0.10), 1-4 +0.06/+0.09, 0-5 and 4-1 +0.00/+0.02 (no sky). All of
+it is the sky visibility ray and pow() in PathTrace (`dispatch`); `cache` is unchanged. The sky table is 32 KB.
+
+Temporal noise (Burst, masked sigma, 64 frames; lower is better), gamma relight (fill 0.25) -> new defaults: 1-1 start
+0.41 -> 0.42, grass 0.41 -> 0.41, cerberus 0.39 -> 0.36 (repeat: 0.38 -> 0.31), user a 0.90/0.71 -> 0.82/0.68, user b
+0.72 -> 0.51, user c 0.49 -> 0.43, user d 1.26 -> 0.79, 1-4 drift 0.36 -> 0.26, 1-4 lamps 0.30 -> 0.33, 4-1 0.17 -> 0.18,
+0-5 1.18 -> 1.34. Torch hall and indoor a are dominated by the game's style-meter HUD animating during the burst. The
+fill cut is the noisiest part: fill 0.25 instead of 1 lowers cerberus to 0.24 and user a to 0.59 (the fill has no noise).
+
+Other modes are unchanged: everything is gated on relight (`_SkyLight` is zero otherwise). Bench `sky-regress-check`
+against a same-session build of the base commit: 0-1 pt-dn mean luma 33.8 vs 33.5-33.9, cerberus hybrid 166.6 vs
+166.1-166.6. Switching between relight and another mode clears the radiance cache, because the lighting space changes.
+
+Look: shaded faces outdoors now get coloured sky light and ground bounce instead of the fills' flat orange. Lava and
+emissive panels light much further (linear falloff of emitted light), and 1-4's night sky lights the scene. 4-1's
+green corridor comes out noticeably brighter and greener than the game. That is physically what its emissive panels
+do, but it is the most visible departure from the game's look.
+
+### Radiance statistics
+Every RT screenshot in a bench run logs `radiance: all/up/side/down <share> L=<mean lighting> (rgb)` (with linear
+transport also `G`, the mean converted to display units), the share of sky and fullbright pixels, and the sky table
+(`Plugin.SkyGI.cs`, `RadianceStats`). Combine with mode variants: `pt-direct+relight+plugin._relightFillCut=1` (sun
+only), `pt-indirect+relight+plugin._skyScale=0.0001` (bounce without sky),
+`pt-indirect+relight+cache.bounces=4+cache.feedback=0` (energy reference). `"ShotSettle": s` in a scenario holds each
+mode longer before its screenshot, so the cache converges after a variant. Suites: `sky-diag`, `sky-diag2`,
+`sky-noise`, `sky-validate` (before/after with bursts), `sky-shots`.
+
 ## Fill lights
 Outdoor ULTRAKILL areas are lit by a sun plus one or two directional lights shining *up* from below the horizon, which
 fake ground bounce and keep shaded sides readable. In 1-1 those are `Directional Light (3)` (I 1.5, warm) and `(4)`
 (I 1.0, orange), and their culling mask (0x03000000 / 0x03002000) only covers the outdoor layers 24/25, so they never
 touch the torch-lit rooms. With the fill cut at 1 (the old default) the real bounce from the ground is far weaker than
 these fills (roughly a tenth), so 1-1's bronze cerberus statues went dark brown with black rims while pt-dn and hybrid
-looked right. The default is now 0.25: three quarters of the fill stays, unshadowed, and ray-traced shadows and bounce
-come on top. Indoor exposure measurements are identical for fill 1, 0.5 and 0.25.
+looked right. The default became 0.25 (three quarters of the fill kept) and is back to 1 since linear transport and
+sky light (see "Sky and GI": the statues were dark from exposure, not missing bounce). Indoor exposure measurements
+are identical for fill 1, 0.5 and 0.25.
 
 ## HDR displays
 Not possible from the mod as things stand. Evidence (2026-11-14, RTX 5070 Ti on an HDR-capable display, D3D12):

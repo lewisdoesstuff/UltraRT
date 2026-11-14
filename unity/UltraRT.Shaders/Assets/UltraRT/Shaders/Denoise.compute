@@ -586,7 +586,7 @@ void Composite(uint3 id : SV_DispatchThreadID)
     // Nearest-neighbour fetch so the output may be larger than the trace resolution (blocky upscale).
     uint2 s = min((uint2)(((float2)id.xy + 0.5) * _Dim.xy / _OutDim.xy), (uint2)_Dim.xy - 1);
 
-    float3 lighting = _Filtered[s].rgb;
+    float3 lighting = UltraRTDisplayLighting(_Filtered[s].rgb); // linear transport: back to gamma (UltraRTExposure.hlsl)
     float3 albedo = _Albedo[s].rgb;
     float3 c;
     switch (_DebugView)
