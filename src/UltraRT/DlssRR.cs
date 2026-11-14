@@ -61,9 +61,9 @@ namespace UltraRT
 
         /// <summary>Halton(2,3) phases (DLSS-RR guide: at least 32).</summary>
         public int JitterPhases = 64;
-        /// <summary>Sign of the jitter handed to DLSS. Our offset is the sample position relative to the texel centre, in texel index
-        /// space; +1 measured right (bursts: half the block sigma and drift of -1, docs/dlss.md).</summary>
-        public float JitterSign = 1f;
+        /// <summary>Sign of the jitter handed to DLSS. Our J is the sample position relative to the texel centre (texel index space);
+        /// DLSS takes the projection offset, which moves the image by +offset, i.e. -J (docs/dlss.md, "Jitter").</summary>
+        public float JitterSign = -1f;
         /// <summary>0 = default (recommended), 4 = D, 5 = E, 6 = F (NVSDK_NGX_RayReconstruction_Hint_Render_Preset).</summary>
         public int Preset;
         /// <summary>true = record into our own command list submitted through Unity (ExecuteCommandList); false = Unity's list.</summary>

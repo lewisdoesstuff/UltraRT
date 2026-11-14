@@ -21,7 +21,7 @@ namespace UltraRT
         private bool _rrEnabled, _rrInitTried, _rrWasActive;
         private int _rrPreset;
         private bool _rrOwnList = true, _rrSpecHit = true, _rrLinear = true;
-        private float _rrJitterSign = 1f;
+        private float _rrJitterSign = -1f;
         /// <summary>Bench cost probe (docs/dlss.md): RR output at this x the screen, e.g. 1.3333 with plugin._scale=0.6667 = 720p -> 1440p on a 1080p screen.</summary>
         private float _rrOutScale = 1f;
         private int _rrGen = -1;

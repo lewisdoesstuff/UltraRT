@@ -101,7 +101,10 @@ void Prepare(uint3 id : SV_DispatchThreadID)
     float viewZ = sky ? _RRParams.y : nd.w * dot(dir, _CamFwd.xyz);
     _OutDepth[id.xy] = viewZ;
 
-    // Motion: where this sample was last frame, unjittered, in render (= trace) px. Sky: direction only.
+    // Motion: where this sample's surface point was last frame minus where it is now, both unjittered, in render (= trace)
+    // px. The jittered viewProj maps an unjittered position u to texel u - j, and this pixel's ray goes through
+    // u = s + 0.5 + J, so: prev = projected (last jittered matrix) + last J, cur = s + 0.5 + J. A still camera gives 0.
+    // Sky: direction only.
     float2 mv = 0;
     if (_RRParams.z > 0.5)
     {
@@ -109,8 +112,8 @@ void Prepare(uint3 id : SV_DispatchThreadID)
                         : mul(_PrevViewProj, float4(_CamPos.xyz + dir * nd.w + UnpackMotion((uint)_InstanceId[s].y), 1.0));
         if (pc.w > 1e-6)
         {
-            float2 prevPx = (pc.xy / pc.w * 0.5 + 0.5) * _Dim.xy - _Jitter.zw; // unjittered: last frame's jitter removed
-            float2 curPx = (float2)s + 0.5;                                  // unjittered centre of this sample
+            float2 prevPx = (pc.xy / pc.w * 0.5 + 0.5) * _Dim.xy + _Jitter.zw;
+            float2 curPx = (float2)s + 0.5 + _Jitter.xy;
             mv = prevPx - curPx;
         }
     }
