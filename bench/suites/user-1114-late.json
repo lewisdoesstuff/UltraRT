@@ -1,0 +1,294 @@
+﻿{
+    "Name":  "user-1114-late",
+    "Scenarios":  [
+                      {
+                          "Name":  "0-2 v1 shadow a",
+                          "Scene":  "Level 0-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-0-2-v1-shadow-a.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-0-2-v1-shadow-a-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "0-2 v1 shadow b",
+                          "Scene":  "Level 0-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-0-2-v1-shadow-b.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-0-2-v1-shadow-b-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "0-2 blood decals white",
+                          "Scene":  "Level 0-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-0-2-blood-decals-white.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-0-2-blood-decals-white-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "0-4 terminal fire",
+                          "Scene":  "Level 0-4",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-0-4-terminal-fire.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-0-4-terminal-fire-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "2-2 floor noise purple",
+                          "Scene":  "Level 2-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-2-2-floor-noise-purple.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-2-2-floor-noise-purple-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "3-2 eye",
+                          "Scene":  "Level 3-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-3-2-eye.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-3-2-eye-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "3-2 wall edges",
+                          "Scene":  "Level 3-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-3-2-wall-edges.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-3-2-wall-edges-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "3-2 moving walls",
+                          "Scene":  "Level 3-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-3-2-moving-walls.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-3-2-moving-walls-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "6-1 coffins",
+                          "Scene":  "Level 6-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-6-1-coffins.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-6-1-coffins-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "6-1 candles",
+                          "Scene":  "Level 6-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-6-1-candles.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-6-1-candles-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "7-3 flashlight shadow",
+                          "Scene":  "Level 7-3",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-7-3-flashlight-shadow.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-7-3-flashlight-shadow-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "7-3 tree room tint",
+                          "Scene":  "Level 7-3",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-7-3-tree-room-tint.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-7-3-tree-room-tint-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "8-2 intro day",
+                          "Scene":  "Level 8-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-8-2-intro-day.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-8-2-intro-day-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "8-2 building boil",
+                          "Scene":  "Level 8-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-8-2-building-boil.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-8-2-building-boil-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "P-2 v1 reflection",
+                          "Scene":  "Level P-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-P-2-v1-reflection.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-P-2-v1-reflection-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "0-E ice",
+                          "Scene":  "Level 0-E",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-0-E-ice.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-0-E-ice-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "museum fountain",
+                          "Scene":  "CreditsMuseum2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/late-museum-fountain.json",
+                                       "Duration":  4,
+                                       "Areas":  "../recordings/late-museum-fountain-areas.json"
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      }
+                  ]
+}
