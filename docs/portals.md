@@ -32,7 +32,18 @@ The travel matrix maps the world near one side to the world near the other, rota
 
 **Lights through portals.** `PortalAwareLight` registers point and spot lights every `LateUpdate`; `UpdatePortalLights` finds up to 16 (light, portal side) pairs where the light is in front of the side within its range, transforms the light by the side's travel matrix, and uploads `_PortalLightPositions`, `_PortalLightColors`, `_PortalLightAttens`, `_PortalLightDirs` and `_PortalLightPlanes` (the far side's plane, to clip the light to that side) for the `PORTAL_LIGHTS` keyword of the game's shaders. The player's own lights (muzzle flash etc.) are always included.
 
+**Recursion rules** (`BurstRenderData`, `GetOnscreenPortalsBurst`): a view renders the sides whose plane has the camera behind it, within `maxDistance` (the fog end when fog is on), on screen and above `minPortalPixelArea`, never the side it came out of (`ignoreIndex`), and at depth > 0 only sides with `appearsInRecursions`. Each view's culling mask is the main camera's plus layer 30 when the portal it looks through has `canSeePortalLayer`, minus layer 30 otherwise.
+
+**Layer 30 ("Portal")**: the main camera never draws it; portal views with `canSeePortalLayer` do. Level geometry that should only exist "through" a portal lives there: in 8-3, 29 to 33 renderers, 3 of them active at the poses tested, among them the theatre chandeliers seen through the Shifting Arena's strip portals.
+
 **Other portal-aware systems**: `PortalAwareRenderer` clones renderers that straddle a portal (`PortalAwareRendererClone`), enemies get "(PortalOffset)" transforms, particles, audio (`VirtualAudioListener`), navigation links and the player's traversal (`PortalTraversalV2`, `CheckPlayerTraversals`) all use the same `NativePortalScene`. The game's "Portal" layer (30) is not used by the render path above.
+
+**Portals in 8-3** (from the `Portal side` log lines):
+- *False Starts / Door (2) / Portal (2)*: a 10 x 15 m doorway, enter facing +z, exit facing +y (it turns the world 90 degrees).
+- *Escher Entrance*: two mirrors, 2 x 2.5 m (`Secret/Mirror`, `CeilingSegment/Mirror`), and a TV (`Decorations/TV/Quad`, 4.5 x 3 m, `renderSettings` = everything) that is a portal to another spot.
+- *Shifting Hallway*: three 10 x 20 m doorways in a row (`1 -> 2`, `2 -> 3`, `3 -> 4`) whose exits move along z while you walk: the hallway shifts.
+- *Shifting Arena*: two banks of four 60 x 5 m strip portals (`Scrollers`, `Scrollers (1)`) stacked into a wall, scrolling vertically every frame.
+All have `maxRecursions` 3, `appearsInRecursions`, `canSeeItself` and `canSeePortalLayer` on, default clipping, no `disableRange`.
 
 ## 2. What ray tracing did before
 
@@ -65,7 +76,7 @@ Where it is used:
 
 ## 4. Compositing
 
-The game's depth buffer at a portal pixel holds whatever the portal draw left there; the RT path through the portal is longer than the distance to the portal plane. Primary rays that crossed a portal store the distance to the first portal surface in the high half of `_InstanceId.x` (half float; the denoiser and reflection filter only use the instance's low 7 bits, and the low 16 bits keep the instance). `Composite.shader`'s depth test and its depth-guided upsampling accept a match with either distance, so RT applies at portal pixels whichever depth the game writes there. Everything else (objects in front of a portal, glow quads) is tested as before.
+**Measured**: the game's depth buffer at a portal pixel holds the portal quad's plane (the `Portal Draw` quad writes depth; `-ultrart-compdebug 5` is solid green over every portal and mirror tested). The RT path through the portal is longer than that, so before this change the composite threw RT away at most portal pixels and kept the game's portal view unlit by RT, and wherever the straight-through hit happened to be within the depth tolerance it applied the wrong room. Primary rays that crossed a portal store the distance to the first portal surface in the high half of `_InstanceId.x` (half float; the denoiser and reflection filter only use the instance's low 7 bits, and the low 16 bits keep the instance). `Composite.shader`'s depth test and its depth-guided upsampling accept a match with either distance, so RT applies at portal pixels whichever depth the game writes there. Everything else (objects in front of a portal, glow quads) is tested as before.
 
 `-ultrart-compdebug 5` (bench: `hybrid+plugin._compositeDebug=5`) colours through-portal pixels by what the game's depth matched: green = the portal plane, blue = the far-side hit, red = neither (the composite then keeps the game's pixel); other pixels show the game's colour darkened.
 
