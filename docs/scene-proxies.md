@@ -159,4 +159,9 @@ its old material (a merged slot can't be switched off).
 renderers in a 30 degree cone ahead: materials, keywords, notable properties, property blocks, static slots' original
 materials, and the proxy state (`SceneProxies.Probe.cs`). Bench effect kinds `coin`, `coinfront` (the revolver's coin,
 hovering) and `opendoors` (the game's `FinalDoor.Open()` on every final door) exist for these tests;
-`bench/suites/materials-pm.json` is the suite.
+`bench/suites/materials-pm.json` is the suite. Static slots also list their slot (part, transparent kind, proxy material) and each material its
+`transp=` / `lava=` classification. The game overwrites `BepInEx/LogOutput.log` at the next launch in that slot (often
+another agent's, seconds after your release): copy it before `game-lock.ps1 release`. `bench/suites/materials-late.json`
+(the user's late playtest poses for 0-2 blood stains, 6-1 coffins, 3-2 eye and walls, 0-E ice, the museum fountain) and
+`materials-late-check.json` (those plus water-glass, 8-2 pool, 0-2 blood river, 0-5 lava) go with docs/reflections.md
+"Late playtest fixes".

@@ -91,9 +91,19 @@ namespace UltraRT
     /// </summary>
     internal static class GameReflection
     {
+        /// <summary>Cubemaps that are a stylised pattern rather than a capture of an environment: DiamondCubemap (3-2's big
+        /// eye, Eye, DiamondRed, Water 6 Reflection) and SwordCubemap (Gabriel's swords). An RT reflection in their place
+        /// loses the pattern (the eye became a flat blob), so their materials keep the game's cube (Proxy.shader
+        /// _GameCubeLit) and get no reflection of ours (<see cref="MaterialClassifier"/>).</summary>
+        public static bool IsPatternCube(Texture cube) => cube != null && PatternCube.IsMatch(cube.name);
+
+        private static readonly System.Text.RegularExpressions.Regex PatternCube =
+            new System.Text.RegularExpressions.Regex(@"^(Diamond|Sword)Cubemap", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
         public static bool Apply(Material proxy, Material src)
         {
             proxy.SetVector("_GameRefl", Vector4.zero);
+            proxy.SetFloat("_GameCubeLit", 0f);
             if (src == null || src.shader == null || src.shader.name != "ULTRAKILL/Master" || !src.IsKeywordEnabled("REFLECTION")) return false;
             if (!src.HasProperty("_CubeTex") || !(src.GetTexture("_CubeTex") is Cubemap cube)) return false;
             float rs = src.HasProperty("_ReflectionStrength") ? src.GetFloat("_ReflectionStrength") : 1f;
@@ -104,6 +114,7 @@ namespace UltraRT
             proxy.SetTexture("_GameCube", cube);
             if (src.HasProperty("_ReflectionMask") && src.GetTexture("_ReflectionMask") is Texture mask && mask.dimension == UnityEngine.Rendering.TextureDimension.Tex2D) proxy.SetTexture("_GameReflMask", mask);
             proxy.SetVector("_GameRefl", new Vector4(additive ? 2f : 1f, rs, Mathf.Clamp01(light), Mathf.Clamp01(color)));
+            proxy.SetFloat("_GameCubeLit", IsPatternCube(cube) ? 1f : 0f);
             return true;
         }
     }
@@ -302,6 +313,9 @@ namespace UltraRT
             if (master && m.IsKeywordEnabled("REFLECTION") && m.HasProperty("_ReflectionStrength"))
             {
                 float rs = m.GetFloat("_ReflectionStrength");
+                // A pattern cube (DiamondCubemap, SwordCubemap) is part of the look, kept as the game draws it: no reflection.
+                if (rs > 0f && m.HasProperty("_CubeTex") && GameReflection.IsPatternCube(m.GetTexture("_CubeTex")))
+                    return MaterialParams.None(TypeOf(m, "_SurfaceType"), "pattern cube");
                 if (rs > 0f)
                 {
                     bool additive = m.HasProperty("_CubeMode") && Mathf.RoundToInt(m.GetFloat("_CubeMode")) == 1;

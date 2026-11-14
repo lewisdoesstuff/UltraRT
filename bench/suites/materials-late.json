@@ -1,0 +1,111 @@
+{
+  "Name": "materials-late",
+  "Scenarios": [
+    {
+      "Name": "0-2 blood decals white",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-0-2-blood-decals-white.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-0-2-blood-decals-white-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "3-2 eye",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-eye.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-3-2-eye-areas.json"
+      },
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "3-2 wall edges",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-wall-edges.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-3-2-wall-edges-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "6-1 coffins",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-6-1-coffins.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-6-1-coffins-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "0-E ice",
+      "Scene": "Level 0-E",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-0-E-ice.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-0-E-ice-areas.json"
+      },
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight",
+        "relight+refl=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "museum fountain",
+      "Scene": "CreditsMuseum2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-museum-fountain.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-museum-fountain-areas.json"
+      },
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    }
+  ]
+}

@@ -47,6 +47,7 @@ Owners are a separate buffer, 3 rows of `localToWorld` each. They are re-uploade
 For each triangle: `Le = _EmissiveColor × _EmissiveIntensity × tint × T`. This is what the proxy hit shader computes, averaged over the triangle:
 - the texture is `_MainTex` with `_UseAlbedoAsEmissive` (tint = `_Color`, `_MainTex_ST` applied), otherwise `_EmissiveTex` (white if unset);
 - `T` comes from a **32×32 downsample** of that texture: one `Graphics.Blit` into a float render texture plus one `ReadPixels`, cached per texture. Blit picks the matching mip when the texture has mips (a box-filtered average). Otherwise it point-samples a 32×32 grid. This works for non-readable textures, and ReadPixels doesn't care about the texture's format;
+- `_EmissiveMask` (Master's "Use Emissive Mask (Color Alpha)" toggle, a float without a keyword): the game multiplies the emission by the albedo alpha (`_MainTex.a × _Color.a`). The proxy gets `_EmissiveMask` and the hit shader does the same; here the 32×32 emission is multiplied by the 32×32 `_MainTex` alpha (`MaskByAlbedoAlpha`). 6-1's furnace coffins (`M_FurnaceCoffin`: `_EmissiveTex` = `LavaSingle`, alpha only in the grill) glowed lava all over before (2026-11-14);
 - each triangle averages 8 lookups in the 32×32 copy: its 3 vertices, 3 edge midpoints, and the centroid weighted twice. UVs wrap. A triangle whose UVs span the whole texture or more (tiling) gets the texture's average instead.
 
 ## Sampling

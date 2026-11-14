@@ -179,6 +179,9 @@ namespace UltraRT
         private bool LayerIncluded(int layer) => ((_cameraMask >> layer) & 1) != 0 || layer == 6 || layer == 7;
 
         /// <summary>Transparent, particle, additive and sky materials stay rasterised.</summary>
+        /// <summary>ULTRAKILL/Master's _EmissiveMask toggle: emission is multiplied by the albedo alpha (_MainTex.a x _Color.a).</summary>
+        public static bool EmissiveMasked(Material m) => m != null && m.HasProperty("_EmissiveMask") && m.GetFloat("_EmissiveMask") > 0.5f;
+
         private static bool Traceable(Material m)
         {
             if (m == null || m.shader == null) return false;
@@ -189,6 +192,9 @@ namespace UltraRT
             // LIMBO_WALLS: the "TV sky" walls (ScreenSky/ScreenField) draw the panoramic sky by view direction through a
             // scanline mask. For RT they are sky, not surfaces: rays pass through to the sky lookup and the sun isn't blocked.
             // (They ARE traced, as "sky walls": see SkyWallMask.)
+            // Bloodstain_Fallback (queue 2999): the game's blood stains on meshes, a multiplicative (DstColor Zero) decal whose
+            // texture is white where there is no blood. Traced, it was an opaque white quad over the wall (0-2).
+            if (s.StartsWith("ULTRAKILL/Bloodstain")) return false;
             return !(s.Contains("Particles") || s.Contains("Additive") || s.Contains("Skybox") || s.Contains("Sprite") || s.Contains("Stencil") || s.StartsWith("Hidden/ProBuilder"));
         }
 
@@ -720,7 +726,7 @@ namespace UltraRT
 
         private void Evaluate(DynamicProxy d)
         {
-            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d);
+            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d) && !FrostedHidden(d);
             if (visible == d.Visible) return;
             if (visible)
             {
@@ -1027,6 +1033,8 @@ namespace UltraRT
                 bool albedoAsEmissive = src.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") ||
                                         src.HasProperty("_UseAlbedoAsEmissive") && src.GetFloat("_UseAlbedoAsEmissive") > 0.5f;
                 m.SetFloat("_UseAlbedoAsEmissive", albedoAsEmissive ? 1 : 0);
+                // "Use Emissive Mask (Color Alpha)": a float toggle, no keyword. Unmasked, 6-1's furnace coffins glowed lava all over.
+                m.SetFloat("_EmissiveMask", EmissiveMasked(src) ? 1 : 0);
             }
             // Unity Standard emission
             else if (src.IsKeywordEnabled("_EMISSION") && src.HasProperty("_EmissionColor"))

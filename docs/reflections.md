@@ -223,6 +223,16 @@ The hybrid game colour already contains ULTRAKILL's cubemap reflection. It is no
 4. Composite: `result = max(game − C, 0)·lerp(1, shadow, lit) + GI`, i.e. the cube is removed before the shadow ratio (it is not lit). Then `result·spec.a + spec.rgb` as before.
 5. Resolve: for flagged pixels, `spec.a = min(keep / k, maxCubeKeep = 4)`, since `game − C` still carries the game's `(1 − m·RS)`. With `s = RS` this gives exactly `game − C + s·Lrefl`. The removal also applies where no ray was traced (specular weight below the threshold), so the stock cube does not pop in and out at the threshold.
 
+**Pattern cubes** (2026-11-14): `DiamondCubemap` (3-2's big eye `M_BigEye*`, `Eye`, `DiamondRed`, `Water 6 Reflection`)
+and `SwordCubemap` (Gabriel's swords) are stylised patterns, not environment captures (`GameReflection.IsPatternCube`).
+An RT reflection in their place lost the pattern: the eye (additive, RS 0.5, `_LightingContribution` 1) became a flat
+pink blob. Their materials now classify as `none` ("pattern cube") and the proxy gets `_GameCubeLit` 1: every ray except
+hybrid primaries (whose game colour already holds the cube) adds the game's own term in the hit shader, as
+`albedo·k + C·lc` (lit by RT lighting) plus `C·(1 − lc)` as emission, `lc` = `_LightingContribution`. In hybrid the
+game's cube simply stays (mode `none`). Remaining difference on the eye in relight: its underside, lit from below by the
+mouth lights, clips to a flat bright pink where the game's per-vertex lighting stays dimmer and shows the pattern; that
+is light intensity / exposure, not the material.
+
 **Where it can't be done, the game's term stays and ours is skipped**: materials our classification leaves at `none`, baked atlas geometry (no cube to remove), F4 off, or `-ultrart-refl-keepcube`. Known inexact parts: the game saturates its output, so a clipped pixel can't be fully recovered; `C` is at trace resolution while the game's cube is per screen pixel, so high-frequency cube detail leaves a faint residue; bilinear vs the game's 3-tap filter differs slightly at cube texel edges.
 
 Where each path applies it:
@@ -365,6 +375,7 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 | Flag | Default |
 |---|---|
 | `-ultrart-notransparent` | on (F4 also switches the pass) |
+| `-ultrart-nofrosted` (bench `trans.frosted=0`) | frosted transparents (ice) also in the scene: on |
 | `-ultrart-transparent-strength X` (Fresnel weight multiplier) | 1 |
 | `-ultrart-water-waves X` (ripple slope scale, 0 = flat mirror) | 1 |
 | `-ultrart-water-refraction X` (0 = off, skips the colour copy) | 1 |
@@ -436,6 +447,24 @@ batched water/blood renderer and the first glass ones).
   CPU: 8-2's static build 240 -> 245 ms, +18 shader-table records (480 -> 498, level 4), 54 -> 64 part instances;
   4-2 +3 records. Per-frame static sync unchanged within noise.
 - **Regression**: `water-glass.json` and the blood river match master at the same resolution (mean luma within 0.5).
+
+### Late playtest fixes (2026-11-14, branch materials-late)
+
+- **`psx/water`** is water too (`TransparentClassifier`): the older alpha-blended water shader (`_OpacScale`, no keywords
+  or `_SurfaceType`), used by the museum (`CreditsMuseum2`: the courtyard fountain `Water fountain_water_1`..`4`, the
+  pools, bird baths, `Calm Water vapor`) and by 0-2's crusher-arena blood tanks (`Blood`, classified as liquid blood by
+  the blood regex). The overlay takes `_OpacScale` as `_Opacity`. The museum went from 0 to 13 batched + 6 dynamic water
+  surfaces; the fountain now ripples and reflects the basin and V1 (pose `museum fountain`).
+- **Frosted transparents** (`TransparentClassifier.Frosted`: Glass kind, `_SurfaceType` Glass, name `Ice*`; 0-E has 174
+  `Ice` renderers): (1) the overlay's reflection weight is `TransparentSettings.frostedWeight` 0.25 instead of 1. The
+  game draws the ice as a bright, fairly opaque frost; the full mirror-Fresnel reflection on top replaced it with the
+  reflected (grey) room, and the ice read as clear glass ("too transparent"). (2) They are also scene geometry: a second
+  dynamic proxy under `EmitterMask` 0x08 (camera, bounce, reflection and cache rays; no shadow rays) with
+  `_CameraSkip` 1, so the Proxy any-hit lets camera rays through (the game draws the ice) and its submeshes are not
+  `ClosestHitOnly`. Before, the ice was missing from every RT reflection: transparents are mask 0x10 and reflection rays
+  use `ULTRART_MASK_SCENE` 0x6F, so 0-E's glass doors reflected the room without the ice. Clear glass and water stay
+  out of those rays. `-ultrart-nofrosted` / bench variant `trans.frosted=0` (runtime) takes them out of the scene again.
+  Static-batched ice is not handled (none in 0-E).
 
 ### Limits
 

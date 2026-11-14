@@ -49,6 +49,11 @@ namespace UltraRT
                 else if (r.isPartOfStaticBatch)
                 {
                     sb.Append(" (static slot)");
+                    var ss = _staticSources.FirstOrDefault(x => x.Renderer == r);
+                    if (ss?.SlotByMat != null)
+                        for (int i = 0; i < ss.SlotByMat.Length; i++)
+                            if (ss.SlotByMat[i] is Slot sl)
+                                sb.Append($"\n      slot[{i}] sub={sl.Sub} part={sl.Part} kind={sl.Kind} visible={sl.VisibleSources} proxy='{sl.Material?.name}' shader='{sl.Material?.shader?.name}'");
                     if (r is MeshRenderer smr0 && OriginalMaterials.TryGet(smr0, out var orig, out var counts, out var how))
                         for (int i = 0; i < orig.Length; i++)
                             if (orig[i] != null)
@@ -69,7 +74,7 @@ namespace UltraRT
                 {
                     var m = mats[i];
                     if (m == null) { sb.Append($"\n      [{i}] null"); continue; }
-                    sb.Append($"\n      [{i}] '{m.name}' shader='{m.shader?.name}' q={m.renderQueue} traceable={Traceable(m)} transp={TransparentClassifier.Of(m)} kw=[{string.Join(" ", m.shaderKeywords)}]");
+                    sb.Append($"\n      [{i}] '{m.name}' shader='{m.shader?.name}' q={m.renderQueue} traceable={Traceable(m)} transp={TransparentClassifier.Of(m)} lava={LavaClassifier.IsLava(m)} kw=[{string.Join(" ", m.shaderKeywords)}]");
                     sb.Append(" props{" + DescribeProps(m, null) + "}");
                     r.GetPropertyBlock(ProbeBlock, i);
                     if (!ProbeBlock.isEmpty) sb.Append(" mpb[" + i + "]{" + DescribeProps(m, ProbeBlock) + "}");

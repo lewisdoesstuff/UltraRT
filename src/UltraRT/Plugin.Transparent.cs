@@ -45,6 +45,7 @@ namespace UltraRT
                 switch (a[i].ToLowerInvariant())
                 {
                     case "-ultrart-notransparent": s.enabled = false; break;
+                    case "-ultrart-nofrosted": s.frosted = false; break;
                     case "-ultrart-transparent-strength": s.strength = F(s.strength); break;
                     case "-ultrart-water-waves": s.waves = F(s.waves); break;
                     case "-ultrart-water-refraction": s.refraction = F(s.refraction); break;
