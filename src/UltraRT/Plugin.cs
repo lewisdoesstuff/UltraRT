@@ -202,6 +202,7 @@ namespace UltraRT
                     case "-ultrart-nofixturelift": _fixtureLift = false; break;
                     case "-ultrart-logfixtures": _logFixtures = true; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
+                    case "-ultrart-noportals": _portals = false; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
                         switch ((Next() ?? "").ToLowerInvariant())
@@ -261,6 +262,8 @@ namespace UltraRT
             var shaders = bundle.LoadAllAssets<Shader>();
             var proxy = shaders.FirstOrDefault(s => s.name == "UltraRT/Proxy");
             var composite = shaders.FirstOrDefault(s => s.name == "UltraRT/Composite");
+            SceneProxies.PortalShader = shaders.FirstOrDefault(s => s.name == "UltraRT/Portal"); // optional: no portals without it
+            if (SceneProxies.PortalShader == null) Logger.LogWarning("UltraRT/Portal missing from the bundle: portals are not traced");
             var denoise = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Denoise");
             var reflections = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Reflections");
             Logger.LogInfo($"Bundle loaded: DebugView={(debug ? "ok" : "MISSING")} PathTrace={(pt ? "ok" : "MISSING")} " +
@@ -615,6 +618,7 @@ namespace UltraRT
         private static readonly int UltraRTImageId = Shader.PropertyToID("_UltraRTImage");
         private static readonly int UltraRTFlipYId = Shader.PropertyToID("_UltraRTFlipY");
         private static readonly int UltraRTNormalDepthId = Shader.PropertyToID("_UltraRTNormalDepth");
+        private static readonly int UltraRTInstanceIdId = Shader.PropertyToID("_UltraRTInstanceId");
         private static readonly int UltraRTGameColorId = Shader.PropertyToID("_UltraRTGameColor");
         private static readonly int UltraRTLightingId = Shader.PropertyToID("_UltraRTLighting");
         private static readonly int UltraRTHybridId = Shader.PropertyToID("_UltraRTHybrid");
@@ -636,7 +640,8 @@ namespace UltraRT
         private RenderTexture _gShadowed, _denoisedDirectOut;
         private float _shadowBias = 0.1f; // -ultrart-shadowbias: how much of our light a surface needs before RT shadows apply fully
         private float _giStrength = 0.35f;
-        private int _compositeDebug; // -ultrart-compdebug 1..4: shadow ratio / unshadowed direct / shadowed direct / bounce
+        private int _compositeDebug; // -ultrart-compdebug 1..5: shadow ratio / unshadowed direct / shadowed direct / bounce / portal depth
+        private bool _portals = true; // -ultrart-noportals (bench variant: plugin._portals=0): rays ignore portals (docs/portals.md)
         private bool _flipY;
         private int _recordedFrame = -1;
         private int _camSwitchLogs;
@@ -896,6 +901,7 @@ namespace UltraRT
                 Logger.LogInfo($"Rescan took {sw.Elapsed.TotalMilliseconds:F2} ms");
             }
             _proxies.SyncDynamic();
+            _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
             long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);
             Perf.Add(Perf.Sec.Emissive, te);
@@ -1110,6 +1116,7 @@ namespace UltraRT
             }
             _cmd.SetGlobalFloat(UltraRTModeId, ratio ? (_compositeDebug > 0 ? 1f + _compositeDebug : 1f) : 0f);
             _cmd.SetGlobalTexture(UltraRTNormalDepthId, pt ? (Texture)_gNormalDepth : Texture2D.whiteTexture);
+            _cmd.SetGlobalTexture(UltraRTInstanceIdId, _gInstanceId); // portal pixels: distance to the portal (Composite.shader)
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);

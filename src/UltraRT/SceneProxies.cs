@@ -1068,6 +1068,7 @@ namespace UltraRT
         {
             Rtas?.Dispose();
             Rtas = null;
+            DisposePortals();
             foreach (var go in _proxyObjects) if (go != null) Object.Destroy(go);
             _proxyObjects.Clear();
             Motion.Dispose();

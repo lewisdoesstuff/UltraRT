@@ -21,7 +21,8 @@
 
 Texture2D<float4> _Color;       // trace res: final RT colour (the denoiser's composite output), at jittered positions
 Texture2D<float4> _NormalDepth; // trace res: w = ray t along the normalized primary direction (< 0 = sky)
-Texture2D<int2>   _InstanceId;  // trace res: y = packed world-space motion (prev - cur; 0 = static)
+Texture2D<int2>   _InstanceId;  // trace res: y = packed world-space motion (prev - cur; 0 = static); x >> 16: half distance to
+                                // the first portal on the path (docs/portals.md), 0 = none
 Texture2D<float>  _GameDepth;   // screen res: the game's raw device depth at the injection point
 Texture2D<float4> _HistIn;      // screen res: rgb colour, a accumulated weight (0 = no RT surface)
 Texture2D<float>  _HistDepthIn; // screen res: last frame's eye depth
@@ -49,6 +50,7 @@ float4 _Params4;   // x min history weight to hold a pixel without a sample, y h
 groupshared float4 gsColZ[TILE_N];  // rgb colour, a eye depth (< 0: sky)
 groupshared float2 gsPos[TILE_N];   // sample position in screen px
 groupshared uint   gsMotion[TILE_N];
+groupshared float  gsZv[TILE_N];    // eye depth of the hit along the path (seen through a portal: the far-side "virtual" point)
 
 float3 ReconstructWorld(float2 ndc, float eyeZ)
 {
@@ -94,10 +96,17 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
         float2 sp = (float2)k + 0.5 + J;                       // trace px
         float t = _NormalDepth[k].w;
         float2 ndc = sp * _TraceDim.zw * 2.0 - 1.0;
-        float z = t < 0.0 ? -1.0 : t / length(float3(ndc * _TraceRay.xy, 1.0));
+        float rayLen = length(float3(ndc * _TraceRay.xy, 1.0));
+        float z = t < 0.0 ? -1.0 : t / rayLen;
+        int2 im = _InstanceId[k];
+        // Seen through a portal: the game's depth there is the portal plane, so match on the distance to the portal
+        // (Composite.shader does the same) and keep the virtual depth for reprojection.
+        uint pt = (uint)im.x >> 16;
+        gsZv[i] = z;
+        if (t >= 0.0 && im.x > 0xFFFF) z = f16tof32(pt) / rayLen;
         gsColZ[i] = float4(_Color[k].rgb, z);
         gsPos[i] = (sp - _TraceMap.zw) / _TraceMap.xy;          // screen px
-        gsMotion[i] = (uint)_InstanceId[k].y;
+        gsMotion[i] = (uint)im.y;
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -114,6 +123,7 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
     float3 sumE = 0, sumS = 0, mn = 1e5, mx = -1e5;
     float wE = 0, wS = 0, bestErr = 1e30;
     uint motion = 0;
+    float zRepro = zg; // depth of the point to reproject: the game's surface, or the far side of a portal
     int n = 0;
     [unroll] for (int j = 0; j < 9; j++)
     {
@@ -130,7 +140,7 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
         sumS += cz.rgb * ws; wS += ws;
         mn = min(mn, cz.rgb); mx = max(mx, cz.rgb);
         n++;
-        if (err < bestErr) { bestErr = err; motion = gsMotion[li]; }
+        if (err < bestErr) { bestErr = err; motion = gsMotion[li]; zRepro = gsZv[li] > cz.a + 1e-3 ? gsZv[li] : zg; }
     }
 
     // ---- history: reproject the game's surface point (plus the matching sample's object motion)
@@ -139,7 +149,7 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
     if (_Params.w > 0.5 && raw > 0.0 && raw < 1.0)
     {
         float2 ndc = pc * _OutDim.zw * 2.0 - 1.0;
-        float3 pw = ReconstructWorld(ndc, zg) + UnpackMotion(motion);
+        float3 pw = ReconstructWorld(ndc, zRepro) + UnpackMotion(motion);
         float4 clip = mul(_PrevScreenVP, float4(pw, 1.0));
         if (clip.w > 1e-4)
         {
@@ -208,5 +218,5 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
         return;
     }
     _HistOut[p] = result;
-    _HistDepthOut[p] = zg;
+    _HistDepthOut[p] = zRepro; // through a portal: the far-side depth, so next frame's reprojection validates against it
 }

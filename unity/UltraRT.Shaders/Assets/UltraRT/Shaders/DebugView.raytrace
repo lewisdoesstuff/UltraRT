@@ -5,6 +5,7 @@
 #include "UltraRTMaterial.hlsl"
 
 RaytracingAccelerationStructure _Scene;
+#include "UltraRTPortals.hlsl" // TraceScene: rays follow portals (docs/portals.md)
 RWTexture2D<float4> _Output;
 
 float4x4 _InvViewProj;   // inverse(projection * view), OpenGL-style clip space
@@ -29,9 +30,10 @@ void RayGen()
     ray.TMin = 0.0;
     ray.TMax = 1.0e5;
 
-    RayPayload p = (RayPayload)0;
-    p.t = -1.0;
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, ray, p);
+    RayPayload p;
+    PortalPath path;
+    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0u, ray, p, path);
+    if (p.t >= 0.0) p.t += path.travelled; // depth view: the distance along the bent path
 
     float3 c;
     if (p.t < 0.0)

@@ -26,6 +26,7 @@ Shader "UltraRT/Composite"
             Texture2D _UltraRTImage;
             Texture2D _UltraRTNormalDepth;  // w < 0: the ray hit nothing (sky) -> keep the game's own sky
             Texture2D _UltraRTGameDepth;    // copy of the game's depth buffer (raw device depth)
+            Texture2D<int2> _UltraRTInstanceId; // x: instance in the low 16 bits; seen through a portal, half(distance to the portal) << 16
             float4 _UltraRTDepthParams;     // x: guard x / P00, y: guard y / P11 (view ray from a trace uv), z: enabled
             float4 _UltraRTUVScale;         // xy: visible size / traced size (guard band; 0 = no guard band), z: _UltraRTUpsampled is set
             Texture2D _UltraRTUpsampled;    // temporal upsampler output (Upsample.compute): screen res, a = 0 where there is no RT surface
@@ -65,6 +66,24 @@ Shader "UltraRT/Composite"
                 return t / length(float3(ndc.x * _UltraRTDepthParams.x, ndc.y * _UltraRTDepthParams.y, 1.0));
             }
 
+            // Distance to the first portal surface on this trace texel's path, or -1 (docs/portals.md). The game draws a
+            // portal's view as a quad, so its depth buffer holds the portal plane there, while our t is the distance along
+            // the path through the portal to the far-side hit. The depth tests accept either.
+            float PortalT(float2 tuv)
+            {
+                uint tw, th;
+                _UltraRTInstanceId.GetDimensions(tw, th);
+                uint x = (uint)_UltraRTInstanceId.Load(int3(min(uint2(tuv * float2(tw, th)), uint2(tw - 1, th - 1)), 0)).x;
+                return x > 0xFFFFu && x < 0x80000000u ? f16tof32(x >> 16) : -1.0; // sky: x = -1
+            }
+
+            float DepthErr(float2 tuv, float t, float gameViewZ)
+            {
+                float err = abs(RtViewZ(tuv, t) - gameViewZ);
+                float tp = PortalT(tuv);
+                return tp > 0.0 ? min(err, abs(RtViewZ(tuv, tp) - gameViewZ)) : err;
+            }
+
             float4 frag(v2f i) : SV_Target
             {
                 float2 screenUV = i.uv;
@@ -97,7 +116,7 @@ Shader "UltraRT/Composite"
                         float2 texel = clamp(base + float2(k & 1, k >> 1), 0.0, dim - 1.0);
                         float2 tuv = (texel + 0.5) / dim;
                         float tt = _UltraRTNormalDepth.SampleLevel(my_point_clamp_sampler, tuv, 0).w;
-                        float err = tt < 0.0 ? 1e20 : abs(RtViewZ(tuv, tt) - gameViewZ);
+                        float err = tt < 0.0 ? 1e20 : DepthErr(tuv, tt, gameViewZ);
                         if (err < bestErr) { bestErr = err; bestUV = tuv; }
                     }
                     i.uv = bestUV;
@@ -112,7 +131,21 @@ Shader "UltraRT/Composite"
                 if (_UltraRTDepthParams.z > 0.5)
                 {
                     float rtViewZ = RtViewZ(traceUV, rtT);
-                    if (abs(gameViewZ - rtViewZ) > rtViewZ * 0.03 + 0.05) discard;
+                    float tp = PortalT(i.uv);
+                    if (_UltraRTMode > 5.5)
+                    {
+                        // Debug (-ultrart-compdebug 5): through-portal pixels: green = the game's depth is the portal
+                        // plane, blue = the far-side hit, red = neither; other pixels: the game's colour, darkened.
+                        if (tp <= 0.0) return float4(_UltraRTGameColor.Sample(my_point_clamp_sampler, screenUV).rgb * 0.3, 1.0);
+                        float pz = RtViewZ(traceUV, tp);
+                        if (abs(gameViewZ - pz) <= pz * 0.03 + 0.05) return float4(0, 1, 0, 1);
+                        if (abs(gameViewZ - rtViewZ) <= rtViewZ * 0.03 + 0.05) return float4(0, 0, 1, 1);
+                        return float4(1, 0, 0, 1);
+                    }
+                    bool far = abs(gameViewZ - rtViewZ) <= rtViewZ * 0.03 + 0.05;
+                    float pz = tp > 0.0 ? RtViewZ(traceUV, tp) : -1e9;
+                    bool plane = abs(gameViewZ - pz) <= pz * 0.03 + 0.05;
+                    if (!far && !plane) discard;
                 }
 
                 if (_UltraRTMode > 0.5)

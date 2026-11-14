@@ -569,11 +569,18 @@ void RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, i
 // World-space motion of the primary hit (previous position - current), set by the ray generation shader from the hit's
 // packed motion (docs/denoiser.md). Reprojection and the plane test use pos + motion; the merge evaluates at pos.
 static float3 g_PrimaryMotion = 0;
+// Primary hits seen through a portal (UltraRTPortals.hlsl): reprojection and the stored reservoir plane use the
+// camera-side point and normal (where the camera sees the hit; g_PrimaryMotion is in that space too), while lights are
+// evaluated at the real hit. Set by PathTrace's ray generation.
+static bool   g_PrimaryVirtual = false;
+static float3 g_PrimaryVirtualPos = 0;
+static float3 g_PrimaryVirtualN = 0;
 
 void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
 {
     if (_RestirHistoryValid == 0) return;
-    float3 prevPos = pos + g_PrimaryMotion;
+    float3 vn = g_PrimaryVirtual ? g_PrimaryVirtualN : n;
+    float3 prevPos = (g_PrimaryVirtual ? g_PrimaryVirtualPos : pos) + g_PrimaryMotion;
     float4 pc = mul(_PrevViewProj, float4(prevPos, 1.0));
     if (pc.w <= 1e-6) return;
     float2 pp = (pc.xy / pc.w * 0.5 + 0.5) * (float2)dim;
@@ -581,7 +588,7 @@ void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
     if (all(pp >= 0.0) && all(pp < (float2)dim))
     {
         uint4 h = _ReservoirPrev[RestirIndex((uint2)pp, dim)];
-        if (RestirMatch(h, prevPos, n, t)) RestirMerge(r, h, pos, n, layer, rng);
+        if (RestirMatch(h, prevPos, vn, t)) RestirMerge(r, h, pos, n, layer, rng);
     }
 
     for (int k = 0; k < _RestirSpatial; k++)
@@ -591,7 +598,7 @@ void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
         float2 q = pp + float2(cos(a), sin(a)) * rad;
         if (any(q < 0.0) || any(q >= (float2)dim)) continue;
         uint4 h = _ReservoirPrev[RestirIndex((uint2)q, dim)];
-        if (RestirMatch(h, prevPos, n, t)) RestirMerge(r, h, pos, n, layer, rng);
+        if (RestirMatch(h, prevPos, vn, t)) RestirMerge(r, h, pos, n, layer, rng);
     }
 }
 
@@ -654,7 +661,8 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
         else W = 0.0;
     }
 
-    if (temporal) _ReservoirCur[RestirIndex(id, dim)] = RestirPack(r, min(r.M, _RestirParams.x), W, n, pos);
+    if (temporal) _ReservoirCur[RestirIndex(id, dim)] = RestirPack(r, min(r.M, _RestirParams.x), W,
+        g_PrimaryVirtual ? g_PrimaryVirtualN : n, g_PrimaryVirtual ? g_PrimaryVirtualPos : pos);
     g_DirectUnshadowed = unshadowedSum * _LightScale;
     return sum * _LightScale;
 }

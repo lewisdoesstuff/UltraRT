@@ -8,6 +8,7 @@
 #include "UltraRTMaterial.hlsl"
 
 RaytracingAccelerationStructure _Scene;
+#include "UltraRTPortals.hlsl" // TraceScene: rays follow portals (docs/portals.md)
 // NOTE: Unity ray tracing shaders support at most 8 UAVs; a 9th makes DispatchRays fail silently. This shader binds
 // exactly 8: the 7 below plus _ReservoirCur (UltraRTLights.hlsl). Albedo and emission share _Surface to make room for
 // _Reflection. Add outputs only by packing.
@@ -168,20 +169,21 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
     r.Direction = L;
     r.TMin = 0.0;
     r.TMax = 1.0e4;
-    RayPayload h = (RayPayload)0;
-    h.t = -1.0;
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, r, h);
+    RayPayload h;
+    float travelled;
+    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, r, h, travelled); // r: the last segment after portals
     float3 c;
     if (h.t < 0.0)
     {
         dist = 1000.0;
-        c = SkyRadiance(L);
+        c = SkyRadiance(r.Direction);
     }
     else
     {
-        dist = h.t;
-        float3 hp = r.Origin + L * h.t;
-        float footprint = h.t * spread + (t + h.t) * pixelAngle;
+        float ht = travelled + h.t;
+        dist = ht;
+        float3 hp = r.Origin + r.Direction * h.t;
+        float footprint = ht * spread + (t + ht) * pixelAngle;
         float3 hitLight = ReflectionHitLight(hp, h, footprint, rng);
         c = PayloadEmission(h) * _EmissionScale + h.albedo * lerp(1.0, LightToDisplay(hitLight), h.alpha);
     }
@@ -251,13 +253,19 @@ void RayGen()
     ray.TMin = 0.0;
     ray.TMax = 1.0e5;
 
-    RayPayload p = (RayPayload)0;
-    p.t = -1.0;
+    RayPayload p;
     // Hybrid with reflections: ask the hit shader for the game's cubemap term (UltraRTMaterial.hlsl, game cubemap).
     bool wantGameCube = _Mode == 3 && _ReflParams.x > 0.5 && _ReflCache.z > 0.5;
-    p.flags = ULTRART_PAYLOAD_WANT_MOTION; // the hit returns its world-space motion in p.motion
-    if (wantGameCube) p.flags |= ULTRART_FLAG_GAMECUBE;
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, ray, p);
+    uint inFlags = ULTRART_PAYLOAD_WANT_MOTION; // the hit returns its world-space motion in p.motion
+    if (wantGameCube) inFlags |= ULTRART_FLAG_GAMECUBE;
+    // Through portals the ray continues on the far side (UltraRTPortals.hlsl): from here on `ray` is the last segment, so
+    // shading uses the real hit point and direction. The G-buffer gets the camera-side ("virtual") view of the hit: path
+    // length, normal and motion as seen through the portals, so the denoiser, ReSTIR and the reflection filter reproject
+    // it like any other surface (portals are rigid).
+    float3 camDir = ray.Direction;
+    RayDesc camRay = ray;
+    PortalPath path;
+    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, inFlags, ray, p, path);
 
     float3 c, lighting, albedo, emission;
     if (p.t < 0.0)
@@ -279,9 +287,18 @@ void RayGen()
         float3 n = p.normal;
         uint layer = PayloadLayer(p);
         uint motion = p.motion;
+        float tTotal = path.travelled + p.t;
         g_PrimaryMotion = UnpackMotion(motion); // ReSTIR temporal reuse reprojects pos + motion
+        if (path.hops > 0u)
+        {
+            g_PrimaryMotion = PortalToVirtual(path, g_PrimaryMotion);
+            motion = PackMotion(g_PrimaryMotion);
+            g_PrimaryVirtual = true; // ReSTIR: reproject and store the camera-side point (UltraRTLights.hlsl)
+            g_PrimaryVirtualPos = _CamPos.xyz + camDir * tTotal;
+            g_PrimaryVirtualN = PortalToVirtual(path, n);
+        }
 
-        float3 direct = DirectLighting(id, dim, pos, n, p.t, layer, rng);
+        float3 direct = DirectLighting(id, dim, pos, n, tTotal, layer, rng);
 
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
         // Radiance cache (docs/radiance-cache.md): mode 2 reads the indirect light at the primary hit and skips the bounce
@@ -300,9 +317,9 @@ void RayGen()
             b.Direction = CosineHemisphere(n, Rand(rng), Rand(rng));
             b.TMin = 0.0;
             b.TMax = 1.0e4;
-            RayPayload h = (RayPayload)0;
-            h.t = -1.0;
-            TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, b, h);
+            RayPayload h;
+            float travelled;
+            TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, b, h, travelled); // b: the last segment after portals
             if (h.t < 0.0)
             {
                 indirect = SkyLightRadiance(b.Direction) * SkyMissWeight(n, b.Direction); // MIS with SkyDirect below
@@ -355,8 +372,8 @@ void RayGen()
                 float dist;
                 // One trace pixel's angle, for the cache footprint test (from the neighbouring pixel's ray).
                 float4 farN = mul(_InvViewProj, float4(ndc + float2(2.0 / (float)dim.x, 0.0), 1.0, 1.0));
-                float pixelAngle = length(normalize(farN.xyz / farN.w - _CamPos.xyz) - ray.Direction);
-                float3 lr = TraceReflection(pos, n, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, p.t, rng, dist);
+                float pixelAngle = length(normalize(farN.xyz / farN.w - _CamPos.xyz) - camDir);
+                float3 lr = TraceReflection(pos, n, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, tTotal, rng, dist);
                 refl = float4(lr, dist);
                 // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered
                 // reflection in Reflections.compute instead.
@@ -376,13 +393,17 @@ void RayGen()
             surface = SurfaceSetGameCube(surface, FromUnorm8(p.primitive >> 16));
         }
         _Surface[id] = surface;
-        _NormalDepth[id] = float4(n, p.t);
+        _NormalDepth[id] = float4(PortalToVirtual(path, n), tTotal);
         float3 un = g_DirectUnshadowed; // same samples as `direct`, without visibility
         _HybridLight[id] = uint4(f32tof16(un.r) | (f32tof16(un.g) << 16),
                                  f32tof16(un.b) | (f32tof16(direct.r) << 16),
                                  f32tof16(direct.g) | (f32tof16(direct.b) << 16),
                                  PackHybridW(p.alpha, gameCube));
-        _InstanceId[id] = int2((int)p.instance, (int)motion);
+        // x: instance (consumers use its low 7 bits). Seen through a portal, the high half holds the distance to the first
+        // portal surface (half float, > 0), which is what the game's depth buffer has there (Composite.shader).
+        uint instWord = p.instance & 0xFFFFu;
+        if (path.hops > 0u) instWord |= min(f32tof16(max(path.firstT, 1e-3)), 0x7BFFu) << 16;
+        _InstanceId[id] = int2((int)instWord, (int)motion);
     }
 
     _Radiance[id] = float4(lighting, 1.0);
@@ -393,7 +414,9 @@ void RayGen()
         c = lerp(prev.rgb, c, 1.0 / (float)(_AccumFrames + 1));
     }
 
-    _Output[id] = _TransParams.y > 0.5 ? TraceTransparent(ray, p.t, rng) : float4(c, 1.0);
+    // Water and glass: along the camera ray, up to the opaque hit or the first portal (the game doesn't overlay what it
+    // shows through a portal).
+    _Output[id] = _TransParams.y > 0.5 ? TraceTransparent(camRay, path.hops > 0u ? path.firstT : p.t, rng) : float4(c, 1.0);
 }
 
 [shader("miss")]
