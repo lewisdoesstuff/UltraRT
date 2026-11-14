@@ -95,7 +95,7 @@ namespace UltraRT
         }
 
         /// <summary>Ctrl+F3: cycle the denoiser presets (DenoiserPreset): Full -> Previous (the build before the static-noise
-        /// work, also without the guard band) -> Legacy (plain SVGF) -> Full.</summary>
+        /// work, also without the guard band and hybrid's ReSTIR spatial reuse) -> Legacy (plain SVGF) -> Full.</summary>
         private bool DenoiserStabilityHotkey()
         {
             if (!Input.GetKeyDown(KeyCode.F3) || !(Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))) return false;
@@ -109,6 +109,7 @@ namespace UltraRT
             _denoiser.Settings.ApplyPreset(next);
             _denoiserDirect?.Settings.ApplyPreset(next);
             _guardActive = next == DenoiserPreset.Full;
+            _lightSamplingSettings.spatialSamplesHybrid = next == DenoiserPreset.Full ? new LightSamplingSettings().spatialSamplesHybrid : 0;
             string name = next == DenoiserPreset.Full ? "full" : next == DenoiserPreset.Previous ? "previous build" : "off (legacy SVGF)";
             Logger.LogInfo($"Denoiser stability: {name}");
             Toast($"Denoiser stability: {name} (Ctrl+F3)");

@@ -201,6 +201,8 @@ namespace UltraRT
                         }
                         break;
                     case "-ultrart-ris-m": int.TryParse(Next(), out _lightSamplingSettings.candidates); break;
+                    case "-ultrart-restir-spatial": int.TryParse(Next(), out _lightSamplingSettings.spatialSamples); break;
+                    case "-ultrart-restir-spatial-hybrid": int.TryParse(Next(), out _lightSamplingSettings.spatialSamplesHybrid); break;
                     case "-ultrart-noemissive": _emissiveSettings.enabled = false; break;
                     case "-ultrart-emissive-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.lightScale); break;
                     case "-ultrart-emissive-hybrid": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.hybridAdd); break;
@@ -655,7 +657,7 @@ namespace UltraRT
         private static readonly int UltraRTDepthParamsId = Shader.PropertyToID("_UltraRTDepthParams");
         private static readonly int UltraRTUVScaleId = Shader.PropertyToID("_UltraRTUVScale");
         /// <summary>-ultrart-guard X [Y]: guard band per side as a fraction of the trace width / height (0 = off).</summary>
-        private float _guardX = 0.04f, _guardY = 0.03f;
+        private float _guardX = 0.04f, _guardY = 0f;
         /// <summary>Ctrl+F3's "previous build" and "legacy" presets turn the guard band off.</summary>
         private bool _guardActive = true;
         /// <summary>Traced size / visible size this frame (1 without a guard band).</summary>
@@ -823,7 +825,7 @@ namespace UltraRT
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
-                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged);
+                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged, kind == Kind.Hybrid);
                 _emissive.Bind(_cmd, shader, _lightSamplingSettings.mode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
                 _cmd.SetRayTracingIntParam(shader, "_AccumFrames", (int)_accumFrames);

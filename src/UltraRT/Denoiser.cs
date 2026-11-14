@@ -55,7 +55,7 @@ namespace UltraRT
         public float referenceHz = 360f;
         /// <summary>The a-trous variance never drops below this x the input's 3x3 spatial variance (0 = plain SVGF). Needed
         /// for ReSTIR's temporally correlated direct-light noise, which the temporal moments don't see.</summary>
-        public float spatialVarianceFloor = 1f;
+        public float spatialVarianceFloor = 2f;
         /// <summary>A-trous normal weight exponent: pow(max(0, dot(n, nq)), phiNormal).</summary>
         public float phiNormal = 128f;
         /// <summary>A-trous plane-distance tolerance, in pixel footprints per pixel of offset.</summary>

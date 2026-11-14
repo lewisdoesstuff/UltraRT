@@ -94,3 +94,18 @@ Instead of measuring, this reaches each distinct pose with every method (a fresh
 The screenshot limit is loose on purpose. Moving geometry is at a different point of its cycle when a load takes a different amount of time (8-3's shifting hallway), and gore differs between any two runs; together they change up to 10%. An unloaded area changes 60% or more.
 
 `bench/suites/poses.json` holds every saved pose; `poses-quick.json` is one per level.
+
+## Temporal noise bursts
+A scenario with `"Burst": N` measures how much a held image changes from frame to frame, at its first screenshot time (`src/UltraRT/Plugin.Burst.cs`). For each entry of `BurstModes` (default `Modes`) the pose is held for `BurstSettle` frames (120), then N consecutive frames of the final screen are captured and reduced per pixel on luma (0-255):
+
+| Column | Meaning |
+|---|---|
+| sigma | per-pixel standard deviation over the N frames |
+| block sigma | standard deviation of `BurstBlock`-frame means (8): noise that survives averaging over 8 frames, i.e. what still shows at 360 Hz. Close to sigma = the noise is correlated over many frames (slow boiling). |
+| drift | mean difference between the first and the second half of the burst |
+| masked | over the pixels that `off` (put it first) keeps still: excludes the game's own animation (sky, viewmodel, particles) |
+| HF left/centre/right | mean absolute Laplacian of luma in the left 15%, centre 40% and right 15% of the screen; with a moving path, noise where history is short |
+
+Moving paths (`sweep`, `recording`) advance a fixed 1/360 s per frame during a burst, and the denoiser blends as at 360 Hz (`Denoiser.FrameTimeOverride`), so every run sees the same per-frame motion however slow the capture is. Each mode saves `<scenario>_burst_<mode>_sigma.png` (block sigma x16 as a heat map) and `_frame.png` (the last frame).
+
+A burst mode may add runtime variants after the view mode, separated by `+`: `relight+lights=ref+cache=off`. Keys: `lights=ref|ris|restir`, `cache=off|bounce|primary`, `refl=0|1`, `emissive=0|1`, `relight=1` (the relight light model in any mode, e.g. `pt-direct+relight`), `preset=full|previous|legacy` (Ctrl+F3's denoiser presets), and `<object>.<field>=value` for any public field of `ls` (LightSamplingSettings), `cache` (RadianceCacheSettings), `refl` (ReflectionSettings), `em` (EmissiveLightSettings), `dn` (DenoiserSettings, both instances) or `plugin` (any Plugin field, e.g. `plugin._guardX=0`). Histories are reset and everything is restored after each mode. `bench/suites/noise-diag.json` and `noise-r2.json` are the suites behind docs/denoiser.md's "Static noise".

@@ -837,6 +837,13 @@ namespace UltraRT
 
         private void ApplyBenchMode(string mode)
         {
+            // Modes may carry runtime variants ("relight+preset=previous", Plugin.Burst.cs); undo the previous ones first.
+            if (_benchModeVariant != null) { RestoreVariantState(_benchModeVariant); _benchModeVariant = null; Denoiser.FrameTimeOverride = 0f; }
+            if (mode.Contains("+"))
+            {
+                _benchModeVariant = SaveVariantState();
+                mode = ApplyBenchVariant(mode);
+            }
             if (mode == "off") { _viewEnabled = false; return; }
             int i = Array.FindIndex(Modes, m => m.name == mode);
             if (i < 0) throw new ArgumentException($"unknown mode '{mode}'");

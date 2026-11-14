@@ -1,0 +1,342 @@
+{
+  "Name": "noise-final",
+  "Scenarios": [
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "0-3 ghosts",
+      "Scene": "Level 0-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-3-ghosts.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-4 drift",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-1 user a",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-user-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-1 user b",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-user-b.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-1 user c",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-user-c.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-1 user d",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-user-d.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "8-3 b",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-3-b.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-1 start",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-approach.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-1 torch hall",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-torch-hall.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "4-1 indoor A",
+      "Scene": "Level 4-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/4-1-approach-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "1-1 sweep",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "sweep",
+        "YawSpeed": 180,
+        "PitchAmplitude": 5,
+        "Duration": 10
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 96,
+      "BurstSettle": 60,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid",
+        "dn-lighting+relight+preset=previous",
+        "dn-lighting+relight"
+      ]
+    },
+    {
+      "Name": "0-2 run",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/0-2-run.json"
+      },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Modes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid"
+      ],
+      "Screenshots": [
+        20,
+        40
+      ]
+    }
+  ]
+}

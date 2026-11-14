@@ -129,7 +129,8 @@
         "hybrid",
         "dn-lighting+relight+preset=previous",
         "dn-lighting+relight",
-        "dn-lighting+relight+plugin._guardX=0+plugin._guardY=0"
+        "dn-lighting+relight+plugin._guardX=0+plugin._guardY=0",
+        "dn-lighting+relight+cache.staleFrames=1200"
       ]
     }
   ]

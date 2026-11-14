@@ -22,6 +22,8 @@ namespace UltraRT
     {
         /// <summary>Bench variant: use the relight light model in every mode (to break relight down with pt-direct etc.).</summary>
         private bool _relightForce;
+        /// <summary>State to restore when the bench leaves a timing mode that carried variants.</summary>
+        private Dictionary<string, Dictionary<FieldInfo, object>> _benchModeVariant;
 
         /// <summary>Snapshot of every settings object a burst variant may change (their public fields).</summary>
         private Dictionary<string, Dictionary<FieldInfo, object>> SaveVariantState()
@@ -100,6 +102,7 @@ namespace UltraRT
                         var g = typeof(Plugin).GetField(nameof(_guardActive), BindingFlags.NonPublic | BindingFlags.Instance);
                         if (!_variantPluginRestore.ContainsKey(g)) _variantPluginRestore[g] = _guardActive;
                         _guardActive = preset == DenoiserPreset.Full;
+                        _lightSamplingSettings.spatialSamplesHybrid = preset == DenoiserPreset.Full ? new LightSamplingSettings().spatialSamplesHybrid : 0;
                         break;
                     }
                     default:
@@ -148,6 +151,7 @@ namespace UltraRT
             var modes = sc.BurstModes != null && sc.BurstModes.Count > 0 ? sc.BurstModes : sc.Modes;
             int n = Math.Max(4, sc.Burst), block = Math.Max(1, Math.Min(sc.BurstBlock, n / 2));
             float[] mask = null; // per-pixel sigma of "off": pixels the game itself animates are excluded from the masked stats
+            ApplyBenchMode("off"); // undo a timing mode's variants before snapshotting
             var saved = SaveVariantState();
             Denoiser.FrameTimeOverride = 1f / 360f; // captures run far below real time; blend factors as at 360 Hz
             foreach (var spec in modes)
