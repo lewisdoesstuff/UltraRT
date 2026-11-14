@@ -14,6 +14,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\death\.t3\projects\
 .\scripts\deploy.ps1 -Owner <you> [-Slot alt]    (-Owner is required: it refuses a slot someone else holds)
 # 4. Run. Several suites in one launch; -Perf = no screenshots, no bursts.
 .\scripts\bench.ps1 -Suite a,b,c -Perf [-Slot alt] [-Compare <older run>]
+#    Each results folder gets game.log: this run's part of BepInEx\LogOutput.log (the game rewrites that file at every launch).
 # 5. Release right away (stops your resident game, restores main's build from a cached copy: about a second).
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\death\.t3\projects\ultrart\scripts\game-lock.ps1 release <you>
 ```

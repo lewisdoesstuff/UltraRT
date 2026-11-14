@@ -123,6 +123,19 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $p = $null
 $id = $null
 $srv = Get-ServerDir $GameDir
+# BepInEx rewrites LogOutput.log at every launch, so each run keeps its own copy (game.log in the results folder).
+$gameLog = Join-Path $GameDir 'BepInEx\LogOutput.log'
+$logStart = 0
+function Save-GameLog([string] $dest, [long] $from) {
+    try {
+        $fs = [IO.File]::Open($gameLog, 'Open', 'Read', 'ReadWrite')
+        try {
+            if ($from -gt $fs.Length) { $from = 0 }   # the game restarted and the log began again
+            $null = $fs.Seek($from, 'Begin')
+            $out = [IO.File]::Create($dest); try { $fs.CopyTo($out) } finally { $out.Close() }
+        } finally { $fs.Close() }
+    } catch { Write-Warning "Could not copy the game log to ${dest}: $($_.Exception.Message)" }
+}
 
 if ($KeepOpen -or $resident) {
     # ---- resident game: launch once, hand it commands
@@ -154,6 +167,9 @@ if ($KeepOpen -or $resident) {
         $sw.Restart()
     }
     $p = $resident.Process
+    # The resident game keeps appending to one log: remember where this run's part starts.
+    # A game launched just now: keep its start-up lines too.
+    $logStart = if ($boot) { 0 } else { try { (Get-Item $gameLog -ErrorAction Stop).Length } catch { 0 } }
     $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
     $cmd = @{ Id = $id; Runs = @($runs | ForEach-Object { @{ Suite = $_.Path; Out = $_.Out } }); Tag = $commit
               NoChain = [bool] $NoChain; Validate = [bool] $ValidateLoad; NoShots = [bool] $NoScreenshots; NoBursts = [bool] $NoBursts; Settle = $Settle }
@@ -188,6 +204,8 @@ if ($KeepOpen -or $resident) {
     }
 }
 if (Test-Path $lockFile) { (Get-Item $lockFile).LastWriteTime = Get-Date }
+foreach ($r in $runs) { New-Item -ItemType Directory -Force $r.Out | Out-Null; Save-GameLog (Join-Path $r.Out 'game.log') $logStart }
+"Game log saved as game.log in the results folder$(if ($runs.Count -gt 1) { 's' })"
 # Unity saved this game's window monitor/resolution into the registry the user's game reads: put the user's back.
 $restored = Restore-DisplayPrefs (Get-SlotDir 'main')
 if ($restored) { "Restored the user's display settings ($restored)" }
@@ -205,7 +223,7 @@ foreach ($r in $runs) {
     if ($runs.Count -gt 1) { ""; "# $($r.Name)" }
     if (Test-Path $r.Summary) { Get-Content $r.Summary -Encoding UTF8 } else {
         Write-Warning "No summary written for $($r.Name). Last plugin log lines:"
-        Get-Content (Join-Path $GameDir 'BepInEx\LogOutput.log') | Select-String 'UltraRT\]' | Select-Object -Last 15 | ForEach-Object Line
+        Get-Content (Join-Path $outDir 'game.log') -ErrorAction SilentlyContinue | Select-String 'UltraRT\]' | Select-Object -Last 15 | ForEach-Object Line
         $failed = $true
         $i++
         continue
