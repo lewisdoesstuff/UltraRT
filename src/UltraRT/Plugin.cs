@@ -101,7 +101,7 @@ namespace UltraRT
         {
             InitSettings(); // SettingsMenu.cs: register the settings and remember the code defaults before any entry or flag changes them
             // Starting view mode: BepInEx/config/ooo.lew.ultrart.cfg ([View] DefaultMode), overridden by -ultrart-view.
-            var defaultMode = Config.Bind("View", "DefaultMode", "hybrid",
+            var defaultMode = Config.Bind("View", "DefaultMode", "relight",
                 "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.").Value;
             int dm = Array.FindIndex(Modes, m => m.name.Equals(defaultMode, StringComparison.OrdinalIgnoreCase));
             if (dm >= 0) _mode = dm;
