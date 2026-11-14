@@ -27,6 +27,7 @@ namespace UltraRT
         private ComputeBuffer _volSkipBuffer;    // one bit per light: lights attached to the player / camera
         private readonly uint[] _volSkip = new uint[(MaxLights + 31) / 32];
         private Vector3 _volSurveyPos = new Vector3(1e9f, 0, 0);
+        private const float AttachedLightReach = 1.5f; // m from the eye: player-attached lights the medium skips (the gun, a held torch)
 
         private void ParseVolumetricsArgs()
         {
@@ -79,8 +80,12 @@ namespace UltraRT
                 var l0 = _lightData[i * 4];
                 if (l0.w == 0f) continue;
                 var lt = _packedLights[i];
-                bool attached = lt != null && ((player != null && lt.transform.IsChildOf(player)) || (camT != null && lt.transform.IsChildOf(camT)));
-                bool atEye = (new Vector3(l0.x, l0.y, l0.z) - camPos).sqrMagnitude < 0.25f;
+                // Attached lights only while they are at the player: a held item thrown on the whiplash (4-3's torch) stays
+                // in the camera's hierarchy while it flies, and its halo is what shows it moving through the air.
+                float eye2 = (new Vector3(l0.x, l0.y, l0.z) - camPos).sqrMagnitude;
+                bool attached = eye2 < AttachedLightReach * AttachedLightReach && lt != null &&
+                                ((player != null && lt.transform.IsChildOf(player)) || (camT != null && lt.transform.IsChildOf(camT)));
+                bool atEye = eye2 < 0.25f;
                 if ((attached || atEye) && !_volSettings.playerLights) _volSkip[i >> 5] |= 1u << (i & 31);
             }
             _cmd.SetBufferData(_volSkipBuffer, _volSkip);

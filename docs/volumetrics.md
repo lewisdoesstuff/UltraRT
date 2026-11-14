@@ -291,10 +291,66 @@ volumetric cost 0.37-0.60 ms (vol + vollate) against 0.24-0.42 ms: about 0.21-0.
   stay (cheap); whether NaNs ever occurred was not established.
 - Units: a first build forgot the factor pi (lighting = irradiance / pi), making every term pi times too dark.
 
+### Lamp cones (2026-11-14 pm, branch `lights-pm`)
+User report: in 8-2 the streetlights' light cones looked the same with RT on and off. They are the game's fakes:
+additive `ULTRAKILL/Master` meshes (`LightShaft`, material `LightPillarStreetlight`, colour (0.72, 0.58, 0.40, 0.15),
+static-batched), one per streetlight, hanging from a **point** light (range 30, intensity 2, warm). The volumetric pass
+lit the air around that point light as a round halo, and the haze range weight left 23% of it (range 30), so relight
+showed a faint glow plus the fake cone drawn on top.
+
+`src/UltraRT/LightShafts.cs` + `Plugin.Shafts.cs`. Once per RT scene, the first time the volumetric pass runs, every
+additive Master mesh named like a shaft (`lightshaft`, `lightpillar`, `lightray`, `godray`, `shaft`; not lava) is read
+back (its submesh of the static batch, one GPU readback per combined mesh) and matched to the point/spot light at its
+apex: a vertex within 1 m (or 10% of the mesh length) of the light. The cone is fitted to the far half of the vertices:
+axis = their mean direction from the light, half angle = the widest of them; it must be 3-60 degrees and no longer than
+3x the light's range (4-3's 190 m light-pillar boxes fit a cone from their base otherwise). 8-2: 18 lights, 32 degrees,
+tilted 13 degrees toward the street, 21.7 m long (59 shaft meshes; 38 have no light at their apex: window shafts).
+
+Per light the volumetric pass gets two more float4 (`_VolLightCone`, `Volumetrics.raytrace` `ScatterCone` /
+`ScatterWeight`): the fitted cone replaces the light's own shape for the medium only (`ClipSpot` clips the ray segment to
+it, the in-scattering gets a soft edge over the outer 25% of the half angle), and the light's scattering weight becomes
+`shaft.strength` (3) in place of the haze range weight. Surfaces keep the game's point light. While the volumetric pass
+runs (relight; pt-dn / hybrid when volumetrics are on there), the fake meshes are disabled (`renderer.enabled`), and
+re-enabled whenever it doesn't (any other mode, F7, Ctrl+F6, scene change). A light that moves away from its mesh keeps
+its fake.
+
+| Flag | Field (`shaft.`) | Default | |
+|---|---|---|---|
+| `-ultrart-shafts on\|off` | `enabled` | on | |
+| `-ultrart-shaft-strength F` | `strength` | 3 | scattering relative to a light with haze weight 1 |
+| | `edge` | 0.75 | inner fraction of the half angle at full strength |
+| `-ultrart-shaft-keepfakes` | `keepFakes` | off | draw the game's meshes on top as well |
+
+Result (`bench/results/20261114-185737_lights-pm-check2_alt/8-2_b_*`): each streetlight now has a real cone of light in
+the rain, the same shape and direction as the game's, falling off with distance and shadowed by the lamp head and post.
+`shaft.strength=10` looks the same as 3 (the per-pixel sample clamp, `maxSample`, caps the brightest cones); global
+density and exposure are unchanged. Cost: the match takes 42 ms once per 8-2 scene build (17 ms in 4-3); per frame a
+256-entry buffer upload and two extra buffer reads per light sample in the trace.
+
+### Thrown items (2026-11-14 pm)
+User report: in 4-3, holding the torch and using the whiplash, the game clearly shows the torch lighting the walls as it
+flies; with RT on it is very subtle. Bench: `bench/suites/lights-pm-throw.json` (the user's route with the torch held via
+the bench's `holdtorch` and the whiplash pressed `ShotDelay` before each capture; `bench/results/20261114-192647_lights-pm-throw`,
+`20261114-193339_lights-pm-throw`). Findings:
+- With the torch held (its light pinned to the player by `Torch.Update`) relight and the game light the room alike.
+- Thrown, the torch lands on the door ~10 m away. The game's room goes black: ULTRAKILL lights per vertex, and the big
+  wall quads have no vertex near the torch. Relight lights per pixel, so the torch still lights the room from the door
+  (mean lighting L 1.23 linear, the torch's orange; without the torch the room is L 0). The radiance cache adds about 4%
+  of that (cache off: L 1.18), and auto exposure (off: same image) and ReSTIR's per-pixel moved-light history cut
+  (`ls.perPixelLightChange=1 + ls.lightChangeKept=1`: same) don't change it: it is the torch's present light, not lag.
+- What was missing: the medium skipped every light in the player's or camera's hierarchy, and a thrown item stays
+  parented to the hand. Lights in those hierarchies are now skipped only within 1.5 m of the eye
+  (`AttachedLightReach`, `Plugin.Volumetrics.cs`), so a thrown torch (or skull) carries its halo through the air; held,
+  nothing changes.
+- Not done: matching the game's per-vertex look (the room going dark as soon as the torch leaves) would need a steeper
+  falloff for moving lights; relight keeps the physical one.
+
 ### Not done / limits
 - Hybrid is off by default (`-ultrart-vol-hybrid`): its colour already has the game's fog; only the in-scattering
   would be added.
-- The game's fake light-shaft meshes (`LightShaft`, `Godrays`) and mist particles are left as they are, on top.
+- The game's fake light-shaft meshes that hang from a light are replaced by that light's volumetric cone (see "Lamp
+  cones"); shafts with no light at their apex (sun shafts through windows, `Godrays`) and mist particles are left as
+  they are, on top.
 - Transparents get the glow of the air behind them, not of the air in front of them: right for far grates, water and
   glass, too much for alpha-blended smoke right in front of the camera.
 - Moving lights (7-2's searchlights, flashes) still lag by the temporal history; the haze range takes the brightest of

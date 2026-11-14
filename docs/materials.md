@@ -274,3 +274,28 @@ kept).
   lighting in the albedo misleads it). Per-texel normals on flat quads also can't self-shadow.
 - **Reflection, bounce and cache hits ignore detail** by design (cost); reflections are filtered and the indirect light
   is smooth anyway.
+
+## 7. Rain on surfaces (2026-11-14 pm, branch `lights-pm`)
+User report: in P-2 the raindrops on the floor vanish with RT on. They are not particles: the game turns on the `RAIN`
+keyword on outdoor materials at runtime (`StaticSceneOptimizer.UpdateRain` on the outdoor batch material, shader
+`ULTRAKILL-Stationary`; `StencilValuesByLayer` on reusable `ULTRAKILL/Master` materials), and both shaders then change the
+albedo before lighting. Relight replaces opaque pixels with albedo x ray-traced lighting from our proxy materials, so
+the rain went with the game's albedo.
+
+The term, decoded from the two shaders' DXBC (identical in both; they differ only in where the base albedo comes from):
+- Dominant-axis planar projection of the world position (xz on floors and ceilings, xy / zy on walls), tile
+  16 / `_RainScale` m (`_LocalOffsetRain` subtracts the object's position).
+- Floors (|N.y| largest): `_RainDrops` (R phase, G amplitude), `y = R * 31.45 + t * _RainSpeed * 1.5`, an expanding ring
+  `G (1 - frac y) sin(1.5 clamp(9 (G + frac y - 1), 0, 3))` on every other cycle, x 0.5 x `_RaindropsIntensity`;
+  `_RainCeilingToggle` 1 removes it where N.y <= 0.001.
+- Walls: running streaks from `_RainTrails` (b warps the uv in steps, r + t scrolls a sawtooth, g gates it, a scales it).
+- `albedo = albedo * _RainDarkening + amount * _RainColor`; t is the shaders' `_Time.y` (time since level load).
+
+`SceneProxies.Rain.cs` mirrors each source's rain state and properties (`_Rain`, the textures, colours and floats) onto
+its proxy material and atlas variants, re-checked at 4 Hz (rooms with a roof switch it off). `Proxy.shader` `RainAlbedo`
+applies the term at every hit with the game's unflipped vertex normal and `_UltraRTRainTime` (Time.timeSinceLevelLoad).
+Primary, bounce and reflection rays all see it; hybrid keeps the game's own colour, so only its bounce albedo changes.
+P-2 at the vent pose: 1,245 of 1,427 rain-capable proxy sources raining. `-ultrart-norain` (bench `plugin._rainOn=0`)
+turns it off. Screenshots `bench/results/20261114-185737_lights-pm-check2_alt/P-2_rain_floor_*` (relight with and
+without: the darkened floor and the animated drop texels, as in hybrid's game colour). Cost: two point texture reads per
+rainy hit; nothing on the CPU beyond the 4 Hz keyword check.

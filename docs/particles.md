@@ -93,6 +93,18 @@ they glowed. They are not light sources (EffectLights excludes them by name for 
 the additive contribution is multiplied by the lighting, as in-scattered light is. `-ultrart-particles-additive off`
 keeps them as the game draws them. Fire, explosions, flashes and every other additive glow stay as they are.
 
+**Additive smoke brightness** (2026-11-14 pm, user report: P-2's floor-vent gas "almost looks like it's on fire"). The
+game's Master "Smoke" (TRANSPARENCY, additive, no VERTEX_LIGHTING, `_EmissiveFogStart/End` 99999, `_Opacity` 1) is lit
+by the game's flat ambient only, so its art at lighting 1 is far brighter than anything the game shows: in P-2 (black
+ambient) the gas is invisible in the game and with the game's own shader in relight
+(`relight+plugin._particlesOff=1`), while our shader at strength 0 drew a bright white column and the RT lighting next to
+the flickering red streetlight (intensity up to 13, range 35) multiplied it by up to 8 and the tone curve turned it
+orange. For Master additive smoke (`_PLKind` 4) the lighting multiplier is now `s m / (1 + s m / max)` of the brightest
+channel `m`, applied to all three channels (hue kept: red light keeps the gas red): scale `additiveScale` 0.5, soft
+maximum `additiveMax` 0.6 (`-ultrart-particles-additive-scale`, `-ultrart-particles-additive-max`; 0 = the raw lighting).
+At lighting 1 that is 0.27 of the art; next to the red light 0.52 of it, a dim red haze. Unlit additive materials (Unity
+Standard Unlit additive dust) keep the raw multiplier: the game draws their art at full brightness.
+
 Blood drops are drawn in the opaque pass (queue 2450), before the RT composite of that frame, so they read the previous
 frame's volume (its own grid matrices travel with it as globals). The composite keeps them, since their depth is in front
 of the traced surface.
@@ -105,6 +117,7 @@ of the traced surface.
 | `-ultrart-particles-strength F` | `strength` | 1 | relight and pt-dn: 0 = the game's look |
 | `-ultrart-particles-hybrid F` | `hybridStrength` | 1 | 0 turns hybrid off |
 | `-ultrart-particles-additive on\|off` | `additiveSmoke` | on | additive smoke, dust and mist |
+| `-ultrart-particles-additive-scale F` / `-ultrart-particles-additive-max F` | `additiveScale` / `additiveMax` | 0.5 / 0.6 | Master additive smoke: lighting multiplier `s m / (1 + s m / max)` (see "Additive smoke brightness") |
 | `-ultrart-particles-grid X,Y,Z` | `gridX/Y/Z` | 64,36,32 | |
 | `-ultrart-particles-far M` | `far` | 96 | beyond: the last slice |
 | `-ultrart-particles-alpha F` | `alpha` | 0.12 | temporal weight of a new frame |
