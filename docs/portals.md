@@ -9,6 +9,8 @@ Files:
 - `unity/.../PathTrace.raytrace`, `CacheUpdate.raytrace`, `DebugView.raytrace`: use `TraceScene`.
 - `unity/.../UltraRTLights.hlsl`: ReSTIR reprojects through portals.
 - `unity/.../Composite.shader`: the depth test at portal pixels.
+- `unity/.../Upsample.compute`: the temporal upsampler of the replace modes, same depth rule, reprojects through portals.
+- `src/UltraRT/SceneProxies.cs`: layer-30 renderers get their own instance mask.
 
 ## 1. How the game does it
 
@@ -63,13 +65,14 @@ The travel matrix of each side (3 rows) is uploaded to the global structured buf
 
 **The hit shader** (`Portal.shader`) only reports: `p.t`, `p.instance = _PortalIndex`, flag `ULTRART_FLAG_PORTAL` (payload flags bit 29, unused by the material flags). The payload stays 64 bytes and no UAV is added: the buffer is an SRV.
 
-**`TraceScene`** (`UltraRTPortals.hlsl`) replaces `TraceRay` for every `ULTRART_MASK_SCENE` ray. On a portal hit it moves the ray through the side's matrix (origin = travel * hit point, nudged 1 mm along the new direction; direction = travel's rotation * direction; `TMax` shortened by the distance covered) and traces again, up to `ULTRART_PORTAL_MAX_HOPS` = 3 teleports. Past that the ray ends on a black, unlit surface (the game stops at its recursion limit too). It returns the last segment in `ray`, so callers keep computing the hit as `ray.Origin + ray.Direction * p.t`, plus a `PortalPath`: the accumulated rotation, the path length before the last segment, and the distance to the first portal.
+**`TraceScene`** (`UltraRTPortals.hlsl`) replaces `TraceRay` for every `ULTRART_MASK_SCENE` ray. On a portal hit it moves the ray through the side's matrix (origin = travel * hit point, nudged 1 mm along the new direction; direction = travel's rotation * direction; `TMax` shortened by the distance covered) and traces again, up to `_UltraRTPortalHops` = 3 teleports (`-ultrart-portal-hops`, bench `plugin._portalHops=N`). Past that the ray goes on straight without portals: the game does not draw a portal deeper than its recursion limit, so the level behind it shows. Rays after a hop carry `ULTRART_PORTAL_IN_RECURSION` (payload flags bit 29 as a request), and sides with `appearsInRecursions` off ignore them in their any-hit shader. It returns the last segment in `ray`, so callers keep computing the hit as `ray.Origin + ray.Direction * p.t`, plus a `PortalPath`: the accumulated rotation, the path length before the last segment, and the distance to the first portal.
 
 Where it is used:
 - **Primary rays** (PathTrace, DebugView, the cache's primary rays): shading, lights, shadows, cache lookups and the reflection ray all happen at the real hit on the far side.
 - **Bounce rays** (PathTrace, CacheUpdate): bounce light comes through doorways from the right room.
 - **Reflection rays**: a mirror sees through portals; the reported hit distance is the full path length.
 - **Water and glass** (the transparent pass at the end of RayGen): along the camera ray up to the opaque hit or the first portal, whichever is nearer; water seen through a portal gets no RT reflection overlay (the overlay is drawn by the main camera only).
+- **Layer 30**: renderers on the "Portal" layer are traced with instance mask `SceneProxies.PortalLayerMask` = 0x40. `TraceScene` drops 0x40 from the first segment and adds it back after a hop through a side whose `canSeePortalLayer` is set (the hit reports it in `p.material` bit 0), which is the game's per-view culling mask. This is what puts the chandeliers into 8-3's Shifting Arena. Static-batched layer-30 renderers are not traced (none seen). `-ultrart-noportallayer` turns it off (at scene build).
 - **Not shadow rays**: light sampling is in world space, so a surface is lit by the lights of the room it really is in. Lights shining through a portal into another space are not modelled yet (see Limits).
 
 **The G-buffer stays in camera space.** Because the travel matrices are rigid, the far side seen through a portal is a rigid copy of it in front of the camera (the "virtual" scene). Primary hits write the virtual view: `_NormalDepth` = (rotation^-1 * normal, full path length), the motion in `_InstanceId.y` rotated the same way. The denoiser, the reflection filter and ReSTIR rebuild positions as `camPos + dir * t`, so they reproject surfaces behind a portal like any other: static portals need no special case. ReSTIR's reuse (`UltraRTLights.hlsl`, `g_PrimaryVirtual*`) reprojects and stores the reservoir plane with the virtual point and normal and evaluates lights at the real one.
@@ -78,7 +81,9 @@ Where it is used:
 
 **Measured**: the game's depth buffer at a portal pixel holds the portal quad's plane (the `Portal Draw` quad writes depth; `-ultrart-compdebug 5` is solid green over every portal and mirror tested). The RT path through the portal is longer than that, so before this change the composite threw RT away at most portal pixels and kept the game's portal view unlit by RT, and wherever the straight-through hit happened to be within the depth tolerance it applied the wrong room. Primary rays that crossed a portal store the distance to the first portal surface in the high half of `_InstanceId.x` (half float; the denoiser and reflection filter only use the instance's low 7 bits, and the low 16 bits keep the instance). `Composite.shader`'s depth test and its depth-guided upsampling accept a match with either distance, so RT applies at portal pixels whichever depth the game writes there. Everything else (objects in front of a portal, glow quads) is tested as before.
 
-`-ultrart-compdebug 5` (bench: `hybrid+plugin._compositeDebug=5`) colours through-portal pixels by what the game's depth matched: green = the portal plane, blue = the far-side hit, red = neither (the composite then keeps the game's pixel); other pixels show the game's colour darkened.
+**Temporal upsampling** (pt-dn, relight; `Upsample.compute`): it matches trace samples to the game's depth per screen pixel the same way, so a through-portal sample is matched on its portal distance; history is reprojected from the far-side point instead of the game's (portal plane) point, and that depth is stored for next frame's validation, so the view through a portal doesn't smear like a picture painted on the portal.
+
+`-ultrart-compdebug 5` (bench: `hybrid+plugin._compositeDebug=5`) colours through-portal pixels by what the game's depth matched: green = the portal plane, blue = the far-side hit, red = neither (the composite then keeps the game's pixel); other pixels show the game's colour darkened. `-ultrart-compdebug 6` blends the game's colour 50/50 with our albedo wherever RT applies: within one frame, any traced geometry that doesn't line up with what the game draws shows as a double image. That is the only fair check for moving portals (the Shifting Arena scrolls, so screenshots of different modes are never the same moment).
 
 ## 5. Settings
 
@@ -86,19 +91,40 @@ Where it is used:
 |---|---|
 | `-ultrart-noportals`, bench `plugin._portals=0` | no portal quads: rays go straight through, as before (A/B) |
 | `-ultrart-compdebug 5` | portal depth diagnostic (hybrid) |
-| `ULTRART_PORTAL_MAX_HOPS` (UltraRTPortals.hlsl) | teleports per ray (3) |
+| `-ultrart-portal-hops N`, bench `plugin._portalHops=N` | teleports per ray (3); past it rays ignore portals |
+| `-ultrart-noportallayer` | don't trace layer-30 renderers |
+| `-ultrart-compdebug 6` | game / RT albedo alignment overlay (hybrid) |
 | `SceneProxies.MaxPortalSides` | 1024 |
 
 Logs: `Portal side N: '<path>' enter|exit|mirror WxH at <pos> fwd <dir>, render <flags>, recursions R, disableRange D` the first time each side appears (first 64), and `Portals: N portal sides in the RTAS (M known)` when the set changes (first 40).
 
 ## 6. Results
 
-(See below.)
+RTX 5070 Ti, 1920x1080, trace scale 0.5, GPU timer. Suites: `bench/suites/portals.json` (each pose with portals on and `plugin._portals=0`), `portals-align.json` (`-ultrart-compdebug 6` overlays), `perf-8-3-portals.json` (the 8-3 b route, portals on and off). Results in `bench/results/20261114-082510_portals`, `20261114-082315_portals-align`, `20261114-082643_perf-8-3-portals` (not committed).
+
+**What it fixes** (8-3):
+- **Doorway into the false-start corridor** (`8-3 portals`): without portals the RT saw open sky and a far-away corridor through the doorway (`hybrid_..._portals_0_raw.png`); with portals it sees the corridor the game shows, with the sliding door slab in the same place in the same frame (`hybrid_raw.png` against `hybrid.png`). `compdebug 5` is solid green over the doorway: every through-portal pixel matches the game's portal-plane depth, so RT now applies there instead of being thrown away.
+- **Shifting Arena** (`8-3 b`): the strip portals scroll every frame. With layer 30 traced, the theatre's chandeliers appear; `compdebug 6` overlays are single images (no doubling) with 1, 2 and 3 hops, so the traced view lines up with the game's.
+- **Escher Entrance mirror** (`8-3 mirror`, `CeilingSegment/Mirror`): the mirror quad matches (green) and reflects; before, the RT saw through it.
+
+**Cost** (GPU total ms; portals off -> on, same session):
+
+| Pose | hybrid | relight | pt-dn |
+|---|---|---|---|
+| 8-3 portals (doorway, static) | 2.29 -> 2.55 | 2.41 -> 3.04 | 2.22 -> 2.72 |
+| 8-3 portals sweep | 2.31 -> 2.77 | 2.47 -> 2.89 | |
+| 8-3 mirror | 2.64 -> 2.68 | 2.68 -> 2.72 | |
+| 8-3 b (Shifting Arena) | 2.07 -> 2.45 | 1.82 -> 2.72 | |
+| 8-3 b route (99 s, real time) | 2.456 -> 2.449 (frame 7.13 -> 7.10 ms, plugin CPU 0.724 -> 0.722 ms) | | |
+
+Where the camera looks through a portal, the dispatch now traces and lights a real room (often with layer-30 props) instead of escaping into sky, so it costs up to about 0.6 ms more in relight and 0.4 ms in hybrid; that is the price of the correct image, not overhead of the teleport itself (one extra any-hit and one more `TraceRay` per crossing). Away from portals nothing changes: the 8-3 route, which spends most of its time elsewhere, is identical within noise. Plugin CPU for `SyncPortals` is about 0.03 to 0.05 ms per frame with 22 sides (the scrolling and shifting sides move every frame, so their instance transforms and the matrix buffer are updated every frame).
 
 ## 7. Limits
 
+- **The player in mirrors**: the game shows V1 in mirror views through layer 30; layer-30 skinned renderers are traced now, but whether the player model is among them (and lines up) was not checked; the mirror pose tested is awkward (a sideways Escher room with geometry the game hides covering half the view, in both A/B variants).
+- **Bounce and reflection rays from a surface seen through a portal** start a fresh path: they don't see layer-30 props.
 - **Lights through portals**: a light in room A does not light room B through a portal between them, and shadow rays ignore portals. The game fakes this for `PortalAwareLight`s (up to 16 transformed copies, clipped by the far plane). Doing it in RT means virtual lights (a light's image through each nearby portal, sampled with a plane clip and a shadow ray that is teleported back) in the light list.
-- **Per-portal overrides** the game applies to a portal view are not applied to rays: `overrideSkyboxEnter/Exit`, fog overrides, `canSeeItself`, `appearsInRecursions`, `maxRecursions` (one global limit of 3 instead).
+- **Per-portal overrides** the game applies to a portal view are not applied to rays: `overrideSkyboxEnter/Exit`, fog overrides, `canSeeItself`, per-portal `maxRecursions` (one global limit of 3 instead), the fog-end distance cull, and `supportInfiniteRecursion`'s fake textures. `appearsInRecursions` and `canSeePortalLayer` are honoured.
 - **Moving portals and objects seen through a portal**: the motion of objects behind a portal is rotated into camera space, but a portal that itself moves makes the virtual scene move without motion vectors: history is rejected there (correct, but noisier) until it stops.
 - **The game's own cubemap reflection** reconstructed for hybrid (`GameCubeTerm`) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
 - **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere.
