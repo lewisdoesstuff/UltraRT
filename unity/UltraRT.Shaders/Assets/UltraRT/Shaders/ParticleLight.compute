@@ -1,0 +1,73 @@
+// Particle lighting volume, temporal filter (docs/particles.md). Per froxel: a 3x3x3 Gaussian of this frame's samples
+// (ParticleLight.raytrace), blended with the history reprojected through the previous frame's grid. The result is
+// what LitParticle.shader samples (trilinear) at each effect pixel.
+#pragma kernel Temporal
+
+Texture3D<float4>   _PLRaw;
+Texture3D<float4>   _PLHistory;
+RWTexture3D<float4> _PLOut;
+SamplerState my_linear_clamp_sampler;
+
+float4x4 _PLInvViewProj;     // this frame's (GL clip space), inverted
+float4   _PLCamPos;
+float4   _PLCamFwd;
+float4   _PLGrid;            // size x, y, z
+float4   _PLDepth;           // x near, y log2(far / near), z 1 / log2(far / near)
+float4x4 _PLPrevViewProj;    // the previous frame's grid
+float4   _PLPrevCamPos;
+float4   _PLPrevCamFwd;
+float4   _PLTemporal;        // x alpha (weight of the new frame), y 1 = history valid, z spatial weight of the neighbours
+
+float3 FroxelToWorld(float3 g)
+{
+    float2 ndc = g.xy / _PLGrid.xy * 2.0 - 1.0;
+    float4 farPt = mul(_PLInvViewProj, float4(ndc, 1.0, 1.0));
+    farPt.xyz /= farPt.w;
+    float3 dir = normalize(farPt.xyz - _PLCamPos.xyz);
+    float depth = _PLDepth.x * exp2(g.z / _PLGrid.z * _PLDepth.y);
+    return _PLCamPos.xyz + dir * (depth / max(dot(dir, _PLCamFwd.xyz), 1e-3));
+}
+
+[numthreads(4, 4, 4)]
+void Temporal(uint3 id : SV_DispatchThreadID)
+{
+    int3 size = (int3)_PLGrid.xyz;
+    if (any((int3)id >= size)) return;
+
+    // Spatial: 3x3x3, weights 1 (centre) and _PLTemporal.z^(manhattan distance) for the neighbours.
+    float3 sum = 0;
+    float wsum = 0;
+    [unroll] for (int z = -1; z <= 1; z++)
+    [unroll] for (int y = -1; y <= 1; y++)
+    [unroll] for (int x = -1; x <= 1; x++)
+    {
+        int3 q = (int3)id + int3(x, y, z);
+        if (any(q < 0) || any(q >= size)) continue;
+        int m = abs(x) + abs(y) + abs(z);
+        float w = m == 0 ? 1.0 : m == 1 ? _PLTemporal.z : m == 2 ? _PLTemporal.z * _PLTemporal.z : _PLTemporal.z * _PLTemporal.z * _PLTemporal.z;
+        sum += _PLRaw[q].rgb * w;
+        wsum += w;
+    }
+    float3 cur = sum / max(wsum, 1e-6);
+
+    float3 result = cur;
+    if (_PLTemporal.y > 0.5)
+    {
+        float3 p = FroxelToWorld((float3)id + 0.5);
+        float4 clip = mul(_PLPrevViewProj, float4(p, 1.0));
+        float d = dot(p - _PLPrevCamPos.xyz, _PLPrevCamFwd.xyz);
+        if (clip.w > 1e-4 && d > 0.0)
+        {
+            float3 uvw;
+            uvw.xy = clip.xy / clip.w * 0.5 + 0.5;
+            uvw.z = log2(max(d, 1e-4) / _PLDepth.x) * _PLDepth.z;
+            if (all(uvw >= 0.0) && all(uvw <= 1.0))
+            {
+                float3 hist = _PLHistory.SampleLevel(my_linear_clamp_sampler, uvw, 0).rgb;
+                result = lerp(hist, cur, saturate(_PLTemporal.x));
+            }
+        }
+    }
+    if (any(!(result >= 0.0)) || any(isinf(result))) result = 0;
+    _PLOut[id] = float4(result, 1.0);
+}

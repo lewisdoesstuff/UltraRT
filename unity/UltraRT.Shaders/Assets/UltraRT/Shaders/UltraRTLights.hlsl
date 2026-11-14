@@ -29,6 +29,11 @@ int      _LightCount;
 #ifndef ULTRART_LIGHT_LAYER_TEST
 #define ULTRART_LIGHT_LAYER_TEST(m, layer) ((((m) >> (layer)) & 1u) != 0u)
 #endif
+#ifdef ULTRART_LIGHT_ISOTROPIC
+// ParticleLight.raytrace (docs/particles.md): lights are evaluated at points in the air, facing every light (no cosine,
+// no layer); a light counts if its culling mask has any of these layers (the ones effects live on).
+uint     _LightIsoMask;
+#endif
 
 int      _LightSampling;     // 0 reference, 1 RIS, 2 RIS + temporal reuse
 int      _RisCandidates;     // candidates per pixel at the primary hit
@@ -145,7 +150,9 @@ bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
         float3 t = abs(L.y) < 0.999 ? normalize(cross(L, float3(0, 1, 0))) : float3(1, 0, 0);
         float3 b = cross(L, t);
         L = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + L * cosT);
+#ifndef ULTRART_LIGHT_ISOTROPIC
         if (dot(L, n) <= 0.0) return false;
+#endif
     }
     else if (radius > 0.0 && dist < 1.0e3)
     {
@@ -160,7 +167,9 @@ bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
         float3 d = lp - p;
         dist = length(d);
         L = d / max(dist, 1e-4);
+#ifndef ULTRART_LIGHT_ISOTROPIC
         if (dot(L, n) <= 0.0) return false;
+#endif
     }
     uint mask = _FixtureShadows > 0.5 ? 0x05u : 0x01u; // fixtures (0x04) cast shadows unless disabled
     return VisibleMasked(p, n, L, dist - min(kLightFixtureClearance, 0.5 * dist), mask);
@@ -189,7 +198,11 @@ float RelightAmbientScale() { return 1.0 - saturate(_Relight.w); }
 bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float dist, out float3 c)
 {
     L = 0; dist = 0; c = 0;
+#ifdef ULTRART_LIGHT_ISOTROPIC
+    if ((_LightMasks[i] & _LightIsoMask) == 0u) return false;
+#else
     if (!ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer)) return false;
+#endif
 
     float4 l0 = _Lights[i * 4];
     bool local = l0.w != 0.0;
@@ -197,8 +210,12 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
     float d2 = max(dot(toL, toL), 1e-6);
     float d = sqrt(d2);
     L = toL / d;
+#ifdef ULTRART_LIGHT_ISOTROPIC
+    float ndl = 1.0; // a point in the air (lit particles): no surface orientation
+#else
     float ndl = dot(n, L);
     if (ndl <= 0.0) return false;
+#endif
 
     float atten = 1.0;
     dist = 1.0e4;
@@ -323,8 +340,12 @@ bool EmissiveEval(uint tri, uint bary, float3 p, float3 n, out float3 L, out flo
     if (d2 < 1e-8) return false;
     dist = sqrt(d2);
     L = toL / dist;
+#ifdef ULTRART_LIGHT_ISOTROPIC
+    float cosS = 1.0;
+#else
     float cosS = dot(n, L);
     if (cosS <= 1e-4) return false;
+#endif
     float cosL = -dot(nl, L);
     if ((flags & 1u) != 0u) cosL = abs(cosL);
     if (cosL <= 1e-4) return false;

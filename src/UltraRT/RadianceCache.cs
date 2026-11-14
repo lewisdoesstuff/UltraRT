@@ -220,6 +220,10 @@ namespace UltraRT
             cmd.SetRayTracingTextureParam(u, IdDebugOut, _dummyTex);
         }
 
+        /// <summary>Bind the read-only lookups on another ray tracing shader (ParticleLight.raytrace), after <see cref="Execute"/>
+        /// ran this frame.</summary>
+        public void BindRayTracingLookup(CommandBuffer cmd, RayTracingShader shader) => BindLookup(cmd, shader, Active && _keys != null);
+
         private void BindLookup(CommandBuffer cmd, RayTracingShader shader, bool active)
         {
             var s = Settings;

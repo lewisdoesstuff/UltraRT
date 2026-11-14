@@ -1,0 +1,22 @@
+{
+    "Name": "particles-survey",
+    "Scenarios": [
+        { "Name": "0-2 run", "Scene": "Level 0-2",
+          "Path": { "Type": "recording", "File": "../recordings/0-2-run.json" },
+          "Enemies": "active", "ReplayArenas": true,
+          "Effects": { "Kinds": ["revolver"], "Every": 0.5, "ShotDelay": 0.03 },
+          "Modes": ["off", "hybrid", "relight"], "Screenshots": [12, 20, 28, 36, 44, 52, 60, 68] },
+        { "Name": "1-1 start explosion", "Scene": "Level 1-1",
+          "Path": { "Type": "spawn", "Duration": 6 },
+          "Effects": { "Kinds": ["explosion"], "Every": 1.5, "Distance": 8, "ShotDelay": 0.4 },
+          "Modes": ["off", "hybrid", "relight"], "Screenshots": [3, 5] },
+        { "Name": "4-1 indoor A explosion", "Scene": "Level 4-1",
+          "Path": { "Type": "static", "Approach": "../recordings/4-1-approach-a.json", "Duration": 6 },
+          "Effects": { "Kinds": ["explosion", "revolver"], "Every": 1.5, "Distance": 8, "ShotDelay": 0.4 },
+          "Modes": ["off", "hybrid", "relight"], "Screenshots": [3, 5] },
+        { "Name": "0-5 lava", "Scene": "Level 0-5",
+          "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 5 },
+          "Effects": { "Kinds": ["explosion"], "Every": 1.5, "Distance": 8, "ShotDelay": 0.4 },
+          "Modes": ["off", "hybrid", "relight"], "Screenshots": [2.5] }
+    ]
+}

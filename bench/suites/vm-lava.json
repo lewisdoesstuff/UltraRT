@@ -1,0 +1,27 @@
+{
+  "Name": "vm-lava",
+  "Scenarios": [
+    {
+      "Name": "0-5 lava",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-approach.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight+plugin._vmEnabled=0",
+        "relight",
+        "relight+plugin._vmDebug=1",
+        "relight+plugin._vmDebug=2",
+        "relight+plugin._vmDebug=3",
+        "relight+plugin._vmDebug=4",
+        "relight+plugin._vmDebug=5"
+      ],
+      "Screenshots": [
+        4
+      ]
+    }
+  ]
+}

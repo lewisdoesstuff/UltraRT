@@ -85,6 +85,12 @@ namespace UltraRT
             Toast($"Auto exposure {(_aeSettings.enabled ? "on" : "off")} (Ctrl+F4)");
         }
 
+        private static bool ShiftHeld()
+        {
+            try { return Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift); }
+            catch (InvalidOperationException) { return false; }
+        }
+
         private static bool CtrlHeld()
         {
             try { return Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl); }
