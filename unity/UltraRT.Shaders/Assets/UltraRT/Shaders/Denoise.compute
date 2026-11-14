@@ -689,7 +689,7 @@ void Composite(uint3 id : SV_DispatchThreadID)
         {
             float4 sp = _HasSpecular != 0 ? _Specular[s] : float4(0, 0, 0, 1);
             float e = UltraRTPixelExposure(s); // 1 unless relight's auto exposure is on
-            c = (albedo * lighting * sp.a + sp.rgb) * e + _Emission[s].rgb;
+            c = (albedo * lighting * sp.a + sp.rgb) * e * UltraRTPixelBalance(s) + _Emission[s].rgb; // balance: colour match
             break;
         }
         case 1: c = lighting; break;

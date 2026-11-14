@@ -663,6 +663,17 @@ namespace UltraRT
             var baseLe = m.GetColor("_EmissiveColor") * m.GetFloat("_EmissiveIntensity");
             baseLe = new Color(baseLe.r * tint.r, baseLe.g * tint.g, baseLe.b * tint.b);
             Color avg = img != null ? Average(img) : Color.white;
+            // _EmissiveMask (Proxy.shader): emission x main texture alpha^2.2; the table takes its mean over the texture.
+            if (m.HasProperty("_EmissiveMask") && m.GetFloat("_EmissiveMask") > 0.5f && m.HasProperty("_MainTex") && m.GetTexture("_MainTex") is Texture main && main.dimension == TextureDimension.Tex2D)
+            {
+                var mi = LowRes(main);
+                if (mi != null && mi.Length > 0)
+                {
+                    float a = 0f;
+                    foreach (var c in mi) a += Mathf.Pow(Mathf.Clamp01(c.a), 2.2f);
+                    baseLe *= a / mi.Length;
+                }
+            }
 
             var d = mesh.GetSubMesh(s.SubMesh);
             int count = d.indexCount - d.indexCount % 3;

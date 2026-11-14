@@ -1,0 +1,114 @@
+{
+  "Name": "colour-test",
+  "Scenarios": [
+    {
+      "Name": "2-2 floor noise purple",
+      "Scene": "Level 2-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-2-2-floor-noise-purple.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-2-2-floor-noise-purple-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.colorMatch=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "6-1 coffins",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-6-1-coffins.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-6-1-coffins-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.colorMatch=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "6-1 candles",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-6-1-candles.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-6-1-candles-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.colorMatch=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "7-3 tree room tint",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-7-3-tree-room-tint.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-7-3-tree-room-tint-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.colorMatch=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "8-2 intro day",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-8-2-intro-day.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-8-2-intro-day-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.colorMatch=0",
+        "relight+plugin._lowSideLightDeg=0",
+        "hybrid"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "8-2 portal side 1",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-portal-side1.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.colorMatch=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    }
+  ]
+}

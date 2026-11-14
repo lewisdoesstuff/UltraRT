@@ -9,8 +9,10 @@
 //              speeds up and down, exponential in EV, stopping a dead band short of the target). Clears the histogram.
 //
 // The result lives on the GPU only (no readback in the loop): _Exposure[0] = (exposure, EV, mean log2 lum, target EV),
-// _Exposure[1] = (pixels counted, pixels in the percentile band, valid, meter = smoothed mean log2 lum). The denoiser's
-// Composite reads [0].x one frame later (UltraRTExposure.hlsl).
+// _Exposure[1] = (pixels counted, pixels in the percentile band, valid, meter = smoothed mean log2 lum),
+// _Exposure[2] = game match (game band mean, RT band mean, correction EV, near pixels), _Exposure[3] = colour match
+// (per-channel gain on the lit part, w = 1 when valid). The denoiser's Composite reads [0].x and [3] one frame later
+// (UltraRTExposure.hlsl).
 
 #pragma kernel Histogram
 #pragma kernel Adapt
@@ -43,6 +45,12 @@ Texture2D<float4> _GameColor;
 float4 _GameMap;  // xy: game uv = 0.5 + (trace uv - 0.5) * xy (the guard band); z: 1 = flip y; 0 = off
 float4 _GameFog;  // x 1 = fog on, y mode (1 linear, 2 exp, 3 exp2), z start (linear) or density, w end
 float4 _Params5;  // x match strength up (RT darker than the game), y down, z dead band (EV), w max game fog factor
+// Colour match (docs/relight.md, "Area colour"): mean colour of the same near pixels, RT (pre-haze) and game, as fixed
+// point sums after the three histograms (_Hist[3 * BINS + 0..5]).
+float4 _Params6;  // x strength (0 = off), y dead band (log2 per channel), z max correction (log2 per channel)
+#define COLOR_FIXED 256.0
+#define COLOR_MAX 4.0
+#define COLOR_MIN_SHARE 0.15 // channels below this share of the brightest one (in both images) are corrected proportionally less
 
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
@@ -57,11 +65,13 @@ float GameFogFactor(float d)
 groupshared uint gsBins[BINS];
 groupshared uint gsNear[BINS];
 groupshared uint gsGame[BINS];
+groupshared uint gsCol[6];
 
 [numthreads(16, 16, 1)]
 void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 {
     if (gi < BINS) { gsBins[gi] = 0; gsNear[gi] = 0; gsGame[gi] = 0; }
+    if (gi < 6) gsCol[gi] = 0;
     GroupMemoryBarrierWithGroupSync();
 
     uint2 p = id.xy * 2;
@@ -91,8 +101,17 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
             if (all(uv >= 0.0) && all(uv < 1.0) && GameFogFactor(_NormalDepth[p].w) <= _Params5.w)
             {
                 // Pre-haze RT luminance against the game's colour (its own lighting, display units).
-                float lumRT = Luma(_Albedo[p].rgb * lit * sp.a + sp.rgb);
-                float lumGame = Luma(_GameColor[(uint2)(uv * float2(gw, gh))].rgb);
+                float3 colRT = _Albedo[p].rgb * lit * sp.a + sp.rgb;
+                float3 colGame = _GameColor[(uint2)(uv * float2(gw, gh))].rgb;
+                float lumRT = Luma(colRT);
+                float lumGame = Luma(colGame);
+                if (_Params6.x > 0.0)
+                {
+                    uint3 qr = (uint3)(clamp(colRT, 0.0, COLOR_MAX) * COLOR_FIXED + 0.5);
+                    uint3 qg = (uint3)(clamp(colGame, 0.0, COLOR_MAX) * COLOR_FIXED + 0.5);
+                    InterlockedAdd(gsCol[0], qr.r); InterlockedAdd(gsCol[1], qr.g); InterlockedAdd(gsCol[2], qr.b);
+                    InterlockedAdd(gsCol[3], qg.r); InterlockedAdd(gsCol[4], qg.g); InterlockedAdd(gsCol[5], qg.b);
+                }
                 float bn = (log2(max(lumRT, 1e-8)) - _Range.x) * _Range.y;
                 float bg = (log2(max(lumGame, 1e-8)) - _Range.x) * _Range.y;
                 InterlockedAdd(gsNear[(uint)clamp(bn, 0.0, BINS - 1.0)], 1u);
@@ -107,6 +126,7 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
         if (gsNear[gi] != 0u) InterlockedAdd(_Hist[BINS + gi], gsNear[gi]);
         if (gsGame[gi] != 0u) InterlockedAdd(_Hist[2 * BINS + gi], gsGame[gi]);
     }
+    if (gi < 6 && gsCol[gi] != 0u) InterlockedAdd(_Hist[3 * BINS + gi], gsCol[gi]);
 }
 
 // Mean log2 of the [lo, hi] percentile band of one histogram (offset `base` in gsAll).
@@ -134,10 +154,12 @@ void Adapt(uint gi : SV_GroupIndex)
     gsAll[gi] = gsBins[gi];
     gsAll[BINS + gi] = _Hist[BINS + gi];
     gsAll[2 * BINS + gi] = _Hist[2 * BINS + gi];
+    if (gi < 6) gsCol[gi] = _Hist[3 * BINS + gi];
     GroupMemoryBarrierWithGroupSync();
     _Hist[gi] = 0u;
     _Hist[BINS + gi] = 0u;
     _Hist[2 * BINS + gi] = 0u;
+    if (gi < 6) _Hist[3 * BINS + gi] = 0u;
     if (gi != 0u) return;
 
     float total = 0.0;
@@ -151,7 +173,8 @@ void Adapt(uint gi : SV_GroupIndex)
         // Nothing to measure (all sky or fullbright): hold the current exposure.
         _Exposure[0] = valid ? prev : float4(1.0, 0.0, 0.0, 0.0);
         _Exposure[1] = float4(total, 0.0, valid ? 1.0 : 0.0, info.w);
-        return;
+        return; // _Exposure[3] (colour match) is held too
+
     }
 
     float lo = total * _Params1.z, hi = total * _Params1.w;
@@ -219,4 +242,32 @@ void Adapt(uint gi : SV_GroupIndex)
     _Exposure[0] = float4(exp2(ev), ev, meanLog, target);
     _Exposure[1] = float4(total, sumW, 1.0, meter);
     _Exposure[2] = matchInfo;
+
+    // Colour match: the game's mean colour at the same near pixels against the RT image's, each normalised to its own
+    // luminance (so this is hue and saturation only; brightness is the game match above). Per channel, beyond a dead
+    // band, a share of the log2 difference becomes a gain on the lit part, clamped, then rescaled so the RT mean keeps
+    // its channel average (not its luminance: green carries 72% of luminance, so keeping it pushed a red room's green
+    // back up). Levels whose lighting the RT image already reproduces (1-1) stay inside the band.
+    float4 bal = _Exposure[3];
+    bool balValid = valid && bal.w > 0.5 && !any(isnan(bal)) && !any(isinf(bal));
+    float3 rawGain = 1.0;
+    if (_Params6.x > 0.0 && nearN >= 0.25 * total)
+    {
+        float3 rt = float3(gsCol[0], gsCol[1], gsCol[2]) / COLOR_FIXED / nearN;
+        float3 game = float3(gsCol[3], gsCol[4], gsCol[5]) / COLOR_FIXED / nearN;
+        float lr = Luma(rt), lg = Luma(game);
+        if (lr > 1e-3 && lg > 1e-3)
+        {
+            float3 d = log2(max(game / lg, 1e-3)) - log2(max(rt / lr, 1e-3));
+            float3 ex = sign(d) * max(abs(d) - _Params6.y, 0.0);
+            // A channel that is nearly empty in both images (0-5's blue, 6-2's green) only matters in proportion: its log
+            // ratio is large but meaningless, and correcting it would tint lit objects of another colour there.
+            float3 share = max(rt / max(max(rt.r, rt.g), max(rt.b, 1e-4)), game / max(max(game.r, game.g), max(game.b, 1e-4)));
+            ex *= saturate(share / COLOR_MIN_SHARE);
+            rawGain = exp2(clamp(ex * _Params6.x, -_Params6.z, _Params6.z));
+            rawGain *= (rt.r + rt.g + rt.b) / max(dot(rawGain, rt), 1e-4);
+        }
+    }
+    float3 gain = (snap || !balValid) ? rawGain : bal.rgb + (rawGain - bal.rgb) * (1.0 - exp(-dt * max(_Params3.z, 1.0)));
+    _Exposure[3] = float4(gain, 1.0);
 }

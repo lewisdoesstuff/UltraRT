@@ -9,7 +9,7 @@
 
 #include "UltraRTToneCurve.hlsl"
 
-StructuredBuffer<float4> _UltraRTExposure;  // [0].x = exposure (linear multiplier)
+StructuredBuffer<float4> _UltraRTExposure;  // [0].x = exposure (linear multiplier), [3] = colour match gain (w 1 = valid)
 Texture2D<uint4>         _UltraRTLitWeight; // PathTrace's _HybridLight: w & 0xFF = lit weight (0 = fullbright)
 float  _UltraRTAutoExposure;                // global: 1 = apply _UltraRTExposure, 0 = off
 float  _UltraRTTonemapWhite;                // global, relight: luminance (or max channel) that maps to 1; 0 = no tone map
@@ -31,6 +31,17 @@ float UltraRTPixelExposure(uint2 s)
     if (!(e > 0.0) || isinf(e)) return 1.0;
     float lit = (_UltraRTLitWeight[s].w & 0xFFu) * (1.0 / 255.0);
     return lerp(1.0, e, lit);
+}
+
+// Colour match gain for the lit part of trace pixel s (Exposure.compute; docs/relight.md "Area colour"): 1 when auto
+// exposure is off or the gain isn't valid yet, weighted by the lit weight like the exposure.
+float3 UltraRTPixelBalance(uint2 s)
+{
+    if (_UltraRTAutoExposure <= 0.0) return 1.0;
+    float4 g = _UltraRTExposure[3];
+    if (g.w < 0.5 || any(isnan(g)) || any(isinf(g)) || any(g.rgb <= 0.0)) return 1.0;
+    float lit = (_UltraRTLitWeight[s].w & 0xFFu) * (1.0 / 255.0);
+    return lerp(1.0, g.rgb, lit);
 }
 
 // Relight's tone curve (UltraRTToneCurve.hlsl, shared with TransparentOverlay.shader).

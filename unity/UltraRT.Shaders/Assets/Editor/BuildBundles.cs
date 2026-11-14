@@ -47,6 +47,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/Portal.shader",
                     "Assets/UltraRT/Shaders/Proxy.shader",
                     "Assets/UltraRT/Shaders/RayReconstruction.compute",
+                    "Assets/UltraRT/Shaders/SkyConvert.shader",
                     "Assets/UltraRT/Shaders/Reflections.compute",
                     "Assets/UltraRT/Shaders/TransparentOverlay.shader",
                     "Assets/UltraRT/Shaders/UnpackHybrid.compute",

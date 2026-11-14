@@ -50,6 +50,14 @@ namespace UltraRT
         public float gameMatchBand = 0.35f;
         /// <summary>Pixels whose game fog factor is above this are not compared (the game's fog replaces their colour).</summary>
         public float gameMatchFog = 0.3f;
+        /// <summary>
+        /// Colour match (docs/relight.md, "Area colour"): the same near pixels' mean colour, game against RT, each
+        /// normalised to its luminance. Per channel, beyond <see cref="colorMatchBand"/> (log2), this share of the
+        /// difference becomes a gain on the lit part (clamped to +-<see cref="colorMatchMax"/> log2, channel average kept), so
+        /// relight keeps an area's tint (2-2's purple, 6-1's and 7-3's red) where its own light model would wash it out.
+        /// 0 = off. -ultrart-ae-color STRENGTH[,BAND[,MAX]].
+        /// </summary>
+        public float colorMatch = 1f, colorMatchBand = 0.2f, colorMatchMax = 2f;
 
         public void ParseArgs()
         {
@@ -73,6 +81,14 @@ namespace UltraRT
                         var parts = (Next() ?? "").Split(',');
                         gameMatchUp = F(parts[0], gameMatchUp);
                         gameMatchDown = parts.Length > 1 ? F(parts[1], gameMatchDown) : gameMatchUp;
+                        break;
+                    }
+                    case "-ultrart-ae-color":
+                    {
+                        var p = (Next() ?? "").Split(',');
+                        colorMatch = F(p[0], colorMatch);
+                        if (p.Length > 1) colorMatchBand = F(p[1], colorMatchBand);
+                        if (p.Length > 2) colorMatchMax = F(p[2], colorMatchMax);
                         break;
                     }
                     case "-ultrart-ae-min": minEV = F(Next(), minEV); break;
@@ -108,7 +124,7 @@ namespace UltraRT
         }
 
         public override string ToString() =>
-            FormattableString.Invariant($"auto exposure {(enabled ? "on" : "off")}{(ptDn ? " (+pt-dn)" : "")}: key {key} (dark key {keyLow}), EV [{minEV}, {maxEV}], speed up {speedUp}/s down {speedDown}/s, band {lowFraction}-{highFraction}, comp {compensation}, up {upStrength}, dead band {deadBand} EV, meter {meterSpeed}/s, settle {settleTime}s@{settleSpeed}/s");
+            FormattableString.Invariant($"auto exposure {(enabled ? "on" : "off")}{(ptDn ? " (+pt-dn)" : "")}: key {key} (dark key {keyLow}), EV [{minEV}, {maxEV}], speed up {speedUp}/s down {speedDown}/s, band {lowFraction}-{highFraction}, comp {compensation}, up {upStrength}, dead band {deadBand} EV, meter {meterSpeed}/s, settle {settleTime}s@{settleSpeed}/s, game match {gameMatchUp}/{gameMatchDown}, colour match {colorMatch} (band {colorMatchBand}, max {colorMatchMax})");
     }
 
     /// <summary>
@@ -144,6 +160,8 @@ namespace UltraRT
         public Vector4 GameMap, GameFog;
         /// <summary>Last read-back game match state: game mean log2, RT mean log2 (same pixels), correction EV, pixels.</summary>
         public Vector4 LastMatch { get; private set; }
+        /// <summary>Last read-back colour match gain (rgb; w 1 = valid).</summary>
+        public Vector4 LastBalance { get; private set; }
 
         private static readonly int
             IdFiltered = Shader.PropertyToID("_Filtered"),
@@ -167,6 +185,7 @@ namespace UltraRT
             IdGameMap = Shader.PropertyToID("_GameMap"),
             IdGameFog = Shader.PropertyToID("_GameFog"),
             IdParams5 = Shader.PropertyToID("_Params5"),
+            IdParams6 = Shader.PropertyToID("_Params6"),
             IdCompositeExposure = Shader.PropertyToID("_UltraRTExposure"),
             IdCompositeLitWeight = Shader.PropertyToID("_UltraRTLitWeight");
 
@@ -177,9 +196,9 @@ namespace UltraRT
             _kAdapt = shader.FindKernel("Adapt");
             // Three histograms: the whole exposed image (the meter), and for the game match the near RT pixels and the
             // game's own colour at the same pixels.
-            _hist = new ComputeBuffer(3 * Bins, 4) { name = "UltraRT Exposure Histogram" };
+            _hist = new ComputeBuffer(3 * Bins + 6, 4) { name = "UltraRT Exposure Histogram" };
             _hist.SetData(new uint[3 * Bins]);
-            _exposure = new ComputeBuffer(3, 16) { name = "UltraRT Exposure" };
+            _exposure = new ComputeBuffer(4, 16) { name = "UltraRT Exposure" };
             _exposure.SetData(new[] { new Vector4(1f, 0f, 0f, 0f), Vector4.zero, Vector4.zero });
         }
 
@@ -217,12 +236,13 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kHistogram, IdVolHaze, haze ? Haze : Texture2D.blackTexture);
             cmd.SetComputeVectorParam(cs, IdVolHazeParams, haze ? HazeParams : Vector4.zero);
             cmd.SetComputeBufferParam(cs, _kHistogram, IdExposure, _exposure);
-            bool match = GameColor != null && (s.gameMatchUp > 0f || s.gameMatchDown > 0f);
+            bool match = GameColor != null && (s.gameMatchUp > 0f || s.gameMatchDown > 0f || s.colorMatch > 0f);
             cmd.SetComputeTextureParam(cs, _kHistogram, IdGameColor, match ? GameColor : Texture2D.blackTexture);
             cmd.SetComputeVectorParam(cs, IdGameMap, match ? GameMap : Vector4.zero);
             cmd.SetComputeVectorParam(cs, IdGameFog, GameFog);
             cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.gameMatchDown) : 0f,
                 Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
+            cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), 0f));
             // Every second pixel in x and y: 16x16 threads cover 32x32 pixels.
             cmd.DispatchCompute(cs, _kHistogram, Mathf.CeilToInt(w / 32f), Mathf.CeilToInt(h / 32f), 1);
 
@@ -240,6 +260,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.key, 1e-4f)), 2f), 0, 0, 0));
             cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.gameMatchDown) : 0f,
                 Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
+            cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), 0f));
             cmd.SetComputeBufferParam(cs, _kAdapt, IdHist, _hist);
             cmd.SetComputeBufferParam(cs, _kAdapt, IdExposure, _exposure);
             cmd.DispatchCompute(cs, _kAdapt, 1, 1, 1);
@@ -267,6 +288,7 @@ namespace UltraRT
                     Last = d[0];
                     LastCount = d[1].x;
                     if (d.Length > 2) LastMatch = d[2];
+                    if (d.Length > 3) LastBalance = d[3];
                 });
             }
         }
