@@ -209,7 +209,15 @@ Settings: `plugin._playerSplit` (true; 0 = the old path), `dn.playerShadowBlend`
 - Motion noise (sigma, luma): 0.53 → 1.27 (`relight+plugin._playerSplit=0+plugin._movers=0` → `relight`; without V1 at all 0.44). The added error is on the shadow itself (the error map shows V1's head, wing and gun-arm shadow, a few pixels wide each): before, there was no shadow to be noisy. Where V1 blocks one of several lights the factor still varies from frame to frame; a longer factor history (`dn.playerShadowBlend` below 0.5) would calm it at the price of lag.
 - Static images are unchanged where V1's shadow isn't involved (the factor is 1 there).
 
-Cost: one extra any-hit ray against V1's few instances, only for pixels whose sample passes V1's box, and one RHalf history pair. See "Cost" in the run's GPU numbers (docs/light-sampling.md lists the per-feature totals).
+**Cost of the whole evening pass** (player split and movers, eye lights, occluded-history cap, portal importance, the viewmodel filter changes, game-matched exposure, haze balance; `bench/suites/noise-pm-cost.json`, `-Perf`, exclusive slots, modes alternating every 0.5 s against all of it switched off; RTX 5070 Ti, 1920x1080, trace scale 0.5; GPU total / DispatchRays / denoise ms):
+
+| Scenario | all off | defaults |
+|---|---|---|
+| 0-2 run (71 s, active enemies) | 3.264 / 1.964 / 0.303 | 3.542 / 2.215 / 0.324 |
+| 8-2 portal side 1 | 3.384 / 1.879 / 0.316 | 3.433 / 1.909 / 0.332 |
+| 3-1 noisy room (checkpoint) | 2.624 / 1.528 / 0.299 | 2.678 / 1.569 / 0.311 |
+
+The 0-2 run pays most (+0.28 ms): the player is in view of lit floors all the time, so many pixels trace the V1-only shadow ray, and the moving enemies' boxes add the per-sample slab tests. Plugin CPU +0.07 ms in the 0-2 run (mover boxes), +0.15 ms in 8-2 (portal viewpoints in the alias table, the game-colour copy for the exposure match).
 
 ## Presets and Ctrl+F3
 
