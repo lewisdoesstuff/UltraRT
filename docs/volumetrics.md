@@ -190,8 +190,9 @@ Look (screenshots above):
   in 1-4 (block sigma 1.8-2.6): most candidates missed every light, small emitters gave rare huge samples, and the clip
   box from 9 one-sample neighbours threw the history away. Enumerating lights, clipping the equiangular range to each
   light's reach, the 5x5 filter, alpha 0.03 and the emissive clamp each mattered.
-- Static dark blocks in the debug view were the clip lower bound eating rare samples, not NaNs, but the NaN guards
-  stay (cheap).
+- `debugView=2` (raw samples) showed 1-4's blotches came from sparse emissive samples (most pixels 0, a few very
+  bright): fixed by the exact back-face rejection and the emissive clamp. NaN/Inf guards were added while checking and
+  stay (cheap); whether NaNs ever occurred was not established.
 - Units: a first build forgot the factor pi (lighting = irradiance / pi), making every term pi times too dark.
 
 ### Not done / limits
