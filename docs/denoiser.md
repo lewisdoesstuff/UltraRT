@@ -156,12 +156,14 @@ The static-noise work above roughly halved the noise of a still image, but in mo
 - **Changing lights**: a muzzle-light flash every 0.1 s in the 1-1 corridor adds little (0.48 → 0.56); a large explosion-like light every 0.3 s more (0.83). Lights that move with the camera while sliding (0-2) are the worst case.
 - The user's "noisy around the edges while sliding" is the screen-edge and fresh classes: in forward motion the edges carry the fastest flow and the nearest geometry, so they disocclude most.
 
-**What changed** (all in the `Full` preset; `Static` = the build before):
+**What changed** (the `Full` preset; `Static` = the build before). All three act only on pixels without history, so a converged image is unchanged:
 1. **Cache seed 1 → 4** (`cacheSeed`). A fresh pixel takes 4 virtual samples of its radiance-cache cell (fading out with the pre-blur by 8 frames), under the same consistency test. The cache is world space and averages dozens of paths per cell, so it is the best prior a pixel without history has. 1-1 sweep: 0.90 → 0.73 alone (8: 0.70; 4 keeps the bias bound of the seed smaller).
 2. **More ReSTIR candidates for fresh pixels** (`LightSamplingSettings.freshCandidates` 24, docs/light-sampling.md "Fresh pixels"): a pixel whose temporal reservoir failed resamples 32 lights instead of 8. 0.90 → 0.71 alone, and silhouettes and thin geometry (which lose their reservoir often) improve most: edges 1.29 → 0.96, thin 2.30 → 1.63.
 3. **Wider à-trous for young pixels** (`freshSpread` 2): the à-trous steps of a pixel with no history are doubled (radius 14 instead of 7 trace px after three iterations), fading back to normal by 8 frames. 0.90 → 0.80 alone. No extra pass: the same taps, further apart.
-4. **Anti-lag** (`antilag` 3, `antilagMinLength` 8): where the 5x5 same-surface mean of this frame's input leaves the reprojected history by more than 3 standard errors plus 15%, the lighting really changed and the history length is cut (by the square of the excess), but never below 8 frames. A changed pixel then blends about 3x faster instead of waiting out alphaMin's 25 frames, without going back to the noisier pre-blur. Cutting deeper (`antilagMinLength` 0) follows changes in a frame but made static flashes noisier (4-1 flash 0.67 → 1.45).
-5. **Per-pixel ReSTIR history on light changes** (`perPixelLightChange`, docs/light-sampling.md "Light changes"): a muzzle flash or projectile appearing or disappearing used to cap every pixel's reservoir history for a frame; now only pixels the change reaches lose it.
+
+Available but **off by default** (no reliable gain in the measurements):
+- **Anti-lag** (`antilag`, `-ultrart-dn-antilag 3`; `antilagMinLength` 8): where the 5x5 same-surface mean of this frame's input leaves the reprojected history by more than `antilag` standard errors plus `antilagTolerance` (15%), the lighting really changed and the history length is cut by the square of the excess, never below `antilagMinLength` frames. It follows changing lights sooner, but every cut history is noisier for a while: with a muzzle-light flash every 0.1 s in 4-1 it raised the noise from 0.65 to 0.89 (cut to 0 frames: 1.45), and on the 0-2 windows it was inconclusive.
+- **Per-pixel ReSTIR history on light changes** (`LightSamplingSettings.perPixelLightChange`, `-ultrart-restir-pixel-change`; docs/light-sampling.md "Light changes"): a light appearing or disappearing caps the reservoir history only where it matters instead of on every pixel. No measurable difference on the flash and explosion scenes; on the 0-2 windows the whole-screen cap measured lower twice. Its per-pixel evaluation of the change list also cost about 0.3 ms in the 0-2 combat run.
 
 Tried and not kept: a longer pre-blur fade (`boostFrames` 16: no change), TAAU weight 8 (0.90 → 0.86, mostly interiors, more smear in motion), a wider guard band (8%: 0.84 → 0.81 on the 500°/s sweep for 8% more rays), a vertical guard band (4%: mixed on the 0-2 windows), shortening ReSTIR history for lights that only change brightness (`lightChangeKept`: noisier around fading lights).
 
@@ -169,7 +171,7 @@ Tried and not kept: a longer pre-blur fade (`boostFrames` 16: no change), TAAU w
 
 Ctrl+F3 cycles `DenoiserPreset` on both denoiser instances (`Plugin.ApplyStabilityPreset`, also used by the bench's `preset=` variant):
 - **Full**: everything above and [Motion noise](#motion-noise).
-- **Static**: the build before the motion-noise work. Cache seed 1, no anti-lag, the normal à-trous footprint for young pixels, and in LightSampling the whole-screen light-change cap and no extra candidates for fresh pixels.
+- **Static**: the build before the motion-noise work: cache seed 1, the normal à-trous footprint for young pixels, no extra ReSTIR candidates for fresh pixels (and the optional anti-lag and per-pixel light-change history off).
 - **Previous**: the build before the static-noise work. alphaMin 0.1 per frame, 32 frames, no variance floor, no stabilisation, no guard band, no hybrid spatial reuse; the four stability features stay on (motion features off, as in Static).
 - **Legacy**: Previous without the stability features, i.e. plain SVGF.
 
@@ -278,7 +280,7 @@ All of these are enableRandomWrite and point filtered. At 1280x720 they total ab
 | cacheSeedTolerance | 0.5 | Relative tolerance of the seed's consistency test |
 | fireflySigma | 8 | Firefly bound in spreads above the reference. 0 = off. `-ultrart-dn-firefly K` |
 | freshSpread / freshSpreadFrames | 2 / 8 | À-trous step multiplier for pixels with no history, fading out at this history length. 1 = off. `-ultrart-dn-fresh-spread K` ([Motion noise](#motion-noise)) |
-| antilag / antilagTolerance / antilagMinLength | 3 / 0.15 / 8 | Anti-lag for changing lights: history shortened where the 5x5 input mean leaves the history by more than this many standard errors plus the relative tolerance, never below the minimum length. 0 = off. `-ultrart-dn-antilag K` |
+| antilag / antilagTolerance / antilagMinLength | 0 / 0.15 / 8 | Anti-lag for changing lights: history shortened where the 5x5 input mean leaves the history by more than this many standard errors plus the relative tolerance, never below the minimum length. 0 = off. `-ultrart-dn-antilag K` |
 
 Other flags: `-ultrart-dn-noclamp` (clampHistory = false), `-ultrart-dn-iterations N`. Flags apply to both instances (main and hybrid's direct). They are read when a `Denoiser` is constructed; Plugin keeps the main instance's settings across F9 reloads.
 
@@ -340,7 +342,7 @@ There is no need to call it for camera motion or resolution changes. The denoise
 - The output must be enableRandomWrite and not sRGB. It is written with `saturate()` and no tonemapping.
 
 ## Known limitations
-- The history clip uses a 1 spp neighbourhood, so it is loose by design. Fast lighting changes, such as muzzle flashes or toggled lights, settle within about 8 frames with the anti-lag (`1/alphaMin` frames without it). An A-SVGF gradient pass would fix this properly.
+- The history clip uses a 1 spp neighbourhood, so it is loose by design. Fast lighting changes, such as muzzle flashes or toggled lights, take a few frames to settle (about `1/alphaMin` frames at worst; the optional anti-lag cuts that to about 8 at the price of more noise, see [Motion noise](#motion-noise)). An A-SVGF gradient pass would fix this properly.
 - Reprojection is bilinear, so the history is resampled slightly every frame while the camera moves. Lighting is smooth enough that this is hard to see, but it does slightly soften shadow edges in motion.
 - Screen-edge disocclusions beyond the [guard band](#guard-band) (fast vertical turns, or turns faster than the band covers) have no history at all. They start from the pre-blur (4 px radius at trace resolution), the cache seed (4 virtual samples), 32 ReSTIR candidates and a doubled à-trous footprint ([Motion noise](#motion-noise)), so they are softer than converged regions for the first few frames and still about twice as noisy. Raise `boostRadius` only together with the tile apron (`APRON` in Denoise.compute; groupshared cost grows quadratically).
 - Hybrid's disocclusions barely improved with the motion work: its fresh-pixel noise is the one-ray visibility of the shadowed/unshadowed ratio, which more candidates and the bounce channel's cache seed don't touch.
