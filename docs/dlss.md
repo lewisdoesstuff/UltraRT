@@ -116,4 +116,84 @@ The DLSS SDK is under the "NVIDIA RTX SDKs" license (`lib\dlss\LICENSE.txt`; fet
 
 ## Scope: what else NVIDIA's stack could do here (write-up only)
 
-(SCOPE)
+### (a) DLSS Super Resolution for the game's own raster
+
+**What it would take.**
+- ULTRAKILL renders forward into `PostProcessV2_Handler`'s `mainTex` + `depthBuffer` at screen resolution, and
+  `ULTRAKILL/PostProcessV2` then reads `Main` ([ultrakill-rendering.md](ultrakill-rendering.md)). SR needs the world
+  camera to render at the render size, so we would patch the handler (Harmony) to allocate its targets at render size
+  and run SR into a screen-size target before the post pass.
+- Camera jitter: set `Camera.projectionMatrix` per frame and keep `nonJitteredProjectionMatrix` for culling. The HUD
+  camera (viewmodel) and the UI must keep rendering at output resolution after SR, and the HUD camera shares the main
+  camera's colour/depth buffers today.
+- Full-scene motion vectors. The game has no motion-vector pass (forward rendering, no depth texture). The built-in
+  pipeline's `DepthTextureMode.MotionVectors` only covers shaders with a MotionVectors pass, which ULTRAKILL's Master and
+  Stationary shaders lack. Everything else would get camera motion only, so enemies would ghost. **Our traced G-buffer
+  already has per-pixel world motion** (`_InstanceId.y`) at exactly the SR Performance render size (trace scale 0.5),
+  so for pixels the trace covers we could hand our motion vectors and depth to SR. Particles, sprites and the sky would
+  need camera-only vectors from the game's depth.
+- Texture LOD bias: the game point-samples low-res textures, so the mip bias matters little, but SR's reconstruction of
+  point-filtered texel edges would need a look.
+
+**Value: low.** The game's raster is cheap: `off` runs at 2-3 ms per frame and is CPU-bound. In relight/pt-dn the image
+is already ours and RR (or our TAAU) upscales it, so SR would only help hybrid, whose base is the game's full-res
+colour. Not worth the invasive render-target patching. If we ever want it, "DLSS-SR on the game's raster with our
+traced motion vectors" is the angle.
+
+### (b) DLSS Frame Generation (Streamline) and Reflex
+
+**What it would take.**
+- DLSS-G works on the swapchain: Streamline's `sl.interposer.dll` must intercept the DXGI factory/swapchain *creation*.
+  Unity creates its D3D12 device and swapchain during player start-up, before BepInEx's chainloader runs, so a plugin is
+  too late. Getting there means a proxy `dxgi.dll` / `d3d12.dll` (or Streamline's interposer) in the game folder, the
+  route OptiScaler-style mods take. That breaks our "nothing in the game's folders" rule and touches the user's install.
+- Inputs at output resolution every frame: depth, motion vectors, a hudless colour (the frame before the HUD camera and
+  UI), the UI colour + alpha (or `hudless` alone), camera matrices and jitter. ULTRAKILL's HUD is large and animated, so
+  without a hudless buffer FG warps the HUD. Hudless = `PostProcessV2`'s output before the HUD camera, which is
+  reachable from a camera event. Full-scene motion vectors have the same gap as (a).
+- Reflex is mandatory with FG: `sl.reflex` markers (simulation start/end, render submit start/end, present) from the
+  player loop, which we can hook from C# (PlayerLoop insertion), plus `NvAPI_D3D_SetSleepMode`/`Sleep` on Unity's device.
+  **Reflex alone, without FG, is feasible from our native plugin** (NVAPI only, no swapchain interception) and would cut
+  latency when GPU-bound. It is worth a separate small experiment.
+- FG adds about one frame of latency on top of what Reflex removes. ULTRAKILL is a twitch shooter, and the user's
+  monitor is 360 Hz: going from about 120 to 240-360 fps with multi-frame generation would look smoother, but input
+  latency would stay at the 120 fps level or worse.
+
+**Verdict:** possible only as a game-folder injection mod; high risk (Unity's own present path and frame pacing),
+moderate value. Reflex-only is the cheap, useful part.
+
+### (c) A path-tracing mode with RR doing denoise + upscale: budget at 1440p, 120 Hz (8.3 ms)
+
+Measured on an exclusive bench lock (`dlss-cost`, -Perf), at render 1280x720 (+8% guard band), i.e. exactly the user's
+1440p trace at scale 0.5:
+
+| | 3-1 room | 6-2 start | 0-1 metal | 8-2 portal | 0-2 walk |
+|---|---|---|---|---|---|
+| relight `dispatch` (all rays + shading of the current trace) | 2.53 | 2.73 | 3.59 | 2.99 | 2.79 |
+| RR 720p -> 1440p (Prepare + RR + Finish) | 1.97 | 2.02 | 2.02 | 1.99 | 2.02 |
+| rtas + cache + volumetrics + viewmodel + particles + rest | ~0.9 | ~1.0 | ~0.9 | ~1.2 | ~0.8 |
+
+The current relight trace is about two path segments per pixel: a primary hit with one ReSTIR shadow ray, a sky
+visibility ray and a reflection ray where specular, plus one bounce whose hit reads the radiance cache. That puts one
+segment with its next-event estimation at **about 1.3-1.8 ns per pixel** (2.5-3.6 ms over 1.0 M pixels), shading,
+alpha-tested any-hits and texture fetches included.
+
+Path tracing with 2 paths per pixel and 2-3 bounces = 1 shared primary + 2 x (2..3) segments = **5-7 segments, 2.5-3.5x
+today's per-pixel cost** (optimistic: deeper bounces are less coherent than the primary, so add 20-40%):
+
+| Render resolution (pixels incl. guard) | Trace (2 paths, 2 bounces) | Trace (2 paths, 3 bounces) | + RR to 1440p + fixed passes | GPU total |
+|---|---|---|---|---|
+| 1/2: 1280x720 (1.0 M) | 6.3-9.0 ms | 8.8-12.6 ms | +3.0 ms | **9.3-15.6 ms**: over budget |
+| 1/3: 853x480 (0.44 M) | 2.8-4.0 ms | 3.9-5.5 ms | +2.9 ms (RR cost is mostly output-bound) | **5.7-8.4 ms** |
+
+So at 120 Hz only the 1/3-resolution variant fits, with 2 bounces comfortably and 3 bounces at the edge, leaving
+little for the game's own GPU work (raster, post, UI). With the current CPU frame (1.3-2 ms main thread + 0.4-0.6 ms
+plugin), CPU and GPU overlap, so the GPU number is what limits. Notes:
+- RR alone is about 2 ms of the 8.3 ms at 1440p output. At 1/3 render resolution (Ultra Performance, 3x) RR has to
+  invent more, and texture detail on ULTRAKILL's point-sampled art would suffer.
+- 8-3 (100+ lights) and outdoor sky-heavy views cost more per segment. ReSTIR already keeps light count out of the
+  primary.
+- The radiance cache would still terminate paths early (as it ends today's bounce), which is what makes 2 bounces
+  cheap. "Full" PT without it costs more per segment.
+- RR's guide asks for uncorrelated samples. ReSTIR's temporal/spatial reuse violates that, so a PT mode should
+  randomise or permute the reuse (or skip spatial reuse) for RR, and measure.
