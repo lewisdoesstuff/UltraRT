@@ -40,6 +40,7 @@ float4x4 _PrevViewProj; // last frame (jittered with last frame's jitter)
 float4   _Jitter;       // xy this frame's sample offset (trace px), zw last frame's
 int4     _Guard;        // xy guard band (trace px), zw render (visible) size
 float4   _ReflParams;   // ReflectionSettings.ShaderParams (yz = SpecularTerms params)
+int      _UltraRTPlayerSplit; // global (Plugin.Noise.cs): V1's shadow is a factor in _Radiance.a, not in the lighting
 float4   _RRParams;     // x linearize (with linear transport only; 0 = feed gamma terms), y sky depth, z history valid (0: no motion), w spec hit distance on
 
 #include "UltraRTExposure.hlsl" // _UltraRTLinear, UltraRTPixelExposure (needs _UltraRTLitWeight bound), UltraRTToneMap, _UltraRTLinear
@@ -73,7 +74,11 @@ void Prepare(uint3 id : SV_DispatchThreadID)
     bool sky = nd.w < 0.0;
     float3 dir = Dir(s);
 
-    float3 L = min(max(_Radiance[s].rgb, 0.0), 65000.0); // max() first drops NaN
+    float4 rad = _Radiance[s];
+    float3 L = min(max(rad.rgb, 0.0), 65000.0); // max() first drops NaN
+    // Player shadow split (docs/denoiser.md, "Moving shadows"): our denoiser filters V1's shadow factor separately and
+    // multiplies it in at the composite. RR gets it multiplied into its noisy input instead (+2 = moving-shadow flag).
+    if (_UltraRTPlayerSplit != 0) L *= saturate(rad.a > 1.5 ? rad.a - 2.0 : rad.a);
     float3 albedo = _Albedo[s].rgb;
     float3 emission = max(_Emission[s].rgb, 0.0);
     float4 sp = _Specular[s];
