@@ -422,13 +422,16 @@ namespace UltraRT
             var mats = r.sharedMaterials;
             bool transparent = TryAddTransparent(r, mesh); // water/glass submeshes: a separate proxy (SceneProxies.Transparent.cs)
             transparent |= TryAddLava(r, mesh); // lava/acid submeshes: an emissive proxy (SceneProxies.Lava.cs)
-            if (!AnyTraceable(mats)) { if (!transparent) stats.SkippedMaterial++; return; }
+            // Static-batched water/glass/blood: slots of the static groups, like opaque submeshes (StaticGroups.cs).
+            bool staticTransparent = r.isPartOfStaticBatch && TransparentCandidate(r, mats);
+            if (!AnyTraceable(mats) && !staticTransparent) { if (!transparent) stats.SkippedMaterial++; return; }
 
             if (r.isPartOfStaticBatch && (portalLayer || player)) { stats.SkippedLayer++; return; } // merged batches can't carry PortalLayerMask
             if (r.isPartOfStaticBatch)
             {
                 // Merged batches can't carry the fixture mask, but the light can still be lifted out (Plugin.cs).
-                IsLightFixture(r);
+                // Not for water/glass-only renderers (lamp glass): they block no ray, so they are no housing (light lifts, shafts).
+                if (AnyTraceable(mats)) IsLightFixture(r);
                 if (batches == null)
                 {
                     // Combined meshes only exist at load, but their renderers get cloned (CheckPoint rooms).

@@ -81,7 +81,8 @@ namespace UltraRT
             public Material Material;
             public Material BaseMaterial;   // before the per-slot atlas variant (reflection class), for the record log
             public MeshRenderer Source;     // the source that decided the material (captured originals first)
-            public int Part;                // bit 0 two-sided, bit 1 sky wall
+            public int Part;                // bit 0 two-sided, bit 1 sky wall, bit 2 transparent (TransparentPart)
+            public TransparentKind Kind;    // transparent slots: water, glass or blood
             public Group Group;
             public StaticSource Owner;      // first source seen; its ancestors define the grouping keys
             public int VisibleSources;
@@ -112,13 +113,17 @@ namespace UltraRT
         {
             public Combined Combined;
             public string Name;
-            public readonly List<Slot>[] Slots = new List<Slot>[4];
-            public readonly GroupPart[] Parts = new GroupPart[4];
+            public readonly List<Slot>[] Slots = new List<Slot>[PartCount];
+            public readonly GroupPart[] Parts = new GroupPart[PartCount];
             public bool Dirty;
         }
 
+        /// <summary>Part variants per group: two-sided x sky wall x transparent.</summary>
+        private const int PartCount = 8;
+
         private sealed class GroupPart
         {
+            public bool Transparent;        // mask TransparentMask (water/glass/blood), counted in ActiveTransparent
             public MeshRenderer Proxy;
             public MeshFilter Filter;
             public Mesh Full;
@@ -188,6 +193,11 @@ namespace UltraRT
                     if (s != null) sources.Add(s);
                 }
             }
+            // Batched water/glass that got no transparent slot (a combined mesh without triangles, or not readable).
+            foreach (var kv in batches)
+                foreach (var r in kv.Value)
+                    if (TransparentCandidate(r, r.sharedMaterials) && !(_combined.TryGetValue(kv.Key, out var cc) && HasTransparentSlot(cc, r)))
+                        _transparentStatic++;
             Maps.BuildAtlases(); // per-texel detail atlases, from the cells AddAtlasCells recorded
             if (Maps.Available)
                 _log.LogInfo($"Material maps: atlas slots mapped per original submesh {_atlasSpansRanged}, by dominant material {_atlasSpansWhole}, " +
@@ -222,6 +232,7 @@ namespace UltraRT
                 foreach (var c in all) foreach (var slot in c.Slots) if (slot != null) slot.VisibleSources = 1;
             }
             foreach (var g in _groups) MarkGroupDirty(g);
+            foreach (var s in sources) NoteStaticTransparent(s, late: false);
 
             long cpuBytes = all.Sum(c => c.CpuBytes);
             int flagsMode = all.Count(c => c.FlagsMode);
@@ -259,11 +270,23 @@ namespace UltraRT
             foreach (var r in sources.OrderBy(r => OriginalMaterials.IsCaptured(r) ? 0 : 1))
             {
                 var src = r.sharedMaterials;
+                bool transparentOk = TransparentCandidate(r, src);
                 for (int i = 0; i < src.Length; i++)
                 {
                     int sub = r.subMeshStartIndex + i;
-                    if (sub < 0 || sub >= subCount || c.Slots[sub] != null || !Traceable(src[i])) continue;
+                    if (sub < 0 || sub >= subCount || c.Slots[sub] != null) continue;
                     if (combined.GetTopology(sub) != MeshTopology.Triangles) continue;
+                    var tk = transparentOk ? TransparentClassifier.Of(src[i]) : TransparentKind.None;
+                    if (tk != TransparentKind.None)
+                    {
+                        // Water/glass/blood: its own part (mask 0x10, only the transparent pass sees it), the transparent proxy material.
+                        var tm = TransparentProxy(src[i], tk);
+                        c.Slots[sub] = new Slot { Sub = sub, Material = tm, BaseMaterial = tm, Source = r, Kind = tk, Part = TransparentPart | (IsTwoSided(tm) ? 1 : 0) };
+                        c.SubMaterials[sub] = tm;
+                        any = true;
+                        continue;
+                    }
+                    if (!Traceable(src[i])) continue;
                     var pm = Proxy(src[i]);
                     // Baked geometry: the atlas material says nothing about the surface; use the source's original material.
                     var mat = IsAtlasProxy(pm) ? AtlasVariant(pm, r) : pm;
@@ -441,11 +464,14 @@ namespace UltraRT
             for (int i = 0; i < mats.Length; i++)
             {
                 int sub = r.subMeshStartIndex + i;
+                // Our overlay, appended to a transparent source (and copied into checkpoint clones of it): not a submesh of
+                // this source; its index would land on the next source's slot.
+                if (TransparentOverlays.IsOverlay(mats[i])) continue;
                 if (sub >= 0 && sub < c.Slots.Length && c.Slots[sub] != null)
                 {
                     slots.Add(c.Slots[sub]);
                     byMat[i] = c.Slots[sub];
-                    swappable |= !IsAtlasProxy(c.Slots[sub].BaseMaterial);
+                    swappable |= !IsAtlasProxy(c.Slots[sub].BaseMaterial) && (c.Slots[sub].Part & TransparentPart) == 0;
                 }
             }
             if (slots.Count == 0) return null;
@@ -481,6 +507,25 @@ namespace UltraRT
             s.Keys[0] = s.Watch = WatchFor(s, _watchMode);
             foreach (var slot in slots) if (slot.Owner == null) slot.Owner = s;
             return s;
+        }
+
+        private static bool HasTransparentSlot(Combined c, MeshRenderer r)
+        {
+            var mats = r.sharedMaterials;
+            for (int i = 0; i < mats.Length; i++)
+            {
+                int sub = r.subMeshStartIndex + i;
+                if (sub >= 0 && sub < c.Slots.Length && c.Slots[sub] != null && (c.Slots[sub].Part & TransparentPart) != 0) return true;
+            }
+            return false;
+        }
+
+        /// <summary>A static source with transparent slots: overlay, under-water test, log (SceneProxies.Transparent.cs).</summary>
+        private void NoteStaticTransparent(StaticSource s, bool late)
+        {
+            if (s.Renderer == null) return;
+            var kinds = s.Slots.Where(x => (x.Part & TransparentPart) != 0).Select(x => x.Kind).ToList();
+            if (kinds.Count > 0) NoteStaticTransparent(s.Renderer, kinds, late);
         }
 
         private static GameObject WatchFor(StaticSource s, int mode) => mode == 0 ? s.WatchDeep : mode == 1 ? s.WatchShallow : s.Keys[1];
@@ -559,11 +604,11 @@ namespace UltraRT
             foreach (var g in _groups)
             {
                 var c = g.Combined;
-                for (int p = 0; p < 4; p++)
+                for (int p = 0; p < PartCount; p++)
                 {
                     var list = g.Slots[p];
                     if (list == null) continue;
-                    var gp = new GroupPart();
+                    var gp = new GroupPart { Transparent = (p & TransparentPart) != 0 };
                     if (c.FlagsMode)
                     {
                         gp.Full = c.Mesh;
@@ -575,7 +620,7 @@ namespace UltraRT
                         gp.Full = BuildGroupMesh(c, list, null, $"{c.Name} #{index} {g.Name}", out gp.FullMaterials);
                         gp.FullRecords = gp.FullMaterials.Length;
                     }
-                    gp.Proxy = CreateMeshProxy($"{c.Name} #{index} {g.Name}{((p & 1) != 0 ? " two-sided" : "")}{((p & 2) != 0 ? " sky-wall" : "")} [UltraRT]",
+                    gp.Proxy = CreateMeshProxy($"{c.Name} #{index} {g.Name}{PartName(p)} [UltraRT]",
                         c.Root, gp.Full, gp.FullMaterials);
                     gp.Filter = gp.Proxy.GetComponent<MeshFilter>();
                     g.Parts[p] = gp;
@@ -759,6 +804,7 @@ namespace UltraRT
             var s = CreateSource(c, r);
             if (s == null) return false;
             RegisterSource(s);
+            NoteStaticTransparent(s, late: true);
             _sumLate++;
             return true;
         }
@@ -932,7 +978,7 @@ namespace UltraRT
         private bool UpdateGroup(Group g, ref int budget)
         {
             bool done = true;
-            for (int p = 0; p < 4; p++)
+            for (int p = 0; p < PartCount; p++)
                 if (g.Parts[p] != null && !UpdatePart(g, p, ref budget)) done = false;
             return done;
         }
@@ -1049,8 +1095,9 @@ namespace UltraRT
             gp.Filter.sharedMesh = mesh;
             gp.Proxy.sharedMaterials = mats;
             Rtas.AddInstance(gp.Proxy, flags, enableTriangleCulling: (p & 1) == 0, frontTriangleCounterClockwise: FrontCounterClockwise,
-                mask: (p & 2) != 0 ? SkyWallMask : GeometryMask, id: c.Id);
+                mask: gp.Transparent ? TransparentMask : (p & 2) != 0 ? SkyWallMask : GeometryMask, id: c.Id);
             gp.InRtas = true;
+            if (gp.Transparent) CountTransparent(true);
             gp.Shown = want;
             gp.Records = flags.Count(f => f != RayTracingSubMeshFlags.Disabled);
             StaticRecordsActive += gp.Records;
@@ -1065,7 +1112,7 @@ namespace UltraRT
             return true;
         }
 
-        private static string PartName(int p) => ((p & 1) != 0 ? " two-sided" : "") + ((p & 2) != 0 ? " sky-wall" : "");
+        private static string PartName(int p) => ((p & 1) != 0 ? " two-sided" : "") + ((p & 2) != 0 ? " sky-wall" : "") + ((p & TransparentPart) != 0 ? " transparent" : "");
 
         private static RayTracingSubMeshFlags[] AllOn(Material[] mats)
         {
@@ -1077,6 +1124,7 @@ namespace UltraRT
         private void RemovePart(GroupPart gp)
         {
             if (gp.Proxy != null) Rtas.RemoveInstance(gp.Proxy);
+            if (gp.InRtas && gp.Transparent) CountTransparent(false);
             gp.InRtas = false;
             StaticRecordsActive -= gp.Records;
             StaticInstancesActive--;

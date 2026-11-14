@@ -16,6 +16,9 @@ namespace UltraRT
     {
         public const uint TransparentMask = 0x10;
 
+        /// <summary>Static group part bit for transparent slots (bit 0 two-sided, bit 1 sky wall): own instances, mask 0x10.</summary>
+        private const int TransparentPart = 4;
+
         /// <summary>Set by the plugin before a scene build: the overlay shader (null = no overlays) and the settings.</summary>
         public static Shader OverlayShader;
         public static TransparentSettings Transparents = new TransparentSettings();
@@ -44,21 +47,23 @@ namespace UltraRT
 
         private static bool TransparentSource(Material m) => TransparentClassifier.Of(m) != TransparentKind.None;
 
-        /// <summary>Registers the renderer's water/glass submeshes, if any. Returns true if a transparent proxy was made.</summary>
-        private bool TryAddTransparent(MeshRenderer r, Mesh mesh)
+        /// <summary>True if the renderer has water/glass/blood materials that should be traced (not a sky decoration).</summary>
+        private bool TransparentCandidate(Renderer r, Material[] mats)
         {
-            if (!Transparents.enabled) return false;
-            var mats = r.sharedMaterials;
-            if (!mats.Any(TransparentSource)) return false;
+            if (!Transparents.enabled || !mats.Any(TransparentSource)) return false;
             // Sky decorations (1-1's LimboSkybox has a water sprite): drawn as part of the sky, not a surface.
             for (var t = r.transform; t != null; t = t.parent)
                 if (t.name.IndexOf("Skybox", System.StringComparison.OrdinalIgnoreCase) >= 0) return false;
-            if (r.isPartOfStaticBatch)
-            {
-                // Combined meshes would need StaticGroups support; none of the surveyed water or glass is batched.
-                _transparentStatic++;
-                return false;
-            }
+            return true;
+        }
+
+        /// <summary>Registers the renderer's water/glass submeshes, if any. Returns true if a transparent proxy was made.
+        /// Static-batched renderers are not handled here: their submeshes become transparent slots of the static groups
+        /// (StaticGroups.cs, part bit <see cref="TransparentPart"/>), see <see cref="NoteStaticTransparent"/>.</summary>
+        private bool TryAddTransparent(MeshRenderer r, Mesh mesh)
+        {
+            var mats = r.sharedMaterials;
+            if (r.isPartOfStaticBatch || !TransparentCandidate(r, mats)) return false;
             var flags = new RayTracingSubMeshFlags[System.Math.Max(1, mesh.subMeshCount)];
             var proxyMats = new Material[flags.Length];
             TransparentKind kind = TransparentKind.None;
@@ -91,6 +96,34 @@ namespace UltraRT
             return true;
         }
 
+        /// <summary>
+        /// A static-batched source with transparent slots (at the build, or a late checkpoint clone): the overlay, the
+        /// under-water test and the log. Its slots are already in the static groups, as part <see cref="TransparentPart"/>.
+        /// </summary>
+        private void NoteStaticTransparent(MeshRenderer r, IEnumerable<TransparentKind> kinds, bool late)
+        {
+            var kindList = kinds.Distinct().ToList();
+            if (kindList.Count == 0) return;
+            var kind = kindList.Contains(TransparentKind.Water) ? TransparentKind.Water : kindList.Contains(TransparentKind.Blood) ? TransparentKind.Blood : TransparentKind.Glass;
+            if (kind == TransparentKind.Water) _staticWater++;
+            else if (kind == TransparentKind.Blood) _staticBlood++;
+            else _staticGlass++;
+            if (kind != TransparentKind.Glass) _waterSources.Add(r);
+            if (kind == TransparentKind.Blood)
+                foreach (var m in r.sharedMaterials) if (TransparentClassifier.Of(m) == TransparentKind.Blood) _bloodMaterials.Add(m.name);
+            if (_overlays == null && OverlayShader != null) _overlays = new TransparentOverlays(OverlayShader, Transparents);
+            bool overlay = _overlays != null && _overlays.Attach(r);
+            if (!overlay) _transparentNoOverlay++;
+            if (!late && (kind != TransparentKind.Glass || _transparentLog.Count < 40))
+            {
+                var src = r.sharedMaterials.LastOrDefault(TransparentSource);
+                _transparentLog.Add($"  {kind} (static batch, submesh {r.subMeshStartIndex}) '{GameControlPath(r.transform)}' mat '{src?.name}' at {r.bounds.center:F1} size {r.bounds.size:F1}" +
+                                    $"{(r.gameObject.activeInHierarchy ? "" : " (inactive)")}{(overlay ? "" : " NO OVERLAY")}");
+            }
+        }
+
+        private int _staticWater, _staticGlass, _staticBlood;
+
         private Material TransparentProxy(Material src, TransparentKind kind)
         {
             if (_transparentCache.TryGetValue(src, out var m)) return m;
@@ -110,8 +143,9 @@ namespace UltraRT
 
         private void LogTransparents()
         {
-            if (_transparentWater + _transparentGlass + _transparentBlood + _transparentStatic == 0) return;
+            if (_transparentWater + _transparentGlass + _transparentBlood + _staticWater + _staticGlass + _staticBlood + _transparentStatic == 0) return;
             _log.LogInfo($"Transparent surfaces: {_transparentWater} water, {_transparentBlood} blood ({string.Join(", ", _bloodMaterials)}) and {_transparentGlass} glass renderers traced (mask 0x10), " +
+                         $"static-batched {_staticWater} water, {_staticBlood} blood, {_staticGlass} glass; " +
                          $"overlays {_overlays?.Count ?? 0}{(OverlayShader == null ? " (overlay shader missing)" : "")}, without overlay {_transparentNoOverlay}, " +
                          $"skipped static-batched {_transparentStatic}");
             foreach (var line in _transparentLog) _log.LogInfo(line);
@@ -127,6 +161,8 @@ namespace UltraRT
             _waterSources.Clear();
             ActiveTransparent = 0;
         }
+
+        private void CountTransparent(bool added) => ActiveTransparent += added ? 1 : -1;
 
         private void CountTransparent(DynamicProxy d, bool added)
         {

@@ -447,6 +447,7 @@ namespace UltraRT
                 s.Mats[i] = nm;
                 var slot = s.SlotByMat[i];
                 if (slot == null || !Traceable(nm)) continue; // a merged slot can't be switched off; keep the old material
+                if ((slot.Part & TransparentPart) != 0) continue; // water/glass slots keep their transparent proxy
                 var pm = Proxy(nm);
                 if (IsAtlasProxy(pm) || slot.Material == pm) continue;
                 slot.Material = pm;

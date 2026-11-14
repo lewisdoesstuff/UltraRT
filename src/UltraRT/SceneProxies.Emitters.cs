@@ -45,7 +45,7 @@ namespace UltraRT
                 if (c.Slots == null) continue;
                 foreach (var slot in c.Slots)
                 {
-                    if (slot == null || !filter(slot.Material)) continue;
+                    if (slot == null || (slot.Part & TransparentPart) != 0 || !filter(slot.Material)) continue;
                     var s = slot;
                     int gen = s.MatGen;
                     output.Add(new TracedSubmesh
