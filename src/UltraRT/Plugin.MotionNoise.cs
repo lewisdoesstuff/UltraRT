@@ -59,10 +59,8 @@ namespace UltraRT
                     ApplyBenchMode(mode);
                     bool isOff = mode == "off";
                     int nPasses = isOff ? 2 : passes;
-                    var sum = new double[MotionClassNames.Length];
-                    var cnt = new long[MotionClassNames.Length];
-                    double blockSum = 0, offsetSum = 0;
-                    long blocks = 0, considered = 0, maskedOut = 0;
+                    var recs = new List<MotionRecord>(caps * passes);
+                    double offsetSum = 0;
                     int offsetN = 0;
                     var images = new List<string>();
                     string baseName = $"{Sanitize(sc.Name)}_motion_{t0:F1}s_{Sanitize(spec)}";
@@ -151,6 +149,9 @@ namespace UltraRT
                                     float off = no > 0 ? (float)(so / no) : 0f;
                                     offsetSum += Math.Abs(off); offsetN++;
                                     float[] err = pass == 1 && ci == caps / 2 ? new float[px.Length] : null;
+                                    var rec = new MotionRecord(MotionClassNames.Length);
+                                    var rsum = rec.Sum;
+                                    var rcnt = rec.Cnt;
                                     int visW = Mathf.RoundToInt(W * _scale), visH = Mathf.RoundToInt(H * _scale);
                                     int gx = Math.Max(0, (tw - visW) / 2), gy = Math.Max(0, (th - visH) / 2);
                                     for (int by = 0; by + 4 <= H; by += 4)
@@ -164,7 +165,7 @@ namespace UltraRT
                                             for (int xx = 0; xx < 4; xx++)
                                             {
                                                 int x = bx + xx, i = y * W + x;
-                                                if ((mask != null && mask[i] != 0) || excl[i]) { maskedOut++; continue; }
+                                                if ((mask != null && mask[i] != 0) || excl[i]) { rec.MaskedOut++; continue; }
                                                 float d = LumaOf(px[i]) - r[i] - off;
                                                 int k = 5;
                                                 if (c != null && tw > 0)
@@ -172,15 +173,16 @@ namespace UltraRT
                                                     int tx = Math.Min(tw - 1, (int)((x + 0.5f) * visW / W) + gx);
                                                     k = MotionClass(c[ty * tw + tx], x, y, W, H);
                                                 }
-                                                sum[k] += d * d; cnt[k]++;
-                                                considered++;
+                                                rsum[k] += d * d; rcnt[k]++;
+                                                rec.Considered++;
                                                 if (k == 5) continue; // no traced surface: the game's own foliage, birds, sky
                                                 bs += d; bn++;
                                                 if (err != null) err[i] = Math.Abs(d) * 0.70710678f;
                                             }
                                         }
-                                        if (bn == 16) { float bm = bs / 16f; blockSum += bm * bm; blocks++; }
+                                        if (bn == 16) { float bm = bs / 16f; rec.BlockSum += bm * bm; rec.Blocks++; }
                                     }
+                                    recs.Add(rec);
                                     if (err != null)
                                     {
                                         string ef = baseName + "_err.png";
@@ -194,12 +196,30 @@ namespace UltraRT
                                             images.Add(cf);
                                         }
                                     }
+                                    // Consecutive passes are compared (pass p against p - 1): slow game-side changes (a pulsing
+                                    // light, an animation on a long cycle) drift less between neighbours than across the run.
+                                    Luma(px, r);
                                 }
                             }
                             yield return null;
                         }
                     }
 
+                    // Frames where the game itself changed between the two passes (a timed event, a light cycle) show up as a
+                    // squared error far above the window's median: drop them (logged).
+                    var mses = recs.Select(x => x.SurfaceMse).Where(x => x > 0).OrderBy(x => x).ToList();
+                    double med = mses.Count > 0 ? mses[mses.Count / 2] : 0;
+                    var kept = recs.Where(x => med <= 0 || x.SurfaceMse <= 4.0 * med).ToList();
+                    int dropped = recs.Count - kept.Count;
+                    var sum = new double[MotionClassNames.Length];
+                    var cnt = new long[MotionClassNames.Length];
+                    double blockSum = 0;
+                    long blocks = 0, considered = 0, maskedOut = 0;
+                    foreach (var x in kept)
+                    {
+                        for (int k = 0; k < sum.Length; k++) { sum[k] += x.Sum[k]; cnt[k] += x.Cnt[k]; }
+                        blockSum += x.BlockSum; blocks += x.Blocks; considered += x.Considered; maskedOut += x.MaskedOut;
+                    }
                     if (!isOff && considered > 0)
                     {
                         double all = sum.Sum();
@@ -212,6 +232,7 @@ namespace UltraRT
                             SigmaBlock = blocks > 0 ? (float)Math.Sqrt(blockSum / blocks / 2.0) : 0f,
                             Offset = offsetN > 0 ? (float)(offsetSum / offsetN) : 0f,
                             MaskedShare = (float)((double)maskedOut / Math.Max(1, considered + maskedOut)),
+                            Dropped = dropped,
                             Images = images,
                         };
                         for (int k = 0; k < MotionClassNames.Length; k++)
@@ -222,7 +243,7 @@ namespace UltraRT
                             ms.ClassEnergy.Add(k != 5 && all - sum[5] > 0 ? (float)(sum[k] / (all - sum[5])) : 0f);
                         }
                         sr.MotionNoise.Add(ms);
-                        Logger.LogInfo($"Motion noise '{sc.Name}' @ {t0:F1}s {spec}: sigma {ms.Sigma:F2} block4 {ms.SigmaBlock:F2} offset {ms.Offset:F2} masked {ms.MaskedShare:P0}; " +
+                        Logger.LogInfo($"Motion noise '{sc.Name}' @ {t0:F1}s {spec}: sigma {ms.Sigma:F2} block4 {ms.SigmaBlock:F2} offset {ms.Offset:F2} masked {ms.MaskedShare:P0} dropped {dropped}/{recs.Count}; " +
                                        string.Join(", ", Enumerable.Range(0, MotionClassNames.Length).Select(k =>
                                            $"{MotionClassNames[k]} {ms.ClassSigma[k]:F2} ({ms.ClassShare[k]:P0} px, {ms.ClassEnergy[k]:P0} energy)")));
                     }
@@ -259,6 +280,24 @@ namespace UltraRT
                         for (int x = x0; x < x1; x++) _exclusion[y * w + x] = true;
                 }
             return _exclusion;
+        }
+
+        private sealed class MotionRecord
+        {
+            public readonly double[] Sum;
+            public readonly long[] Cnt;
+            public double BlockSum;
+            public long Blocks, Considered, MaskedOut;
+            public MotionRecord(int n) { Sum = new double[n]; Cnt = new long[n]; }
+            public double SurfaceMse
+            {
+                get
+                {
+                    double s = 0; long c = 0;
+                    for (int k = 0; k < Sum.Length; k++) if (k != 5) { s += Sum[k]; c += Cnt[k]; }
+                    return c > 0 ? s / c : 0;
+                }
+            }
         }
 
         private static int LumaOf(Color32 c) => (2126 * c.r + 7152 * c.g + 722 * c.b + 5000) / 10000;
@@ -316,14 +355,14 @@ namespace UltraRT
                           "none = pixels without a traced surface, not in sigma):");
             sb.AppendLine();
             var cols = new[] { 0, 1, 2, 6, 3, 4 }; // thin, edge, fresh, young, screen edge, interior
-            sb.AppendLine("| Scenario | Window | Mode | sigma | block4 | " + string.Join(" | ", cols.Select(k => MotionClassNames[k])) + " | none | offset |");
+            sb.AppendLine("| Scenario | Window | Mode | sigma | block4 | " + string.Join(" | ", cols.Select(k => MotionClassNames[k])) + " | none | offset / dropped frames |");
             sb.AppendLine("|---|---|---|---|---|" + string.Concat(cols.Select(_ => "---|")) + "---|---|");
             foreach (var sc in r.Scenarios)
                 foreach (var m in sc.MotionNoise)
                     sb.AppendLine($"| {sc.Name} | {m.Window:F1}s | {m.Mode} | {m.Sigma:F2} | {m.SigmaBlock:F2} | " +
                                   string.Join(" | ", cols.Select(k =>
                                       k < m.ClassSigma.Count ? $"{m.ClassSigma[k]:F2} / {m.ClassShare[k] * 100:F0}% / {m.ClassEnergy[k] * 100:F0}%" : "-")) +
-                                  $" | {(m.ClassSigma.Count > 5 ? $"{m.ClassSigma[5]:F2} / {m.ClassShare[5] * 100:F0}%" : "-")} | {m.Offset:F2} |");
+                                  $" | {(m.ClassSigma.Count > 5 ? $"{m.ClassSigma[5]:F2} / {m.ClassShare[5] * 100:F0}%" : "-")} | {m.Offset:F2} / {m.Dropped} |");
         }
     }
 }
