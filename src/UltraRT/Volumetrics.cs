@@ -37,7 +37,10 @@ namespace UltraRT
         /// <summary>Point/spot light samples (shadow rays) per low-res pixel and frame, stratified over one light CDF.</summary>
         public int lightSamples = 2;
         /// <summary>Emissive surface samples (each RIS over 6 points, one shadow ray) per low-res pixel and frame.</summary>
-        public int emissiveSamples = 2;
+        public int emissiveSamples = 1;
+        /// <summary>Let lights attached to the player or the camera light the medium (off: the player's own light sits at
+        /// the eye and lit the air over the whole screen).</summary>
+        public bool playerLights = false;
         /// <summary>Range (m) at which a point/spot light's haze is halved (1 / (1 + (range / hazeRange)^3); 0 = off): lights
         /// that reach across a whole room are mood/fill lighting, not lamps the air glows around.</summary>
         public float hazeRange = 0f;
@@ -118,6 +121,7 @@ namespace UltraRT
         public Texture target;              // the camera's colour target (PostProcessV2_Handler.mainTex)
         public RayTracingAccelerationStructure rtas;
         public ComputeBuffer lights;
+        public ComputeBuffer skip;         // one bit per light: skipped by the medium (attached to the player / camera)
         public int lightCount;
         public Vector4 sunDir;             // xyz towards the sun, w cos(angular radius); w = 0: no sun
         public Color sunColor;             // linear irradiance
@@ -182,7 +186,8 @@ namespace UltraRT
             IdVolViewRay = Shader.PropertyToID("_VolViewRay"), IdVolFog = Shader.PropertyToID("_VolFog"),
             IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
-            IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
+            IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
+            IdVolSkip = Shader.PropertyToID("_VolSkip"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
             IdTemporalParams3 = Shader.PropertyToID("_TemporalParams3"), IdAtrousIn = Shader.PropertyToID("_AtrousIn"),
             IdAtrousMom = Shader.PropertyToID("_AtrousMom"), IdAtrousOut = Shader.PropertyToID("_AtrousOut"),
             IdAtrousParams = Shader.PropertyToID("_AtrousParams"), IdAtrousParams2 = Shader.PropertyToID("_AtrousParams2");
@@ -241,7 +246,8 @@ namespace UltraRT
             return new Vector4(sigma, tint.x, tint.y, tint.z);
         }
 
-        public void Execute(CommandBuffer cmd, in VolumetricsFrame f)
+        /// <param name="lateCmd">Runs after the game's transparents (CameraEvent.AfterForwardAlpha); null = all in cmd.</param>
+        public void Execute(CommandBuffer cmd, CommandBuffer lateCmd, in VolumetricsFrame f)
         {
             var s = Settings;
             var cam = f.camera;
@@ -297,6 +303,7 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(_rt, IdVolLightParams, new Vector4(f.localLightCount, Mathf.Clamp(s.lightCandidates, 1, 32), Mathf.Max(0f, s.lights), 0.01f));
             cmd.SetRayTracingVectorParam(_rt, IdVolFalloff, f.falloff);
             cmd.SetRayTracingBufferParam(_rt, IdLights, f.lights);
+            cmd.SetRayTracingBufferParam(_rt, IdVolSkip, f.skip);
             cmd.SetRayTracingFloatParam(_rt, IdVolEmissive, Mathf.Max(0f, s.emissive));
             cmd.SetRayTracingFloatParam(_rt, IdVolClamp, Mathf.Max(0f, s.maxSample));
             cmd.DispatchRays(_rt, "VolumeRayGen", (uint)w, (uint)h, 1);
@@ -343,8 +350,8 @@ namespace UltraRT
             Result = result;
             ResultSize = new Vector2(w, h);
 
-            // 5. composite into the camera target, from a copy of it
-            cmd.CopyTexture(f.target, _sceneCopy);
+            // 5. composite into the camera target: the game's fog now (blended, before the game's transparents), the
+            // in-scattering after the transparents (late, from a copy of the target; in this buffer when there is none)
             var m = f.composite;
             m.SetTexture(IdSceneColor, _sceneCopy);
             m.SetTexture(IdVolHist, result);
@@ -358,7 +365,11 @@ namespace UltraRT
             var fc = RenderSettings.fogColor;
             m.SetVector(IdVolFogColor, new Vector4(fc.r, fc.g, fc.b, f.applyGameFog && s.gameFog && fogMode > 0f ? 1f : 0f));
             m.SetVector(IdVolComposite, new Vector4(Mathf.Max(0f, s.strength), f.autoExposure && f.exposure != null ? 1f : 0f, 1f, s.debugView));
-            cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
+            if (f.applyGameFog && s.gameFog && fogMode > 0f && s.debugView == 0)
+                cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
+            var late = lateCmd ?? cmd;
+            late.CopyTexture(f.target, _sceneCopy);
+            late.DrawProcedural(Matrix4x4.identity, m, 1, MeshTopology.Triangles, 3);
         }
 
         /// <summary>Maps a low-res NDC position to the screen NDC of the pixel it was traced through (i * blk + blk / 2).</summary>

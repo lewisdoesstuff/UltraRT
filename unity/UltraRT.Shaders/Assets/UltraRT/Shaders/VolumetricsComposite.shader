@@ -1,24 +1,18 @@
-// Volumetric lighting composite (docs/volumetrics.md). Drawn into the main camera's target right after the RT composite
-// (before the game's transparents), fullscreen, reading a copy of the target:
-//   1. the game's own distance fog on ray-traced pixels (the RT image replaces the game's fogged opaque shading, so the
-//      replace modes lost it): exactly the game's formula, lerp(colour, fog colour, fog amount) in display space, only
-//      where the temporal upsampler says the pixel is ours (_UltraRTUpsampled.a > 0). The game already fogged its sky.
-//   2. the in-scattered light: low-res history upsampled with depth weights, exposed like the lit RT image, added in
-//      linear light: out = (in^2.2 + exposure * S)^(1/2.2), with a soft shoulder instead of a hard clip.
+// Volumetric lighting composite (docs/volumetrics.md). Two fullscreen passes into the main camera's target:
+//   0 Fog      right after the RT composite (before the game's transparents), blended, no copy: the game's own distance
+//              fog on ray-traced pixels (the RT image replaces the game's fogged opaque shading, so the replace modes lost
+//              it): exactly the game's formula, lerp(fog colour, colour, visibility) in display space, only where the
+//              temporal upsampler says the pixel is ours (_UltraRTUpsampled.a > 0). The game already fogged its sky.
+//   1 Scatter  after the game's transparents (CameraEvent.AfterForwardAlpha), from a copy of the target: the in-scattered
+//              light, low-res history upsampled with depth weights (opaque depth), exposed like the lit RT image, added in
+//              linear light: out = (in^2.2 + exposure * S)^(1/2.2), with a soft shoulder instead of a hard clip. After the
+//              transparents so that grates, fences, water and glass in front of the air get its glow too (drawn before
+//              them, a dark grate stood black in front of glowing air).
 Shader "UltraRT/VolumetricsComposite"
 {
     SubShader
     {
-        Pass
-        {
-            ZTest Always
-            ZWrite Off
-            Cull Off
-
-            HLSLPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
-            #pragma target 4.5
+        HLSLINCLUDE
             #include "UnityCG.cginc"
 
             Texture2D _VolSceneColor;          // copy of the target (screen resolution)
@@ -93,20 +87,33 @@ Shader "UltraRT/VolumetricsComposite"
                 return wSum > 1e-3 ? sum / wSum : best;
             }
 
-            float4 frag(v2f i) : SV_Target
+            float3 PixelRay(float2 uv, out float z, out float d)
+            {
+                float raw = _UltraRTGameDepth.Sample(my_point_clamp_sampler, uv).r;
+                z = LinearEyeDepth(raw);
+                float2 ndc = uv * 2.0 - 1.0;
+                d = z * length(float3(ndc.x * _VolViewRay.x, ndc.y * _VolViewRay.y, 1.0));
+                return 0;
+            }
+
+            // Pass 0: Blend One SrcAlpha -> dst' = fog (1 - vis) + dst vis on our pixels, dst elsewhere.
+            float4 fragFog(v2f i) : SV_Target
+            {
+                if (_VolFogColor.w < 0.5 || _UltraRTUpsampled.Sample(my_point_clamp_sampler, i.uv).a <= 0.0) return float4(0, 0, 0, 1);
+                float z, d;
+                PixelRay(i.uv, z, d);
+                float vis = FogVisibility(z);
+                return float4(_VolFogColor.rgb * (1.0 - vis), vis);
+            }
+
+            float4 fragScatter(v2f i) : SV_Target
             {
                 float3 c = _VolSceneColor.Sample(my_point_clamp_sampler, i.uv).rgb;
-                float raw = _UltraRTGameDepth.Sample(my_point_clamp_sampler, i.uv).r;
-                float z = LinearEyeDepth(raw);
-                float2 ndc = i.uv * 2.0 - 1.0;
-                float d = z * length(float3(ndc.x * _VolViewRay.x, ndc.y * _VolViewRay.y, 1.0));
+                float z, d;
+                PixelRay(i.uv, z, d);
                 float2 screenPx = i.uv * _VolScreen.xy;
 
-                // 1. the game's fog on our pixels
-                if (_VolFogColor.w > 0.5 && _UltraRTUpsampled.Sample(my_point_clamp_sampler, i.uv).a > 0.0)
-                    c = lerp(_VolFogColor.rgb, c, FogVisibility(z));
-
-                // 2. in-scattering (at the far plane: the sky ray length the low-res pass used)
+                // in-scattering (at the far plane: the sky ray length the low-res pass used)
                 float3 s = Upsample(screenPx, z >= _VolViewRay.w ? _VolViewRay.z : d);
                 float e = _VolComposite.z;
                 if (_VolComposite.y > 0.5)
@@ -124,6 +131,33 @@ Shader "UltraRT/VolumetricsComposite"
                 o = c + h * (1.0 - exp(-delta / h));
                 return float4(o, 1.0);
             }
+        ENDHLSL
+
+        // 0: the game's fog on ray-traced pixels (before the transparents)
+        Pass
+        {
+            ZTest Always
+            ZWrite Off
+            Cull Off
+            Blend One SrcAlpha
+            ColorMask RGB
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragFog
+            #pragma target 4.5
+            ENDHLSL
+        }
+
+        // 1: the in-scattered light (after the transparents, from a copy of the target)
+        Pass
+        {
+            ZTest Always
+            ZWrite Off
+            Cull Off
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragScatter
+            #pragma target 4.5
             ENDHLSL
         }
     }

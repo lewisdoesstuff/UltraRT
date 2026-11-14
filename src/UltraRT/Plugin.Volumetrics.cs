@@ -22,6 +22,10 @@ namespace UltraRT
         private Material _volCompositeMat;
         private int _volLastFrame = -10;
         private float _volNextLog, _volNextSurvey;
+        private CommandBuffer _volLateCmd;       // after the game's transparents: the in-scattering (VolumetricsComposite pass 1)
+        private Camera _volLateCam;
+        private ComputeBuffer _volSkipBuffer;    // one bit per light: lights attached to the player / camera
+        private readonly uint[] _volSkip = new uint[(MaxLights + 31) / 32];
         private Vector3 _volSurveyPos = new Vector3(1e9f, 0, 0);
 
         private void ParseVolumetricsArgs()
@@ -48,6 +52,39 @@ namespace UltraRT
             if (_volCompositeMat != null) Destroy(_volCompositeMat);
             _volCompositeMat = new Material(sh) { name = "UltraRT Volumetrics Composite" };
             _volumetrics = new Volumetrics(rt, cs, _volSettings);
+        }
+
+        /// <summary>Every frame from OnCameraPreRender, before Trace: keeps the late buffer on the camera, empty unless the
+        /// pass runs this frame.</summary>
+        private void VolumetricsFrameReset(Camera cam)
+        {
+            if (_volLateCmd == null) _volLateCmd = new CommandBuffer { name = "UltraRT Volumetrics (after transparents)" };
+            _volLateCmd.Clear();
+            if (_volLateCam == cam) return;
+            if (_volLateCam != null) _volLateCam.RemoveCommandBuffer(CameraEvent.AfterForwardAlpha, _volLateCmd);
+            if (cam != null) cam.AddCommandBuffer(CameraEvent.AfterForwardAlpha, _volLateCmd);
+            _volLateCam = cam;
+        }
+
+        /// <summary>Lights the medium skips: attached to the player or the camera (the player's light sits at the eye).</summary>
+        private ComputeBuffer VolumetricsSkipMask()
+        {
+            if (_volSkipBuffer == null) _volSkipBuffer = new ComputeBuffer(_volSkip.Length, 4) { name = "UltraRT Volumetrics Skip" };
+            Array.Clear(_volSkip, 0, _volSkip.Length);
+            var player = MonoSingleton<NewMovement>.Instance != null ? MonoSingleton<NewMovement>.Instance.transform : null;
+            var camT = _camera != null ? _camera.transform : null;
+            var camPos = camT != null ? camT.position : Vector3.zero;
+            for (int i = 0; i < _lightCount; i++)
+            {
+                var l0 = _lightData[i * 4];
+                if (l0.w == 0f) continue;
+                var lt = _packedLights[i];
+                bool attached = lt != null && ((player != null && lt.transform.IsChildOf(player)) || (camT != null && lt.transform.IsChildOf(camT)));
+                bool atEye = (new Vector3(l0.x, l0.y, l0.z) - camPos).sqrMagnitude < 0.25f;
+                if ((attached || atEye) && !_volSettings.playerLights) _volSkip[i >> 5] |= 1u << (i & 31);
+            }
+            _cmd.SetBufferData(_volSkipBuffer, _volSkip);
+            return _volSkipBuffer;
         }
 
         private void VolumetricsHotkeys()
@@ -107,6 +144,7 @@ namespace UltraRT
                 target = target,
                 rtas = _proxies.Rtas,
                 lights = _lightBuffer,
+                skip = VolumetricsSkipMask(),
                 lightCount = _lightCount,
                 sunDir = sunDir,
                 sunColor = sunColor,
@@ -120,7 +158,10 @@ namespace UltraRT
             };
             _gpu?.Begin(_cmd, SlotVolumetrics);
             _emissive.Bind(_cmd, _volumetrics.RtShader, _lightSamplingSettings.mode); // emissive triangles for surface glow scattering
-            _volumetrics.Execute(_cmd, frame);
+            bool late = _volLateCmd != null && _volLateCam == _camera;
+            if (late) _gpu?.Begin(_volLateCmd, SlotVolLate);
+            _volumetrics.Execute(_cmd, late ? _volLateCmd : null, frame);
+            if (late) _gpu?.End(_volLateCmd, SlotVolLate);
             _gpu?.End(_cmd, SlotVolumetrics);
             if (_autoExposure != null && _volSettings.meterHaze > 0f)
             {

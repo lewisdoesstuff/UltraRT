@@ -27,6 +27,9 @@ float4   _VolFalloff;              // x relight falloff blend, y light exposure 
 // The plugin's light list (UltraRTLights.hlsl layout, 4 x float4 per light). Directional lights are skipped here: the
 // sun comes in through _VolSun*, fill lights are fakes.
 StructuredBuffer<float4> _Lights;
+// One bit per light: lights the medium skips (the player's own light and anything else attached to the player or the
+// camera: every view ray starts inside them, which lit the air in front of the eyes over the whole screen).
+StructuredBuffer<uint>   _VolSkip;
 
 // Emissive triangles (EmissiveLights.cs; layout in UltraRTLights.hlsl), bound by EmissiveLights.Bind.
 StructuredBuffer<uint4>  _EmissiveTris;
@@ -135,9 +138,46 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
     return ToLightV(l1.rgb * _VolFalloff.y) * atten * HazeWeight(r);
 }
 
-// Rough importance of light i for the ray segment [0, tMax]: intensity times the integral of 1/d^2 along the segment
-// (exact for an inverse-square light), limited to the light's reach (2 x range).
-// The part [tA, tB] of the ray segment [0, tMax] inside a light's reach (2 x range: its falloff window ends there).
+// A spot light's cone (half angle: cos l3.x, apex at the light, axis l2.xyz) clips the ray segment [tA, tB] to the part
+// inside it (the hull of the inside pieces), so samples are not wasted on air the spot never lights. Point lights pass.
+bool ClipSpot(uint i, float3 o, float3 dir, inout float tA, inout float tB)
+{
+    float c = _Lights[i * 4 + 3].x;
+    if (c <= -0.5) return true;
+    float3 a = _Lights[i * 4 + 2].xyz;
+    float3 v = o - _Lights[i * 4].xyz;
+    float da = dot(dir, a), va = dot(v, a), vd = dot(v, dir), vv = dot(v, v);
+    // (va + t da)^2 - c^2 |v + t dir|^2 = A t^2 + 2 B t + C changes sign at the cone surface (both nappes)
+    float A = da * da - c * c, B = va * da - c * c * vd, C = va * va - c * c * vv;
+    float r0 = tA, r1 = tA;
+    if (abs(A) > 1e-6)
+    {
+        float disc = B * B - A * C;
+        if (disc > 0.0)
+        {
+            float sq = sqrt(disc);
+            float x0 = (-B - sq) / A, x1 = (-B + sq) / A;
+            r0 = min(x0, x1); r1 = max(x0, x1);
+        }
+    }
+    else if (abs(B) > 1e-9) { r0 = -C / (2.0 * B); r1 = r0; }
+    r0 = clamp(r0, tA, tB);
+    r1 = clamp(r1, tA, tB);
+    float s[4] = { tA, r0, r1, tB };
+    float lo = 1e30, hi = -1e30;
+    [unroll] for (int k = 0; k < 3; k++)
+    {
+        if (s[k + 1] <= s[k]) continue;
+        float3 x = v + dir * (0.5 * (s[k] + s[k + 1]));
+        if (dot(x, a) >= c * length(x)) { lo = min(lo, s[k]); hi = max(hi, s[k + 1]); }
+    }
+    if (!(hi > lo)) return false;
+    tA = lo; tB = hi;
+    return true;
+}
+
+// The part [tA, tB] of the ray segment [0, tMax] inside a light's reach (2 x range: its falloff window ends there) and,
+// for a spot, inside its cone.
 bool LightSegment(uint i, float3 o, float3 dir, float tMax, out float tA, out float tB)
 {
     float4 l0 = _Lights[i * 4];
@@ -151,13 +191,14 @@ bool LightSegment(uint i, float3 o, float3 dir, float tMax, out float tA, out fl
     float k = sqrt(k2);
     tA = max(delta - k, 0.0);
     tB = min(delta + k, tMax);
-    return tB > tA;
+    return tB > tA && ClipSpot(i, o, dir, tA, tB);
 }
 
 float LightTarget(uint i, float3 o, float3 dir, float tMax)
 {
     float4 l0 = _Lights[i * 4];
     if (l0.w == 0.0 || _Lights[i * 4 + 3].z > 0.5) return 0.0; // directional / fill
+    if ((_VolSkip[i >> 5] >> (i & 31u)) & 1u) return 0.0;      // attached to the player / camera
     float3 c = _Lights[i * 4 + 1].rgb;
     float lum = dot(c, float3(0.2126, 0.7152, 0.0722));
     if (lum <= 0.0) return 0.0;
