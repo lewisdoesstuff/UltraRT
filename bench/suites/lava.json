@@ -13,9 +13,6 @@
         "off",
         "relight+lava.active=0",
         "relight",
-        "relight+lava.pointLightScale=0.15",
-        "relight+lava.pointLightScale=0.15+em.lightScale=10",
-        "relight+lava.cameraGlow=0.4",
         "pt-dn+lava.active=0",
         "pt-dn",
         "hybrid+lava.active=0",
@@ -23,6 +20,15 @@
       ],
       "Screenshots": [
         5
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "relight+lava.active=0",
+        "relight",
+        "pt-dn+lava.active=0",
+        "pt-dn",
+        "hybrid+lava.active=0",
+        "hybrid"
       ]
     },
     {
@@ -37,7 +43,6 @@
         "off",
         "relight+lava.active=0",
         "relight",
-        "relight+lava.pointLightScale=0.15",
         "hybrid"
       ],
       "Screenshots": [
@@ -56,7 +61,6 @@
         "off",
         "relight+lava.active=0",
         "relight",
-        "relight+lava.pointLightScale=0.15",
         "hybrid"
       ],
       "Screenshots": [
@@ -75,7 +79,6 @@
         "off",
         "relight+lava.active=0",
         "relight",
-        "relight+lava.pointLightScale=0.15",
         "hybrid"
       ],
       "Screenshots": [
@@ -102,36 +105,16 @@
         "off",
         "relight+lava.active=0",
         "relight",
+        "pt-dn",
         "hybrid"
       ],
       "Screenshots": [
         4
-      ]
-    },
-    {
-      "Name": "4-1 lava",
-      "Scene": "Level 4-1",
-      "Path": {
-        "Type": "static",
-        "Position": [
-          -290.0,
-          -0.5,
-          511.0
-        ],
-        "Yaw": 0,
-        "Pitch": -20,
-        "Load": "areas",
-        "Areas": "../recordings/lava-4-1-areas.json",
-        "Duration": 6
-      },
-      "Modes": [
-        "off",
+      ],
+      "Burst": 64,
+      "BurstModes": [
         "relight+lava.active=0",
-        "relight",
-        "hybrid"
-      ],
-      "Screenshots": [
-        4
+        "relight"
       ]
     },
     {
@@ -148,32 +131,6 @@
         "Pitch": -20,
         "Load": "areas",
         "Areas": "../recordings/lava-6-1-areas.json",
-        "Duration": 6
-      },
-      "Modes": [
-        "off",
-        "relight+lava.active=0",
-        "relight",
-        "hybrid"
-      ],
-      "Screenshots": [
-        4
-      ]
-    },
-    {
-      "Name": "3-1 lava",
-      "Scene": "Level 3-1",
-      "Path": {
-        "Type": "static",
-        "Position": [
-          -203.0,
-          -40.0,
-          643.0
-        ],
-        "Yaw": 0,
-        "Pitch": -20,
-        "Load": "areas",
-        "Areas": "../recordings/lava-3-1-areas.json",
         "Duration": 6
       },
       "Modes": [

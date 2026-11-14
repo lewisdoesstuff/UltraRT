@@ -17,12 +17,12 @@ namespace UltraRT
         /// game's point lights are no longer dimmed. Unlike <see cref="enabled"/> this needs no scene rebuild.</summary>
         public bool active = true;
         /// <summary>-ultrart-lava-light: multiplies lava emission for direct lighting (on top of EmissiveLightScale). Read at the scene build.</summary>
-        public float lightScale = 1f;
+        public float lightScale = 2.5f;
         /// <summary>-ultrart-lava-glow: multiplies the emission reflection, bounce and cache rays see on the lava surface.</summary>
         public float glow = 1f;
         /// <summary>-ultrart-lava-pointlights: brightness of the game's point lights that stand in for the lava glow (lights
         /// over a traced lava surface), now that the lava itself emits. 1 = unchanged.</summary>
-        public float pointLightScale = 0.4f;
+        public float pointLightScale = 0.15f;
         /// <summary>Emissive triangles of lava are split until no larger than this (m^2), for less noise next to big surfaces.</summary>
         public float maxTriangleArea = 1f;
         /// <summary>Per lava submesh, at most this many emissive triangles (the split area grows to fit).</summary>
