@@ -58,7 +58,7 @@ namespace UltraRT
     ///    bumps the generation and the shader drops emissive history for one frame.
     /// Skinned emitters are not handled (TODO): they still light through bounce hits only if bounceHitEmission is on.
     /// </summary>
-    internal sealed class EmissiveLights : IDisposable
+    internal sealed partial class EmissiveLights : IDisposable
     {
         public EmissiveLightSettings Settings = new EmissiveLightSettings();
 
@@ -167,6 +167,7 @@ namespace UltraRT
         private void BuildCore(SceneProxies proxies)
         {
             var sw = Stopwatch.StartNew();
+            LavaTriangles = 0;
             var subs = new List<SceneProxies.TracedSubmesh>();
             proxies.CollectStaticSubmeshes(IsEmissive, subs);
             int staticSubs = subs.Count;
@@ -196,7 +197,7 @@ namespace UltraRT
             for (int i = 0; i < _triCount; i++) area += _triArea[i] * _owners[_emitters[_triEmitter[i]].Owner].AreaScale;
             _log.LogInfo($"Emissive lights: {_triCount:N0} triangles from {_emitters.Count} submeshes ({staticSubs} static, {subs.Count - staticSubs} dynamic, " +
                          $"{_owners.Count} owners), {skippedDark:N0} dark triangles skipped, {dropped:N0} over the cap ({cap:N0}), {failed} readbacks failed, " +
-                         $"{skyWalls} sky walls skipped; Le luminance median {(lums.Length > 0 ? lums[lums.Length / 2] : 0):F2} max {(lums.Length > 0 ? lums[lums.Length - 1] : 0):F2}, " +
+                         $"{skyWalls} sky walls skipped, {LavaTriangles:N0} lava pieces; Le luminance median {(lums.Length > 0 ? lums[lums.Length / 2] : 0):F2} max {(lums.Length > 0 ? lums[lums.Length - 1] : 0):F2}, " +
                          $"total area {area:F1} m2; {_meshCache.Count} meshes, {_texCache.Count} textures read; took {sw.Elapsed.TotalMilliseconds:F0} ms, " +
                          $"GPU {(_triCount * 48 + _owners.Count * 48) / 1024.0:F0} KB");
         }
@@ -643,6 +644,7 @@ namespace UltraRT
             if (mesh.GetTopology(s.SubMesh) != MeshTopology.Triangles) return true;
             var src = Source(s);
             if (src == null) return false;
+            if (LavaClassifier.IsLavaEmitter(s.Material)) return ExtractLava(s, src, output, ref dark); // EmissiveLights.Lava.cs
 
             var m = s.Material;
             var tex = EmissionTexture(m, out var st, out var tint, out bool _);

@@ -1,0 +1,105 @@
+{
+  "Name": "lava-calib",
+  "Scenarios": [
+    {
+      "Name": "0-5 lava",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-approach.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+em.lightScale=2.4",
+        "relight+em.lightScale=1.6",
+        "hybrid",
+        "hybrid+em.lightScale=2.4",
+        "hybrid+em.hybridAdd=0.1"
+      ],
+      "Screenshots": [
+        5
+      ]
+    },
+    {
+      "Name": "0-5 c",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-c.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+em.lightScale=2.4",
+        "relight+em.lightScale=1.6",
+        "hybrid",
+        "hybrid+em.lightScale=2.4",
+        "hybrid+em.hybridAdd=0.1"
+      ],
+      "Screenshots": [
+        4
+      ]
+    },
+    {
+      "Name": "1-3 lava",
+      "Scene": "Level 1-3",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          -114.5,
+          -1.5,
+          346.0
+        ],
+        "Yaw": 0,
+        "Pitch": -20,
+        "Load": "areas",
+        "Areas": "../recordings/lava-1-3-areas.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+em.lightScale=2.4",
+        "relight+em.lightScale=1.6",
+        "hybrid",
+        "hybrid+em.lightScale=2.4",
+        "hybrid+em.hybridAdd=0.1"
+      ],
+      "Screenshots": [
+        4
+      ]
+    },
+    {
+      "Name": "6-1 lava",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          113.5,
+          -159.0,
+          -431.0
+        ],
+        "Yaw": 0,
+        "Pitch": -20,
+        "Load": "areas",
+        "Areas": "../recordings/lava-6-1-areas.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+em.lightScale=2.4",
+        "relight+em.lightScale=1.6",
+        "hybrid",
+        "hybrid+em.lightScale=2.4",
+        "hybrid+em.hybridAdd=0.1"
+      ],
+      "Screenshots": [
+        4
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+ "Version": 1,
+ "Scene": "Level 6-1",
+ "Objects": [
+  {
+   "Path": "14 - Hall of Sacreligious Remains",
+   "On": true
+  }
+ ],
+ "Lights": [],
+ "Fog": false
+}

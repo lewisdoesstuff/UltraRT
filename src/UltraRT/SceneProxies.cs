@@ -236,6 +236,7 @@ namespace UltraRT
             LogMirrorSurfaces();
             _log.LogInfo($"Material maps ({MaterialMaps.Settings}): {Maps.Bound} proxy materials bound, {Maps.Missing} without maps, " +
                          $"{Maps.Loaded} textures loaded in {Maps.LoadMs:F0} ms");
+            LogLava();
         }
 
         private void LogMaterialClasses()
@@ -415,6 +416,7 @@ namespace UltraRT
             if (mesh == null) { stats.SkippedMesh++; return; }
             var mats = r.sharedMaterials;
             bool transparent = TryAddTransparent(r, mesh); // water/glass submeshes: a separate proxy (SceneProxies.Transparent.cs)
+            transparent |= TryAddLava(r, mesh); // lava/acid submeshes: an emissive proxy (SceneProxies.Lava.cs)
             if (!AnyTraceable(mats)) { if (!transparent) stats.SkippedMaterial++; return; }
 
             if (r.isPartOfStaticBatch && (portalLayer || player)) { stats.SkippedLayer++; return; } // merged batches can't carry PortalLayerMask
@@ -705,7 +707,7 @@ namespace UltraRT
 
         private void Evaluate(DynamicProxy d)
         {
-            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled;
+            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d);
             if (visible == d.Visible) return;
             if (visible)
             {
@@ -1092,6 +1094,7 @@ namespace UltraRT
             _proxyObjects.Clear();
             Motion.Dispose();
             DisposeTransparents();
+            DisposeLava();
             _dynamic.Clear();
             _active.Clear();
             _dirty.Clear();

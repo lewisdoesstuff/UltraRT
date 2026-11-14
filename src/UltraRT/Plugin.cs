@@ -110,6 +110,7 @@ namespace UltraRT
             ParseSkyArgs();
             ParseVolumetricsArgs();
             ParseMaterialArgs();
+            ParseLavaArgs();
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);
 
@@ -303,6 +304,7 @@ namespace UltraRT
             LoadCacheShaders(bundle);
             LoadExposureShader(bundle, denoise);
             LoadTransparentShaders(bundle);
+            LoadLavaShader(bundle);
             LoadVolumetricsShaders(bundle);
 
             _bundle = bundle;
@@ -514,6 +516,7 @@ namespace UltraRT
                 _lightData[i + 3] = l3;
                 _lightCount++;
             }
+            DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
@@ -922,6 +925,7 @@ namespace UltraRT
                 Logger.LogInfo($"Rescan took {sw.Elapsed.TotalMilliseconds:F2} ms");
             }
             _proxies.SyncDynamic();
+            _proxies.UpdateLava(); // scroll offsets of the lava proxies (SceneProxies.Lava.cs)
             SceneProxies.PortalHops = _portalHops;
             SceneProxies.TraceMirrors = _rtMirrors;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals

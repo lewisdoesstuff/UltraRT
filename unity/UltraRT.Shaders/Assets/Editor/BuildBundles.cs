@@ -38,6 +38,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/DebugView.raytrace",
                     "Assets/UltraRT/Shaders/Denoise.compute",
                     "Assets/UltraRT/Shaders/Exposure.compute",
+                    "Assets/UltraRT/Shaders/LavaProxy.shader",
                     "Assets/UltraRT/Shaders/MotionCopy.compute",
                     "Assets/UltraRT/Shaders/PathTrace.raytrace",
                     "Assets/UltraRT/Shaders/Portal.shader",

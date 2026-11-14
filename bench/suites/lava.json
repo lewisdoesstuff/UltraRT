@@ -1,0 +1,173 @@
+{
+  "Name": "lava",
+  "Scenarios": [
+    {
+      "Name": "0-5 lava",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-approach.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "off",
+        "relight+lava.active=0",
+        "relight",
+        "pt-dn+lava.active=0",
+        "pt-dn",
+        "hybrid+lava.active=0",
+        "hybrid"
+      ],
+      "Screenshots": [
+        5
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "relight+lava.active=0",
+        "relight",
+        "pt-dn+lava.active=0",
+        "pt-dn",
+        "hybrid+lava.active=0",
+        "hybrid"
+      ]
+    },
+    {
+      "Name": "0-5 b",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-b.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight+lava.active=0",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ]
+    },
+    {
+      "Name": "0-5 c",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-c.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight+lava.active=0",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ]
+    },
+    {
+      "Name": "0-5 d",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-d.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight+lava.active=0",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ]
+    },
+    {
+      "Name": "1-3 lava",
+      "Scene": "Level 1-3",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          -114.5,
+          -1.5,
+          346.0
+        ],
+        "Yaw": 0,
+        "Pitch": -20,
+        "Load": "areas",
+        "Areas": "../recordings/lava-1-3-areas.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight+lava.active=0",
+        "relight",
+        "pt-dn",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "relight+lava.active=0",
+        "relight"
+      ]
+    },
+    {
+      "Name": "6-1 lava",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          113.5,
+          -159.0,
+          -431.0
+        ],
+        "Yaw": 0,
+        "Pitch": -20,
+        "Load": "areas",
+        "Areas": "../recordings/lava-6-1-areas.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight+lava.active=0",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ]
+    },
+    {
+      "Name": "1-2 lava",
+      "Scene": "Level 1-2",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          43.8,
+          -16.0,
+          426.0
+        ],
+        "Yaw": 0,
+        "Pitch": -20,
+        "Load": "areas",
+        "Areas": "../recordings/lava-1-2-areas.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight+lava.active=0",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ]
+    }
+  ]
+}
