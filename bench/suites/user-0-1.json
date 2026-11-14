@@ -1,0 +1,23 @@
+{
+  "Name": "user-0-1",
+  "Scenarios": [
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight",
+        "pt-dn"
+      ],
+      "Screenshots": [
+        4
+      ]
+    }
+  ]
+}

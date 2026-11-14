@@ -102,6 +102,19 @@ namespace UltraRT
             public bool SkinPrevValid;
         }
 
+        /// <summary>Diagnostics: visible dynamic proxies whose bounds contain p (something the camera may be inside of).</summary>
+        public IEnumerable<string> DescribeVisibleAround(Vector3 p)
+        {
+            foreach (var d in _dynamic)
+            {
+                if (!d.Visible || d.Proxy == null || !d.Proxy.bounds.Contains(p)) continue;
+                var m = d.Source != null ? d.Source.sharedMaterial : null;
+                yield return $"{(d.SourceTransform != null ? Bench.GameControl.PathOf(d.SourceTransform) : "?")} size {d.Proxy.bounds.size} " +
+                             $"layer {(d.SourceObject != null ? d.SourceObject.layer : -1)} mask {d.Mask} src enabled {(d.Source != null && d.Source.enabled)} " +
+                             $"mat {(m != null ? m.name + " / " + m.shader.name : "-")}";
+            }
+        }
+
         public RayTracingAccelerationStructure Rtas { get; private set; }
         public int SkinnedCount { get; private set; }
         public MotionVectors Motion { get; }
@@ -680,13 +693,28 @@ namespace UltraRT
             return false;
         }
 
+        /// <summary>
+        /// The texture in a material slot, only if it is a plain 2D texture. The proxy's hit shader declares Texture2D;
+        /// binding anything else (a cubemap, array or 3D texture: some 0-1 materials do) makes DispatchRays fail silently
+        /// for the whole frame, so nothing at all is ray traced.
+        /// </summary>
+        internal Texture Tex2D(Material src, string prop)
+        {
+            var t = src.GetTexture(prop);
+            if (t == null || t.dimension == TextureDimension.Tex2D) return t;
+            if (RejectedTextures++ < 20) _log.LogWarning($"Not binding {t.dimension} texture '{t.name}' from {src.name}.{prop} (2D expected)");
+            return null;
+        }
+
+        public int RejectedTextures { get; private set; }
+
         private Material Proxy(Material src)
         {
             if (src == null) return _disabledMaterial;
             if (_materialCache.TryGetValue(src, out var m)) return m;
 
             m = new Material(_proxyShader) { name = src.name + " [UltraRT]" };
-            if (src.HasProperty("_MainTex") && src.GetTexture("_MainTex") is Texture tex)
+            if (src.HasProperty("_MainTex") && Tex2D(src, "_MainTex") is Texture tex)
             {
                 m.SetTexture("_MainTex", tex);
                 m.SetTextureScale("_MainTex", src.GetTextureScale("_MainTex"));
@@ -705,13 +733,13 @@ namespace UltraRT
             if (src.shader != null && src.shader.name.Contains("Stationary"))
             {
                 m.SetFloat("_AtlasMode", 1f);
-                if (src.HasProperty("_BlendTex") && src.GetTexture("_BlendTex") is Texture blend) m.SetTexture("_BlendTex", blend);
+                if (src.HasProperty("_BlendTex") && Tex2D(src, "_BlendTex") is Texture blend) m.SetTexture("_BlendTex", blend);
             }
 
             // ULTRAKILL/Master emission
             if (src.IsKeywordEnabled("EMISSIVE"))
             {
-                if (src.HasProperty("_EmissiveTex") && src.GetTexture("_EmissiveTex") is Texture etex) m.SetTexture("_EmissiveTex", etex);
+                if (src.HasProperty("_EmissiveTex") && Tex2D(src, "_EmissiveTex") is Texture etex) m.SetTexture("_EmissiveTex", etex);
                 if (src.HasProperty("_EmissiveColor")) m.SetColor("_EmissiveColor", src.GetColor("_EmissiveColor"));
                 m.SetFloat("_EmissiveIntensity", src.HasProperty("_EmissiveIntensity") ? Mathf.Max(src.GetFloat("_EmissiveIntensity"), 0.0001f) : 1f);
                 bool albedoAsEmissive = src.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") ||
@@ -721,7 +749,7 @@ namespace UltraRT
             // Unity Standard emission
             else if (src.IsKeywordEnabled("_EMISSION") && src.HasProperty("_EmissionColor"))
             {
-                if (src.GetTexture("_EmissionMap") is Texture etex) m.SetTexture("_EmissiveTex", etex);
+                if (src.HasProperty("_EmissionMap") && Tex2D(src, "_EmissionMap") is Texture etex) m.SetTexture("_EmissiveTex", etex);
                 m.SetColor("_EmissiveColor", src.GetColor("_EmissionColor"));
                 m.SetFloat("_EmissiveIntensity", 1f);
             }

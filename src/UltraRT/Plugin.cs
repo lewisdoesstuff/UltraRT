@@ -211,7 +211,7 @@ namespace UltraRT
                     case "-ultrart-gi": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _giStrength); break;
                     case "-ultrart-nohook": _noHook = true; break;
                     case "-ultrart-pose": _capturePose = Next(); break;
-                    case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) InjectEvent = ev; break;
+                    case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) { InjectEvent = ev; _injectForced = true; } break;
                     case "-ultrart-gputimer-flags": Environment.SetEnvironmentVariable("ULTRART_GPUTIMER_FLAGS", Next()); break;
                     case "-ultrart-ambient": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _primaryAmbient); break;
                     case "-ultrart-noreflections": _reflSettings.enabled = false; break;
@@ -354,7 +354,12 @@ namespace UltraRT
             try
             {
                 var sw = Stopwatch.StartNew();
-                var cam = Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
+                // The player's camera decides what is visible. Other cameras named "Main Camera" (menus, cutscenes) may
+                // render everything, including trigger volumes drawn with the default material (0-1's Gun Room trigger
+                // is a 30 m cube on layer 16).
+                var playerCam = MonoSingleton<CameraController>.Instance != null ? MonoSingleton<CameraController>.Instance.cam : null;
+                var cam = playerCam != null ? playerCam : Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
+                Logger.LogInfo($"RT layer mask from {(cam != null ? Bench.GameControl.PathOf(cam.transform) : "none")}: 0x{(cam != null ? cam.cullingMask : ~0):X8}");
                 _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy);
                 _proxies.Build();
                 _emissive.Build(_proxies);
@@ -383,6 +388,8 @@ namespace UltraRT
                 _nextLightDump = Time.realtimeSinceStartup + 3f;
                 Logger.LogInfo($"--- lights near camera {_camera.transform.position}");
                 LogLightsNear(_camera.transform.position, 25f);
+                LogEnclosing(_camera.transform.position);
+                if (_proxies != null) foreach (var line in _proxies.DescribeVisibleAround(_camera.transform.position)) Logger.LogInfo($"proxy around camera: {line}");
             }
             _lightCount = 0;
             foreach (var l in _sceneLights)
@@ -499,6 +506,18 @@ namespace UltraRT
             }
         }
 
+        private void LogEnclosing(Vector3 c)
+        {
+            foreach (var r in FindObjectsOfType<Renderer>())
+            {
+                if (r == null || r.name.EndsWith("[UltraRT]") || !r.bounds.Contains(c) || r.bounds.size.magnitude < 8f) continue;
+                var m = r.sharedMaterial;
+                Logger.LogInfo($"enclosing camera: {Bench.GameControl.PathOf(r.transform)} {r.GetType().Name} layer {r.gameObject.layer} " +
+                               $"enabled {r.enabled}/{r.gameObject.activeInHierarchy} static {r.isPartOfStaticBatch} size {r.bounds.size} " +
+                               $"mat {(m != null ? m.name + " / " + m.shader.name : "-")} queue {(m != null ? m.renderQueue : 0)}");
+            }
+        }
+
         private static float AsFloat(int bits) => BitConverter.Int32BitsToSingle(bits);
 
         private void EnsureGBuffer(ref RenderTexture rt, int w, int h, RenderTextureFormat format, string name)
@@ -513,7 +532,22 @@ namespace UltraRT
 
         // The RT image is drawn inside the main camera's render, after opaques + skybox. Transparents, blood decals,
         // post-processing, the viewmodel camera and UI all still draw on top of it.
-        private CameraEvent InjectEvent = CameraEvent.AfterSkybox;
+        private CameraEvent InjectEvent = CameraEvent.AfterSkybox; // -ultrart-inject overrides the choice below
+        private bool _injectForced;
+        private CameraEvent _attachedEvent;
+
+        /// <summary>
+        /// After the skybox when the camera draws one, so the game's sky is in place behind us; otherwise after the
+        /// opaques. Unity never fires AfterSkybox for a camera that clears to a colour (0-1 has no skybox: nothing
+        /// ray traced ever reached the screen there).
+        /// </summary>
+        private CameraEvent InjectEventFor(Camera cam)
+        {
+            if (_injectForced) return InjectEvent;
+            bool sky = cam.clearFlags == CameraClearFlags.Skybox &&
+                       (RenderSettings.skybox != null || (cam.TryGetComponent<Skybox>(out var sb) && sb.enabled && sb.material != null));
+            return sky ? CameraEvent.AfterSkybox : CameraEvent.AfterForwardOpaque;
+        }
         private Camera _attachedCam;
         private static readonly int UltraRTImageId = Shader.PropertyToID("_UltraRTImage");
         private static readonly int UltraRTFlipYId = Shader.PropertyToID("_UltraRTFlipY");
@@ -542,6 +576,7 @@ namespace UltraRT
         private int _compositeDebug; // -ultrart-compdebug 1..4: shadow ratio / unshadowed direct / shadowed direct / bounce
         private bool _flipY;
         private int _recordedFrame = -1;
+        private int _camSwitchLogs;
         private Material _compositeMat;
 
         private void OnCameraPreRender(Camera cam)
@@ -550,11 +585,16 @@ namespace UltraRT
             if (_recordedFrame == Time.frameCount && cam == _attachedCam) return; // rendered twice in a frame: keep the recording
             _recordedFrame = Time.frameCount;
             _camera = cam;
-            if (_attachedCam != cam)
+            var ev = InjectEventFor(cam);
+            if (_attachedCam != cam || ev != _attachedEvent)
             {
-                if (_attachedCam != null) _attachedCam.RemoveCommandBuffer(InjectEvent, _cmd);
-                cam.AddCommandBuffer(InjectEvent, _cmd);
+                if (_attachedCam != null) _attachedCam.RemoveCommandBuffer(_attachedEvent, _cmd);
+                cam.AddCommandBuffer(ev, _cmd);
                 _attachedCam = cam;
+                _attachedEvent = ev;
+                if (_camSwitchLogs++ < 20)
+                    Logger.LogInfo($"RT attached to camera {Bench.GameControl.PathOf(cam.transform)} at {ev} (id {cam.GetInstanceID()}, " +
+                                   $"clear {cam.clearFlags}, target {(cam.targetTexture != null ? cam.targetTexture.name : "screen")}, mask {cam.cullingMask:X})");
             }
 
             _cmd.Clear();
@@ -655,7 +695,7 @@ namespace UltraRT
         private void BindSky(RayTracingShader shader)
         {
             var m = _skyMaterial;
-            if (m == null)
+            if (m == null || m.mainTexture == null || m.mainTexture.dimension != TextureDimension.Tex2D) // _SkyTex is a Texture2D
             {
                 _cmd.SetRayTracingTextureParam(shader, "_SkyTex", Texture2D.blackTexture);
                 _cmd.SetRayTracingVectorParam(shader, "_SkyParams", Vector4.zero);
@@ -1004,7 +1044,7 @@ namespace UltraRT
                 _viewEnabled = true;
                 _mode = Array.FindIndex(Modes, x => x.name == "pt-dn");
                 for (int f = 0; f < 30; f++) yield return null;
-                ScreenCapture.CaptureScreenshot(Path.Combine(_outDir, $"dv-{tag}-composited-{InjectEvent}.png"));
+                ScreenCapture.CaptureScreenshot(Path.Combine(_outDir, $"dv-{tag}-composited-{_attachedEvent}.png"));
                 yield return null; yield return null;
                 _viewEnabled = false;
                 yield return null; yield return null;

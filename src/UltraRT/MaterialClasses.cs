@@ -99,7 +99,7 @@ namespace UltraRT
             float light = src.HasProperty("_LightingContribution") ? src.GetFloat("_LightingContribution") : 0f;
             float color = src.HasProperty("_ColorContribution") ? src.GetFloat("_ColorContribution") : 0f;
             proxy.SetTexture("_GameCube", cube);
-            if (src.HasProperty("_ReflectionMask") && src.GetTexture("_ReflectionMask") is Texture mask) proxy.SetTexture("_GameReflMask", mask);
+            if (src.HasProperty("_ReflectionMask") && src.GetTexture("_ReflectionMask") is Texture mask && mask.dimension == UnityEngine.Rendering.TextureDimension.Tex2D) proxy.SetTexture("_GameReflMask", mask);
             proxy.SetVector("_GameRefl", new Vector4(additive ? 2f : 1f, rs, Mathf.Clamp01(light), Mathf.Clamp01(color)));
             return true;
         }
