@@ -186,6 +186,39 @@ Static images are unchanged (bursts, masked σ / block σ, Static → Full): 1-1
 
 Tried and not kept: a longer pre-blur fade (`boostFrames` 16: no change), TAAU weight 8 (0.90 → 0.86, mostly interiors, more smear in motion), a wider guard band (8%: 0.84 → 0.81 on the 500°/s sweep for 8% more rays), a vertical guard band (4%: mixed on the 0-2 windows), shortening ReSTIR history for lights that only change brightness (`lightChangeKept`: noisier around fading lights).
 
+## Moving shadows
+
+V1's third-person model casts shadows (docs/reflections.md, section 13), but while walking its shadow was practically invisible, and when standing still it faded in over several frames (user report, `bench/suites/user-1114-pm.json` "0-2 v1 shadow walk"). Measured with the motion replay (`noise-pm-diag2/3`, `noise-pm-check`): the raw direct light (`pt-direct+relight` strips) has a crisp shadow in every frame, the denoised image almost none.
+
+**Why.** A moving shadow is a large, fast change of the input on a surface whose history is long and valid (the floor doesn't move, so reprojection succeeds). The temporal blend (about 70 ms) and the stabilisation average it out, and the moving edge also raises the temporal variance, which loosens the à-trous luminance weights and blurs the rest away. ReSTIR's visibility reuse adds a trail: an occluded reservoir keeps its M with W = 0, so the floor the shadow just left stays dark for up to 160 samples of M.
+
+Tried first and not kept: a targeted anti-lag (`moverAntilag`, the anti-lag test with its own parameters within 2 px of a pixel whose light sample crossed a moving object's box). The cut pixels went back to the fresh-pixel path (pre-blur, wider à-trous, and the cache seed, which never holds the player's shadow), so the shadow got weaker still (shadow contrast in the strip 0.11 against 1.0 without it). It stays available, off (`dn.moverAntilag`).
+
+**What changed: the player's shadow is kept out of the denoised signal** (relight, pt-dn and the dn-* views; hybrid and the raw pt modes keep the old path):
+1. PathTrace's final direct-light shadow ray ignores V1 (`_UltraRTPlayerSplit`), so the denoised lighting and ReSTIR's reuse never see V1's shadow: no lag, no trail.
+2. Where the sample's segment crosses V1's bounds (`_UltraRTPlayerModelMin/Max`) and the light is visible, one more ray against V1 alone (mask 0x80, accept-first-hit) tells whether V1 blocks it. The light it blocks becomes a factor, `1 - blocked / lighting`, written to `_Radiance.a` (nothing else read it).
+3. Temporal filters that factor separately: a 5x5 same-surface mean (inner 3x3 weight 1, outer ring 0.5), blended 0.5 with its own history on the same reprojection footprint (`_playerF[2]`, RHalf), so it follows within a frame or two. Composite multiplies it into the filtered lighting. Where V1 is not involved the factor is 1 and the image is unchanged.
+
+The extra ray is only traced for pixels whose light sample passes V1's box (the area its shadow can fall on). Bounce rays still see V1 (its occlusion of bounce light is small and stays in the filtered signal). Enemies and other moving objects are not split (they have no mask bit of their own); for them only the ReSTIR part applies: occluded history whose sample crosses a moving object's box is dropped (docs/light-sampling.md, "Moving occluders").
+
+Settings: `plugin._playerSplit` (true; 0 = the old path), `dn.playerShadowBlend` (0.5; 0 = ignore the factor), `plugin._movers` (moving-object boxes for ReSTIR), `dn.moverAntilag` (0).
+
+**Results** ("0-2 v1 shadow walk", the user's recording of walking left and right at about 12 m/s with a light behind; motion replay, 96 frames at 360 Hz after 120 settle frames, `bench/suites/noise-pm-check.json` and `noise-pm-final.json`). Strip frames `0-2_v1_shadow_walk_motion_2.0s_<mode>_f88..f95.jpg` in the run folders:
+- Before: the denoised image shows at most a faint blob where the shadow was; the raw direct light (`pt-direct+relight`) has a crisp shadow in the same frames. A held screenshot (the bench holds the pose) shows the full shadow, which is why the problem never showed in bench screenshots.
+- After: the shadow (body, gun arm, wings) is visible in every strip frame while walking, at the same place as in the raw direct light, and as crisp as the held screenshot when standing still.
+- Motion noise (sigma, luma): 0.53 → 1.27 (`relight+plugin._playerSplit=0+plugin._movers=0` → `relight`; without V1 at all 0.44). The added error is on the shadow itself (the error map shows V1's head, wing and gun-arm shadow, a few pixels wide each): before, there was no shadow to be noisy. Where V1 blocks one of several lights the factor still varies from frame to frame; a longer factor history (`dn.playerShadowBlend` below 0.5) would calm it at the price of lag.
+- Static images are unchanged where V1's shadow isn't involved (the factor is 1 there).
+
+**Cost of the whole evening pass** (player split and movers, eye lights, occluded-history cap, portal importance, the viewmodel filter changes, game-matched exposure, haze balance; `bench/suites/noise-pm-cost.json`, `-Perf`, exclusive slots, modes alternating every 0.5 s against all of it switched off; RTX 5070 Ti, 1920x1080, trace scale 0.5; GPU total / DispatchRays / denoise ms):
+
+| Scenario | all off | defaults |
+|---|---|---|
+| 0-2 run (71 s, active enemies) | 3.264 / 1.964 / 0.303 | 3.542 / 2.215 / 0.324 |
+| 8-2 portal side 1 | 3.384 / 1.879 / 0.316 | 3.433 / 1.909 / 0.332 |
+| 3-1 noisy room (checkpoint) | 2.624 / 1.528 / 0.299 | 2.678 / 1.569 / 0.311 |
+
+The 0-2 run pays most (+0.28 ms): the player is in view of lit floors all the time, so many pixels trace the V1-only shadow ray, and the moving enemies' boxes add the per-sample slab tests. Plugin CPU +0.07 ms in the 0-2 run (mover boxes), +0.15 ms in 8-2 (portal viewpoints in the alias table, the game-colour copy for the exposure match).
+
 ## Presets and Ctrl+F3
 
 Ctrl+F3 cycles `DenoiserPreset` on both denoiser instances (`Plugin.ApplyStabilityPreset`, also used by the bench's `preset=` variant):

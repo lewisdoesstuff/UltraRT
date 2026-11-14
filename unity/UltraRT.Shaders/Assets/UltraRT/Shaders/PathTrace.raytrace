@@ -13,7 +13,7 @@ RaytracingAccelerationStructure _Scene;
 // exactly 8: the 7 below plus _ReservoirCur (UltraRTLights.hlsl). Albedo and emission share _Surface to make room for
 // _Reflection. Add outputs only by packing.
 RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission + reflections); also the accumulation history (ARGBHalf)
-RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by albedo)
+RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by albedo); a = 2: moving-occluder flag, else 1
 RWTexture2D<uint4>  _Surface;     // packed albedo, emission and reflection material (UltraRTMaterial.hlsl, PackSurface)
 RWTexture2D<float4> _NormalDepth; // xyz world normal, w = hit distance (< 0 = sky)
 RWTexture2D<int2>   _InstanceId;  // RGInt: x InstanceIndex() (-1 = sky), y packed world-space motion (PackMotion, 0 = static)
@@ -99,6 +99,7 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 
 // ---------------------------------------------------------------- lights
 
+#define ULTRART_MOVERS // moving-occluder boxes: ReSTIR drops stale shadows, _Radiance.a flags the pixel (UltraRTLights.hlsl)
 #include "UltraRTLights.hlsl"
 #include "UltraRTCache.hlsl" // radiance cache lookups (read-only: no UAVs)
 #include "UltraRTSky.hlsl"   // sky radiance and sky light sampling (SRVs only)
@@ -241,6 +242,7 @@ void RayGen()
     uint2 id = DispatchRaysIndex().xy;
     uint2 dim = DispatchRaysDimensions().xy;
     uint rng = (id.x * 1973u + id.y * 9277u + _FrameIndex * 26699u) | 1u;
+    float g_PlayerF = 1.0; // player shadow factor (see _Radiance below)
     g_ShadowRng = HashU32(rng);
     g_ShadowPlayerMask = PlayerRayMask(ULTRART_PLAYER_SHADOW); // V1 casts shadows (docs/reflections.md, "The player in reflections")
 
@@ -379,6 +381,12 @@ void RayGen()
             case 3: lighting = indirect + (g_DirectEmissive * _EmissiveHybridAdd + g_DirectAdditive) / max(_GIStrength, 1e-3); break;
         }
         lighting = lerp(1.0, lighting, p.alpha); // fullbright surfaces ignore lighting, like the game
+        if (any(g_PlayerBlocked > 0.0))
+        {
+            // The share of this pixel's lighting V1 blocks (the lighting above ignores V1 when the split is on).
+            const float3 lw = float3(0.2126, 0.7152, 0.0722);
+            g_PlayerF = saturate(1.0 - p.alpha * dot(g_PlayerBlocked, lw) / max(dot(lighting, lw), 1e-6));
+        }
         albedo = p.albedo;
         emission = PayloadEmission(p) * _EmissionScale;
         float3 shown = LightToDisplay(lighting); // = lighting unless linear transport (_Radiance keeps lighting space)
@@ -434,7 +442,11 @@ void RayGen()
         _InstanceId[id] = int2((int)instWord, (int)motion);
     }
 
-    _Radiance[id] = float4(lighting, 1.0);
+    // a: 1, or 2 where the direct light sample crossed a moving occluder (the denoiser's targeted anti-lag; docs/denoiser.md
+    // "Moving shadows").
+    // a: the player shadow factor (1 - the share of this pixel's lighting V1 blocks; 1 = none), + 2 where the light
+    // sample crossed a moving occluder (docs/denoiser.md, "Moving shadows"). Only relight/pt-dn split V1's shadow off.
+    _Radiance[id] = float4(lighting, g_PlayerF + (g_MoverShadow ? 2.0 : 0.0));
 
     if (_AccumFrames > 0)
     {

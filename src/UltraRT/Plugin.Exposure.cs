@@ -133,6 +133,7 @@ namespace UltraRT
             // The bench's bursts capture far below real time and set FrameTimeOverride so the denoiser blends as at 360 Hz;
             // adapt on the same clock, or every slow captured frame takes a large step after the noisy meter.
             float dt = _aeBenchClock && Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
+            BindGameMatch();
             _autoExposure.Execute(_cmd, _aeSettings, _denoiser.FilteredLighting, _gAlbedo, _gSpecular, _gNormalDepth, _gHybrid,
                 w, h, dt);
             _gpu?.End(_cmd, SlotExposure);
@@ -180,8 +181,39 @@ namespace UltraRT
         {
             if (_autoExposure == null) return "auto exposure unavailable";
             var e = _autoExposure.Last;
+            var m = _autoExposure.LastMatch;
             return FormattableString.Invariant(
-                $"exposure x{e.x:F3} ({e.y:+0.00;-0.00} EV, target {e.w:+0.00;-0.00}), mean lum {Mathf.Pow(2f, e.z):F3}, {_autoExposure.LastCount:F0} px");
+                $"exposure x{e.x:F3} ({e.y:+0.00;-0.00} EV, target {e.w:+0.00;-0.00}), mean lum {Mathf.Pow(2f, e.z):F3}, {_autoExposure.LastCount:F0} px; ") +
+                FormattableString.Invariant($"game match: game {m.x:+0.00;-0.00} vs RT {m.y:+0.00;-0.00} log2 over {m.w:F0} near px, correction {m.z:+0.00;-0.00} EV");
+        }
+
+        private RenderTexture _aeGameCopy;
+
+        /// <summary>
+        /// Game match (docs/relight.md, "Game match"): a copy of the game's frame as it is now (opaques and sky, before the
+        /// RT composite draws over it) for the exposure histogram, plus the trace-to-screen map and the game's fog.
+        /// </summary>
+        private void BindGameMatch()
+        {
+            var s = _aeSettings;
+            var gameTex = (s.gameMatchUp > 0f || s.gameMatchDown > 0f) ? MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex : null;
+            if (gameTex == null) { _autoExposure.GameColor = null; return; }
+            if (_aeGameCopy == null || _aeGameCopy.width != gameTex.width || _aeGameCopy.height != gameTex.height || _aeGameCopy.format != gameTex.format)
+            {
+                if (_aeGameCopy != null) _aeGameCopy.Release();
+                var desc = gameTex.descriptor;
+                desc.depthBufferBits = 0;
+                desc.msaaSamples = 1;
+                desc.enableRandomWrite = false;
+                _aeGameCopy = new RenderTexture(desc) { name = "UltraRT AE GameColor", filterMode = FilterMode.Point };
+                _aeGameCopy.Create();
+            }
+            _cmd.CopyTexture(gameTex, _aeGameCopy);
+            _autoExposure.GameColor = _aeGameCopy;
+            _autoExposure.GameMap = new Vector4(_guardScale.x, _guardScale.y, _flipY ? 1f : 0f, 1f);
+            var mode = RenderSettings.fogMode;
+            _autoExposure.GameFog = new Vector4(RenderSettings.fog ? 1f : 0f, mode == FogMode.Linear ? 1f : mode == FogMode.Exponential ? 2f : 3f,
+                mode == FogMode.Linear ? RenderSettings.fogStartDistance : RenderSettings.fogDensity, RenderSettings.fogEndDistance);
         }
     }
 }

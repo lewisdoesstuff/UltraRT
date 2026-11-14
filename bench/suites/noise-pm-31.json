@@ -1,0 +1,182 @@
+{
+  "Name": "noise-pm-31",
+  "Scenarios": [
+    {
+      "Name": "3-1 noisy room",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/3-1-noisy-room.json",
+        "Duration": 3,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "hybrid",
+        "relight+vol.debugView=1"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "Burst": 64,
+      "BurstRegions": [
+        [
+          0.5,
+          0.5,
+          0.84,
+          1.0
+        ],
+        [
+          0,
+          0,
+          0.33,
+          0.5
+        ],
+        [
+          0.33,
+          0,
+          0.66,
+          0.5
+        ],
+        [
+          0.66,
+          0,
+          1,
+          0.5
+        ],
+        [
+          0.33,
+          0.5,
+          0.5,
+          1
+        ],
+        [
+          0.84,
+          0.5,
+          1,
+          1
+        ]
+      ],
+      "BurstModes": [
+        "off",
+        "relight",
+        "relight+vol=0",
+        "relight+cache=off",
+        "relight+lights=ref",
+        "relight+plugin._vmHistorySearch=0+plugin._vmFastSigma=0+plugin._vmCandidates=0",
+        "relight+plugin._playerSplit=0",
+        "relight+dn.stabilize=0"
+      ]
+    },
+    {
+      "Name": "3-1 noisy room long",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/3-1-noisy-room.json",
+        "Duration": 3,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "Burst": 96,
+      "BurstBlock": 24,
+      "BurstStride": 8,
+      "BurstRegions": [
+        [
+          0.5,
+          0.5,
+          0.84,
+          1.0
+        ],
+        [
+          0,
+          0,
+          0.33,
+          0.5
+        ],
+        [
+          0.33,
+          0,
+          0.66,
+          0.5
+        ],
+        [
+          0.66,
+          0,
+          1,
+          0.5
+        ],
+        [
+          0.33,
+          0.5,
+          0.5,
+          1
+        ],
+        [
+          0.84,
+          0.5,
+          1,
+          1
+        ]
+      ],
+      "BurstModes": [
+        "off",
+        "relight",
+        "relight+vol=0",
+        "relight+cache=off"
+      ]
+    },
+    {
+      "Name": "3-1 slow turn",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "sweep",
+        "Approach": "../recordings/3-1-noisy-room.json",
+        "Duration": 3,
+        "YawSpeed": 6,
+        "PitchAmplitude": 0,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2.0
+      ],
+      "Motion": 96,
+      "MotionStrip": 4,
+      "MotionModes": [
+        "off",
+        "relight",
+        "relight+vol=0",
+        "relight+cache=off"
+      ]
+    },
+    {
+      "Name": "4-4 v2 chair cp",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/4-4-v2-chair.json",
+        "Duration": 3,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    }
+  ]
+}

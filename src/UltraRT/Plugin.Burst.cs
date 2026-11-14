@@ -182,6 +182,7 @@ namespace UltraRT
                 Color32[] last = null;
                 for (int f = 0; f < n; f++)
                 {
+                    for (int k = 1; k < sc.BurstStride; k++) { GameControl.SetPose(Pose()); GameControl.HideCheatPanels(); yield return null; }
                     GameControl.SetPose(Pose());
                     GameControl.HideCheatPanels();
                     yield return new WaitForEndOfFrame();
@@ -246,9 +247,23 @@ namespace UltraRT
                                           HfLeft = (float)(hfL / n), HfCenter = (float)(hfC / n), HfRight = (float)(hfR / n) };
                 FillBurst(st, sigma, sigmaB, drift, mean, null);
                 if (mask != null && mode != "off") FillBurst(st, sigma, sigmaB, drift, mean, mask);
+                if (sc.BurstRegions != null)
+                    foreach (var rc in sc.BurstRegions)
+                    {
+                        if (rc == null || rc.Length < 4) continue;
+                        // Fractions from the top left; captured rows start at the bottom.
+                        int x0 = Mathf.Clamp((int)(rc[0] * w), 0, w), x1 = Mathf.Clamp((int)(rc[2] * w), 0, w);
+                        int y0 = Mathf.Clamp((int)((1f - rc[3]) * h), 0, h), y1 = Mathf.Clamp((int)((1f - rc[1]) * h), 0, h);
+                        double rs = 0, rb = 0, rl = 0; long rn = 0;
+                        for (int y = y0; y < y1; y++)
+                            for (int x = x0; x < x1; x++) { int i = y * w + x; rs += sigma[i]; rb += sigmaB[i]; rl += mean[i]; rn++; }
+                        rn = Math.Max(1, rn);
+                        st.RegionSigma.Add((float)(rs / rn)); st.RegionBlock.Add((float)(rb / rn)); st.RegionLuma.Add((float)(rl / rn));
+                    }
                 sr.Bursts.Add(st);
                 Logger.LogInfo($"Burst '{sc.Name}' {spec}: sigma {st.Sigma:F2} (masked {st.SigmaMasked:F2}, p95 {st.SigmaP95Masked:F2}) " +
-                               $"block{block} {st.SigmaBlock:F2} (masked {st.SigmaBlockMasked:F2}, p95 {st.SigmaBlockP95Masked:F2}) drift {st.DriftMasked:F2} hf L/C/R {st.HfLeft:F2}/{st.HfCenter:F2}/{st.HfRight:F2}");
+                               $"block{block} {st.SigmaBlock:F2} (masked {st.SigmaBlockMasked:F2}, p95 {st.SigmaBlockP95Masked:F2}) drift {st.DriftMasked:F2} hf L/C/R {st.HfLeft:F2}/{st.HfCenter:F2}/{st.HfRight:F2}" +
+                               string.Concat(st.RegionSigma.Select((v, i) => $" | region {i}: sigma {v:F2} block {st.RegionBlock[i]:F2} luma {st.RegionLuma[i]:F1}")));
 
                 // Images: sigma of block means (x16, heat), and the mean frame.
                 string baseName = $"{Sanitize(sc.Name)}_burst_{Sanitize(spec)}";
@@ -362,12 +377,13 @@ namespace UltraRT
             sb.AppendLine("Temporal noise bursts (screen luma 0-255; sigma = per-pixel std-dev over the burst, block = std-dev of " +
                           "N-frame means, drift = |first half mean - second half mean|; masked = pixels the game itself keeps still in 'off'):");
             sb.AppendLine();
-            sb.AppendLine("| Scenario | Mode | Frames | sigma | sigma p95 | block sigma | block p95 | drift | sigma (all px) | block (all px) | mean luma | HF left/centre/right |");
-            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|");
+            sb.AppendLine("| Scenario | Mode | Frames | sigma | sigma p95 | block sigma | block p95 | drift | sigma (all px) | block (all px) | mean luma | HF left/centre/right | regions sigma/block (unmasked) |");
+            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
             foreach (var sc in r.Scenarios)
                 foreach (var b in sc.Bursts)
                     sb.AppendLine($"| {sc.Name} | {b.Mode} | {b.Frames}/{b.Block} | {b.SigmaMasked:F2} | {b.SigmaP95Masked:F2} | {b.SigmaBlockMasked:F2} | " +
-                                  $"{b.SigmaBlockP95Masked:F2} | {b.DriftMasked:F2} | {b.Sigma:F2} | {b.SigmaBlock:F2} | {b.MeanLumaMasked:F1} | {b.HfLeft:F2}/{b.HfCenter:F2}/{b.HfRight:F2} |");
+                                  $"{b.SigmaBlockP95Masked:F2} | {b.DriftMasked:F2} | {b.Sigma:F2} | {b.SigmaBlock:F2} | {b.MeanLumaMasked:F1} | {b.HfLeft:F2}/{b.HfCenter:F2}/{b.HfRight:F2} | " +
+                                  string.Join(", ", b.RegionSigma.Select((v, i) => $"{v:F2}/{b.RegionBlock[i]:F2}")) + " |");
         }
     }
 }

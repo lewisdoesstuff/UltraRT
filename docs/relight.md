@@ -80,6 +80,38 @@ screenshot (`Benchmark: '<scenario>' ... relight: exposure x0.369 (-1.44 EV, tar
 bursts log a per-frame trace (`Burst AE '<scenario>' <mode>: settle ... EV; capture N frames: EV mean sd [min,max]
 step ...; target ...; band mean log2 ...; meter ...`).
 
+### Game match
+User reports (2026-11-14 evening): relight was "still a touch too bright" in many levels, while 8-2's start was "far too dark" against RT off. Both are global level differences against the game that one fixed key can't follow: 8-2's alley is lit in game by lights shining through walls (the game has no shadows; making its directional lights unshadowed changed almost nothing), torch rooms and 4-1 are brighter by the light reference and the dark-scene lift.
+
+So auto exposure also meters **the game's own frame**: `BindGameMatch` (Plugin.Exposure.cs) copies `PostProcessV2_Handler.mainTex` at the RT injection point (the game's opaques and sky, before our composite), and `Exposure.compute`'s Histogram bins, next to the usual histogram, the RT luminance (before haze) and the game's luminance at the same pixels, near ones only (game fog factor under `gameMatchFog`, 0.3: farther, the game's fog replaces the colour). `Adapt` takes the band mean of both (same 40-95% percentiles) and compares the game's with the RT image as it will be exposed (RT mean + target). Beyond a dead band of `gameMatchBand` (0.35 EV), a share of the difference moves the target: `gameMatchUp` (0.75) where RT is darker than the game, `gameMatchDown` (0.4) where it is brighter, so lit rooms may stay brighter than the game (the RT look) but less so. The correction is smoothed like the meter and the target still clamps to [min, max] EV. It needs at least a quarter of the measured pixels near; otherwise there is no correction. Bench lines show it: `game match: game -1.98 vs RT -3.39 log2 over 123906 near px, correction +0.76 EV`. Flags: `-ultrart-ae-match UP[,DOWN]` (0 = off), bench `ae.gameMatchUp`, `ae.gameMatchDown`, `ae.gameMatchBand`. Cost: a copy of the colour target (only in relight) and two more histograms in the same pass.
+
+Mean screen luma, game / relight before / relight now (game match and the haze rebalance of docs/volumetrics.md "Balance"; HUD and viewmodel left out; `bench/suites/exposure-pm2.json`, `exposure-pm3.json`):
+
+| Pose | game | before | now | before / game | now / game |
+|---|---|---|---|---|---|
+| 0-2 blood river | 34.7 | 53.3 | 50.7 | 1.54 | 1.46 |
+| 0-2 door red metal | 27.3 | 29.3 | 28.3 | 1.07 | 1.04 |
+| 1-3 start water | 78.0 | 88.2 | 86.8 | 1.13 | 1.11 |
+| 3-1 noisy room (checkpoint) | 19.3 | 24.5 | 21.2 | 1.27 | 1.10 |
+| 4-4 v2 chair (checkpoint) | 36.7 | 75.9 | 60.9 | 2.07 | 1.66 |
+| 6-2 gabriel wings | 15.0 | 29.3 | 25.0 | 1.95 | 1.67 |
+| 6-2 start | 11.0 | 28.6 | 21.6 | 2.60 | 1.96 |
+| 8-2 a | 61.4 | 34.9 | 46.6 | 0.57 | 0.76 |
+| 8-2 b | 26.9 | 50.5 | 44.4 | 1.88 | 1.65 |
+| 8-2 c | 92.3 | 73.4 | 82.2 | 0.80 | 0.89 |
+| 8-2 portal side 1 | 56.8 | 95.2 | 83.7 | 1.68 | 1.47 |
+| 1-1 start | 181.1 | 182.4 | 180.7 | 1.01 | 1.00 |
+| 1-1 indoor a (torches) | 50.5 | 87.9 | 81.5 | 1.74 | 1.61 |
+| 1-4 lamps | 23.4 | 31.2 | 27.9 | 1.33 | 1.19 |
+| 1-4 drift | 34.0 | 53.5 | 43.8 | 1.57 | 1.29 |
+| 4-1 indoor A | 13.9 | 49.4 | 36.5 | 3.55 | 2.63 |
+| 7-3 flashlight | 21.9 | 28.6 | 27.3 | 1.31 | 1.25 |
+| 7-3 tree a | 7.1 | 100.8 | 11.5 | 14.20 | 1.62 |
+| 7-3 tree b | 16.2 | 58.9 | 31.9 | 3.64 | 1.97 |
+| P-2 vent smoke | 18.8 | 21.8 | 16.0 | 1.16 | 0.85 |
+
+"Before" is the same build with `ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0` (and, for 7-3 and 1-4, `vol.darkFog=0`), measured in the same run. Torch rooms, 6-2's start and 1-4's lamps keep their RT look and stay brighter than the game (1.2x to 2x), just less so; 8-2's alley comes up from 0.55x to 0.73-0.76x; 4-1's green corridor (light reference, docs "Light reference distance") is still the brightest departure.
+
 ### Flicker
 `-ultrart-ae-max 0.5` (with the old full brightening) measured as flicker on 1-4 drift (masked burst sigma 0.97 vs 0.26).
 The per-frame trace shows what it was: the *target* is steady to 0.001 EV on every static pose tested (1-4 drift,

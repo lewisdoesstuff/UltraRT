@@ -99,6 +99,15 @@ namespace UltraRT
         /// <summary>The anti-lag never cuts the history below this many frames. At the pre-blur length (boostFrames) a changed
         /// pixel only blends faster; lower values also put it back on the pre-blur, which follows sooner but is noisier.</summary>
         public float antilagMinLength = 8f;
+        /// <summary>Moving shadows (docs/denoiser.md): the anti-lag test with these parameters near pixels whose light sample
+        /// crossed a moving occluder (PathTrace's flag, <see cref="DenoiserInputs.moverFlags"/>). 0 = off.</summary>
+        public float moverAntilag = 0f;
+        public float moverAntilagTolerance = 0.1f;
+        public float moverAntilagMinLength = 1f;
+        /// <summary>Player shadow factor (docs/denoiser.md, "Moving shadows"): blend of this frame's 3x3 mean into the
+        /// factor's history (0.5 = about two frames). 0 = off (the factor is ignored; with the split on, V1 then casts no
+        /// shadow in relight/pt-dn).</summary>
+        public float playerShadowBlend = 0.5f;
         /// <summary>A-trous step multiplier for pixels without history (disocclusions), fading out at
         /// <see cref="freshSpreadFrames"/> frames of history. 1 = off.</summary>
         public float freshSpread = 2f;
@@ -139,6 +148,7 @@ namespace UltraRT
             stability = p != DenoiserPreset.Legacy;
             cacheSeed = motion ? d.cacheSeed : 1f;
             antilag = motion ? d.antilag : 0f;
+            moverAntilag = motion ? d.moverAntilag : 0f;
             freshSpread = motion ? d.freshSpread : 1f;
         }
 
@@ -151,7 +161,7 @@ namespace UltraRT
                 t.ApplyPreset(p);
                 if (t.alphaMin == alphaMin && t.maxHistory == maxHistory && t.referenceHz == referenceHz &&
                     t.spatialVarianceFloor == spatialVarianceFloor && t.stabilize == stabilize && t.stability == stability &&
-                    t.cacheSeed == cacheSeed && t.antilag == antilag && t.freshSpread == freshSpread) return p;
+                    t.cacheSeed == cacheSeed && t.antilag == antilag && t.freshSpread == freshSpread && t.moverAntilag == moverAntilag) return p;
             }
             return DenoiserPreset.Custom;
         }
@@ -170,6 +180,7 @@ namespace UltraRT
                     case "-ultrart-dn-previous": s.ApplyPreset(DenoiserPreset.Previous); break;
                     case "-ultrart-dn-static": s.ApplyPreset(DenoiserPreset.Static); break;
                     case "-ultrart-dn-antilag": s.antilag = F(s.antilag); break;
+                    case "-ultrart-dn-mover": s.moverAntilag = F(s.moverAntilag); break;
                     case "-ultrart-dn-fresh-spread": s.freshSpread = F(s.freshSpread); break;
                     case "-ultrart-dn-alpha": s.alphaMin = F(s.alphaMin); break;
                     case "-ultrart-dn-spatialvar": s.spatialVarianceFloor = F(s.spatialVarianceFloor); break;
@@ -202,6 +213,7 @@ namespace UltraRT
         public RenderTexture normalDepth; // ARGBHalf, xyz world normal, w ray t (< 0 = sky)
         public RenderTexture instanceId;  // RGInt: x instance (-1 = sky), y packed world-space motion (0 = static)
         public RenderTexture specular;    // optional ARGBHalf (reflections): rgb added, a = keep factor of the diffuse part
+        public RenderTexture moverFlags;  // optional: PathTrace's radiance, a = 2 where the light sample crossed a moving occluder
         public Matrix4x4 viewProj, invViewProj, prevViewProj;
         public Vector3 camPos, prevCamPos;
     }
@@ -255,6 +267,7 @@ namespace UltraRT
         private RenderTexture _boostInfo;                 // Temporal's debug channels (DenoiserDebugView.SpatialBoost)
         private RenderTexture _reproj;                    // Temporal's history footprint (R32G32_UInt), reused by Stabilize
         private readonly RenderTexture[] _stable = new RenderTexture[2]; // stabilised lighting (ping-pong)
+        private readonly RenderTexture[] _playerF = new RenderTexture[2]; // player shadow factor (ping-pong; docs/denoiser.md "Moving shadows")
         private readonly ComputeBuffer _dummyKeys, _dummyResolved; // bound when there is no cache (Temporal declares them)
         private uint _frame;
         private int _cur;                                 // index written this frame
@@ -319,6 +332,12 @@ namespace UltraRT
             IdSpatialVarFloor = Shader.PropertyToID("_SpatialVarFloor"),
             IdClassOut = Shader.PropertyToID("_ClassOut"),
             IdAntilag = Shader.PropertyToID("_Antilag"),
+            IdMoverAntilag = Shader.PropertyToID("_MoverAntilag"),
+            IdMoverSrc = Shader.PropertyToID("_MoverSrc"),
+            IdPrevPlayerF = Shader.PropertyToID("_PrevPlayerF"),
+            IdOutPlayerF = Shader.PropertyToID("_OutPlayerF"),
+            IdPlayerFParams = Shader.PropertyToID("_PlayerF"),
+            IdPlayerFactor = Shader.PropertyToID("_PlayerFactor"),
             IdAtrousMoments = Shader.PropertyToID("_AtrousMoments"),
             IdFreshSpread = Shader.PropertyToID("_FreshSpread"),
             IdClassFresh = Shader.PropertyToID("_ClassFresh");
@@ -386,6 +405,14 @@ namespace UltraRT
             cmd.SetComputeIntParam(cs, IdClampHistory, s.clampHistory ? 1 : 0);
             cmd.SetComputeFloatParam(cs, IdClampSigma, Mathf.Max(0f, s.clampSigma));
             cmd.SetComputeTextureParam(cs, _kTemporal, IdRadiance, inputs.radiance);
+            bool movers = s.stability && s.moverAntilag > 0f && inputs.moverFlags != null;
+            cmd.SetComputeVectorParam(cs, IdMoverAntilag, new Vector4(movers ? s.moverAntilag : 0f, Mathf.Max(0f, s.moverAntilagTolerance), Mathf.Max(0f, s.moverAntilagMinLength), 0f));
+            cmd.SetComputeTextureParam(cs, _kTemporal, IdMoverSrc, inputs.moverFlags != null ? inputs.moverFlags : inputs.radiance);
+            bool playerF = inputs.moverFlags != null && s.playerShadowBlend > 0f;
+            cmd.SetComputeVectorParam(cs, IdPlayerFParams, new Vector4(playerF ? 1f : 0f, Mathf.Clamp01(s.playerShadowBlend), 0f, 0f));
+            cmd.SetComputeTextureParam(cs, _kTemporal, IdPrevPlayerF, _playerF[prev]);
+            cmd.SetComputeTextureParam(cs, _kTemporal, IdOutPlayerF, _playerF[_cur]);
+            cmd.SetComputeTextureParam(cs, _kComposite, IdPlayerFactor, _playerF[_cur]);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdNormalDepth, inputs.normalDepth);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdInstanceId, inputs.instanceId);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdPrevGeo, _geo[prev]);
@@ -527,6 +554,7 @@ namespace UltraRT
             _boostInfo = Create("UltraRT Denoise Boost", RenderTextureFormat.ARGB32);
             _reproj = Create("UltraRT Denoise Reprojection", GraphicsFormat.R32G32_UInt);
             for (int i = 0; i < 2; i++) _stable[i] = Create($"UltraRT Denoise Stable {i}", RenderTextureFormat.ARGBHalf);
+            for (int i = 0; i < 2; i++) _playerF[i] = Create($"UltraRT Denoise PlayerF {i}", RenderTextureFormat.RHalf);
             _cur = 0;
             _historyValid = false;
         }
@@ -571,6 +599,7 @@ namespace UltraRT
             Release(ref _boostInfo);
             Release(ref _reproj);
             for (int i = 0; i < 2; i++) Release(ref _stable[i]);
+            for (int i = 0; i < 2; i++) Release(ref _playerF[i]);
             if (Classes != null) { Classes.Release(); Object.Destroy(Classes); Classes = null; }
             _historyValid = false;
         }

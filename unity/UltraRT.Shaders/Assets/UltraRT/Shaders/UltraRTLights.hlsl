@@ -68,6 +68,42 @@ StructuredBuffer<float4>  _LightChanges;
 int       _LightChangeCount;
 float     _LightChangeTolerance; // share of a pixel's direct light that may be stale before its history is shortened
 int       _RestirFreshCandidates; // extra RIS candidates for a pixel whose temporal history failed (disocclusion, screen edge)
+float     _RestirOccludedCap;     // most M an occluded (W = 0) history may carry (docs/light-sampling.md, "Penumbrae")
+
+// Moving occluders (docs/denoiser.md, "Moving shadows"): world AABBs of dynamic objects that moved in the last frames (the
+// player's third-person model first, then the nearest moving enemies and props), each the union of this frame's and the
+// previous frame's bounds, as min, max pairs. A shadow ray that crosses one may be shadowed differently than last frame:
+// ReSTIR drops occluded history whose sample crosses one, and PathTrace flags the pixel for the denoiser's targeted
+// anti-lag. Only PathTrace defines ULTRART_MOVERS (other includers never see these globals).
+#ifdef ULTRART_MOVERS
+StructuredBuffer<float4> _UltraRTMovers;
+int _UltraRTMoverCount;
+static bool g_MoverShadow = false; // the primary hit's light sample (or its dropped history) crossed a moving occluder
+// Player shadow split (docs/denoiser.md, "Moving shadows"): with _UltraRTPlayerSplit, the primary hit's final shadow ray
+// ignores V1's model, so the denoised lighting (and ReSTIR's visibility reuse) never holds the player's shadow; a second
+// ray against V1 alone (only where the sample's segment crosses V1's box) gives the light it blocks, which the denoiser
+// applies after filtering as a lightly filtered factor. g_PlayerBlocked is that light (lighting units, x _LightScale).
+int _UltraRTPlayerSplit;
+float4 _UltraRTPlayerModelMin, _UltraRTPlayerModelMax; // V1's body bounds (min > max = none)
+static float3 g_PlayerBlocked = 0;
+
+// Does the segment p + L * [0.02, dist) cross a mover box (slab test)?
+bool MoverCrosses(float3 p, float3 L, float dist)
+{
+    float3 inv = 1.0 / (abs(L) > 1e-8 ? L : (L >= 0.0 ? 1e-8 : -1e-8));
+    float tEnd = min(dist, 1.0e4);
+    for (int k = 0; k < _UltraRTMoverCount; k++)
+    {
+        float3 bmin = _UltraRTMovers[2 * k].xyz, bmax = _UltraRTMovers[2 * k + 1].xyz;
+        float3 t0 = (bmin - p) * inv, t1 = (bmax - p) * inv;
+        float3 lo = min(t0, t1), hi = max(t0, t1);
+        float a = max(max(lo.x, lo.y), max(lo.z, 0.02));
+        float b = min(min(hi.x, hi.y), min(hi.z, tEnd));
+        if (a <= b) return true;
+    }
+    return false;
+}
+#endif
 
 #define ULTRART_NO_LIGHT 0xFFFFu
 #define ULTRART_EMISSIVE 0x10000u // light code flag: the low 16 bits index _EmissiveTris
@@ -272,7 +308,7 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
     }
     if (!lin && atten < 1e-3) return false;
     float scale = RelightExposure();
-    if (l3.z > 0.5) scale *= 1.0 - saturate(_Relight.y); // unshadowed fill light
+    if (l3.z > 0.9) scale *= 1.0 - saturate(_Relight.y); // unshadowed fill light (0.75: unshadowed, not a fill)
     if (scale <= 0.0) return false;
     // Exposure and fill cut scale the light's (gamma) colour, so a light on its own keeps its brightness either way.
     c = ToLight(l1.rgb * scale) * (atten * ndl);
@@ -592,9 +628,12 @@ bool RestirMatch(uint4 h, float3 pos, float3 n, float t)
 // Merge a previous-frame reservoir into r, re-targeting its sample at the current pixel (biased 1/M combine).
 static float g_RestirCap = 1.0;
 
-void RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, inout uint rng)
+bool RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, inout uint rng)
 {
     float M = min(RestirM(h), g_RestirCap);
+    // One blocked shadow-ray draw (soft shadows: a random point on the light) must not hold the pixel dark for the whole
+    // history: occluded history counts at most _RestirOccludedCap samples.
+    if (!(RestirW(h) > 0.0)) M = min(M, _RestirOccludedCap);
     uint prevLight = RestirLight(h);
     uint light = ULTRART_NO_LIGHT;
     uint bary = 0;
@@ -606,7 +645,7 @@ void RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, i
         // Triangle indices are stable while _EmissiveHistoryValid. A triangle whose surface left the RTAS (room hidden,
         // object destroyed) is dropped like a light that is gone.
         uint tri = prevLight & 0xFFFFu;
-        if (_EmissiveHistoryValid == 0 || !EmissiveActive(tri)) return;
+        if (_EmissiveHistoryValid == 0 || !EmissiveActive(tri)) return false;
         light = prevLight;
         bary = RestirBary(h);
         float area;
@@ -614,16 +653,29 @@ void RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, i
     }
     else if (prevLight != ULTRART_NO_LIGHT)
     {
-        if (prevLight >= (uint)_PrevLightCount) return;
+        if (prevLight >= (uint)_PrevLightCount) return false;
         light = _LightRemap[prevLight];
         // The light is gone (switched off with its room, destroyed): this history describes a light set that
         // no longer exists, so drop it rather than count its M with zero weight.
-        if (light == ULTRART_NO_LIGHT) return;
+        if (light == ULTRART_NO_LIGHT) return false;
         if (LightEval(light, pos, n, layer, L, dist, c)) w = LightLuminance(c) * RestirW(h) * M;
     }
+#ifdef ULTRART_MOVERS
+    // The history's shadow ray crosses a moving occluder: its visibility (W = 0 when it was occluded) is stale. Occluded
+    // history is dropped (the player's shadow moving away would otherwise linger for up to historyLimit frames of M);
+    // visible history is kept at the fresh candidates' weight (the final shadow ray re-tests it if it wins).
+    if (_UltraRTMoverCount > 0 && light != ULTRART_NO_LIGHT && dist > 0.0 && MoverCrosses(pos, L, dist))
+    {
+        g_MoverShadow = true;
+        if (!(RestirW(h) > 0.0)) return false;
+        float capM = (float)_RisCandidates;
+        if (M > capM) { w *= capM / M; M = capM; }
+    }
+#endif
     // A history with no light (or W = 0 because its sample was occluded) still counts its M: it is evidence
     // that this pixel receives nothing from those samples. See docs/light-sampling.md.
     ReservoirAdd(r, light, bary, w, M, c, L, dist, Rand(rng));
+    return true;
 }
 
 // World-space motion of the primary hit (previous position - current), set by the ray generation shader from the hit's
@@ -680,7 +732,7 @@ bool RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
     if (all(pp >= 0.0) && all(pp < (float2)dim))
     {
         uint4 h = _ReservoirPrev[RestirIndex((uint2)pp, dim)];
-        if (RestirMatch(h, prevPos, vn, t)) { RestirMerge(r, h, pos, n, layer, rng); merged = true; }
+        if (RestirMatch(h, prevPos, vn, t)) merged = RestirMerge(r, h, pos, n, layer, rng);
     }
 
     for (int k = 0; k < _RestirSpatial; k++)
@@ -777,11 +829,45 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
         ReservoirCombine(r, RisCandidates(pos, n, layer, _RestirFreshCandidates, rng), Rand(rng));
 
     float W = ReservoirW(r);
+#ifdef ULTRART_MOVERS
+    if (W > 0.0 && _UltraRTMoverCount > 0 && MoverCrosses(pos, r.L, r.dist)) g_MoverShadow = true;
+#endif
+#ifdef ULTRART_MOVERS
+    uint playerMask = g_ShadowPlayerMask;
+    bool split = _UltraRTPlayerSplit != 0 && playerMask != 0u && _Mode == 0;
+    if (split) g_ShadowPlayerMask = 0u;
+#endif
     if (W > 0.0)
     {
         unshadowedSum += r.c * W;
         // Occluded samples are stored with W = 0 so they stop propagating (visibility reuse with the one ray).
-        if (SampleVisible(r, pos, n))
+        bool visible = SampleVisible(r, pos, n);
+#ifdef ULTRART_MOVERS
+        if (split && visible)
+        {
+            // V1 alone, along the sample's (unjittered) direction; skipped when the light is the player's own (inside the
+            // player box, as VisibleMasked does) or the segment misses V1's bounds.
+            float3 e = pos + r.L * r.dist;
+            bool own = all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz);
+            float3 inv = 1.0 / (abs(r.L) > 1e-8 ? r.L : (r.L >= 0.0 ? 1e-8 : -1e-8));
+            float3 t0 = (_UltraRTPlayerModelMin.xyz - pos) * inv, t1 = (_UltraRTPlayerModelMax.xyz - pos) * inv;
+            float a = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), max(min(t0.z, t1.z), 0.02));
+            float b = min(min(max(t0.x, t1.x), max(t0.y, t1.y)), min(max(t0.z, t1.z), r.dist));
+            if (!own && a <= b)
+            {
+                RayDesc pr;
+                pr.Origin = pos + n * 0.02;
+                pr.Direction = r.L;
+                pr.TMin = 0.0;
+                pr.TMax = max(0.0, r.dist - 0.05);
+                RayPayload sp = (RayPayload)0;
+                sp.t = 1.0;
+                TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ULTRART_MASK_PLAYER, 0, 1, 0, pr, sp);
+                if (sp.t >= 0.0) g_PlayerBlocked = r.c * (W * DetailScale(n, r.L) * _LightScale);
+            }
+        }
+#endif
+        if (visible)
         {
             float3 cd = r.c * (W * DetailScale(n, r.L));
             vertexSum += r.c * W;
@@ -792,6 +878,9 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
         else W = 0.0;
     }
 
+#ifdef ULTRART_MOVERS
+    if (split) g_ShadowPlayerMask = playerMask;
+#endif
     if (temporal) _ReservoirCur[RestirIndex(id, dim)] = RestirPack(r, min(r.M, _RestirParams.x), W,
         g_PrimaryVirtual ? g_PrimaryVirtualN : n, g_PrimaryVirtual ? g_PrimaryVirtualPos : pos);
     g_DirectUnshadowed = unshadowedSum * _LightScale;

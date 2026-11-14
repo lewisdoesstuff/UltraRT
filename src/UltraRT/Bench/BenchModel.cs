@@ -47,10 +47,16 @@ namespace UltraRT.Bench
         public int BurstBlock = 8;
         /// <summary>Burst: frames to hold the pose in each mode before capturing (history convergence).</summary>
         public int BurstSettle = 120;
+        /// <summary>Burst: capture every Nth frame (the frames between run at full speed): slow boiling over thousands of
+        /// frames (the radiance cache, a slowly drifting history) without capturing them all. Block = BurstBlock captures.</summary>
+        public int BurstStride = 1;
         /// <summary>Extra seconds to hold each mode before its screenshot (lets the radiance cache converge after a variant).</summary>
         public float ShotSettle;
         /// <summary>Burst modes ("off" first gives the mask); default Modes. "mode+key=value" applies runtime variants.</summary>
         public List<string> BurstModes;
+        /// <summary>Burst: screen rectangles [x0, y0, x1, y1] (fractions from the top left) also reported on their own, unmasked
+        /// (sigma / block sigma / mean luma). Default: the viewmodel's usual area (the gun and arm, which "off" masks out).</summary>
+        public List<float[]> BurstRegions = new List<float[]> { new[] { 0.5f, 0.5f, 0.84f, 1f } };
         /// <summary>Optional: spawn combat effects in front of the camera (EffectSpawner.cs), for effect-light tests.</summary>
         public EffectSpec Effects;
         /// <summary>
@@ -207,6 +213,8 @@ namespace UltraRT.Bench
         /// <summary>Mean |Laplacian| of luma per frame in the left 15%, centre 40%, right 15% of the screen (noise in motion).</summary>
         public float HfLeft, HfCenter, HfRight;
         public float MaskedShare, SigmaMasked, SigmaP95Masked, SigmaBlockMasked, SigmaBlockP95Masked, DriftMasked, MeanLumaMasked;
+        /// <summary>Per BurstRegions rectangle (unmasked): sigma, block sigma, mean luma.</summary>
+        public List<float> RegionSigma = new List<float>(), RegionBlock = new List<float>(), RegionLuma = new List<float>();
         public List<string> Images;
     }
 

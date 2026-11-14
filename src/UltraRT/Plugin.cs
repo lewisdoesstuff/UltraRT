@@ -508,7 +508,9 @@ namespace UltraRT
                 {
                     case LightType.Point:
                         l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
-                        l3 = new Vector4(-1f, 1f, 0, 0);
+                        // A point light at the eye (the game's player light) shadows nothing the camera sees: evaluate it
+                        // with no ray, outside ReSTIR's competition (Plugin.Noise.cs, EyeLight).
+                        l3 = new Vector4(-1f, 1f, EyeLight(pos) ? 0.75f : 0f, 0);
                         break;
                     case LightType.Spot:
                     {
@@ -522,7 +524,9 @@ namespace UltraRT
                         l0 = new Vector4(-fwd.x, -fwd.y, -fwd.z, 0f);
                         // Directional lights arriving from below the horizon are fill lights faking ground bounce (the game
                         // has no shadows). Shadowing them against the floor would remove them, so leave them unshadowed.
-                        l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : 0f, 0);
+                        // _sunsUnshadowed (diagnostics): every directional light unshadowed (0.75: not a fill, so relight's
+                        // fill cut leaves it).
+                        l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : _sunsUnshadowed ? 0.75f : 0f, 0);
                         break;
                     default:
                         continue;
@@ -530,7 +534,7 @@ namespace UltraRT
                 int i = _lightCount * 4;
                 _lightData[i] = l0;
                 _lightData[i + 1] = new Vector4(c.r, c.g, c.b, 0);
-                _lightMasks[_lightCount] = unchecked((uint)l.cullingMask);
+                _lightMasks[_lightCount] = unchecked((uint)l.cullingMask) | BakedLightMask(l); // Plugin.Noise.cs
                 _packedLights[_lightCount] = l;
                 _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, shadowRadius);
                 _lightData[i + 3] = l3;
@@ -893,6 +897,7 @@ namespace UltraRT
         {
             var (_, kind, mode) = Modes[_mode];
             bool denoised = kind == Kind.Denoised || kind == Kind.Hybrid;
+            SetPlayerSplit(kind == Kind.Denoised); // Plugin.Noise.cs
             bool pt = kind != Kind.Debug;
             bool resolve = denoised || kind == Kind.Reflection; // modes that read the unpacked surface / filtered reflection
             if (denoised && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid) { _denoiser.Reset(); _denoiserDirect?.Reset(); } // history is stale after other modes
@@ -967,6 +972,7 @@ namespace UltraRT
                 Shader.SetGlobalVector(PlayerBoxMinId, Vector4.one);
                 Shader.SetGlobalVector(PlayerBoxMaxId, Vector4.zero);
             }
+            UpdateMovers(); // moving occluders: fast-responding shadows of the player and enemies (Plugin.Noise.cs)
             long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
@@ -1041,6 +1047,7 @@ namespace UltraRT
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
                 long tls = Perf.Now;
+                _proxies.PortalViewpoints(_camera.transform.position, _lightSampling.ViewPoints); // portal-aware importance
                 _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged, kind == Kind.Hybrid);
                 Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSamplingSettings.mode);
@@ -1109,6 +1116,7 @@ namespace UltraRT
                 {
                     radiance = _gRadiance, albedo = _gAlbedo, emission = _gEmission,
                     normalDepth = _gNormalDepth, instanceId = _gInstanceId, specular = _gSpecular,
+                    moverFlags = _gRadiance, // a = 2: moving-occluder flag (docs/denoiser.md, "Moving shadows")
                     viewProj = viewProj, invViewProj = invViewProj,
                     camPos = _camera.transform.position,
                 };

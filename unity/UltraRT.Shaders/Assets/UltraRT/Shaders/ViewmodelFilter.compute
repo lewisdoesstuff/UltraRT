@@ -33,7 +33,10 @@ float4 _CamFwd;    // xyz camera forward (world)
 float4 _Params;    // x max history (lighting), y max history (reflection), z clamp sigma (k), w history valid (0/1)
 float4 _Atrous;    // x step (half-res pixels), y reflection roughness above which reflections are filtered
 float4 _Stamps;    // x this frame's stamp (written to _OutGeo.y), y last frame's (history entries must carry it)
-float4 _Params2;   // x history cap this frame (lights appeared or disappeared: a few frames; else large)
+// Fast response (docs/viewmodel.md): x 1 when lights appeared or disappeared this frame, y the test's sigma (standard errors
+// of the 3x3 mean; 0 = the old ratio test), z its relative tolerance, w the relative tolerance on light-set changes.
+float4 _Params2;
+float4 _Params3;   // x 3x3 history search when no bilinear tap matches (0 = off)
 
 float ViewDepth(float4 geo) { return dot(geo.xyz, _CamFwd.xyz); }
 uint2 PickPixel(uint2 h, float4 geo) { return h * 2u + kOrder[min((uint)geo.w - 1u, 3u)]; }
@@ -111,30 +114,75 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
             hL += _HistLight[p] * bw; hD += _HistDirect[p] * bw; hR += _HistRefl[p] * bw;
             wsum += bw;
         }
+        // No bilinear tap matched (silhouettes and creases while the gun idles: bone animation is not in the rigid motion
+        // vectors, so edge texels land on another depth every frame and lost their history): take the closest-depth texel
+        // of the 3x3 around the reprojected point, within twice the tolerance, as the world's denoiser does.
+        if (wsum <= 1e-3 && _Params3.x > 0.5)
+        {
+            int2 c0 = (int2)round(f);
+            float best = 2.0 * tol;
+            int2 bq = int2(-1, -1);
+            [unroll] for (int sy = -1; sy <= 1; sy++)
+            [unroll] for (int sx = -1; sx <= 1; sx++)
+            {
+                int2 p = c0 + int2(sx, sy);
+                if (!InHalf(p)) continue;
+                float4 hg = _HistGeo[p];
+                if (hg.y != _Stamps.y) continue;
+                float dd = abs(hg.x - expectD);
+                if (dd < best) { best = dd; bq = p; }
+            }
+            if (bq.x >= 0) { hL = _HistLight[bq]; hD = _HistDirect[bq]; hR = _HistRefl[bq]; wsum = 1.0; }
+        }
     }
 
     float k = _Params.z;
     // No sample of its own this frame: start from the neighbourhood mean.
     float3 oL = sampled ? cL : mL;
     float2 oD = sampled ? cD : mD;
+    float oM = Luma(oL) * Luma(oL); // moving average of luma^2 (the history's temporal spread)
     float3 oR = cRraw.a > 0.5 ? cR : mR;
     float nL = sampled || cnt > 0.0 ? 1 : 0, nR = reflective ? 1 : 0;
     if (wsum > 1e-3)
     {
         hL /= wsum; hD /= wsum; hR /= wsum;
-        float3 histL = cnt > 0.0 ? clamp(hL.rgb, mL - k * sL, mL + k * sL) : hL.rgb;
+        // The history's own temporal spread (luma, from the moving average of luma^2 in _HistDirect.z) widens the clip box,
+        // as in the world's denoiser: with 1 sample per pixel the 3x3 spread alone is often tiny (all 9 samples missed
+        // the bright light) and the clip then pulled the history around every frame.
+        float lhist = Luma(hL.rgb);
+        float histSd = sqrt(max(hD.z - lhist * lhist, 0.0));
+        float3 extL = k * max(sL, histSd);
+        float3 histL = cnt > 0.0 ? clamp(hL.rgb, mL - extL, mL + extL) : hL.rgb;
         float2 histD = cnt > 0.0 ? clamp(hD.xy, mD - k * sD, mD + k * sD) : hD.xy;
         // Fast response: the neighbourhood's mean moved far from the history (a muzzle flash, an explosion, walking into
-        // shade), or the light set changed (_Params2.x): keep only a few frames of history.
-        float cap = _Params2.x;
-        float rr = (Luma(mL) + 0.02) / (Luma(hL.rgb) + 0.02);
-        if (cnt > 0.0 && (rr > 1.8 || rr < 0.55)) cap = min(cap, 2.0);
+        // shade): keep only a few frames of history. The test is in standard errors of the 3x3 mean plus a relative
+        // tolerance, so 1-spp noise doesn't trip it (the old ratio test fired on noise and kept the gun's history at 2
+        // frames). When lights appeared or disappeared this frame the tolerance is lower, not skipped.
+        float cap = 1000.0;
+        float lm = Luma(mL);
+        if (cnt > 0.0)
+        {
+            if (_Params2.y > 0.0)
+            {
+                float se = Luma(sL) / sqrt(cnt);
+                float tol = _Params2.x > 0.5 ? _Params2.w : _Params2.z;
+                float z = abs(lm - lhist) / (_Params2.y * max(se, histSd / sqrt(cnt)) + tol * max(lm, lhist) + 0.002);
+                if (z > 1.0) cap = 2.0;
+            }
+            else
+            {
+                float rr = (lm + 0.02) / (lhist + 0.02);
+                if (_Params2.x > 0.5 || rr > 1.8 || rr < 0.55) cap = 2.0;
+            }
+        }
         float hn = min(hL.a, cap);
         if (sampled)
         {
             nL = min(hn + 1.0, _Params.x);
             oL = lerp(histL, cL, 1.0 / nL);
             oD = lerp(histD, cD, 1.0 / nL);
+            float lc = Luma(cL);
+            oM = lerp(hD.z, lc * lc, 1.0 / nL);
         }
         else
         {
@@ -143,6 +191,7 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
             float a = cnt > 0.0 ? 1.0 / (hn + 1.0) : 0.0;
             oL = lerp(histL, mL, a);
             oD = lerp(histD, mD, a);
+            oM = hD.z;
         }
         if (reflective && hR.a > 0.0)
         {
@@ -153,7 +202,7 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
         }
     }
     _OutLight[id] = float4(oL, nL);
-    _OutDirect[id] = float4(oD, 0.0, nL);
+    _OutDirect[id] = float4(oD, oM, nL);
     _OutRefl[id] = float4(oR, nR);
     _OutGeo[id] = float4(d, _Stamps.x, 0.0, 0.0);
 }

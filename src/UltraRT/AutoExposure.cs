@@ -39,6 +39,17 @@ namespace UltraRT
         /// <summary>After a reset (scene load, mode switch): adapt at settleSpeed (1/s, no dead band) for settleTime seconds,
         /// so the exposure follows the denoiser and radiance cache while they converge. -ultrart-ae-settle SECONDS[,SPEED].</summary>
         public float settleTime = 0.5f, settleSpeed = 8f;
+        /// <summary>
+        /// Game match (docs/relight.md, "Game match"): the game's own frame (opaques and sky, before the RT composite) is
+        /// metered at the same pixels as the RT image, near ones only (game fog under <see cref="gameMatchFog"/>), and the
+        /// target moves this fraction of the way towards the game's brightness, beyond a dead band of
+        /// <see cref="gameMatchBand"/> EV. Up = the RT image is darker than the game (8-2's alley, lit in game by lights
+        /// shining through walls), down = brighter (torch rooms, 4-1). 0 = off. -ultrart-ae-match UP[,DOWN].
+        /// </summary>
+        public float gameMatchUp = 0.75f, gameMatchDown = 0.4f;
+        public float gameMatchBand = 0.35f;
+        /// <summary>Pixels whose game fog factor is above this are not compared (the game's fog replaces their colour).</summary>
+        public float gameMatchFog = 0.3f;
 
         public void ParseArgs()
         {
@@ -57,6 +68,13 @@ namespace UltraRT
                     }
                     case "-ultrart-ae-ptdn": ptDn = true; break;
                     case "-ultrart-ae-key": key = F(Next(), key); break;
+                    case "-ultrart-ae-match":
+                    {
+                        var parts = (Next() ?? "").Split(',');
+                        gameMatchUp = F(parts[0], gameMatchUp);
+                        gameMatchDown = parts.Length > 1 ? F(parts[1], gameMatchDown) : gameMatchUp;
+                        break;
+                    }
                     case "-ultrart-ae-min": minEV = F(Next(), minEV); break;
                     case "-ultrart-ae-max": maxEV = F(Next(), maxEV); break;
                     case "-ultrart-ae-comp": compensation = F(Next(), compensation); break;
@@ -119,6 +137,13 @@ namespace UltraRT
         /// (x, y low-res size, z scale, w 1 = on). Set by the volumetrics pass every frame (Plugin.Volumetrics.cs).</summary>
         public Texture Haze;
         public Vector4 HazeParams;
+        /// <summary>Game match: a copy of the game's frame before the RT composite (null = no match this frame), the map
+        /// from trace uv to its uv (xy scale around the centre = the guard band, z 1 = flip y) and the game's fog
+        /// (x 1 = on, y mode 1 linear / 2 exp / 3 exp2, z start or density, w end). Set by the plugin every frame.</summary>
+        public Texture GameColor;
+        public Vector4 GameMap, GameFog;
+        /// <summary>Last read-back game match state: game mean log2, RT mean log2 (same pixels), correction EV, pixels.</summary>
+        public Vector4 LastMatch { get; private set; }
 
         private static readonly int
             IdFiltered = Shader.PropertyToID("_Filtered"),
@@ -138,6 +163,10 @@ namespace UltraRT
             IdParams4 = Shader.PropertyToID("_Params4"),
             IdVolHaze = Shader.PropertyToID("_VolHaze"),
             IdVolHazeParams = Shader.PropertyToID("_VolHazeParams"),
+            IdGameColor = Shader.PropertyToID("_GameColor"),
+            IdGameMap = Shader.PropertyToID("_GameMap"),
+            IdGameFog = Shader.PropertyToID("_GameFog"),
+            IdParams5 = Shader.PropertyToID("_Params5"),
             IdCompositeExposure = Shader.PropertyToID("_UltraRTExposure"),
             IdCompositeLitWeight = Shader.PropertyToID("_UltraRTLitWeight");
 
@@ -146,10 +175,12 @@ namespace UltraRT
             _shader = shader ? shader : throw new ArgumentNullException(nameof(shader));
             _kHistogram = shader.FindKernel("Histogram");
             _kAdapt = shader.FindKernel("Adapt");
-            _hist = new ComputeBuffer(Bins, 4) { name = "UltraRT Exposure Histogram" };
-            _hist.SetData(new uint[Bins]);
-            _exposure = new ComputeBuffer(2, 16) { name = "UltraRT Exposure" };
-            _exposure.SetData(new[] { new Vector4(1f, 0f, 0f, 0f), Vector4.zero });
+            // Three histograms: the whole exposed image (the meter), and for the game match the near RT pixels and the
+            // game's own colour at the same pixels.
+            _hist = new ComputeBuffer(3 * Bins, 4) { name = "UltraRT Exposure Histogram" };
+            _hist.SetData(new uint[3 * Bins]);
+            _exposure = new ComputeBuffer(3, 16) { name = "UltraRT Exposure" };
+            _exposure.SetData(new[] { new Vector4(1f, 0f, 0f, 0f), Vector4.zero, Vector4.zero });
         }
 
         /// <summary>Jump straight to the measured exposure next frame (scene load, teleport, mode switch).</summary>
@@ -186,6 +217,12 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kHistogram, IdVolHaze, haze ? Haze : Texture2D.blackTexture);
             cmd.SetComputeVectorParam(cs, IdVolHazeParams, haze ? HazeParams : Vector4.zero);
             cmd.SetComputeBufferParam(cs, _kHistogram, IdExposure, _exposure);
+            bool match = GameColor != null && (s.gameMatchUp > 0f || s.gameMatchDown > 0f);
+            cmd.SetComputeTextureParam(cs, _kHistogram, IdGameColor, match ? GameColor : Texture2D.blackTexture);
+            cmd.SetComputeVectorParam(cs, IdGameMap, match ? GameMap : Vector4.zero);
+            cmd.SetComputeVectorParam(cs, IdGameFog, GameFog);
+            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.gameMatchDown) : 0f,
+                Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
             // Every second pixel in x and y: 16x16 threads cover 32x32 pixels.
             cmd.DispatchCompute(cs, _kHistogram, Mathf.CeilToInt(w / 32f), Mathf.CeilToInt(h / 32f), 1);
 
@@ -201,6 +238,8 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdParams3, new Vector4(Mathf.Clamp01(s.upStrength), Mathf.Max(0f, s.deadBand),
                 Mathf.Max(0f, s.meterSpeed), settling ? Mathf.Max(0f, s.settleSpeed) : 0f));
             cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.key, 1e-4f)), 2f), 0, 0, 0));
+            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.gameMatchDown) : 0f,
+                Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
             cmd.SetComputeBufferParam(cs, _kAdapt, IdHist, _hist);
             cmd.SetComputeBufferParam(cs, _kAdapt, IdExposure, _exposure);
             cmd.DispatchCompute(cs, _kAdapt, 1, 1, 1);
@@ -227,6 +266,7 @@ namespace UltraRT
                     var d = r.GetData<Vector4>();
                     Last = d[0];
                     LastCount = d[1].x;
+                    if (d.Length > 2) LastMatch = d[2];
                 });
             }
         }

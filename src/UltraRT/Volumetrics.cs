@@ -26,7 +26,13 @@ namespace UltraRT
         public float minDensity = 0.002f;
         public float maxDensity = 0.008f;
         /// <summary>In-scattering multiplier.</summary>
-        public float strength = 1f;
+        public float strength = 0.65f;
+        /// <summary>The most the in-scattering may add to a pixel, in display units (a soft shoulder, not a clip); 0 = up to
+        /// white. With strength 1 and no cap, dark levels (7-3, 4-4, 1-4 at night) read 1.4x to 10x brighter than the game.</summary>
+        public float maxAdd = 0.25f;
+        /// <summary>Fog colour brightness (largest channel) at and above which the medium scatters fully; darker fog scatters
+        /// proportionally less, black fog not at all. 0 = off (black fog scattered white, as before).</summary>
+        public float darkFog = 0.25f;
         /// <summary>Henyey-Greenstein anisotropy: forward scattering makes shafts brighter looking toward the sun.</summary>
         public float anisotropy = 0.4f;
         /// <summary>How much of the fog colour's hue the medium takes (0 = white scattering, 1 = the fog colour's hue).</summary>
@@ -186,6 +192,7 @@ namespace UltraRT
             IdVolDepthTex = Shader.PropertyToID("_VolDepthTex"), IdVolExposure = Shader.PropertyToID("_VolExposure"),
             IdVolViewRay = Shader.PropertyToID("_VolViewRay"), IdVolFog = Shader.PropertyToID("_VolFog"),
             IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
+            IdVolMaxAdd = Shader.PropertyToID("_VolMaxAdd"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
             IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
             IdVolSkip = Shader.PropertyToID("_VolSkip"), IdVolLightCone = Shader.PropertyToID("_VolLightCone"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
@@ -244,6 +251,10 @@ namespace UltraRT
             var tint = Vector3.one;
             if (RenderSettings.fog && m > 0.02f)
                 tint = Vector3.Lerp(Vector3.one, new Vector3(fc.r / m, fc.g / m, fc.b / m), Mathf.Clamp01(s.tint));
+            // A dark fog colour is a dark, absorbing medium (docs/volumetrics.md, "Balance"): the level fades into black, so
+            // the air must not glow. Scattering albedo = the fog colour's brightest channel / darkFog (1 from there up).
+            // Black fog (7-3, 2-x, 4-1) scatters nothing; 1-4's night blue (0.10) about 40%.
+            if (RenderSettings.fog && s.darkFog > 0f) tint *= Mathf.Clamp01(m / s.darkFog);
             return new Vector4(sigma, tint.x, tint.y, tint.z);
         }
 
@@ -367,6 +378,7 @@ namespace UltraRT
             var fc = RenderSettings.fogColor;
             m.SetVector(IdVolFogColor, new Vector4(fc.r, fc.g, fc.b, f.applyGameFog && s.gameFog && fogMode > 0f ? 1f : 0f));
             m.SetVector(IdVolComposite, new Vector4(Mathf.Max(0f, s.strength), f.autoExposure && f.exposure != null ? 1f : 0f, 1f, s.debugView));
+            m.SetFloat(IdVolMaxAdd, Mathf.Max(0f, s.maxAdd));
             if (f.applyGameFog && s.gameFog && fogMode > 0f && s.debugView == 0)
                 cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
             var late = lateCmd ?? cmd;

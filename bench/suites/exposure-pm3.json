@@ -1,0 +1,210 @@
+{
+  "Name": "exposure-pm3",
+  "Scenarios": [
+    {
+      "Name": "8-2 portal side 1",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-portal-side1.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "P-2 vent smoke",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "7-3 flashlight",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-3-flashlight.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "7-3 tree a",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-3-tree-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "7-3 tree b",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-3-tree-b.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-1 start",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-approach.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-1 indoor a",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-indoor-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-4 drift",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "0-5 lava",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-approach.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "4-1 indoor A",
+      "Scene": "Level 4-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/4-1-approach-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "4-4 v2 chair cp",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/4-4-v2-chair.json",
+        "Duration": 3,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0"
+      ],
+      "Screenshots": [
+        2
+      ]
+    }
+  ]
+}

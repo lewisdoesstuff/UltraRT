@@ -896,6 +896,11 @@ namespace UltraRT
                             bool usesRT = texProps.Any(x => x.t is RenderTexture);
                             bool skyShader = m.shader.name.IndexOf("Sky", StringComparison.OrdinalIgnoreCase) >= 0;
                             bool bigNear = r.bounds.size.magnitude > 150f && r.bounds.SqrDistance(camPos) < 1f; // camera inside its bounds
+                            // Large geometry above the camera (8-2's upside-down city: does it shadow the sun?)
+                            bool overhead = r.bounds.min.y > camPos.y + 8f && Mathf.Max(r.bounds.size.x, r.bounds.size.z) > 60f;
+                            if (overhead)
+                                Logger.LogInfo($"  overhead renderer '{GameControl.PathOf(r.transform)}' bounds {r.bounds.min:F0}..{r.bounds.max:F0} layer={r.gameObject.layer} " +
+                                               $"shader='{m.shader.name}' mat='{m.name}' static={r.isPartOfStaticBatch}");
                             if (!usesRT && !skyShader && !bigNear) continue;
                             Logger.LogInfo($"  sky-ish renderer '{GameControl.PathOf(r.transform)}' size={r.bounds.size.magnitude:F0} layer={r.gameObject.layer} " +
                                            $"shader='{m.shader.name}' mat='{m.name}' queue={m.renderQueue} kw=[{string.Join(" ", m.shaderKeywords)}] " +

@@ -58,6 +58,7 @@
       "Path": {
         "Type": "static",
         "Approach": "../recordings/3-1-noisy-room.json",
+        "Load": "checkpoint",
         "Duration": 4
       },
       "Modes": [

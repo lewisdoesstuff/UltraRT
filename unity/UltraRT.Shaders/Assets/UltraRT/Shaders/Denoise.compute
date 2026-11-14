@@ -94,6 +94,17 @@ float4 _CacheSeedOffset; // rgb added to the cached value (terms PathTrace adds 
 uint   _DnFrame;
 float  _SpatialVarFloor; // the variance never drops below this x the 3x3 spatial variance of the input (0 = plain SVGF)
 float4 _Antilag;         // x sigma (0 = off), y relative tolerance, z shortest history it cuts to: see Temporal
+// Moving shadows (docs/denoiser.md, "Moving shadows"): PathTrace's _Radiance.a is 2 where the pixel's light sample crossed
+// a moving occluder (the player's model, a moving enemy). Within 2 px of such pixels the anti-lag runs with these
+// parameters: x sigma (0 = off), y relative tolerance, z shortest history it cuts to.
+Texture2D<float4> _MoverSrc;
+float4 _MoverAntilag;
+// Player shadow factor (PathTrace's _Radiance.a, minus 2 where flagged; 1 = V1 blocks nothing): V1's shadow is kept out of
+// the filtered lighting and multiplied in by Composite after a light filter of its own (3x3 + a 2-frame history on the
+// same reprojection), so it follows the player within a frame or two. x: 1 = on, y history blend (0.5).
+Texture2D<float> _PrevPlayerF;
+RWTexture2D<float> _OutPlayerF;
+float4 _PlayerF;
 // Shared with the a-trous passes (the pre-blur uses the same geometry weights).
 float _PhiNormal;
 float _PhiDepth;
@@ -109,6 +120,8 @@ float _PixelAngle; // world-space size of one trace pixel at distance 1
 groupshared float4 gsRadT[TILE_N]; // rgb radiance, t (< 0 sky, -2 outside the screen)
 groupshared float3 gsPos[TILE_N];  // world position (primary ray)
 groupshared float3 gsNrm[TILE_N];  // world normal
+groupshared float  gsMover[TILE_N]; // 1: moving-occluder flag (_MoverSrc.a > 1.5)
+groupshared float  gsPF[TILE_N];    // player shadow factor
 
 float3 SanitizeRadiance(float3 c)
 {
@@ -174,8 +187,12 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         int2 p = origin + int2(i % TILE, i / TILE);
         float4 v = float4(0, 0, 0, -2.0);
         float3 wp = 0, wn = 0;
+        float mover = 0, pf = 1;
         if (all(p >= 0) && all(p < dim))
         {
+            float ma = _MoverSrc[p].a;
+            mover = _MoverAntilag.x > 0.0 && ma > 1.5 ? 1.0 : 0.0;
+            pf = _PlayerF.x > 0.5 ? saturate(ma > 1.5 ? ma - 2.0 : ma) : 1.0;
             float4 nd = _NormalDepth[p];
             v = float4(SanitizeRadiance(_Radiance[p].rgb), nd.w);
             if (nd.w >= 0.0)
@@ -187,6 +204,8 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         gsRadT[i] = v;
         gsPos[i] = wp;
         gsNrm[i] = wn;
+        gsMover[i] = mover;
+        gsPF[i] = pf;
     }
     GroupMemoryBarrierWithGroupSync();
 
@@ -198,6 +217,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
 
     if (t < 0.0)
     {
+        _OutPlayerF[id.xy] = 1.0;
         _OutIntegrated[id.xy] = float4(rad, 0);
         _OutMoments[id.xy] = 0;
         _OutGeo[id.xy] = 0; // invalid
@@ -222,22 +242,40 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     float3 s1 = 0, s2 = 0;
     float l1 = 0, l2 = 0, cnt = 0;
     float n1 = 0, n2 = 0, ncnt = 0;
+    float pf3 = 0;
     [unroll] for (int dy = -1; dy <= 1; dy++)
     [unroll] for (int dx = -1; dx <= 1; dx++)
     {
         float4 v = gsRadT[centerIdx + dy * TILE + dx];
         if (v.w < 0.0 || abs(v.w - t) > 0.1 * t) continue;
+        pf3 += gsPF[centerIdx + dy * TILE + dx];
         float l = Luma(v.rgb);
         s1 += v.rgb; s2 += v.rgb * v.rgb;
         l1 += l; l2 += l * l;
         cnt += 1.0;
         if (dx != 0 || dy != 0) { n1 += l; n2 += l * l; ncnt += 1.0; }
     }
+    // The player shadow factor gets a 5x5 (same-surface) mean: where V1 blocks one of several lights, the sampled light
+    // alternates between pixels and a 3x3 left visible speckle on the moving shadow.
+    {
+        float pfs = 0, pfn = 0;
+        [unroll] for (int py = -2; py <= 2; py++)
+        [unroll] for (int px = -2; px <= 2; px++)
+        {
+            float4 v = gsRadT[centerIdx + py * TILE + px];
+            if (v.w < 0.0 || abs(v.w - t) > 0.1 * t) continue;
+            float wgt = (abs(px) <= 1 && abs(py) <= 1) ? 1.0 : 0.5;
+            pfs += gsPF[centerIdx + py * TILE + px] * wgt;
+            pfn += wgt;
+        }
+        pf3 = pfs / max(pfn, 1e-3);
+    }
     s1 /= cnt; s2 /= cnt; l1 /= cnt; l2 /= cnt;
     float spatialVar = max(0.0, l2 - l1 * l1);
 
     // Reproject into the previous frame: bilinear over the 2x2 footprint, each tap validated on its own.
     float3 hColor = 0;
+    float hPF = 0;
     float3 hMom = 0; // m1, m2, length
     float wSum = 0;
     bool searched = false;
@@ -262,6 +300,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
             float w = (o.x ? f.x : 1.0 - f.x) * (o.y ? f.y : 1.0 - f.y);
             hColor += w * _HistColor[q].rgb;
             hMom += w * _PrevMoments[q].xyz;
+            hPF += w * _PrevPlayerF[q];
             wSum += w;
             reprojW += w * float4(k == 0, k == 1, k == 2, k == 3);
         }
@@ -292,6 +331,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
             if (bestQ.x >= 0)
             {
                 hColor = _HistColor[bestQ].rgb;
+                hPF = _PrevPlayerF[bestQ];
                 hMom = _PrevMoments[bestQ].xyz;
                 wSum = 1.0;
                 searched = true;
@@ -302,6 +342,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     }
 
     float histLen = 0;
+    _OutPlayerF[id.xy] = _PlayerF.x > 0.5 ? (wSum > 1e-3 ? lerp(hPF / wSum, pf3, _PlayerF.y) : pf3) : 1.0;
     if (wSum > 1e-3)
     {
         hColor /= wSum;
@@ -319,7 +360,19 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     // mean plus a relative tolerance, the lighting really changed: the history length shrinks with the square of the
     // excess, so the pixel follows within a frame or two and, being "young" again, gets the pre-blur instead of its raw
     // sample. Noise alone (a single bright sample, ReSTIR's per-pixel bias) stays inside the bound.
-    if (_Antilag.x > 0.0 && histLen > 0.0)
+    // Moving shadows: the same test, with its own (tighter) parameters, wherever a light sample within 2 px crossed a moving
+    // occluder this frame. The player's own shadow then follows within a frame or two instead of fading in over the
+    // history (and being invisible while walking); elsewhere nothing changes.
+    float4 antilag = _Antilag;
+    bool moverNear = false, moverCut = false;
+    if (_MoverAntilag.x > 0.0)
+    {
+        [unroll] for (int my = -2; my <= 2; my++)
+        [unroll] for (int mx = -2; mx <= 2; mx++)
+            moverNear = moverNear || gsMover[centerIdx + my * TILE + mx] > 0.5;
+        if (moverNear) antilag = _MoverAntilag;
+    }
+    if (antilag.x > 0.0 && histLen > 0.0)
     {
         float a1 = 0, a2 = 0, an = 0;
         [unroll] for (int ay = -2; ay <= 2; ay++)
@@ -333,8 +386,9 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         a1 /= an;
         float se = sqrt(max(0.0, a2 / an - a1 * a1) / an);
         float lh = Luma(hColor);
-        float z = abs(a1 - lh) / (_Antilag.x * se + _Antilag.y * max(lh, a1) + 1e-3);
-        if (z > 1.0) histLen = min(histLen, max(histLen / (z * z), _Antilag.z));
+        float z = abs(a1 - lh) / (antilag.x * se + antilag.y * max(lh, a1) + 1e-3);
+        if (z > 1.0) histLen = min(histLen, max(histLen / (z * z), antilag.z));
+        moverCut = moverNear && z > 1.0;
     }
 
     // Anti-firefly: with enough history, a sample far above both the history and the current neighbourhood is scaled
@@ -388,7 +442,9 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         // with the pre-blurred estimate within that estimate's noise plus a relative tolerance: fullbright surfaces,
         // terms the cache leaves out and cell-sized leaks then fall back to the pre-blur alone. The query point is
         // jittered within the cell's tangent plane (like PathTrace's primary mode), so cells turn into noise, not blocks.
-        if (_CacheSeed.x > 0.0 && _CacheMode > 0)
+        // Not where a moving shadow just cut the history: the cache never holds the player's (or an enemy's) shadow,
+        // so seeding from it would erase exactly the change the cut is there to show.
+        if (_CacheSeed.x > 0.0 && _CacheMode > 0 && !moverCut)
         {
             uint h = HashU32(id.x * 1973u + id.y * 9277u + _DnFrame * 26699u);
             float u1 = (h & 0xFFFFu) * (1.0 / 65536.0), u2 = (h >> 16) * (1.0 / 65536.0);
@@ -601,6 +657,7 @@ Texture2D<float4>   _Moments;   // this frame's m1, m2, history length, variance
 Texture2D<float4>   _Specular;  // optional (Reflections.compute Resolve): rgb added, a = keep factor for the diffuse part
 int                 _HasSpecular;
 Texture2D<float4>   _BoostInfo; // Temporal's _OutBoost (debug view 6)
+Texture2D<float>    _PlayerFactor; // Temporal's _OutPlayerF: V1's shadow, multiplied into the lighting here
 // Debug view 7 (motion) also reads _NormalDepth and _InstanceId (declared with the temporal pass).
 RWTexture2D<float4> _Output;
 
@@ -622,7 +679,7 @@ void Composite(uint3 id : SV_DispatchThreadID)
     // Nearest-neighbour fetch so the output may be larger than the trace resolution (blocky upscale).
     uint2 s = min((uint2)(((float2)id.xy + 0.5) * _Dim.xy / _OutDim.xy), (uint2)_Dim.xy - 1);
 
-    float3 lighting = UltraRTDisplayLighting(_Filtered[s].rgb); // linear transport: back to gamma (UltraRTExposure.hlsl)
+    float3 lighting = UltraRTDisplayLighting(_Filtered[s].rgb * _PlayerFactor[s]); // linear transport: back to gamma (UltraRTExposure.hlsl)
     float3 albedo = _Albedo[s].rgb;
     float3 c;
     switch (_DebugView)

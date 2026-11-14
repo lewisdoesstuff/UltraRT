@@ -28,6 +28,7 @@ Shader "UltraRT/VolumetricsComposite"
             float4 _VolFog;                    // x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
             float4 _VolFogColor;               // rgb the game's fog colour, w 1 = apply fog to RT pixels
             float4 _VolComposite;              // x in-scatter strength, y 1 = auto exposure, z fixed exposure, w debug (1 = S only)
+            float  _VolMaxAdd;                 // the most the haze may add to a pixel (display units; soft); 0 = up to white
             float  _UltraRTFlipY;
 
             struct v2f
@@ -125,9 +126,11 @@ Shader "UltraRT/VolumetricsComposite"
                 if (_VolComposite.w > 0.5) return float4(pow(saturate(s), 1.0 / 2.2), 1.0);
                 float3 lin = pow(saturate(c), 2.2) + s;
                 float3 o = pow(lin, 1.0 / 2.2);
-                // Soft shoulder on what was added: c + h (1 - exp(-delta / h)), h = room left above c.
+                // Soft shoulder on what was added: c + h (1 - exp(-delta / h)), h = room left above c, at most _VolMaxAdd
+                // (docs/volumetrics.md, "Balance": in dark levels big lights and the sun lit 100 m of air into a wall of glow).
                 float3 delta = max(o - c, 0.0);
                 float3 h = max(1.0 - c, 1e-3);
+                if (_VolMaxAdd > 0.0) h = min(h, _VolMaxAdd);
                 o = c + h * (1.0 - exp(-delta / h));
                 return float4(o, 1.0);
             }

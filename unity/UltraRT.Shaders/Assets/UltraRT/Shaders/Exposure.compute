@@ -38,14 +38,30 @@ float4 _Params4; // x dark key (log2): meters between it and the key are left al
 Texture2D<float4> _VolHaze;
 float4 _VolHazeParams;           // x low-res width, y height, z scale (in-scatter strength x meter weight), w 1 = on
 
+// Game match (docs/relight.md, "Game match"): the game's own frame before the RT composite, metered at the same pixels.
+Texture2D<float4> _GameColor;
+float4 _GameMap;  // xy: game uv = 0.5 + (trace uv - 0.5) * xy (the guard band); z: 1 = flip y; 0 = off
+float4 _GameFog;  // x 1 = fog on, y mode (1 linear, 2 exp, 3 exp2), z start (linear) or density, w end
+float4 _Params5;  // x match strength up (RT darker than the game), y down, z dead band (EV), w max game fog factor
+
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
+float GameFogFactor(float d)
+{
+    if (_GameFog.x < 0.5) return 0.0;
+    if (_GameFog.y < 1.5) return saturate((d - _GameFog.z) / max(_GameFog.w - _GameFog.z, 1e-3));
+    float k = _GameFog.z * d;
+    return 1.0 - (_GameFog.y < 2.5 ? exp(-k) : exp(-k * k));
+}
+
 groupshared uint gsBins[BINS];
+groupshared uint gsNear[BINS];
+groupshared uint gsGame[BINS];
 
 [numthreads(16, 16, 1)]
 void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 {
-    if (gi < BINS) gsBins[gi] = 0;
+    if (gi < BINS) { gsBins[gi] = 0; gsNear[gi] = 0; gsGame[gi] = 0; }
     GroupMemoryBarrierWithGroupSync();
 
     uint2 p = id.xy * 2;
@@ -65,17 +81,63 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
         }
         float bin = (log2(max(lum, 1e-8)) - _Range.x) * _Range.y;
         InterlockedAdd(gsBins[(uint)clamp(bin, 0.0, BINS - 1.0)], 1u);
+
+        if (_GameMap.x > 0.0)
+        {
+            float2 uv = 0.5 + (((float2)p + 0.5) / _Dim.xy - 0.5) * _GameMap.xy;
+            if (_GameMap.z > 0.5) uv.y = 1.0 - uv.y;
+            uint gw, gh;
+            _GameColor.GetDimensions(gw, gh);
+            if (all(uv >= 0.0) && all(uv < 1.0) && GameFogFactor(_NormalDepth[p].w) <= _Params5.w)
+            {
+                // Pre-haze RT luminance against the game's colour (its own lighting, display units).
+                float lumRT = Luma(_Albedo[p].rgb * lit * sp.a + sp.rgb);
+                float lumGame = Luma(_GameColor[(uint2)(uv * float2(gw, gh))].rgb);
+                float bn = (log2(max(lumRT, 1e-8)) - _Range.x) * _Range.y;
+                float bg = (log2(max(lumGame, 1e-8)) - _Range.x) * _Range.y;
+                InterlockedAdd(gsNear[(uint)clamp(bn, 0.0, BINS - 1.0)], 1u);
+                InterlockedAdd(gsGame[(uint)clamp(bg, 0.0, BINS - 1.0)], 1u);
+            }
+        }
     }
     GroupMemoryBarrierWithGroupSync();
-    if (gi < BINS && gsBins[gi] != 0u) InterlockedAdd(_Hist[gi], gsBins[gi]);
+    if (gi < BINS)
+    {
+        if (gsBins[gi] != 0u) InterlockedAdd(_Hist[gi], gsBins[gi]);
+        if (gsNear[gi] != 0u) InterlockedAdd(_Hist[BINS + gi], gsNear[gi]);
+        if (gsGame[gi] != 0u) InterlockedAdd(_Hist[2 * BINS + gi], gsGame[gi]);
+    }
+}
+
+// Mean log2 of the [lo, hi] percentile band of one histogram (offset `base` in gsAll).
+groupshared uint gsAll[3 * BINS];
+float BandMean(uint base, float total, out float sumW)
+{
+    float lo = total * _Params1.z, hi = total * _Params1.w;
+    float acc = 0.0, sumLog = 0.0;
+    sumW = 0.0;
+    for (uint k = 0; k < BINS; k++)
+    {
+        float n = (float)gsAll[base + k];
+        float take = clamp(min(acc + n, hi) - max(acc, lo), 0.0, n);
+        sumLog += take * (_Range.x + (k + 0.5) / _Range.y);
+        sumW += take;
+        acc += n;
+    }
+    return sumW > 0.0 ? sumLog / sumW : _Range.x;
 }
 
 [numthreads(BINS, 1, 1)]
 void Adapt(uint gi : SV_GroupIndex)
 {
     gsBins[gi] = _Hist[gi];
+    gsAll[gi] = gsBins[gi];
+    gsAll[BINS + gi] = _Hist[BINS + gi];
+    gsAll[2 * BINS + gi] = _Hist[2 * BINS + gi];
     GroupMemoryBarrierWithGroupSync();
     _Hist[gi] = 0u;
+    _Hist[BINS + gi] = 0u;
+    _Hist[2 * BINS + gi] = 0u;
     if (gi != 0u) return;
 
     float total = 0.0;
@@ -116,7 +178,29 @@ void Adapt(uint gi : SV_GroupIndex)
     // a very dark scene gets readable but stays darker than a lit one.
     float down = _Params0.x - meter, up = _Params4.x - meter;
     float shaped = down < 0.0 ? down : (up > 0.0 ? up * _Params3.x : 0.0);
-    float target = clamp(shaped + _Params2.z, _Params0.y, _Params0.z);
+    float target = shaped + _Params2.z;
+
+    // Game match: the game's brightness at the same (near) pixels against the RT image's, as it will be exposed. Beyond
+    // the dead band, part of the difference moves the target (more strongly up than down: the RT look may stay brighter).
+    float4 matchInfo = _Exposure[2];
+    float corr = 0.0;
+    float nearN = 0.0;
+    for (uint m = 0; m < BINS; m++) nearN += (float)gsAll[BINS + m];
+    if ((_Params5.x > 0.0 || _Params5.y > 0.0) && nearN >= 0.25 * total)
+    {
+        float wN, wG;
+        float rtMean = BandMean(BINS, nearN, wN);
+        float gameMean = BandMean(2 * BINS, nearN, wG);
+        float diff = gameMean - (rtMean + target);
+        float ex = sign(diff) * max(abs(diff) - _Params5.z, 0.0);
+        float rawCorr = ex * (ex > 0.0 ? _Params5.x : _Params5.y);
+        // Smoothed like the meter, so the target doesn't follow single-frame noise.
+        corr = (snap || isnan(matchInfo.z)) ? rawCorr : matchInfo.z + (rawCorr - matchInfo.z) * (1.0 - exp(-dt * max(_Params3.z, 1.0)));
+        matchInfo = float4(gameMean, rtMean, corr, nearN);
+    }
+    else
+        matchInfo = float4(0.0, 0.0, 0.0, nearN);
+    target = clamp(target + corr, _Params0.y, _Params0.z);
 
     float ev = prev.y;
     if (snap)
@@ -134,4 +218,5 @@ void Adapt(uint gi : SV_GroupIndex)
     ev = clamp(ev, _Params0.y, _Params0.z);
     _Exposure[0] = float4(exp2(ev), ev, meanLog, target);
     _Exposure[1] = float4(total, sumW, 1.0, meter);
+    _Exposure[2] = matchInfo;
 }

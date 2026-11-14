@@ -157,7 +157,9 @@ The game's fog still applies to transparents as the game draws them.
 | `-ultrart-vol-distance M` | `maxDistance` | 100 | |
 | `-ultrart-vol-density F` | `densityScale` | 1 | x the fog-derived density |
 | `-ultrart-vol-min-density F` | `minDensity` / `maxDensity` | 0.002 / 0.008 per m | |
-| `-ultrart-vol-strength F` | `strength` | 1 | |
+| `-ultrart-vol-strength F` | `strength` | 0.65 | 1 before the evening balance pass |
+| | `maxAdd` | 0.25 | the most the haze adds to a pixel (soft, display units); 0 = up to white |
+| | `darkFog` | 0.25 | fog colour brightness for full scattering; darker fog scatters less, black none; 0 = off |
 | `-ultrart-vol-g G` | `anisotropy` | 0.4 | |
 | | `tint` | 0.5 | |
 | `-ultrart-vol-lights F` | `lights`, `lightCandidates`, `lightSamples` | 1, 8, 1 | 0 = no point/spot lights; samples (shadow rays) per low-res px |
@@ -280,6 +282,13 @@ door and 0.381 + 0.071 ms at 1-1 start (sun), against 0.328 + 0.071 / 0.330 + 0.
 `20261114-142912_merge-regress`): hybrid, pt-direct and albedo GPU totals unchanged or lower (hybrid 0-1 metal 4.10 vs
 4.44, pt-direct 1.69 vs 1.78, albedo 0.76 vs 0.78; master has other work merged since this branch's base), relight's
 volumetric cost 0.37-0.60 ms (vol + vollate) against 0.24-0.42 ms: about 0.21-0.34 ms at 1080p.
+
+### Balance (2026-11-14 evening)
+User report: "overall still a touch too bright", probably the fog volumetrics in many levels. Measured on the user's poses (`bench/suites/exposure-pm.json`, mean screen luma, game / relight / relight with `vol=0`): the haze added 10-20% in lit outdoor scenes (1-1), 40-50% at night in 1-4 (drift 34 / 54 / 38), and turned dark levels into walls of glow: 7-3 "tree a" 10 / 97 / 14 (a white spot light lighting the air), 4-4 "v2 chair" from black to an orange screen (the sun lighting 100 m of air in front of an unlit area). The split by term (`bench/suites/vol-balance.json`, `vol.sun=0` / `vol.lights=0` / `vol.emissive=0`): local lights in 7-3, 6-2 and 1-4, the sun in 4-4; emissive surfaces negligible.
+
+Changes: `strength` 1 → **0.65**, and a cap on what the haze may add to a pixel: the composite's soft shoulder now saturates at `maxAdd` (0.25, display units) instead of at white, so shafts and halos keep their shape but can't fill the screen. **Dark fog is an absorbing medium** (`darkFog` 0.25): the medium's scattering colour used to fall back to white when the level's fog colour was black, so 7-3's garden, whose game view fades into pitch black, got a bright grey sky from a large white spot light (reported with "7-3 tree a"). The scattering albedo now follows the fog colour's brightest channel, full from 0.25 up: black fog (7-3, 2-1, 2-2, 4-1, 2-3) scatters nothing, 1-4's night blue (0.10) 40%, coloured fogs (1-1, 0-5, 3-1, 6-x, 8-2) as before. Old behaviour: `vol.darkFog=0`. Mean screen luma, game / before (`vol.darkFog=0`) / after, same run (`bench/suites/noise-pm-look.json`): 7-3 tree a 7.1 / 47.2 / **11.5**, 7-3 tree b 16.2 / 44.7 / 31.9, 1-4 drift 34.0 / 48.3 / 43.8, 1-4 lamps 23.4 / 30.9 / 27.9.
+
+The menu entry was renamed (`[Volumetrics] ShaftStrength`): config files keep the default they were first written with, so the old `Strength` key would have pinned 1. Old look: `vol.strength=1+vol.maxAdd=0`.
 
 ### Development notes (for whoever tunes this next)
 - The first version (uniform 4-candidate light picks, area-uniform emissive points, 3x3 clip box, alpha 0.06) boiled
