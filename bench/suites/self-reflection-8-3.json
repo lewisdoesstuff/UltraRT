@@ -1,0 +1,10 @@
+{
+  "Name": "self-reflection-8-3",
+  "_comment": "8-3 Escher Entrance portal mirrors (docs/reflections.md, section 13). 'Secret/Mirror' (-47.4, -37.75, 447.25, faces -x): stand in front of it. The CeilingSegment mirror (y 27.5) hangs about 10 m above the room's floor, so poses near it put V1's body inside the ceiling.",
+  "Scenarios": [
+    { "Name": "8-3 secret mirror", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Position": [-44.0, -38.0, 447.25], "Yaw": 270, "Pitch": -5, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 6 },
+      "Modes": ["off", "hybrid+plugin._compositeDebug=5", "albedo", "hybrid+plugin._playerRays=0", "hybrid", "relight+plugin._playerRays=0", "relight", "relight+plugin._portals=0"], "Screenshots": [2] },
+    { "Name": "8-3 secret mirror angled", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Position": [-43.0, -38.0, 445.5], "Yaw": 290, "Pitch": -10, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 6 },
+      "Modes": ["off", "hybrid", "relight+plugin._playerRays=0", "relight"], "Screenshots": [2] }
+  ]
+}

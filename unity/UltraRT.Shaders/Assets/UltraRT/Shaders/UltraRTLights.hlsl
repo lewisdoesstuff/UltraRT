@@ -85,8 +85,20 @@ bool   LinearLight() { return _SkyLight.x > 0.5; }
 float3 ToLight(float3 g) { return LinearLight() ? pow(max(g, 0.0), 2.2) : g; }
 float3 LightToDisplay(float3 l) { return LinearLight() ? pow(max(l, 0.0), 1.0 / 2.2) : l; }
 
+// Extra instance mask for every shadow ray: ULTRART_MASK_PLAYER where V1's third-person model casts shadows (PathTrace sets
+// it from _UltraRTPlayerRays; the radiance cache keeps 0, so its world-space cells never hold the moving player's shadow).
+// Set by each ray-generation shader, like g_ShadowRng.
+static uint g_ShadowPlayerMask;
+// V1's bounds, padded (SceneProxies.PlayerShadowBox; min > max = none). A light that ends inside them is the player's own
+// (muzzle flashes and other effect lights at the first-person gun, which sits inside the third-person model's arm): the
+// model doesn't shadow it, or every shot would cast the arm's shadow across the room.
+float4 _UltraRTPlayerBoxMin, _UltraRTPlayerBoxMax;
+
 bool VisibleMasked(float3 p, float3 n, float3 dir, float dist, uint mask)
 {
+    float3 e = p + dir * dist;
+    if (g_ShadowPlayerMask != 0u && !(all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz)))
+        mask |= g_ShadowPlayerMask;
     RayDesc r;
     r.Origin = p + n * 0.02;
     r.Direction = dir;

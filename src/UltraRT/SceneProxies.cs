@@ -193,6 +193,7 @@ namespace UltraRT
             OriginalMaterials.Prune();
             var player = MonoSingleton<NewMovement>.Instance;
             _playerPos = player != null ? player.transform.position : (Vector3?)null;
+            FindPlayerModel(); // V1's third-person model: PlayerMask (SceneProxies.Player.cs)
             var batches = new Dictionary<Mesh, List<MeshRenderer>>();
             var stats = new ScanStats();
             // Include inactive objects: ULTRAKILL keeps most enemies and room contents disabled until triggered.
@@ -228,6 +229,7 @@ namespace UltraRT
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}), light fixtures {FixtureCount}");
             LogMaterialClasses();
             LogTransparents();
+            LogMirrorSurfaces();
         }
 
         private void LogMaterialClasses()
@@ -397,8 +399,9 @@ namespace UltraRT
         {
             if (IsProxyClone(r)) return; // our own proxies (and copies of them)
             NoteSky(r);
-            bool portalLayer = IsPortalLayer(r.gameObject.layer); // seen only through portals (SceneProxies.Portals.cs)
-            if (!LayerIncluded(r.gameObject.layer) && !portalLayer) { stats.SkippedLayer++; return; }
+            bool player = IsPlayerModel(r); // V1's third-person model (SceneProxies.Player.cs), on layer 30
+            bool portalLayer = !player && IsPortalLayer(r.gameObject.layer); // seen only through portals (SceneProxies.Portals.cs)
+            if (!LayerIncluded(r.gameObject.layer) && !portalLayer && !player) { stats.SkippedLayer++; return; }
             if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
             var mf = r.GetComponent<MeshFilter>();
             var mesh = mf != null ? mf.sharedMesh : null;
@@ -407,7 +410,7 @@ namespace UltraRT
             bool transparent = TryAddTransparent(r, mesh); // water/glass submeshes: a separate proxy (SceneProxies.Transparent.cs)
             if (!AnyTraceable(mats)) { if (!transparent) stats.SkippedMaterial++; return; }
 
-            if (r.isPartOfStaticBatch && portalLayer) { stats.SkippedLayer++; return; } // merged batches can't carry PortalLayerMask
+            if (r.isPartOfStaticBatch && (portalLayer || player)) { stats.SkippedLayer++; return; } // merged batches can't carry PortalLayerMask
             if (r.isPartOfStaticBatch)
             {
                 // Merged batches can't carry the fixture mask, but the light can still be lifted out (Plugin.cs).
@@ -427,7 +430,8 @@ namespace UltraRT
                 var proxyMats = new Material[mats.Length];
                 for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
                 var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
-                AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, portalLayer ? PortalLayerMask : (uint?)null);
+                AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
+                if (player) NotePlayerProxy(r);
                 stats.Dynamic++;
             }
         }
@@ -436,13 +440,15 @@ namespace UltraRT
         {
             if (IsProxyClone(r)) return;
             if (r.sharedMesh == null) { stats.SkippedMesh++; return; }
-            bool portalLayer = IsPortalLayer(r.gameObject.layer);
-            if (!LayerIncluded(r.gameObject.layer) && !portalLayer) { stats.SkippedLayer++; return; }
+            bool player = IsPlayerModel(r);
+            bool portalLayer = !player && IsPortalLayer(r.gameObject.layer);
+            if (!LayerIncluded(r.gameObject.layer) && !portalLayer && !player) { stats.SkippedLayer++; return; }
             if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
             var mats = r.sharedMaterials;
             if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
             var proxy = CreateSkinnedProxy(r, mats);
-            AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats, portalLayer ? PortalLayerMask : (uint?)null);
+            AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
+            if (player) NotePlayerProxy(r);
             stats.Skinned++;
         }
 
@@ -1072,6 +1078,7 @@ namespace UltraRT
             Rtas?.Dispose();
             Rtas = null;
             DisposePortals();
+            RestorePlayerAnimatorCulling();
             foreach (var go in _proxyObjects) if (go != null) Object.Destroy(go);
             _proxyObjects.Clear();
             Motion.Dispose();

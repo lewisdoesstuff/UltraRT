@@ -2,7 +2,7 @@
 
 Glossy, metal and ULTRAKILL `REFLECTION` surfaces trace one reflection ray per pixel. The result is filtered and then composited in all three paths (`pt`, `pt-dn`, `hybrid`). Rough surfaces trace nothing, so the cost follows how much of the screen is glossy, and specular weights stay low so the flat PSX look survives.
 
-Real mirrors (layer-8 `Portal` objects with `mirror == true`) are **out of scope**; they belong to the portal work. Transparent water and glass have their own pass (section 12).
+Real mirrors (layer-8 `Portal` objects with `mirror == true`) are portals ([portals.md](portals.md)). Transparent water and glass have their own pass (section 12). V1's third-person model shows in reflections, mirrors and shadows, never in the first-person view (section 13).
 
 Files:
 - `src/UltraRT/MaterialClasses.cs`: classification rules, the class table and the JSON overrides.
@@ -26,7 +26,7 @@ Files:
    - Allow-listed names (below) get roughness 0 instead.
    - RS = 0 (most 7-S materials) falls through to the other rules.
 3. **Name allow-list.**
-   - `Mirror`, `FerrymanMirror`, `MirrorTexture`, `GlassReflective`: class `Mirror`, roughness 0. Without the keyword (the two plain-texture fake mirrors) they also get `blend` with strength 0.6, which is a guess; override it if it looks wrong.
+   - `Mirror`, `MirrorTexture`, `GlassReflective`: class `Mirror`, roughness 0. Without the keyword (`MirrorTexture`, a painted fake reflection) they also get `blend` with strength 0.6; the shipped overrides raise `Mirror` to 0.9 and `MirrorTexture` to 0.85 (section 13, "Fake mirrors"). `FerrymanMirror` is not a mirror: it is 5-3's painting of the Ferryman at an easel, and is classified by its surface type like any other texture.
    - Water (`Water 10A`, `Limbo Water …`, `M_7S_Water`, `M_WaterUps`, but not signs like `WaterControl1`): roughness 0. This only reaches opaque water: the transparent water materials are traced by the water/glass pass (section 12).
    - A Master water material without the keyword: `specular`, f0 0.02, weight 1, so it reflects at grazing angles through Fresnel.
 4. **Unlit Master** (no `VERTEX_LIGHTING`, 226 materials: screens, signs, sky props): none.
@@ -152,7 +152,7 @@ At a primary hit, `SpecularTerms(material, albedo, N·V)` gives `specW` (rgb) an
 How the ray is traced:
 - **Direction**: the exact mirror direction when roughness < 0.03. Otherwise a GGX VNDF sample (Heitz 2018, alpha = roughness²). If the sample ends up below the surface, it falls back to the mirror direction.
 - **Estimator**: the radiance along the ray, with no BRDF weight. The composite applies F (split-sum style), and G2/G1 is taken as 1.
-- **Origin and flags**: origin `pos + n·0.02`, back faces culled, mask `0xFF`. Sky walls stop the ray and report sky, as on camera rays.
+- **Origin and flags**: origin `pos + n·0.02`, back faces culled, mask `ULTRART_MASK_SCENE` (0x6F) plus the player model (0x80, section 13). Sky walls stop the ray and report sky, as on camera rays.
 - **Shading at the hit**: `albedo × lerp(1, light + ambient·_BounceAmbient, litWeight) + emission` (`ReflectionHitLight`). Emission is counted in full, because emissive light sampling only covers the diffuse lobe. `light` comes from the radiance cache ([radiance-cache.md](radiance-cache.md)) where it can:
   - **Footprint ≥ 0.35 cell** (`-ultrart-refl-cache auto`, default): the cell's total lighting. No shadow ray, no light-selection speckle, multi-bounce light. Footprint = `hitDist·2·roughness² + (t + hitDist)·pixelAngle`, so rough metals and distant hits use the cache.
   - **Smaller footprint** (mirrors, sharp gloss, near hits): `DirectOne` (one shadow ray, sharp shadows in the reflection) plus the cell's indirect light.
@@ -351,8 +351,8 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 ### Pipeline
 
 1. **Classification** (`TransparentSurfaces.cs`, `TransparentClassifier.Of`): Master + `TRANSPARENCY` + `_BlendMode` 2, not DISTANCE_FADE/LIMBO_WALLS/ENEMY, not excluded names; water = `Water`/`Sea` name with SurfaceType Wet (or plain `Water`), glass = `*Glass*` or `Ice*`. `Traceable` now rejects these, so they never enter the opaque scene.
-2. **Proxies** (`SceneProxies.Transparent.cs`): a second dynamic proxy per renderer with only its water/glass submeshes, instance mask `TransparentMask` 0x10, material class Wet (water) or Glass, roughness 0. Static-batched transparents are skipped (none in the survey). Every other ray now uses `ULTRART_MASK_SCENE` (0xEF), so water and glass still neither block light nor appear in the G-buffer. Emissive-light collection skips them.
-3. **Trace** (`PathTrace.raytrace`, `TraceTransparent`, at the end of `RayGen`): in hybrid and denoised modes, only while a transparent instance is active (`_TransParams.y`), the primary pixel also traces a ray with mask 0x10 and `TMax` = the opaque hit. At the water/glass hit it traces one mirror reflection ray (`TraceReflection`, mask 0xEF) about the rippled normal, shaded from the radiance cache (`cacheSpread` forces the cache path: no shadow-ray noise, since there is no temporal filter here). It writes `_Output` = (radiance, distance to the surface; < 0 none) instead of the composited colour, which those modes never read. So there is no new UAV, no new binding and no second `DispatchRays`. A first version used a second ray generation shader; its dispatch rebuilt the shader table and cost +0.2–0.3 ms of frame time beyond the GPU-timed work. Nothing is traced while the camera is inside a water renderer's bounds (see the overlay).
+2. **Proxies** (`SceneProxies.Transparent.cs`): a second dynamic proxy per renderer with only its water/glass submeshes, instance mask `TransparentMask` 0x10, material class Wet (water) or Glass, roughness 0. Static-batched transparents are skipped (none in the survey). Every other ray now uses `ULTRART_MASK_SCENE` (0xEF, now 0x6F: section 13), so water and glass still neither block light nor appear in the G-buffer. Emissive-light collection skips them.
+3. **Trace** (`PathTrace.raytrace`, `TraceTransparent`, at the end of `RayGen`): in hybrid and denoised modes, only while a transparent instance is active (`_TransParams.y`), the primary pixel also traces a ray with mask 0x10 and `TMax` = the opaque hit. At the water/glass hit it traces one mirror reflection ray (`TraceReflection`, the reflection ray's mask) about the rippled normal, shaded from the radiance cache (`cacheSpread` forces the cache path: no shadow-ray noise, since there is no temporal filter here). It writes `_Output` = (radiance, distance to the surface; < 0 none) instead of the composited colour, which those modes never read. So there is no new UAV, no new binding and no second `DispatchRays`. A first version used a second ray generation shader; its dispatch rebuilt the shader table and cost +0.2–0.3 ms of frame time beyond the GPU-timed work. Nothing is traced while the camera is inside a water renderer's bounds (see the overlay).
 4. **Ripples** (`UltraRTWater.hlsl`): four directional sines in the surface plane, deep-water dispersion (slowed), slope scale `-ultrart-water-waves`, fading out by 60 m. The same function runs in the ray generation shader and in the overlay, so reflection direction and Fresnel agree.
 5. **Overlay** (`TransparentOverlay.shader`, `TransparentOverlays`): appended as an extra material to each water/glass renderer (Unity draws the last submesh again with it), with the source material's render queue, so it draws right after the game's surface and before any particle in front of it. This is why it is not a camera command buffer: at `AfterForwardAlpha` everything transparent is already drawn (and PostProcessV2_Handler strips that event's buffers on reinit). Three passes, `ZTest LEqual`, no depth writes:
    - `RefractAdd`/`RefractSub` (water): screen-space refraction. The game produced `W a + B (1 - a)`; the overlay adds `(1 - a)(B(uv') - B(uv))` (signed, hence two blended passes), where `B` = `_UltraRTPreAlpha` (a copy of the colour target taken right after the RT composite, before transparents) and `uv'` follows the rippled refraction offset scaled by the depth below the surface (`_UltraRTGameDepth`). Offsets that land on something in front of the water are rejected. `a` is estimated from the source's texture alpha × `_Color.a` × `_Opacity`.
@@ -396,3 +396,76 @@ So about +0.02–0.1 ms where water or glass is on screen, plus 0.01 ms for the 
 - **Total internal reflection, caustics, glass thickness, frosted glass**: not done. Glass is a single mirror-Fresnel surface with no refraction.
 - **Relight tone mapping** is replicated in the overlay (`Tonemap`, from `Denoise.compute`). If the exposure/tone-mapping work changes that curve, update both.
 - Water/glass are now invisible to shadow, bounce, reflection and cache rays (mask 0xEF). Before, they were absent from the RTAS, except the two queue-2999 glass materials, which were traced as opaque cutouts and cast RT shadows. Those no longer do.
+
+## 13. The player in reflections, and fake mirrors
+
+ULTRAKILL's player prefab carries a full third-person V1: `Player/GroundCheck/v1_combined` (`PlayerAnimations`, an `Animator`), with the skinned body `v1_mdl` and one third-person copy of every weapon on the right forearm (`StandardRevolver_NewArm/Revolver_Body`, `ShotgunNewAnims/Shotgun_New`, ...; `PlayerAnimations.UpdateWeapon` activates the current one). All of it is on layer 30, which only portal views draw: that is how V1 shows in 8-x's portal mirrors. The first-person viewmodel (arms and guns under `Main Camera`, layer 13) is a separate set of renderers and is never traced.
+
+Files: `src/UltraRT/SceneProxies.Player.cs` (finding the model, mask, animator, shadow box), `SceneProxies.cs` (registration), `Plugin.cs` (settings and globals), `UltraRTCommon.hlsl`, `UltraRTPortals.hlsl` (`PlayerRayMask`, `TraceScene`), `UltraRTLights.hlsl` (`VisibleMasked`), `PathTrace.raytrace`, `CacheUpdate.raytrace`.
+
+### Instance mask 0x80
+
+Every renderer under `PlayerAnimations` (except layer 13) gets a normal dynamic proxy (skinned or rigid; the skinned ones share the bones and follow the root bone, docs/scene-proxies.md "Skinned meshes") with instance mask `SceneProxies.PlayerMask` = **0x80**, the last free bit (0x01 geometry, 0x02 sky walls, 0x04 fixtures, 0x08 emitters, 0x10 water/glass, 0x20 portals, 0x40 layer-30 props). `ULTRART_MASK_SCENE` dropped it (0xEF → **0x6F**), so no ray sees V1 unless it adds the bit:
+
+| Ray | Sees V1 | Why |
+|---|---|---|
+| Camera (primary) rays, all modes and debug views | **never** before a portal hop | the camera sits inside V1's head and the third-person gun arm reaches in front of it (`v1_mdl`'s bounds contain the camera) |
+| Camera rays after a hop through a portal with `canSeePortalLayer` | yes (bit 8) | what the game's portal views draw: 8-x mirrors |
+| Reflection rays (incl. the water/glass pass) | yes (bit 1) | the point of the feature |
+| Bounce rays (PathTrace) | yes (bit 2) | V1 occludes and reflects bounce light near the player |
+| Shadow rays (PathTrace: direct light, sky, emissive, reflection hits) | yes (bit 4) | V1 casts a shadow, as in Quake II RTX |
+| Radiance cache rays and shadow rays (CacheUpdate) | no | the cache is world-space and temporally accumulated: a moving player would leave stale shadows in it |
+| Volumetrics shadow rays | no | they march from the camera, i.e. from inside the model, and don't cull back faces |
+| Water/glass pass (mask 0x10) | no | |
+
+The bits are Plugin's `_playerRays` (default 15 = all four), uploaded every frame as the global `_UltraRTPlayerRays`: `-ultrart-player-rays N`, bench `plugin._playerRays=N` (0 = V1 nowhere, the A/B baseline). `-ultrart-noplayer` leaves the model out of the RTAS altogether (read at scene build; layer-30 renderers then fall back to the portal-layer mask as before). In `TraceScene`, a ray that crosses a portal keeps V1 only if that portal can see layer 30, like layer-30 props; a camera ray gains it there.
+
+**Self-occlusion.** Rays never start at the camera except camera rays, which exclude V1. Shadow, bounce and reflection rays start at surfaces and cull back faces, so a ray that starts inside the model passes out through it. The one real trap is the player's own lights: muzzle flashes and other effect lights sit at the first-person gun, which is inside the third-person arm and gun. A shadow ray toward such a light would be blocked by V1's arm and cast its shadow across the room with every shot. So `VisibleMasked` adds the player bit only when the ray's end point (the light) lies outside `_UltraRTPlayerBoxMin/Max`: a 2 m box around the camera, grown to hold the active third-person weapon's bounds plus 0.3 m (`SceneProxies.PlayerShadowBox`; the body is left out, its bounds are about 2.4 x 3.9 x 3.1 m with the wings and would exempt every nearby light). Measured with the bench's revolver effect in 1-1's terminal room (`1-1 terminal shots`): the image with V1 differs from `_playerRays=0` only by V1's body shadow on the far wall and noise, no gun shadow.
+
+### Animation
+
+`PlayerAnimations.LateUpdate` drives the model from `NewMovement` (velocity, sliding, dodging, in air, jump/land, shoot/punch/coin triggers) and turns the head, chest and right arm to the camera every frame. The Animator ships with `cullingMode = CullUpdateTransforms`; its renderers are on layer 30, which the main camera never draws, and our proxies never render, so outside portal views Unity could stop updating the bones. `SceneProxies.PlayerAlwaysAnimate` sets `AlwaysAnimate` while the RT scene exists and restores the original on dispose (`-ultrart-player-noanimate` skips it). The 600-frame log line `Player model: ...` reports the proxies in the RTAS, the animator's culling mode, state and normalized time (it advances: 22.4 → 26.0 → 32.6 over successive logs in one level), and where the root bone and bounds are relative to the camera. The RT pose is the skinned pose (`DynamicGeometry` re-reads it every build) and the instance follows the root bone.
+
+Not verified: running, sliding and dodging poses. The benchmark takes the player over (kinematic rigidbody, zero velocity), so every bench shot shows the idle pose with wings spread and the head and gun arm following the camera (which they do: the mirror image looks where the camera looks). A recording replays the camera path the same way. Checking locomotion needs real play in front of a mirror.
+
+### Fake mirrors
+
+Survey (UnityPy over `materials.bundle` and every scene and prefab bundle, renderers by material):
+
+| Material | Where | What it is | Now |
+|---|---|---|---|
+| `Mirror` (Master, REFLECTION blend 0.35, generic cubemap, no texture, white) | 1-4, `3TR - Shelf Room/3TR Nonstuff/Table/Cube`: a vanity mirror on the bedroom's dressing table (bounds centre (10.0, 2.9, 502.0), 1.6 x 2.8 m, faces +x), behind the game's crack-shard mesh | the "shiny glass" fake mirror | class Mirror, roughness 0, blend **0.9** (`ultrart-materials.json`), V1 visible |
+| `MirrorTexture` (plain texture of a painted reflection) | credits museum bathroom sinks (`bathroom Portal`, 6 renderers), `gameprefabs` | painted fake mirror | blend **0.85** |
+| `GlassReflective` (REFLECTION additive 0.5) | 8-1 rooftop glass walls | reflective glass | unchanged (roughness 0, additive) |
+| `FerrymanMirror` | 5-3 paintings (`Painting`, `PaintingBig`) | **not a mirror**: a painting of the Ferryman at an easel | removed from the mirror allow-list: classified by its surface type like any texture (it used to be 60 % replaced by a reflection) |
+
+All real mirrors are portals, only in 8-1 to 8-4 (see [portals.md](portals.md)). The build logs every mirror- or terminal-named surface (`Mirror surface '<path>' material ... bounds ... forward ...`).
+
+### Validation
+
+`bench/suites/self-reflection.json` (every pose A/B `plugin._playerRays=0` vs default), `self-reflection-8-3.json` (8-3 portal mirror, with the portal-depth overlay and `_portals=0`), `self-reflection-cost.json` (cost per ray kind). RTX 5070 Ti, 2560x1440, trace scale 0.5, GPU timer; results in `bench/results/20261114-125107_self-reflection`, `20261114-131836_self-reflection-8-3`, `20261114-131024_self-reflection-cost` (not committed).
+
+**First person.** No V1 part shows in any first-person view. The `albedo` debug view (pure camera rays) looking straight down at 1-1's fountain has no legs, gun arm or wings; relight and hybrid show only V1's shadow on the fountain rim.
+
+**What it looks like** (`20261114-125107_self-reflection`):
+- 1-1 terminal room (`1-1 terminal`, `1-1 terminal head-on`): relight casts V1's shadow (head, body, spread wings) on the wall next to the terminal, from the room's ceiling lights; hybrid shows it faintly through the shadow ratio. The terminal screen reflects V1: clearly in `refl-raw` (dark body, yellow wings), faintly in the final image because the CRT glass override reflects about 10 % head-on. Up close, the shop's UI canvas is drawn over the screen anyway.
+- 1-4 vanity mirror (`1-4 mirror`, `1-4 mirror far`): in relight and pt-dn, V1's yellow wings and blue body show in the mirror behind the game's crack-shard mesh; with `_playerRays=0` they don't. In hybrid the mirror shows the RT reflection of the unlit night bedroom: dark, with 1-spp sparkle (mirrors skip the spatial filter), in both A/B variants. At the game's 0.35 cube blend this was hidden; at 0.9 it is visible. The relight look is the intended one.
+- 1-1 fountain, 0-1 metal room: V1's shadow where a light is behind the player; no change in the reflections at these poses (grazing views of floors and water reflect what is ahead, not the player).
+
+**GPU cost** (RTX 5070 Ti, 2560x1440, trace scale 0.5, GPU timer; total ms, `_playerRays=0` → 15, same pass):
+
+| Pose | hybrid | relight |
+|---|---|---|
+| 1-1 terminal (glancing) | 3.904 → 3.983 (+0.08) | 4.390 → 4.532 (+0.14) |
+| 1-1 terminal head-on | 3.996 → 4.133 (+0.14) | 4.404 → 4.558 (+0.15) |
+| 1-1 look down | 3.750 → 3.765 (+0.02) | 4.424 → 4.432 (+0.01) |
+| 1-1 fountain top | 3.205 → 3.213 (+0.01) | 3.877 → 3.884 (+0.01) |
+| 0-1 metal | 4.233 → 4.249 (+0.02) | 4.340 → 4.397 (+0.06) |
+| 1-4 mirror | 3.111 → 3.119 (+0.01) | 3.784 → 3.861 (+0.08) |
+| 8-3 mirror (Escher Entrance) | 4.366 → 4.512 (+0.15) | 4.818 → 4.973 (+0.16) |
+
+All of it is in the dispatch: the BLAS was already built every frame (V1 was in the RTAS before, as a layer-30 prop that only portal hops saw), so the cost is traversal of V1's instance by the rays that now include it, mostly shadow rays toward lights behind the player in lit rooms. Plugin CPU is unchanged (3 extra instances out of 25 player renderers are active: body, revolver, cylinder). Per ray kind (`self-reflection-cost.json`, terminal head-on, relight, dispatch ms, one pass): none 2.822, reflection rays only 2.906 (+0.08), bounce only 2.859 (+0.04), shadow only 2.861 (+0.04), all 2.985 (+0.16). The room's walls are glossy metal (MetalThin), so most pixels trace a reflection ray, and many of those pass V1. `-ultrart-player-rays 1` (reflections and portal views only, no shadow or bounce) is the cheap setting. `merge-regress` matches master's images.
+
+**8-x portal mirrors.** Best pose: `8-3 secret mirror` in `self-reflection-8-3.json`, in front of the Escher Entrance's `Secret/Mirror` (a bathroom, reached through the TV portal). The game's own mirror view there shows the whole V1. The other mirror, `CeilingSegment/Mirror`, hangs about 10 m above the room's floor, so a pose in front of it (`8-3 mirror` in `self-reflection.json`, portals.json's pose) puts half of V1 inside the ceiling geometry; don't judge V1 there.
+- **hybrid**: V1 shows in the mirror, because hybrid keeps the game's portal view at portal pixels.
+- **relight / pt-dn**: on 2026-11-14 afternoon the RT did **not hit portal quads at all**, at either mirror or the false-start doorway: `compdebug 5` had no portal pixels, `albedo` showed the wall through the mirror frame, `_portals=0` gave identical images. This is not from this branch: master's build behaved the same, and the portals branch's own build (8789ea2, which showed the CeilingSegment mirror solid green in `compdebug 5` at 08:25 at 1920x1080) missed it at the identical pose at 13:48 (2560x1440; the only difference in the bench headers is the resolution). A 2 cm (and 0.3 m) offset of the mirror quad toward the viewer changed nothing, so it isn't a coplanar wall. Cause not found; until it is, relight/pt-dn show the wall where 8-x mirrors are, with or without V1. The mask logic for that case is in place: past a hop through a portal with `canSeePortalLayer`, camera rays add 0x80 (bit 8).

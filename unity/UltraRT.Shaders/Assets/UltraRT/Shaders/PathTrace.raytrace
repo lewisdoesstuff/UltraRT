@@ -171,7 +171,8 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
     r.TMax = 1.0e4;
     RayPayload h;
     float travelled;
-    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, r, h, travelled); // r: the last segment after portals
+    // V1's third-person model shows in reflections (camera rays never see it).
+    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_REFLECTION), r, h, travelled); // r: the last segment after portals
     float3 c;
     if (h.t < 0.0)
     {
@@ -240,6 +241,7 @@ void RayGen()
     uint2 dim = DispatchRaysDimensions().xy;
     uint rng = (id.x * 1973u + id.y * 9277u + _FrameIndex * 26699u) | 1u;
     g_ShadowRng = HashU32(rng);
+    g_ShadowPlayerMask = PlayerRayMask(ULTRART_PLAYER_SHADOW); // V1 casts shadows (docs/reflections.md, "The player in reflections")
 
     // Jitter within the pixel only while accumulating, so a single frame stays stable.
     float2 jitter = _AccumFrames > 0 ? float2(Rand(rng), Rand(rng)) : float2(0.5, 0.5);
@@ -319,7 +321,7 @@ void RayGen()
             b.TMax = 1.0e4;
             RayPayload h;
             float travelled;
-            TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, b, h, travelled); // b: the last segment after portals
+            TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_BOUNCE), b, h, travelled); // b: the last segment after portals
             if (h.t < 0.0)
             {
                 indirect = SkyLightRadiance(b.Direction) * SkyMissWeight(n, b.Direction); // MIS with SkyDirect below

@@ -30,10 +30,14 @@ struct RayPayload
 #define ULTRART_PAYLOAD_WANT_MOTION 0x40000000u // PathTrace's primary ray: return the hit's motion in p.motion
 
 // RTAS instance masks (SceneProxies.cs): 0x01 geometry, 0x02 sky walls, 0x04 light fixtures, 0x08 glowing fixtures,
-// 0x10 transparent water and glass. Transparent surfaces are seen only by the transparent pass (PathTrace.raytrace,
-// TransparentGen; docs/reflections.md "Water and glass"): every other ray uses ULTRART_MASK_SCENE and passes through them.
-#define ULTRART_MASK_SCENE       0xEFu
+// 0x10 transparent water and glass, 0x20 portal quads, 0x40 layer-30 props, 0x80 V1's third-person model.
+// Transparent surfaces are seen only by the transparent pass (PathTrace.raytrace, TransparentGen; docs/reflections.md
+// "Water and glass"): every other ray uses ULTRART_MASK_SCENE and passes through them. The player model is not in
+// ULTRART_MASK_SCENE either: camera rays never see it (the camera sits in its head); reflection, bounce and shadow rays
+// add it per _UltraRTPlayerRays (UltraRTPortals.hlsl, PlayerRayMask; docs/reflections.md "The player in reflections").
+#define ULTRART_MASK_SCENE       0x6Fu
 #define ULTRART_MASK_TRANSPARENT 0x10u
+#define ULTRART_MASK_PLAYER      0x80u
 
 uint2 PackEmissionHalf(float3 e)
 {
