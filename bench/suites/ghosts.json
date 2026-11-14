@@ -13,11 +13,13 @@
                                    },
                           "Modes":  [
                                         "relight",
-                                        "albedo"
+                                        "albedo",
+                                        "off"
                                     ],
                           "Segment":  2.5,
                           "Screenshots":  [
-                                              3,
+                                              2,
+                                              5,
                                               8
                                           ]
                       }
