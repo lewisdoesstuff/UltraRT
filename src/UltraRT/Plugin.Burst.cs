@@ -57,6 +57,7 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("ae", _aeSettings);
             if (_denoiser != null) yield return new KeyValuePair<string, object>("dn", _denoiser.Settings);
             if (_upsampler != null) yield return new KeyValuePair<string, object>("up", _upsampler.Settings);
+            yield return new KeyValuePair<string, object>("vol", _volSettings);
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>
@@ -68,6 +69,7 @@ namespace UltraRT
             _denoiserDirect?.Reset();
             _lightSampling?.Reset();
             _reflFilter?.Reset();
+            _volumetrics?.Reset();
             _autoExposure?.Reset(); // snap to the variant's exposure (same base mode: no automatic snap)
         }
 
@@ -98,6 +100,7 @@ namespace UltraRT
                     case "emissive": _emissiveSettings.enabled = on; break;
                     case "relight": _relightForce = on; break;
                     case "taau": if (_upsampler != null) _upsampler.Settings.enabled = on; break;
+                    case "vol": _volSettings.enabled = on; break;
                     case "preset":
                     {
                         // Ctrl+F3's presets: full | previous | legacy (also switches the guard band like the hotkey).

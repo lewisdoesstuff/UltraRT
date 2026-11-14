@@ -1,0 +1,145 @@
+{
+  "Name": "volumetrics-noise",
+  "Scenarios": [
+    {
+      "Name": "1-1 cerberus",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-cerberus.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.debugView=1"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight"
+      ]
+    },
+    {
+      "Name": "1-1 torch hall",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-torch-hall.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.debugView=1"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight"
+      ]
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.debugView=1"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight"
+      ]
+    },
+    {
+      "Name": "1-4 drift",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.debugView=2"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight"
+      ]
+    },
+    {
+      "Name": "4-1 indoor A",
+      "Scene": "Level 4-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/4-1-approach-a.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.debugView=1"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight"
+      ]
+    },
+    {
+      "Name": "0-5 lava",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-approach.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.debugView=2"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight"
+      ]
+    }
+  ]
+}
