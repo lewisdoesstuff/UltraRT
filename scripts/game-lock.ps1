@@ -1,7 +1,8 @@
 # Serialises use of the ULTRAKILL installs between agents (and the user): a FIFO queue in front of two slots.
 #   .\scripts\game-lock.ps1 acquire <owner> [-Kind perf|visual] [-Slot main|alt|any] [-TimeoutMin N]
 #   .\scripts\game-lock.ps1 release <owner>    stops your resident game, restores main's build (cached copy) and frees the slot(s)
-#   .\scripts\game-lock.ps1 status             first line: 'free' or 'locked by <owner> since <time>' (main slot), then details
+#   .\scripts\game-lock.ps1 status [-Watch]    first line: 'free' or 'locked by <owner> since <time>' (main slot), then a
+#                                              slot table (holder, kind, how long, game running there), the queue, recent releases
 #   .\scripts\game-lock.ps1 slot <owner>       prints the slot you hold (main or alt)
 #   .\scripts\game-lock.ps1 cancel <owner>     leaves the queue
 #   .\scripts\game-lock.ps1 cache              rebuilds the cached main build if master's HEAD changed (acquire starts this for you)
@@ -28,7 +29,9 @@ param(
     [int] $PollSec = 2,
     # A lock whose file and 'since' are both older than this, with no game running in its slot, is taken over.
     [int] $HoldMaxMin = 60,
-    [switch] $NoRestore
+    [switch] $NoRestore,
+    # status only: redraw every PollSec seconds until Ctrl+C.
+    [switch] $Watch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -209,27 +212,56 @@ function Restore-Main($procs, $slots) {
 
 switch ($Action) {
     'status' {
-        $procs = Get-GameProcs
-        $mh = Get-Hold 'main' $procs
-        if ($mh) { "locked by $($mh.owner) since $($mh.since)" } else { 'free' }
-        if ($procs.Count -gt 0) { 'ULTRAKILL is running' }
-        if ($altInstalled) {
-            $ah = Get-Hold 'alt' $procs
-            if ($ah) { "slot alt: held by $($ah.owner) since $($ah.since) ($($ah.kind))" } else { 'slot alt: idle' }
-        } else { 'slot alt: not installed' }
-        $user = Get-UserGame $procs
-        if ($user.Count -gt 0) { "user game: playing (pid $($user[0].Pid)); nothing can start" }
-        $tickets = @(Get-Tickets)
-        if ($tickets.Count -gt 0) {
-            $med = Get-MedianHoldSec
-            "queue: $($tickets.Count) waiting"
-            $n = 0
-            foreach ($t in $tickets) {
-                $n++
-                $waited = [int] ((Get-Date) - [datetime] $t.since).TotalMinutes
-                "  $n. $($t.owner) ($($t.kind) $($t.slot), waiting $waited min, est. ~$([int] [math]::Ceiling($n * $med / 60)) min)"
+        do {
+            $procs = Get-GameProcs
+            $now = Get-Date
+            function Ago($t) { try { $m = ($now - [datetime] $t).TotalMinutes } catch { return '?' }; if ($m -lt 1) { '<1m' } elseif ($m -lt 60) { '{0}m' -f [int] [math]::Floor($m) } else { '{0}h{1:00}m' -f [int] [math]::Floor($m / 60), [int] ($m % 60) } }
+            function Clock($t) { try { ([datetime] $t).ToString('HH:mm') } catch { '?' } }
+            $out = @()
+            # Line 1 keeps its old contract ('free' / 'locked by <owner> since <time>'); scripts and the self-test read it.
+            $mh = Get-Hold 'main' $procs
+            $out += if ($mh) { "locked by $($mh.owner) since $($mh.since)" } else { 'free' }
+            $out += ''
+            $out += '{0,-5} {1,-16} {2,-7} {3,-18} {4}' -f 'SLOT', 'HELD BY', 'KIND', 'FOR', 'GAME'
+            foreach ($s in @('main', 'alt')) {
+                if ($s -eq 'alt' -and -not $altInstalled) { $out += '{0,-5} {1}' -f 'alt', '(not installed)'; continue }
+                $h = Get-Hold $s $procs
+                $sp = @(Get-SlotProcs $procs $s)
+                $game = if ($sp.Count -eq 0) { '-' } else {
+                    ($sp | ForEach-Object {
+                        $up = try { Ago (Get-Process -Id $_.Pid -ErrorAction Stop).StartTime } catch { '?' }
+                        '{0} pid {1}, up {2}' -f $(if ($_.Agent) { 'agent' } else { 'USER' }), $_.Pid, $up }) -join '; ' }
+                if ($h) {
+                    $who = if ($h.via) { "$($h.owner) (reserved)" } else { $h.owner }
+                    $out += '{0,-5} {1,-16} {2,-7} {3,-18} {4}' -f $s, $who, $h.kind, ('{0} (since {1})' -f (Ago $h.since), (Clock $h.since)), $game
+                } else { $out += '{0,-5} {1,-16} {2,-7} {3,-18} {4}' -f $s, 'free', '', '', $game }
             }
-        }
+            $user = Get-UserGame $procs
+            if ($user.Count -gt 0) { $out += ''; $out += "The user is playing (pid $($user[0].Pid)): nothing new starts until that game closes." }
+            $tickets = @(Get-Tickets)
+            $out += ''
+            if ($tickets.Count -eq 0) { $out += 'queue: empty' }
+            else {
+                $med = Get-MedianHoldSec
+                $out += "queue: $($tickets.Count) waiting (typical hold ~$([int] [math]::Ceiling($med / 60)) min)"
+                $n = 0
+                foreach ($t in $tickets) {
+                    $n++
+                    $out += '  {0}. {1,-16} {2,-6} {3,-4} waiting {4,-6} est. start ~{5} min' -f $n, $t.owner, $t.kind, $t.slot, (Ago $t.since), [int] [math]::Ceiling($n * $med / 60)
+                }
+            }
+            if (Test-Path $history) {
+                $recent = @(Import-Csv $history | Select-Object -Last 3)
+                if ($recent.Count -gt 0) {
+                    $out += ''
+                    $out += 'recent releases:'
+                    foreach ($r in $recent) { $out += '  {0}  {1,-16} {2,-6} {3,-4} held {4,4:N1} min, waited {5,4:N1} min' -f (Clock $r.end), $r.owner, $r.kind, $r.slot, ([double] $r.hold_s / 60), ([double] $r.waited_s / 60) }
+                }
+            }
+            if ($Watch) { Clear-Host; "game lock - $($now.ToString('HH:mm:ss')) (refreshes every ${PollSec}s, Ctrl+C to stop)"; '' }
+            $out
+            if ($Watch) { Start-Sleep -Seconds $PollSec }
+        } while ($Watch)
     }
     'slot' {
         $procs = @()
