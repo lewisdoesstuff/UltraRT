@@ -164,3 +164,156 @@ Brute force over every emissive triangle is not feasible. In Reference mode, eac
 8. Teardown, if the plugin ever disposes its buffers: `_emissive.Dispose();`.
 
 `-ultrart-ccw` needs no extra wiring: the triangle flags read `SceneProxies.FrontCounterClockwise` directly.
+
+# Effect lights (spawned lights, virtual lights, flame flicker)
+
+Files:
+- `src/UltraRT/EffectLights.cs`: everything below.
+- `EffectSpawns.cs`: the Instantiate hook.
+- `Plugin.Effects.cs`: wiring and flags. Plugin.cs only calls `UpdateEffects()` from `OnUpdate` and `AppendEffectLights()` at the end of `GatherLights`.
+- `EffectSurvey.cs`: the diagnostic survey.
+- `Bench/EffectSpawner.cs`: bench effects.
+- Shader side: `_Lights[i*4+3].w` and `g_DirectAdditive` in `UltraRTLights.hlsl`, plus one line in `PathTrace.raytrace`.
+- `LightSampling.VirtualIds` gives light-less entries a stable id.
+
+## Survey (2026-11-14)
+
+Run with `-ultrart-effectsurvey` over the effects suite: 1-1 torch hall, the 0-2 run with live enemies and revolver fire, 0-5, 4-1 and 8-3.
+
+**Almost every combat effect already ships a Light** (point lights; intensity / range):
+
+| Effect | Intensity | Range | Notes |
+|---|---|---|---|
+| Explosion, Explosion Big | 60 | 10 | the light grows and fades in `Explosion.Update` |
+| Revolver Beam | 20 | 5 | fades at 100 per second (`RevolverBeam.Update`) |
+| Enemy muzzle Flash | 20 | 3 | |
+| Projectile (enemy orbs) | 5 | 10 | |
+| LaserHitParticle | 10 | 10 | |
+| Fire (`FireObjectPool`) | 5 | 10 | |
+| Player: PunchZone / ChargeEffect / railcannon FullCharge / nailgun barrels | 20 / 20 / 50 / 10 | 10 / 5 / 2 / 5 | |
+| CheckpointActivate | 10 | 25 | |
+
+**The problem was timing, not missing lights.** `GatherLights` scans `FindObjectsOfType<Light>` once a second. Of the spawned lights that switched on during the survey:
+
+| Lifetime | Lights |
+|---|---|
+| under 0.1 s | 175 |
+| 0.1 to 0.25 s | 223 |
+| 0.25 to 0.5 s | 15 |
+| 0.5 to 1 s | 61 |
+| 1 to 2 s | 9 |
+| 2 s or more | 7 |
+
+About 95% died within a second, so most were gone before a scan came round. Lights that a scan did catch appeared up to a second late. As a result, muzzle flashes, beam lights and most explosions practically never lit anything in RT.
+
+**Fires are pooled.** `FireObjectPool` instantiates 100 `Fire` objects (with a light) and 100 `FireSimple` objects (flame sprite only) at level load. After that it only calls `SetActive` on them, and `Flammable.Burn` enables the Fire's Light. Nothing is instantiated when something catches fire.
+
+**Game lights don't flicker.** During the whole survey, only one light changed intensity: 1-1's FerryLamp (`Flicker`). Torch "Fire" lights are constant in the game. What flickers is the flame sprite.
+
+**Glowing effects without a light are few.** Additive renderers with no light:
+- FireSimple flame sprites and decorative torch flames;
+- `FlameStreetcleaner` particles (4-1, 8-3) and sparks;
+- additive enemy motion trails (`DiveTrail`, material "Additive"): 66 in 1-1, 102 in 0-2;
+- LightPillar light-shaft meshes and lava overlays;
+- dust and smoke puffs drawn additively (`Smoke` on ULTRAKILL/Master: `DustBig`, `ImpactParticle`, `GasParticle`), and the checkpoint hologram quad.
+
+## 1. Spawned and pooled lights
+
+This is the change that matters most.
+
+`EffectSpawns` adds a postfix to the non-generic `Object.Instantiate` overloads. Every generic overload that takes a position or a parent calls one of them. The single-argument generic overload goes straight to native code and is not seen. The postfix only appends the clone to a list.
+
+`EffectLights.ProcessSpawns` drains that list twice per frame: in `OnUpdate`, and again at the start of `AppendEffectLights`. Clones made by coroutines or late updates are therefore packed in the same frame's trace.
+
+Every Light in a clone is **tracked until it is destroyed**, so pooled fires are found when the pool reactivates them. Each frame, a tracked light that is on but not in the current scan snapshot is packed exactly as `GatherLights` packs point and spot lights:
+- Lights that were on last frame are checked every frame. Lights that were off are checked every 4th frame, so a pooled fire is seen within 4 frames of switching on.
+- When the 1 s scan replaces the snapshot array, tracked lights in it are flagged and left to `GatherLights`, so nothing is packed twice.
+- Intensity, colour, range and position are read every frame, so the lights follow the explosion's growth and fade and the beam's fade.
+
+ReSTIR keeps working across the handover. Its light remap is by `Light.GetInstanceID()`, so a light moving from the appended section into the scanned section keeps its reservoirs. A new light sets `LightSetChanged`, which caps history M at `candidates` for that frame (`shortenHistoryOnLightChange`). A muzzle flash therefore shows on its first frame, not after up to 20 frames of history.
+
+## 2. Virtual lights
+
+**Which emitters.** Scene renderers are collected once per RT scene build, with one `FindObjectsOfType<Renderer>(true)` (9 to 36 ms). Renderers of spawned clones are added as they spawn. An emitter qualifies when:
+- it is a **sprite or a particle system**;
+- its material blends additively (`_DstBlend == One`, or "Additive" in the shader name) in the transparent queue;
+- neither its material nor its texture name contains `smoke dust gas fog cloud mist steam checkpoint water splash glass shockwave hole lava pillar`.
+
+Trails, lines and meshes are off by default (`virtualTrailsAndMeshes`). In the surveyed levels they were enemy motion streaks, light shafts and lava overlays, and the beams that matter already have lights. Renderers in a spawned hierarchy that has its own Light never become virtual lights; they only drive flicker.
+
+**Colour.** The product of:
+- 2 x `_TintColor` (or `_Color`);
+- the texture average: rgb x alpha, from a 16x16 Blit + ReadPixels, cached per texture;
+- the vertex colour: the particle start colour, or the sprite colour;
+- the current sprite's own rectangle average, and the AnimatedTexture frame from the property block.
+
+The light's colour is that product, normalised so its brightest channel is 1.
+
+**Intensity.** `intensityScale` (4) x strength. For comparison, the game's Fire light is 5. Strength = clamp(brightest channel x 4, 0, 1) x fill, where fill = 1 for sprites and 1 - e^(-count/4) for particles. Brightness rises at once and decays over a few frames, because particle counts jump.
+
+**Shape.** Range = 4 x the bounds radius, clamped to 3 to 12 m (the game's Fire: 10 m). The light sits at the bounds centre. Its soft-shadow radius is 0.4 x the bounds radius, clamped to 0.05 to 0.5 m.
+
+**Selection**, every 4th frame. Candidates are emitters that:
+- are within 45 m;
+- have a strength of at least 0.1;
+- have no game light sitting on them. A light counts if it is the nearest packed light and within 1 m + 0.25 x the effect's radius; this is re-checked every 60 frames.
+
+Candidates are scored by strength x size / (1 + d²/25), with a 1.5x bonus for last frame's picks. The best 16 are packed after the scene and spawned lights, with `packed[i] = null` and `ids[i] = renderer.GetInstanceID()` (through `LightSampling.VirtualIds`). Inactive emitters are checked only every 16th frame.
+
+**Hybrid.** `_Lights[i*4+3].w`, unused before, is now the hybrid weight: 0 for game lights and `hybridWeight` (1) for virtual ones. When ReSTIR's chosen visible sample is a weighted light, `g_DirectAdditive` gets its shadowed contribution x weight. PathTrace mode 3 adds that to the bounce channel exactly like `g_DirectEmissive`: the game draws no light for these effects, so hybrid adds it on top of the game's image. Like emitters, virtual lights also count in the shadow ratio.
+
+## 3. Flame flicker
+
+When a game light sits on a flame sprite or particle system (a torch FireSprite on its Fire light, or a pooled Fire), the flame drives that light. Its packed intensity is multiplied by (the flame's brightness x radius²) / its running mean over about 1 s, clamped to 0.65 to 1.35. At most 16 such flames near the camera are measured, every frame.
+
+## Costs
+
+Measured on an RTX 5070 Ti at 1920x1080, trace scale 0.5, effects suite.
+
+CPU time is the `Effect lights: CPU` log line, printed every 5 s; it covers spawn processing and `Append`.
+
+| Where | CPU per frame |
+|---|---|
+| 0-2 run, combat with revolver fire every 0.5 s (0.4 to 3.5 spawned lights appended per frame) | 9 to 14 µs |
+| 1-1 torch hall (8 flickering torches) | 13 to 25 µs |
+| 4-1 indoor A | 20 µs |
+
+Collecting scene emitters costs 7 to 27 ms once per RT scene build (8-3: 243 emitters, 27 ms), and the first texture averages add a few Blits. No per-frame allocations.
+
+GPU (native timer) and frame times were measured in the effects suite, before (`-ultrart-noeffectlights`) and after, same build. Both are within run-to-run noise:
+
+| Scenario | Mode | GPU total, before → after (ms) | Dispatch, before → after (ms) | Frame, before → after (ms) |
+|---|---|---|---|---|
+| 0-2 run | hybrid | 2.159 → 2.178 | 1.230 → 1.241 | 4.26 → 4.32 |
+| 0-2 run | relight | 1.949 → 1.962 | | 4.16 → 4.26 |
+| 8-3 portals | relight | 1.699 → 1.721 | | 9.08 → 8.99 |
+| 0-5 lava | relight | 1.886 → 1.876 | | |
+
+The extra lights add no rays: ReSTIR's per-pixel cost doesn't depend on the light count.
+
+Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-065016_effects` (after). Compare `1-1_explosion_relight_1.5s_relight.png`: before, the room is unlit by the explosion; after, it is lit orange on the frame the explosion spawns. Also `1-1_flame_without_light_1.5s_*` (orange light on the stairs from a FireSimple flame) and `0-2_run_*`. Torch flicker measured over the 1-1 torch hall: x0.77 to x1.29 (8-3: x0.77 to x1.26).
+
+## Flags and settings (`EffectLightSettings`)
+
+| Flag | Setting | Default | Effect |
+|---|---|---|---|
+| `-ultrart-noeffectlights` | | | turns all of the above off |
+| `-ultrart-nospawnedlights` | `spawnedLights` | on | |
+| `-ultrart-novirtuallights` | `virtualLights` | on | |
+| `-ultrart-noflicker` | `flicker` | on | |
+| `-ultrart-effect-scale x` | `intensityScale` | 4 | |
+| `-ultrart-effect-max n` | `maxVirtual` | 16 | |
+| `-ultrart-effect-hybrid x` | `hybridWeight` | 1 | |
+| `-ultrart-effectsurvey` | | off | the survey; it costs milliseconds per frame, so never measure with it on |
+
+Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
+
+In the bench, `Scenario.Effects` (`bench/README.md`, `bench/suites/effects.json`) spawns revolver beams, explosions, projectiles or pooled fires in front of the camera, both periodically and right before each screenshot.
+
+## Limits
+
+- **MaxLights is still 256.** Effect lights are packed after the scene lights, so they are the first dropped when the list is full. 8-3 packs about 150 scene lights at the surveyed pose.
+- **Light-set churn.** Every effect light that appears or expires shortens ReSTIR history for one frame. Heavy combat trades a little direct-light noise for no lag.
+- **`Instantiate<T>(T)` without a position isn't hooked.** Lights in those clones still wait for the 1 s scan, as before.
+- **The heuristics go by name and blend mode.** A glowing effect whose name matches the exclusion list, or one that is alpha-blended, gets no virtual light. `virtualTrailsAndMeshes` turns the other renderer kinds on.
+- **Virtual light brightness is an estimate.** Every effect at full strength gets the same intensity, scaled by how much of its quad glows. It is calibrated only against the game's own Fire light.

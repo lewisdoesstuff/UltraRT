@@ -194,7 +194,7 @@ namespace UltraRT
             if (_trackedIndex.ContainsKey(l) || _trackedCount >= MaxTracked) return;
             if (_trackedCount == _tracked.Length) Array.Resize(ref _tracked, _tracked.Length * 2);
             _trackedIndex[l] = _trackedCount;
-            _tracked[_trackedCount++] = new Tracked { Light = l, InSnapshot = _snapshot != null && Array.IndexOf(_snapshot, l) >= 0 };
+            _tracked[_trackedCount++] = new Tracked { Light = l }; // spawned after the current scan, so not in it
         }
 
         /// <summary>Once per RT scene build: collect the level's own glowing effects (torch flames, ambient embers).</summary>
