@@ -38,6 +38,12 @@ Shader "UltraRT/Proxy"
         _GameRefl ("Game reflection", Vector) = (0,0,0,0)
         _GameCube ("Game cubemap", Cube) = "" {}
         _GameReflMask ("Game reflection mask", 2D) = "white" {}
+        // Per-texel material detail (MaterialMaps.cs, docs/materials.md): rg tangent-space normal xy (0.5 + 0.5 x; x = +u,
+        // y = +v), b roughness minus the texture's mean (0.5 + 0.5 d), a 1 = texel has detail. Same layout and uv as
+        // _MainTex (the scene atlas for atlas proxies). x: normal strength, y: roughness amount (atlas: both baked into
+        // the texture per cell, so 1), w: 1 = _DetailTex is bound.
+        _DetailTex ("Detail (normal xy, roughness, valid)", 2D) = "black" {}
+        _DetailParams ("Detail params", Vector) = (0,0,0,0)
     }
 
     SubShader
@@ -90,6 +96,10 @@ Shader "UltraRT/Proxy"
             TextureCube _GameCube;
             Texture2D _GameReflMask;
             SamplerState my_linear_clamp_sampler;
+            Texture2D _DetailTex;
+            float4 _DetailParams;
+            // Global (Plugin, MaterialMaps): x enabled, y normal strength multiplier, z roughness amount multiplier.
+            float4 _UltraRTDetail;
 
             float3 WorldNormalAt(uint v)
             {
@@ -157,7 +167,8 @@ Shader "UltraRT/Proxy"
 
             // Surface colour (alpha = coverage) at a hit; litWeight 0 = fullbright.
             // blendWeight: < 0.5 selects the secondary material (VERTEX_BLENDING); 1 when the surface doesn't blend.
-            float4 SampleAlbedo(uint3 tri, float3 b, float2 uv, out float litWeight, out float blendWeight)
+            // texUV: where _MainTex (and _DetailTex) was sampled.
+            float4 SampleAlbedo(uint3 tri, float3 b, float2 uv, out float litWeight, out float blendWeight, out float2 texUV)
             {
                 float4 albedo;
                 litWeight = 1.0; // 0 = fullbright (game: lerp(1, lighting, vertexColor.a))
@@ -167,7 +178,8 @@ Shader "UltraRT/Proxy"
                     // StaticSceneOptimizer geometry. Atlas rects (xMin, yMin, xMax, yMax) are constant per face.
                     float2 f = frac(uv);
                     float4 rect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord1);
-                    float4 mainTex = _MainTex.SampleLevel(my_point_repeat_sampler, lerp(rect.xy, rect.zw, f), 0);
+                    texUV = lerp(rect.xy, rect.zw, f);
+                    float4 mainTex = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, 0);
 
                     // Vertex blending: texture = lerp(blendAtlas, mainAtlas, |normal.w| - 1).
                     float nw = abs(UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeNormal).w) * b.x
@@ -191,7 +203,8 @@ Shader "UltraRT/Proxy"
                 }
                 else
                 {
-                    albedo = _MainTex.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0) * _Color;
+                    texUV = uv * _MainTex_ST.xy + _MainTex_ST.zw;
+                    albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, 0) * _Color;
                     // ULTRAKILL VERTEX_BLENDING: vertex colour r < 0.5 is the secondary surface. Missing colours read as white.
                     if (_Secondary > 0.5)
                         blendWeight = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeColor).r * b.x
@@ -199,6 +212,47 @@ Shader "UltraRT/Proxy"
                                     + UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeColor).r * b.z;
                 }
                 return albedo;
+            }
+
+            // ---------------------------------------------------------------- per-texel detail (docs/materials.md)
+
+            // The texel's detail (point sampled, like the albedo), or false where there is none.
+            bool DetailSample(float2 texUV, out float4 d)
+            {
+                d = 0;
+                if (_DetailParams.w < 0.5 || _UltraRTDetail.x < 0.5) return false;
+                d = _DetailTex.SampleLevel(my_point_repeat_sampler, texUV, 0);
+                return d.a > 0.5;
+            }
+
+            // Shading normal n tilted by the tangent-space slope xy. The tangent frame comes from the triangle's positions
+            // and UV0 (meshes may have no tangents): T = dp/du, B = dp/dv in world space, made orthogonal to n. Atlas UVs
+            // map into their rect with the same orientation, so UV0 works for both; _MainTex_ST's sign flips the axes.
+            float3 DetailNormal(uint3 tri, float3 p0, float3 p1, float3 p2, float3 n, float2 xy)
+            {
+                float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
+                float2 u1 = UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0);
+                float2 u2 = UnityRayTracingFetchVertexAttribute2(tri.z, kVertexAttributeTexCoord0);
+                float2 st = _AtlasMode > 0.5 ? float2(1.0, 1.0) : _MainTex_ST.xy;
+                float2 d1 = (u1 - u0) * st, d2 = (u2 - u0) * st;
+                float det = d1.x * d2.y - d1.y * d2.x;
+                if (abs(det) < 1e-12) return n;
+                float3 e1 = p1 - p0, e2 = p2 - p0;
+                float3x3 o2w = (float3x3)ObjectToWorld3x4();
+                float3 T = mul(o2w, (e1 * d2.y - e2 * d1.y) / det);
+                float3 B = mul(o2w, (e2 * d1.x - e1 * d2.x) / det);
+                T -= n * dot(n, T);
+                float tl = dot(T, T);
+                if (!(tl > 1e-20)) return n;
+                T *= rsqrt(tl);
+                float3 Bn = cross(n, T);
+                if (dot(Bn, B) < 0.0) Bn = -Bn;
+                float3 nd = normalize(n + xy.x * T + xy.y * Bn);
+                // Never tilt past the view direction (a back-facing shading normal would go black).
+                float3 V = -WorldRayDirection();
+                float vn = dot(nd, V);
+                if (vn < 0.02) nd = normalize(nd + V * (0.02 - vn));
+                return nd;
             }
 
             // Alpha-tested (cutout) materials such as grass cards: ignore the hit where the texture is transparent.
@@ -209,13 +263,15 @@ Shader "UltraRT/Proxy"
                 uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
                 float litWeight, blendWeight;
-                if (SampleAlbedo(tri, b, FetchUV(tri, b), litWeight, blendWeight).a < _Cutoff) IgnoreHit();
+                float2 texUV;
+                if (SampleAlbedo(tri, b, FetchUV(tri, b), litWeight, blendWeight, texUV).a < _Cutoff) IgnoreHit();
             }
 
             [shader("closesthit")]
             void ClosestHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
             {
                 bool wantGameCube = (p.flags & ULTRART_FLAG_GAMECUBE) != 0u; // request from the ray gen (hybrid primary rays)
+                bool wantDetail = (p.flags & ULTRART_FLAG_DETAIL) != 0u;     // primary and reflection rays
                 // The game draws these as the sky (by view direction): the ray "escapes" here.
                 if (_SkyWall > 0.5) { p.t = -1.0; return; }
                 bool wantMotion = (p.flags & ULTRART_PAYLOAD_WANT_MOTION) != 0u;
@@ -241,7 +297,20 @@ Shader "UltraRT/Proxy"
 
                 float2 uv = FetchUV(tri, b);
                 float litWeight, blendWeight;
-                float4 albedo = SampleAlbedo(tri, b, uv, litWeight, blendWeight);
+                float2 texUV;
+                float4 albedo = SampleAlbedo(tri, b, uv, litWeight, blendWeight, texUV);
+
+                // Per-texel detail: perturbed shading normal and roughness. Primary rays also return the vertex normal
+                // (packed in `primitive`) for the hybrid shadow ratio's denominator (the game lights with it).
+                float4 detail;
+                bool hasDetail = wantDetail && DetailSample(texUV, detail);
+                float3 nVertex = n;
+                if (hasDetail)
+                {
+                    float2 xy = (detail.rg * 2.0 - 1.0) * (_DetailParams.x * _UltraRTDetail.y);
+                    n = DetailNormal(tri, p0, p1, p2, n, xy);
+                    flags |= ULTRART_FLAG_DETAIL;
+                }
 
                 float3 emission = 0;
                 if (_EmissiveIntensity > 0.0)
@@ -259,7 +328,7 @@ Shader "UltraRT/Proxy"
                 p.emissionHalf = PackEmissionHalf(emission);
                 p.instance = InstanceIndex();
                 p.uvHalf = f32tof16(uv.x) | (f32tof16(uv.y) << 16);
-                p.primitive = PrimitiveIndex();
+                p.primitive = hasDetail && wantMotion ? PackOct24(nVertex) : PrimitiveIndex();
                 p.motion = wantMotion ? HitMotion(tri, b) : 0u;
 
                 // Reflection material: constant per proxy material, or the secondary set on VERTEX_BLENDING surfaces.
@@ -272,8 +341,12 @@ Shader "UltraRT/Proxy"
                 if (_GameRefl.x > 0.5)
                     mask = _GameReflMask.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0).r;
                 float specWeight = second ? _SpecWeight2 : _SpecWeight * mask;
-                p.material = second ? PackMaterialWord(_Roughness2, _Metalness2, _F02, specWeight)
-                                    : PackMaterialWord(_Roughness, _Metalness, _F0, specWeight);
+                float rough = second ? _Roughness2 : _Roughness;
+                // Per-texel roughness around the class value (glossy classes only; REFLECTION keeps the game's strength).
+                if (hasDetail && mode == ULTRART_REFL_SPECULAR)
+                    rough = saturate(rough + (detail.b * 2.0 - 1.0) * (_DetailParams.y * _UltraRTDetail.z));
+                p.material = second ? PackMaterialWord(rough, _Metalness2, _F02, specWeight)
+                                    : PackMaterialWord(rough, _Metalness, _F0, specWeight);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls);
 
@@ -282,9 +355,9 @@ Shader "UltraRT/Proxy"
                 if (wantGameCube && _GameRefl.x > 0.5)
                 {
                     float k;
-                    float3 c = GameCubeTerm(tri, b, p0, p1, p2, (flags & 1u) != 0u, n, mask, k);
-                    p.uvHalf = f32tof16(c.r) | (f32tof16(c.g) << 16);
-                    p.primitive = f32tof16(c.b) | (Unorm8(k) << 16) | (Unorm8(_GameRefl.z) << 24);
+                    float3 c = GameCubeTerm(tri, b, p0, p1, p2, (flags & 1u) != 0u, nVertex, mask, k);
+                    p.uvHalf = Unorm8(c.r) | (Unorm8(c.g) << 8) | (Unorm8(c.b) << 16) | (Unorm8(k) << 24);
+                    p.primitive = (p.primitive & 0xFFFFFFu) | (Unorm8(_GameRefl.z) << 24);
                     p.flags |= ULTRART_FLAG_GAMECUBE;
                 }
             }

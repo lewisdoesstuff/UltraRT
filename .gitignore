@@ -15,3 +15,9 @@ unity/*/*.sln
 
 # Benchmark output
 bench/results/
+
+# Material maps pipeline (tools/materials): venv, downloaded model weights, local work output
+tools/materials/.venv/
+tools/materials/models/
+tools/materials/work/
+__pycache__/

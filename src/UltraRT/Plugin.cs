@@ -109,6 +109,7 @@ namespace UltraRT
             ParseTransparentArgs();
             ParseSkyArgs();
             ParseVolumetricsArgs();
+            ParseMaterialArgs();
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);
 
@@ -323,6 +324,7 @@ namespace UltraRT
         {
             UpdateRecorder();
             UpdateEffects();
+            MaterialsUpdate(); // Ctrl+F1, _UltraRTDetail global
             try
             {
                 if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }

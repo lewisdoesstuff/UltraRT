@@ -80,6 +80,7 @@ namespace UltraRT
             public int Sub, IndexStart, IndexCount, BaseVertex, VMin, VMax;
             public Material Material;
             public Material BaseMaterial;   // before the per-slot atlas variant (reflection class), for the record log
+            public MeshRenderer Source;     // the source that decided the material (captured originals first)
             public int Part;                // bit 0 two-sided, bit 1 sky wall
             public Group Group;
             public StaticSource Owner;      // first source seen; its ancestors define the grouping keys
@@ -182,6 +183,10 @@ namespace UltraRT
                     if (s != null) sources.Add(s);
                 }
             }
+            Maps.BuildAtlases(); // per-texel detail atlases, from the cells AddAtlasCells recorded
+            if (Maps.Available)
+                _log.LogInfo($"Material maps: atlas slots mapped per original submesh {_atlasSpansRanged}, by dominant material {_atlasSpansWhole}, " +
+                             $"skipped (several materials, ranges unknown) {_atlasSpansSkipped}");
             double readMs = sw.Elapsed.TotalMilliseconds - toggleMs;
 
             // Watchers: the deepest toggle point per source, unless that makes too many to poll every frame.
@@ -257,7 +262,7 @@ namespace UltraRT
                     var pm = Proxy(src[i]);
                     // Baked geometry: the atlas material says nothing about the surface; use the source's original material.
                     var mat = IsAtlasProxy(pm) ? AtlasVariant(pm, r) : pm;
-                    c.Slots[sub] = new Slot { Sub = sub, Material = mat, BaseMaterial = pm, Part = (IsTwoSided(pm) ? 1 : 0) | (IsSkyWall(pm) ? 2 : 0) };
+                    c.Slots[sub] = new Slot { Sub = sub, Material = mat, BaseMaterial = pm, Source = r, Part = (IsTwoSided(pm) ? 1 : 0) | (IsSkyWall(pm) ? 2 : 0) };
                     c.SubMaterials[sub] = mat;
                     any = true;
                 }
@@ -280,8 +285,72 @@ namespace UltraRT
             // Unity rebuilds the shader table every dispatch, one record per enabled submesh. Combined meshes have
             // hundreds of submeshes sharing a handful of materials, so group meshes are merged by material
             // (~0.5 ms/frame saved). That needs the vertex/index data on the CPU; without it, fall back to flags.
-            c.FlagsMode = NoSubmeshMerge || !TryReadCombined(c);
+            bool read = TryReadCombined(c);
+            c.FlagsMode = NoSubmeshMerge || !read;
+            if (read) AddAtlasCells(c);
             return c;
+        }
+
+        /// <summary>
+        /// Per-texel detail (MaterialMaps, docs/materials.md): which original texture each atlas rect of this combined mesh
+        /// shows. SSO collapses a source's submeshes into one slot; when the original submesh index counts add up to the
+        /// slot's, the slot's triangles are taken to be in the original submesh order (checked: each span must use one
+        /// rect), so every original material gets its own rects. Otherwise the slot's dominant material gets them all,
+        /// and only single-rect slots are trusted.
+        /// </summary>
+        private void AddAtlasCells(Combined c)
+        {
+            if (!Maps.Available || c.Indices == null) return;
+            VertexAttributeReader uv1 = null;
+            foreach (var a in c.Attributes)
+            {
+                if (a.attribute != VertexAttribute.TexCoord1) continue;
+                if (a.format != VertexAttributeFormat.Float16 && a.format != VertexAttributeFormat.Float32) return;
+                uv1 = new VertexAttributeReader(c.Streams[a.stream], c.Strides[a.stream], c.Mesh.GetVertexAttributeOffset(VertexAttribute.TexCoord1),
+                                                a.dimension, a.format == VertexAttributeFormat.Float16);
+            }
+            if (uv1 == null) return;
+            var spans = new List<MaterialMaps.AtlasSpan>();
+            foreach (var slot in c.Slots)
+            {
+                if (slot == null || slot.Source == null || !IsAtlasProxy(slot.BaseMaterial)) continue;
+                var atlas = slot.BaseMaterial.GetTexture("_MainTex");
+                if (!OriginalMaterials.TryGet(slot.Source, out var mats, out var counts, out _)) continue;
+                bool Usable(Material m) => Traceable(m) && !(m.shader != null && m.shader.name.Contains("Stationary"));
+                spans.Clear();
+                if (counts != null && counts.Length == mats.Length && counts.Sum(n => (long)(n - n % 3)) == slot.IndexCount && mats.Length > 1)
+                {
+                    int start = slot.IndexStart;
+                    bool ok = true;
+                    for (int i = 0; i < mats.Length && ok; i++)
+                    {
+                        int n = counts[i] - counts[i] % 3;
+                        if (n > 0 && Usable(mats[i]))
+                        {
+                            ok = DistinctRects(c, uv1, start, n, slot.BaseVertex) == 1;
+                            spans.Add(new MaterialMaps.AtlasSpan { Original = mats[i], Params = _classifier.Classify(mats[i], out _), IndexStart = start, IndexCount = n, BaseVertex = slot.BaseVertex });
+                        }
+                        start += n;
+                    }
+                    if (ok) { _atlasSpansRanged++; Maps.AddAtlasSlot(atlas, uv1, c.Indices, spans); continue; }
+                    spans.Clear();
+                }
+                var dom = OriginalMaterials.Dominant(mats, counts, Usable);
+                if (dom == null) continue;
+                if (mats.Count(Usable) > 1 && DistinctRects(c, uv1, slot.IndexStart, slot.IndexCount, slot.BaseVertex) != 1) { _atlasSpansSkipped++; continue; }
+                spans.Add(new MaterialMaps.AtlasSpan { Original = dom, Params = _classifier.Classify(dom, out _), IndexStart = slot.IndexStart, IndexCount = slot.IndexCount, BaseVertex = slot.BaseVertex });
+                _atlasSpansWhole++;
+                Maps.AddAtlasSlot(atlas, uv1, c.Indices, spans);
+            }
+        }
+
+        private int _atlasSpansRanged, _atlasSpansWhole, _atlasSpansSkipped;
+
+        private static int DistinctRects(Combined c, VertexAttributeReader uv1, int start, int count, int baseVertex)
+        {
+            var set = new HashSet<Vector4>();
+            for (int k = 0; k + 2 < count; k += 3) set.Add(uv1.Read4((int)c.Indices[start + k] + baseVertex));
+            return set.Count;
         }
 
         /// <summary>

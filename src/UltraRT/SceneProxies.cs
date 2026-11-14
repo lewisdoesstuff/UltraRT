@@ -160,7 +160,11 @@ namespace UltraRT
             _cameraMask = cameraCullingMask & ~ExcludedLayers;
             _disabledMaterial = new Material(proxyShader) { name = "UltraRT Disabled" };
             _classifier = new MaterialClassifier(log, MaterialOverrideFolders);
+            Maps = new MaterialMaps(log, System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "ultrart", "materials"));
         }
+
+        /// <summary>Per-texel normal/roughness maps (docs/materials.md).</summary>
+        public MaterialMaps Maps { get; }
 
         /// <summary>
         /// StaticSceneOptimizer moves baked geometry to "baked" layers (24 -> 6, 8 -> 7). Lights' culling masks refer to
@@ -228,6 +232,8 @@ namespace UltraRT
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}), light fixtures {FixtureCount}");
             LogMaterialClasses();
             LogTransparents();
+            _log.LogInfo($"Material maps ({MaterialMaps.Settings}): {Maps.Bound} proxy materials bound, {Maps.Missing} without maps, " +
+                         $"{Maps.Loaded} textures loaded in {Maps.LoadMs:F0} ms");
         }
 
         private void LogMaterialClasses()
@@ -285,6 +291,7 @@ namespace UltraRT
             }
             if (IsTwoSided(atlasProxy)) _twoSidedProxies.Add(v);
             if (IsSkyWall(atlasProxy)) _skyWallProxies.Add(v);
+            Maps.AddAtlasMaterial(atlasProxy.GetTexture("_MainTex"), v);
             _atlasVariants[key] = v;
             return v;
         }
@@ -989,6 +996,7 @@ namespace UltraRT
             {
                 MaterialParams.Apply(m, MaterialParams.None(SurfaceClass.Other, "atlas"), null);
                 _atlasProxies.Add(m);
+                Maps.AddAtlasMaterial(m.GetTexture("_MainTex"), m); // detail atlas composed after the static build
             }
             else
             {
@@ -996,6 +1004,7 @@ namespace UltraRT
                 MaterialParams.Apply(m, p, secondary);
                 _classifier.Count(p);
                 GameReflection.Apply(m, src);
+                Maps.Bind(m, src, p);
             }
 
             _materialCache[src] = m;
@@ -1086,6 +1095,7 @@ namespace UltraRT
             foreach (var m in _atlasVariants.Values) if (m != null) Object.Destroy(m);
             _atlasVariants.Clear();
             _atlasProxies.Clear();
+            Maps.Dispose();
             if (_disabledMaterial != null) Object.Destroy(_disabledMaterial);
         }
     }

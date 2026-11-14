@@ -1,0 +1,5 @@
+UnityPy==1.25.4
+spandrel==0.4.2
+numpy
+pillow
+# torch/torchvision: install the CUDA build separately (see README.md)

@@ -58,6 +58,7 @@ namespace UltraRT
             if (_denoiser != null) yield return new KeyValuePair<string, object>("dn", _denoiser.Settings);
             if (_upsampler != null) yield return new KeyValuePair<string, object>("up", _upsampler.Settings);
             yield return new KeyValuePair<string, object>("vol", _volSettings);
+            yield return new KeyValuePair<string, object>("mat", MaterialMaps.Settings); // per-texel detail (docs/materials.md)
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>
