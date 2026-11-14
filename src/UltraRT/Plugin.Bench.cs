@@ -772,6 +772,13 @@ namespace UltraRT
                         {
                             ApplyBenchMode(m);
                             for (int f = 0; f < 12; f++) { GameControl.HideCheatPanels(); yield return null; }
+                            if (AutoExposureFor(m))
+                            {
+                                // Auto exposure snaps on the first frame of the mode; give the async readback time to log it.
+                                float until = Time.realtimeSinceStartup + 0.6f;
+                                while (Time.realtimeSinceStartup < until) { GameControl.HideCheatPanels(); yield return null; }
+                                Logger.LogInfo($"Benchmark: '{sc.Name}' @ {at:F1}s {m}: {ExposureSummary()}");
+                            }
                             yield return new WaitForEndOfFrame();
                             // What the player sees (RT composited under transparents/post/HUD), plus the raw RT image.
                             string file = $"{Sanitize(sc.Name)}_{at:F1}s_{Sanitize(m)}.png";

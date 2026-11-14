@@ -104,6 +104,7 @@ namespace UltraRT
             if (dm >= 0) _mode = dm;
             ParseArgs();
             ParseCacheArgs();
+            ParseExposureArgs();
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);
 
@@ -280,6 +281,7 @@ namespace UltraRT
             _reflFilter?.Dispose();
             _reflFilter = new ReflectionFilter(reflections);
             LoadCacheShaders(bundle);
+            LoadExposureShader(bundle, denoise);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -306,7 +308,8 @@ namespace UltraRT
             try
             {
                 if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
-                if (Input.GetKeyDown(KeyCode.F4)) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
+                ExposureHotkeys(); // Ctrl+F4
+                if (Input.GetKeyDown(KeyCode.F4) && !CtrlHeld()) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
                 if (Input.GetKeyDown(KeyCode.F5)) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
                 if (Input.GetKeyDown(KeyCode.F6)) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
                 // Page Up / Page Down cycle view modes (F8 opens ULTRAKILL's console).
@@ -353,6 +356,7 @@ namespace UltraRT
             _reflFilter?.Reset();
             _emissive?.Clear();
             _radianceCache?.Reset();
+            _autoExposure?.Reset();
         }
 
         private Denoiser _denoiser;
@@ -677,7 +681,7 @@ namespace UltraRT
 
         // Relight knobs (docs/relight.md): -ultrart-relight-falloff/-fill/-ambient/-exposure/-white
         private bool _relightActive;
-        private float _relightFalloff = 1f, _relightFillCut = 1f, _relightAmbientCut = 1f, _relightExposure = 1.5f, _relightWhite = 3f;
+        private float _relightFalloff = 1f, _relightFillCut = 0.25f, _relightAmbientCut = 1f, _relightExposure = 1.5f, _relightWhite = 3f;
         private Vector4 RelightParams => _relightActive
             ? new Vector4(_relightFalloff, _relightFillCut, _relightExposure, _relightAmbientCut)
             : Vector4.zero;
@@ -908,7 +912,7 @@ namespace UltraRT
             _cmd.SetRayTracingFloatParam(shader, "_LightRadius", _lightRadius);
             _relightActive = Modes[_mode].name == "relight" || _relightForce;
             _cmd.SetRayTracingVectorParam(shader, "_Relight", RelightParams);
-            _cmd.SetGlobalFloat("_UltraRTTonemapWhite", _relightActive ? _relightWhite : 0f);
+            _cmd.SetGlobalFloat("_UltraRTTonemapWhite", _relightActive ? _relightWhite : 0f); // BindExposure refines this for denoised modes
             _cmd.SetRayTracingFloatParam(shader, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
 
             if (pt)
@@ -994,7 +998,9 @@ namespace UltraRT
                 _cmd.BeginSample(SampleDenoise);
                 _gpu?.Begin(_cmd, SlotDenoise);
                 _denoiser.FrameTime = Time.unscaledDeltaTime;
+                BindExposure();
                 _denoiser.Execute(_cmd, inputs, _denoised);
+                RunExposure(w, h); // relight auto exposure: measured after the denoiser, applied from the next frame
                 if (kind == Kind.Hybrid && _unpackHybrid != null)
                 {
                     // ReSTIR's shadowed direct light is a 1-shadow-ray estimate: unpack it and filter it separately.
@@ -1073,8 +1079,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotCount = 6;
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotCount = 7;
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

@@ -1,0 +1,85 @@
+{
+  "Name": "exposure-quick",
+  "Scenarios": [
+    {
+      "Name": "1-1 start",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-approach.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-1 cerberus",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-cerberus.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-1 user a",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-user-a.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-1 torch hall",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-torch-hall.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "1-1 indoor a",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-indoor-a.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        2
+      ]
+    }
+  ]
+}

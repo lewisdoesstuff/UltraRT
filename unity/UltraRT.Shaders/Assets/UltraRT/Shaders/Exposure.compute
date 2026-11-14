@@ -1,0 +1,101 @@
+// UltraRT auto exposure (relight; docs/relight.md, "Auto exposure"). Driven by src/UltraRT/AutoExposure.cs.
+//
+//   Histogram  a log2-luminance histogram of the exposed part of the image, albedo * filtered lighting * keep +
+//              specular, on every second pixel in x and y. Sky (t < 0) and fullbright pixels (lit weight < 0.5) are left
+//              out: neither is exposed. Emission isn't measured either (it isn't exposed).
+//   Adapt      one group: the mean log2 luminance of the pixels between two percentiles (bright specks and black
+//              corners don't move it), the target EV that maps that mean to the key, clamped to [min, max] EV, and the
+//              adapted EV (separate speeds up and down, exponential in EV). Clears the histogram for the next frame.
+//
+// The result lives on the GPU only (no readback in the loop): _Exposure[0] = (exposure, EV, mean log2 lum, target EV),
+// _Exposure[1] = (pixels counted, pixels in the percentile band, valid, 0). The denoiser's Composite reads [0].x one frame
+// later (UltraRTExposure.hlsl).
+
+#pragma kernel Histogram
+#pragma kernel Adapt
+
+#define BINS 64
+
+Texture2D<float4>         _Filtered;    // denoised demodulated lighting (rgb)
+Texture2D<float4>         _Albedo;
+Texture2D<float4>         _Specular;    // rgb added, a = keep factor (only if _HasSpecular)
+Texture2D<float4>         _NormalDepth; // w < 0: sky
+Texture2D<uint4>          _LitWeight;   // PathTrace's _HybridLight: w & 0xFF = lit weight (0 = fullbright)
+int                       _HasSpecular;
+float4                    _Dim;         // w, h
+float4                    _Range;       // x min log2 luminance, y bins per EV
+RWStructuredBuffer<uint>  _Hist;        // BINS counters
+RWStructuredBuffer<float4> _Exposure;   // see above
+float4 _Params0; // x key (log2), y min EV, z max EV, w dt (s)
+float4 _Params1; // x speed up (1/s, exposure rising: into the dark), y speed down (1/s, into the light), z low fraction, w high fraction
+float4 _Params2; // x snap (1 = jump to the target), y min pixels for a valid measurement, z exposure compensation (EV)
+
+float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
+
+groupshared uint gsBins[BINS];
+
+[numthreads(16, 16, 1)]
+void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
+{
+    if (gi < BINS) gsBins[gi] = 0;
+    GroupMemoryBarrierWithGroupSync();
+
+    uint2 p = id.xy * 2;
+    if (all(p < (uint2)_Dim.xy) && _NormalDepth[p].w >= 0.0 && (_LitWeight[p].w & 0xFFu) >= 128u)
+    {
+        float4 sp = _HasSpecular != 0 ? _Specular[p] : float4(0, 0, 0, 1);
+        float lum = Luma(_Albedo[p].rgb * _Filtered[p].rgb * sp.a + sp.rgb);
+        float bin = (log2(max(lum, 1e-8)) - _Range.x) * _Range.y;
+        InterlockedAdd(gsBins[(uint)clamp(bin, 0.0, BINS - 1.0)], 1u);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gi < BINS && gsBins[gi] != 0u) InterlockedAdd(_Hist[gi], gsBins[gi]);
+}
+
+[numthreads(BINS, 1, 1)]
+void Adapt(uint gi : SV_GroupIndex)
+{
+    gsBins[gi] = _Hist[gi];
+    GroupMemoryBarrierWithGroupSync();
+    _Hist[gi] = 0u;
+    if (gi != 0u) return;
+
+    float total = 0.0;
+    for (uint b = 0; b < BINS; b++) total += (float)gsBins[b];
+
+    float4 prev = _Exposure[0];
+    float4 info = _Exposure[1];
+    bool valid = info.z > 0.5 && !any(isnan(prev)) && !any(isinf(prev));
+    if (total < _Params2.y)
+    {
+        // Nothing to measure (all sky or fullbright): hold the current exposure.
+        _Exposure[0] = valid ? prev : float4(1.0, 0.0, 0.0, 0.0);
+        _Exposure[1] = float4(total, 0.0, valid ? 1.0 : 0.0, 0.0);
+        return;
+    }
+
+    float lo = total * _Params1.z, hi = total * _Params1.w;
+    float acc = 0.0, sumW = 0.0, sumLog = 0.0;
+    for (uint k = 0; k < BINS; k++)
+    {
+        float n = (float)gsBins[k];
+        float take = clamp(min(acc + n, hi) - max(acc, lo), 0.0, n);
+        sumLog += take * (_Range.x + (k + 0.5) / _Range.y);
+        sumW += take;
+        acc += n;
+    }
+    float meanLog = sumW > 0.0 ? sumLog / sumW : _Range.x;
+    float target = clamp(_Params0.x - meanLog + _Params2.z, _Params0.y, _Params0.z);
+
+    float ev = prev.y;
+    if (_Params2.x > 0.5 || !valid)
+        ev = target;
+    else
+    {
+        float speed = target > ev ? _Params1.x : _Params1.y;
+        ev += (target - ev) * (1.0 - exp(-max(_Params0.w, 0.0) * speed));
+    }
+    ev = clamp(ev, _Params0.y, _Params0.z);
+    _Exposure[0] = float4(exp2(ev), ev, meanLog, target);
+    _Exposure[1] = float4(total, sumW, 1.0, 0.0);
+}

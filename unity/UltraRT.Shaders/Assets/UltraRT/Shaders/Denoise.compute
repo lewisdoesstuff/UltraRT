@@ -79,7 +79,6 @@ RWTexture2D<uint2>  _OutReproj;     // the history footprint used this frame, fo
                                     // 0xFFFFFFFF = none), y the 4 bilinear tap weights as unorm8 (0 = rejected tap)
 
 int   _HistoryValid;
-float _UltraRTTonemapWhite; // global, set by the plugin in relight mode
 float _AlphaMin;
 float _MaxHistory;
 float _NormalTol;   // min dot(n, nPrev) for a history tap
@@ -572,6 +571,8 @@ RWTexture2D<float4> _Output;
 float4 _OutDim;    // output w, h
 int    _DebugView; // see DenoiserDebugView
 
+#include "UltraRTExposure.hlsl" // relight: auto exposure and tone map (docs/relight.md)
+
 float3 Heat(float x)
 {
     x = saturate(x);
@@ -594,7 +595,8 @@ void Composite(uint3 id : SV_DispatchThreadID)
         case 0:
         {
             float4 sp = _HasSpecular != 0 ? _Specular[s] : float4(0, 0, 0, 1);
-            c = albedo * lighting * sp.a + _Emission[s].rgb + sp.rgb;
+            float e = UltraRTPixelExposure(s); // 1 unless relight's auto exposure is on
+            c = (albedo * lighting * sp.a + sp.rgb) * e + _Emission[s].rgb;
             break;
         }
         case 1: c = lighting; break;
@@ -656,20 +658,8 @@ void Composite(uint3 id : SV_DispatchThreadID)
             break;
         }
     }
-    // Optional tone mapping (relight): Reinhard on luminance with a white point, so physical falloff's hotspots
-    // roll off instead of clipping. Global property; 0/unset = off.
-    if (_UltraRTTonemapWhite > 0.0 && _DebugView == 0)
-    {
-        // Shoulder only: values up to the knee (normal surface colours, fullbright/emissive art) are untouched;
-        // luminance above it rolls off smoothly so that _UltraRTTonemapWhite maps to 1.
-        const float knee = 0.75;
-        float lum = Luma(c);
-        if (lum > knee)
-        {
-            float x = lum - knee, room = 1.0 - knee, range = max(_UltraRTTonemapWhite - knee, 1e-3);
-            float mapped = knee + room * x * (1.0 + x / (range * range) * room) / (x + room);
-            c *= mapped / lum;
-        }
-    }
+    // Optional tone mapping (relight; UltraRTExposure.hlsl): a shoulder above a knee, so hotspots roll off instead of
+    // clipping. Global properties; 0/unset = off.
+    if (_DebugView == 0) c = UltraRTToneMap(c);
     _Output[id.xy] = float4(saturate(c), 1.0);
 }
