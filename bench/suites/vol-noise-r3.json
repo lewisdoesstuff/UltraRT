@@ -182,6 +182,22 @@
       ]
     },
     {
+      "Name": "7-2 door perf",
+      "Scene": "Level 7-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-2-door.json",
+        "Duration": 16
+      },
+      "Modes": [
+        "relight+vol=0",
+        "relight+vol.lightSamples=1+vol.atrous=0+vol.playerLights=1",
+        "relight",
+        "relight+vol.lightSamples=1"
+      ],
+      "Screenshots": []
+    },
+    {
       "Name": "1-1 cerberus perf",
       "Scene": "Level 1-1",
       "Path": {
