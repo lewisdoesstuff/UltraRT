@@ -30,6 +30,18 @@ Each run launches the game on DX12 and plays every scenario in `bench/suites/<su
 | `sweep` | `YawSpeed` (deg/s), `PitchAmplitude`, `Duration`, optional `Position` | spin in place; stresses reprojection |
 | `recording` | `File` (relative to the suite), optional `Start`/`End` seconds | replay a recorded flythrough or run |
 
+## Combat effects
+`"Effects": { "Kinds": ["revolver"], "Every": 0.5, "Distance": 5, "ShotDelay": 0.08 }` spawns the game's own effects in front of the camera, every `Every` seconds (0 = only at screenshots). At each screenshot they are also spawned once per mode, `ShotDelay` seconds before the capture, so every mode shows the effect at the same age.
+
+| Kind | What spawns |
+|---|---|
+| `revolver` | a revolver beam from the camera: muzzle light, beam, hit sparks |
+| `explosion`, `superexplosion` | `DefaultReferenceManager`'s explosion, made harmless |
+| `projectile` | the enemy orb, flying away from the camera |
+| `fire`, `firesimple` | a pooled flame on the floor ahead, with its light switched on as `Flammable` does / the variant without a light |
+
+Effects stay in the level: a pooled fire keeps burning in later scenarios, so put long-lived effects last. `bench/suites/effects.json` uses them (docs/emissive-lights.md, "Effect lights").
+
 ## Recording a path
 1. Launch normally (`-force-d3d12`), load a level and play or fly around.
 2. Press **F10** to start and **F10** again to stop. Recordings are saved to `BepInEx\ultrart\recordings\<level>_<time>.json` in the game folder.

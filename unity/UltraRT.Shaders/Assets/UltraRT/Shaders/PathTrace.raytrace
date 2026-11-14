@@ -331,7 +331,8 @@ void RayGen()
             // Hybrid: shadows come from _DirectLight/_GameLighting as a ratio; the denoised bounce is added on top.
             // Hybrid: only the bounce goes through the denoiser, plus emissive direct light as an optional extra (the game
             // doesn't light surfaces from emissives). The composite multiplies this channel by _GIStrength, hence the divide.
-            case 3: lighting = indirect + g_DirectEmissive * (_EmissiveHybridAdd / max(_GIStrength, 1e-3)); break;
+            // Virtual effect lights (EffectLights.cs) are added the same way, with their own weight.
+            case 3: lighting = indirect + (g_DirectEmissive * _EmissiveHybridAdd + g_DirectAdditive) / max(_GIStrength, 1e-3); break;
         }
         lighting = lerp(1.0, lighting, p.alpha); // fullbright surfaces ignore lighting, like the game
         albedo = p.albedo;

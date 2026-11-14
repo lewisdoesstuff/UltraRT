@@ -50,6 +50,7 @@ namespace UltraRT
 
         private static void Spawned(Object result)
         {
+            EffectSpawns.OnSpawn(result); // effect lights (EffectLights.cs); a no-op unless enabled
             if (!CollectSpawns || result == null) return;
             GameObject go = result as GameObject;
             if (go == null && result is Component c) go = c.gameObject;
@@ -68,7 +69,9 @@ namespace UltraRT
         {
             private static IEnumerable<MethodBase> TargetMethods() =>
                 typeof(Object).GetMethods(BindingFlags.Public | BindingFlags.Static)
-                    .Where(m => m.Name == "Instantiate" && !m.IsGenericMethodDefinition && m.ReturnType == typeof(Object));
+                    .Where(m => m.Name == "Instantiate" && !m.IsGenericMethodDefinition && m.ReturnType == typeof(Object))
+                    // (Object, Transform) only forwards to (Object, Transform, bool): don't report its clones twice.
+                    .Where(m => !(m.GetParameters().Length == 2 && m.GetParameters()[1].ParameterType == typeof(Transform)));
 
             private static void Postfix(Object __result) => Spawned(__result);
         }

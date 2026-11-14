@@ -62,6 +62,7 @@ namespace UltraRT
             BenchSafety.Active = true;
             Perf.InstallFrameMarkers();
             PoseLoader.Log = Logger;
+            EffectSpawner.Log = Logger;
             PoseLoader.InstallDeterminism(harmony);
             Logger.LogInfo($"Benchmark: save/prefs/stats writes blocked ({patched} hooks)");
             _host.StartCoroutine(RunSuite());
@@ -740,6 +741,7 @@ namespace UltraRT
                 string current = null;
                 int sinceSwitch = 0;
                 float pathT = 0f;
+                float nextEffect = sc.Effects != null && sc.Effects.Every > 0f ? 0.5f : float.MaxValue;
                 long lastResolved = _gpu?.ResolvedFrames ?? 0;
 
                 while (pathT <= path.Duration)
@@ -785,6 +787,13 @@ namespace UltraRT
                                 Logger.LogInfo($"Benchmark: '{sc.Name}' @ {at:F1}s {m}: {ExposureSummary()}");
                             }
                             if (m != "off") Logger.LogInfo($"Benchmark: '{sc.Name}' @ {at:F1}s {m}: {RadianceStats()}");
+                            if (sc.Effects != null)
+                            {
+                                // The same effect at the same age in every mode.
+                                EffectSpawner.Spawn(sc.Effects);
+                                float until = Time.realtimeSinceStartup + Mathf.Max(0f, sc.Effects.ShotDelay);
+                                while (Time.realtimeSinceStartup < until) { GameControl.HideCheatPanels(); yield return null; }
+                            }
                             yield return new WaitForEndOfFrame();
                             // What the player sees (RT composited under transparents/post/HUD), plus the raw RT image.
                             string file = $"{Sanitize(sc.Name)}_{at:F1}s_{Sanitize(m)}.png";
@@ -818,6 +827,7 @@ namespace UltraRT
                         nextKill = Time.time + 0.25f;
                         KillEnemies();
                     }
+                    if (pathT >= nextEffect) { EffectSpawner.Spawn(sc.Effects); nextEffect = pathT + sc.Effects.Every; }
                     yield return null;
 
                     float dt = Time.unscaledDeltaTime;

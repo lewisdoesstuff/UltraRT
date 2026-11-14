@@ -76,6 +76,7 @@ namespace UltraRT
         private int _lightCount;
         private float _nextLightScan, _nextActiveLights;
         private readonly List<Light> _activeLights = new List<Light>();
+        private int _activeLightsVersion; // bumped whenever _activeLights is rebuilt (EffectLights appends what it lacks)
         private SceneProxies _activeLightsOwner;
         private CommandBuffer _cmd;
         private Camera _camera;
@@ -308,6 +309,7 @@ namespace UltraRT
         private void OnUpdate()
         {
             UpdateRecorder();
+            UpdateEffects();
             try
             {
                 if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
@@ -421,6 +423,7 @@ namespace UltraRT
                 _nextActiveLights = Time.realtimeSinceStartup + 0.25f;
                 _activeLightsOwner = _proxies;
                 _activeLights.Clear();
+                _activeLightsVersion++;
                 foreach (var l in _proxies.Lights)
                     if (l != null && l.isActiveAndEnabled) _activeLights.Add(l);
             }
@@ -483,6 +486,7 @@ namespace UltraRT
                 _lightData[i + 3] = l3;
                 _lightCount++;
             }
+            AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
         }

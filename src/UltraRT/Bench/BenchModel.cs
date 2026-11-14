@@ -51,6 +51,25 @@ namespace UltraRT.Bench
         public float ShotSettle;
         /// <summary>Burst modes ("off" first gives the mask); default Modes. "mode+key=value" applies runtime variants.</summary>
         public List<string> BurstModes;
+        /// <summary>Optional: spawn combat effects in front of the camera (EffectSpawner.cs), for effect-light tests.</summary>
+        public EffectSpec Effects;
+    }
+
+    /// <summary>
+    /// Effects spawned in front of the camera during a scenario: "revolver" (a revolver beam from the camera, with its
+    /// muzzle light and hit sparks), "explosion" / "superexplosion" (harmless), "projectile" (an enemy orb flying away),
+    /// "fire" / "firesimple" (a pooled flame on the floor ahead, with / without its light).
+    /// At each screenshot they are also spawned once per mode, ShotDelay seconds before the capture, so every mode shows
+    /// the effect at the same age.
+    /// </summary>
+    public sealed class EffectSpec
+    {
+        public List<string> Kinds = new List<string> { "revolver" };
+        /// <summary>Seconds between spawns (all kinds at once); 0 = only at screenshots.</summary>
+        public float Every = 0.5f;
+        /// <summary>Distance in front of the camera (m), shortened to stay in front of walls.</summary>
+        public float Distance = 5f;
+        public float ShotDelay = 0.08f;
     }
 
     public sealed class PathSpec

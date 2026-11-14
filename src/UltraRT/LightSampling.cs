@@ -62,6 +62,11 @@ namespace UltraRT
         public int FillLightCount { get; private set; }
         /// <summary>True when lights were added or removed relative to the previous <see cref="Bind"/>.</summary>
         public bool LightSetChanged { get; private set; }
+        /// <summary>
+        /// Identity of packed entries that have no Light (EffectLights' virtual lights): VirtualIds[i] is used when
+        /// lights[i] is null. Ids must not collide with Light instance ids (use another object's instance id).
+        /// </summary>
+        public int[] VirtualIds;
 
         private const uint NoLight = 0xFFFF;
 
@@ -217,6 +222,9 @@ namespace UltraRT
 
         private int _prevCountForShader;
 
+        private int IdOf(Light l, int i) =>
+            !ReferenceEquals(l, null) ? l.GetInstanceID() : VirtualIds != null && i < VirtualIds.Length ? VirtualIds[i] : 0;
+
         private void BuildTables(IList<Light> lights, Vector4[] lightData, int count, Vector3 camPos)
         {
             // ---- stable identity: remap last frame's indices to this frame's (by Light instance id)
@@ -224,7 +232,7 @@ namespace UltraRT
             for (int i = 0; i < count; i++)
             {
                 var l = i < lights.Count ? lights[i] : null;
-                int id = ReferenceEquals(l, null) ? 0 : l.GetInstanceID();
+                int id = IdOf(l, i);
                 if (id != 0) _indexById[id] = i;
             }
             int kept = 0;
@@ -240,7 +248,7 @@ namespace UltraRT
             for (int i = 0; i < count; i++)
             {
                 var l = i < lights.Count ? lights[i] : null;
-                _prevIds[i] = ReferenceEquals(l, null) ? 0 : l.GetInstanceID();
+                _prevIds[i] = IdOf(l, i);
             }
 
             // ---- split: unshadowed fill lights are evaluated exhaustively, the rest go through RIS
