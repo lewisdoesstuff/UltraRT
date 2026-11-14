@@ -1,0 +1,156 @@
+{
+ "Name": "pt-perf2",
+ "Scenarios": [
+  {
+   "Name": "warm-up",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.paths=2+ptx.directSamplesRR=2",
+    "pathtrace+ptx.bounces=3",
+    "pathtrace+ptx.denoiser=UltraRT",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "6-2 start",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/6-2-start.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.paths=2+ptx.directSamplesRR=2",
+    "pathtrace+ptx.bounces=3",
+    "pathtrace+ptx.denoiser=UltraRT",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "0-5 lava",
+   "Scene": "Level 0-5",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-5-approach.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.paths=2+ptx.directSamplesRR=2",
+    "pathtrace+ptx.bounces=3",
+    "pathtrace+ptx.denoiser=UltraRT",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "7-3 flashlight",
+   "Scene": "Level 7-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/7-3-flashlight.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.paths=2+ptx.directSamplesRR=2",
+    "pathtrace+ptx.bounces=3",
+    "pathtrace+ptx.denoiser=UltraRT",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "1-1 start",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.paths=2+ptx.directSamplesRR=2",
+    "pathtrace+ptx.bounces=3",
+    "pathtrace+ptx.denoiser=UltraRT",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "0-2 walk",
+   "Scene": "Level 0-2",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/0-2-v1-shadow-walk.json"
+   },
+   "Enemies": "blind",
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [],
+   "Segment": 0.5,
+   "SwitchSkipFrames": 12
+  },
+  {
+   "Name": "0-1 metal half",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "pathtrace+ptx.scaleRR=0.5"
+   ],
+   "Screenshots": [],
+   "Segment": 1.5,
+   "SwitchSkipFrames": 60
+  }
+ ]
+}

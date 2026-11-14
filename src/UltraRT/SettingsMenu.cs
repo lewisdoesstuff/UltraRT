@@ -31,11 +31,12 @@ namespace UltraRT
         // Mirrors Plugin.Modes by name (PascalCase of the mode name: "pt-dn" -> PtDn). A mode without a member is left out of the menu.
         internal enum ViewModeChoice
         {
-            Hybrid, PtDn, Relight, DnLighting, DnVariance, DnHistory, Pt, PtDirect, PtIndirect, Lit, Albedo, Normals, Depth, Instance, Uv,
+            Hybrid, PtDn, Relight, Pathtrace, DnLighting, DnVariance, DnHistory, Pt, PtDirect, PtIndirect, Lit, Albedo, Normals, Depth, Instance, Uv,
             Emission, Primitive, Refl, ReflRaw, ReflSpec, ReflHistory, Materials, SpecParams, Cache, CacheCells, DnBoost, Motion,
         }
 
         internal enum TraceQuality { Performance, Balanced, Quality }
+        internal enum PathTraceScale { UltraPerformance, Performance, Balanced }
         internal enum DenoiserQuality { Full, Static, Previous, Legacy, Custom } // same order as DenoiserPreset
 
         private static readonly UpsamplerSettings UpsamplerDefaults = new UpsamplerSettings();
@@ -67,6 +68,7 @@ namespace UltraRT
                 {
                     ViewModeChoice.Hybrid => "hybrid (game + RT)",
                     ViewModeChoice.Relight => "relight (full RT)",
+                    ViewModeChoice.Pathtrace => "pathtrace (multi-bounce)",
                     ViewModeChoice.PtDn => "pt-dn (path traced)",
                     _ => modeOf.TryGetValue(v, out int i) ? Modes[i].name : v.ToString(),
                 }, "-ultrart-view").Legacy();
@@ -100,6 +102,27 @@ namespace UltraRT
                 v => { _lightSamplingSettings.mode = v; _lightSampling?.Reset(); },
                 v => v.ToString(),
                 v => v == LightSamplingMode.Reference ? "Reference (every light, slow)" : v == LightSamplingMode.Ris ? "RIS" : "ReSTIR", "-ultrart-lights");
+
+            m.Group = "Path tracing (view mode pathtrace)";
+            m.Choice("PathTrace", "Denoiser", "Denoiser",
+                () => _ptSettings.denoiser,
+                v => { _ptSettings.denoiser = v; _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); },
+                v => v.ToString(),
+                v => v == PathTraceDenoiser.Auto ? "Auto (DLSS RR if available)" : v == PathTraceDenoiser.UltraRT ? "UltraRT denoiser" : "DLSS Ray Reconstruction",
+                "-ultrart-pt-denoiser");
+            m.Choice("PathTrace", "ScaleRR", "Render resolution with DLSS RR",
+                () => _ptSettings.scaleRR < 0.42f ? PathTraceScale.UltraPerformance : _ptSettings.scaleRR < 0.585f ? PathTraceScale.Performance : PathTraceScale.Balanced,
+                v => _ptSettings.scaleRR = v == PathTraceScale.UltraPerformance ? 1f / 3f : v == PathTraceScale.Performance ? 0.5f : 0.67f,
+                v => v.ToString(),
+                v => v == PathTraceScale.UltraPerformance ? "Ultra performance (1/3)" : v == PathTraceScale.Performance ? "Performance (1/2)" : "Balanced (0.67x)",
+                "-ultrart-pt-scale");
+            m.Float("PathTrace", "Paths", "Paths per pixel", 1f, 4f, 0, () => _ptSettings.paths, v => _ptSettings.paths = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4), "-ultrart-pt-paths");
+            m.Float("PathTrace", "Bounces", "Bounces per path", 1f, 4f, 0, () => _ptSettings.bounces, v => _ptSettings.bounces = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4), "-ultrart-pt-bounces");
+            m.Float("PathTrace", "DirectSamples", "Light samples per pixel (DLSS RR)", 1f, 4f, 0, () => _ptSettings.directSamplesRR, v => _ptSettings.directSamplesRR = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4));
+            m.Bool("PathTrace", "CacheTail", "Radiance cache after the last bounce", () => _ptSettings.cacheTail, v => _ptSettings.cacheTail = v, "-ultrart-pt-nocache");
+            m.Bool("PathTrace", "SkyAtVertices", "Sky sample at every bounce", () => _ptSettings.skyAtVertices, v => _ptSettings.skyAtVertices = v);
+            m.Bool("DLSS", "RayReconstruction", "DLSS RR in relight / pt-dn  [Ctrl+F8]", () => _rrEnabled, v => _rrEnabled = v, "-ultrart-rr", "-ultrart-norr").Legacy();
+            m.Bool("DLSS", "Remodulate", "DLSS RR: exact texels (remodulation)", () => _rrRemodulate, v => _rrRemodulate = v, "-ultrart-rr-noremod");
 
             m.Group = "Lighting";
             m.Float("Relight", "LightReference", "Light reference", 0.05f, 1f, 2, () => _relightRef, v => { _relightRef = v; _radianceCache?.NotifyLightsChanged(); }, "-ultrart-relight-ref");
@@ -138,6 +161,7 @@ namespace UltraRT
             m.Bool("Effects", "EffectLights", "Effect lights",
                 () => _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker,
                 v => _effectSettings.spawnedLights = _effectSettings.virtualLights = _effectSettings.flicker = v);
+            m.Bool("Effects", "EffectReflections", "Fire and explosions in reflections", () => _fxgSettings.enabled, v => _fxgSettings.enabled = v, "-ultrart-noeffectgeometry");
             m.Bool("Effects", "Lava", "Ray-traced lava and acid", () => LavaCfg.active, v => LavaCfg.active = v, "-ultrart-nolava");
 
             m.Action("Reload shaders  [F9]", ReloadShaders);
@@ -146,7 +170,7 @@ namespace UltraRT
                 "Page Up / Page Down|previous / next view mode", "F7|ray tracing on / off", "F2|temporal upsampler",
                 "F3|radiance cache mode (Shift: debug view)", "Ctrl+F3|denoiser preset", "F4|reflections", "Ctrl+F4|auto exposure",
                 "F5|glowing surfaces as lights", "Ctrl+F5|sky light and linear transport", "F6|light sampling", "Ctrl+F6|volumetrics",
-                "Ctrl+F1|surface detail maps", "F9|reload shaders", "F10|record", "F11|save pose",
+                "Ctrl+F1|surface detail maps", "Ctrl+F8|DLSS Ray Reconstruction (relight)", "F9|reload shaders", "F10|record", "F11|save pose",
             };
             m.Capture();
         }

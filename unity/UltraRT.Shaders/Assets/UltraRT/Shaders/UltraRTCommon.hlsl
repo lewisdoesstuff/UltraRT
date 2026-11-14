@@ -14,7 +14,8 @@
 //              cubemap's lighting contribution (with ULTRART_FLAG_GAMECUBE).
 //   flags      bit 0: vertex normals missing (geometric normal used); bits 1-2: reflection mode; bit 3: `normal` is a
 //              per-texel detail normal (docs/materials.md); bits 8-15: original layer; bits 16-23: reflection strength
-//              (unorm8); bits 24-28: material class (see UltraRTMaterial.hlsl).
+//              (unorm8); bits 24-28: material class (see UltraRTMaterial.hlsl); bits 4-5: transparent surface kind (water / glass
+//              / blood proxies under mask 0x10: 1 glass, 2 water, 3 blood; ULTRART_FLAG_TRANSPARENT_*).
 //              In (ray gen -> hit): bit 30 = ULTRART_PAYLOAD_WANT_MOTION, bit 31 = ULTRART_FLAG_GAMECUBE (UltraRTMaterial.hlsl)
 struct RayPayload
 {
@@ -31,7 +32,10 @@ struct RayPayload
     uint   flags;
 };
 
+#define ULTRART_FLAG_TRANSPARENT_SHIFT 4u // hit -> ray gen: (flags >> 4) & 3 = the transparent kind (0 = an ordinary surface)
 #define ULTRART_PAYLOAD_WANT_MOTION 0x40000000u // PathTrace's primary ray: return the hit's motion in p.motion
+#define ULTRART_PAYLOAD_EFFECTS 0x08000000u     // ray gen -> hit: the effects ray (UltraRTEffects.hlsl); effect billboards
+                                                // (EffectProxy.shader) ignore every ray without it
 #define ULTRART_FLAG_DETAIL 0x8u // ray gen -> hit: apply per-texel detail (primary rays only; reflection, bounce, cache and
                                  // volumetric rays skip it). Hit -> ray gen: p.normal carries a per-texel detail normal; on
                                  // primary rays (WANT_MOTION) the vertex normal is in p.primitive bits 0-23 (PackOct24)

@@ -1,0 +1,64 @@
+{
+ "Name": "pt-final",
+ "Scenarios": [
+  {
+   "Name": "warm-up",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "0-4 terminal fire",
+   "Scene": "Level 0-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-0-4-terminal-fire.json",
+    "Duration": 3,
+    "Areas": "../recordings/late-0-4-terminal-fire-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight+fxg.enabled=0",
+    "relight+fxg.coverFade=0",
+    "relight",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    1.5
+   ],
+   "Effects": {
+    "Kinds": [
+     "fire"
+    ],
+    "Every": 0,
+    "Distance": 3,
+    "ShotDelay": 0.4
+   }
+  }
+ ]
+}

@@ -73,7 +73,7 @@ namespace UltraRT
         {
             var s = _particleSettings;
             if (!s.enabled || _particlesOff || _particleLight == null) return false;
-            if (name == "relight") return true;
+            if (RelightLook(name)) return true;
             if (name == "pt-dn") return s.ptDn;
             return kind == Kind.Hybrid && s.hybrid;
         }
