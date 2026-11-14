@@ -106,14 +106,20 @@ namespace UltraRT
                 DenoiserPreset.Previous => DenoiserPreset.Legacy,
                 _ => DenoiserPreset.Full,
             };
-            _denoiser.Settings.ApplyPreset(next);
-            _denoiserDirect?.Settings.ApplyPreset(next);
-            _guardActive = next == DenoiserPreset.Full;
-            _lightSamplingSettings.spatialSamplesHybrid = next == DenoiserPreset.Full ? new LightSamplingSettings().spatialSamplesHybrid : 0;
+            ApplyDenoiserPreset(next);
             string name = next == DenoiserPreset.Full ? "full" : next == DenoiserPreset.Previous ? "previous build" : "off (legacy SVGF)";
             Logger.LogInfo($"Denoiser stability: {name}");
             Toast($"Denoiser stability: {name} (Ctrl+F3)");
             return true;
+        }
+
+        /// <summary>Ctrl+F3 and the settings menu (SettingsMenu.cs).</summary>
+        private void ApplyDenoiserPreset(DenoiserPreset next)
+        {
+            _denoiser?.Settings.ApplyPreset(next);
+            _denoiserDirect?.Settings.ApplyPreset(next);
+            _guardActive = next == DenoiserPreset.Full;
+            _lightSamplingSettings.spatialSamplesHybrid = next == DenoiserPreset.Full ? new LightSamplingSettings().spatialSamplesHybrid : 0;
         }
 
         private void CacheHotkeys()

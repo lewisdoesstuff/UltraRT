@@ -20,6 +20,7 @@ namespace UltraRT
     ///   -ultrart-scene "Level 1-1"  -ultrart-view N  -ultrart-scale 0.5  -ultrart-capture  -ultrart-quit
     /// </summary>
     [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
+    [BepInDependency(PluginConfiguratorGuid, BepInDependency.DependencyFlags.SoftDependency)] // in-game settings menu (SettingsMenu.cs)
     public partial class Plugin : BaseUnityPlugin
     {
         private enum Kind { Debug, PathTrace, Denoised, Hybrid, Reflection }
@@ -98,6 +99,7 @@ namespace UltraRT
 
         private void Awake()
         {
+            InitSettings(); // SettingsMenu.cs: register the settings and remember the code defaults before any entry or flag changes them
             // Starting view mode: BepInEx/config/ooo.lew.ultrart.cfg ([View] DefaultMode), overridden by -ultrart-view.
             var defaultMode = Config.Bind("View", "DefaultMode", "hybrid",
                 "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.").Value;
@@ -157,6 +159,7 @@ namespace UltraRT
             _host = go.AddComponent<CoroutineHost>();
             _host.OnUpdate = OnUpdate;
             _host.OnGui = DrawHud;
+            AttachSettings(); // config entries -> fields (flags win), then the PluginConfigurator page
 
             SceneManager.sceneUnloaded += s => Logger.LogInfo($"sceneUnloaded '{s.name}'");
             SceneManager.activeSceneChanged += (_, to) =>
@@ -354,6 +357,7 @@ namespace UltraRT
                 CacheHotkeys();
             }
             catch (InvalidOperationException) { /* legacy input disabled */ }
+            _menu?.Update(); // the settings menu follows what the hotkeys changed
 
             if (Time.realtimeSinceStartup >= _nextBundleCheck)
             {

@@ -21,3 +21,6 @@ tools/materials/.venv/
 tools/materials/models/
 tools/materials/work/
 __pycache__/
+
+# Reference assemblies fetched for compiling (scripts/fetch-pluginconfigurator.ps1)
+lib/

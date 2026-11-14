@@ -18,6 +18,14 @@
     <BundlePath>$(MSBuildThisFileDirectory)..\..\unity\UltraRT.Shaders\Build\ultrart.shaders</BundlePath>
   </PropertyGroup>
 
+  <!-- In-game settings menu (SettingsMenu.cs): compiled in when PluginConfigurator.dll is found (the game's plugins folder,
+       lib\ (git-ignored; scripts\fetch-pluginconfigurator.ps1 fills it) or /p:PluginConfiguratorDll=...). UltraRT does not
+       need it at run time: the menu is only created when the plugin is loaded (docs/settings.md). -->
+  <PropertyGroup>
+    <PluginConfiguratorDll Condition="'$(PluginConfiguratorDll)' == '' and Exists('$(BepInExDir)\plugins\PluginConfigurator\PluginConfigurator.dll')">$(BepInExDir)\plugins\PluginConfigurator\PluginConfigurator.dll</PluginConfiguratorDll>
+    <PluginConfiguratorDll Condition="'$(PluginConfiguratorDll)' == '' and Exists('$(MSBuildThisFileDirectory)..\..\lib\PluginConfigurator.dll')">$(MSBuildThisFileDirectory)..\..\lib\PluginConfigurator.dll</PluginConfiguratorDll>
+  </PropertyGroup>
+
   <ItemGroup>
     <Reference Include="BepInEx" HintPath="$(BepInExDir)\core\BepInEx.dll" Private="false" />
     <Reference Include="0Harmony" HintPath="$(BepInExDir)\core\0Harmony.dll" Private="false" />
@@ -35,6 +43,21 @@
     <Reference Include="UnityEngine.ParticleSystemModule" HintPath="$(ManagedDir)\UnityEngine.ParticleSystemModule.dll" Private="false" />
     <Reference Include="UnityEngine.AnimationModule" HintPath="$(ManagedDir)\UnityEngine.AnimationModule.dll" Private="false" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(PluginConfiguratorDll)' != ''">
+    <Reference Include="PluginConfigurator" HintPath="$(PluginConfiguratorDll)" Private="false" />
+    <Reference Include="UnityEngine.UI" HintPath="$(ManagedDir)\UnityEngine.UI.dll" Private="false" />
+    <Reference Include="UnityEngine.UIModule" HintPath="$(ManagedDir)\UnityEngine.UIModule.dll" Private="false" />
+    <Reference Include="Unity.TextMeshPro" HintPath="$(ManagedDir)\Unity.TextMeshPro.dll" Private="false" />
+    <Reference Include="Unity.Addressables" HintPath="$(ManagedDir)\Unity.Addressables.dll" Private="false" />
+    <Reference Include="Unity.ResourceManager" HintPath="$(ManagedDir)\Unity.ResourceManager.dll" Private="false" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(PluginConfiguratorDll)' != ''">
+    <DefineConstants>$(DefineConstants);ULTRART_PLUGINCONFIGURATOR</DefineConstants>
+  </PropertyGroup>
+  <Target Name="WarnNoPluginConfigurator" BeforeTargets="CoreCompile" Condition="'$(PluginConfiguratorDll)' == ''">
+    <Warning Text="PluginConfigurator.dll not found: building without the settings menu (scripts\fetch-pluginconfigurator.ps1 downloads it into lib\)." />
+  </Target>
 
   <!-- Build without touching the game install: /p:Deploy=false (references still resolve from BepInExDir). -->
   <Target Name="DeployToGame" AfterTargets="Build" Condition="Exists('$(BepInExDir)') and '$(Deploy)' != 'false'">
