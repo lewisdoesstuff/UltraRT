@@ -38,6 +38,11 @@ namespace UltraRT
         public int lightSamples = 2;
         /// <summary>Emissive surface samples (each RIS over 6 points, one shadow ray) per low-res pixel and frame.</summary>
         public int emissiveSamples = 2;
+        /// <summary>Range (m) at which a point/spot light's haze is halved (1 / (1 + (range / hazeRange)^3); 0 = off): lights
+        /// that reach across a whole room are mood/fill lighting, not lamps the air glows around.</summary>
+        public float hazeRange = 0f;
+        /// <summary>Soft core of a light in the medium, as a fraction of its range (inverse square -> 1 / (d^2 + (core range)^2)).</summary>
+        public float core = 0f;
         /// <summary>Sun scattering multiplier (0 = no sun shafts; for checking which term a look or noise comes from).</summary>
         public float sun = 1f;
         /// <summary>Emissive surface scattering multiplier (lava, glowing panels; one sample per pixel, 0 = off).</summary>
@@ -177,7 +182,7 @@ namespace UltraRT
             IdVolViewRay = Shader.PropertyToID("_VolViewRay"), IdVolFog = Shader.PropertyToID("_VolFog"),
             IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
-            IdVolSamples = Shader.PropertyToID("_VolSamples"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
+            IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
             IdTemporalParams3 = Shader.PropertyToID("_TemporalParams3"), IdAtrousIn = Shader.PropertyToID("_AtrousIn"),
             IdAtrousMom = Shader.PropertyToID("_AtrousMom"), IdAtrousOut = Shader.PropertyToID("_AtrousOut"),
             IdAtrousParams = Shader.PropertyToID("_AtrousParams"), IdAtrousParams2 = Shader.PropertyToID("_AtrousParams2");
@@ -287,6 +292,7 @@ namespace UltraRT
             float sunScale = Mathf.Max(0f, s.sun);
             cmd.SetRayTracingVectorParam(_rt, IdVolSunColor, new Vector4(f.sunColor.r * sunScale, f.sunColor.g * sunScale, f.sunColor.b * sunScale,
                 f.sunDir.w > 0f && sunScale > 0f ? 1f : 0f));
+            cmd.SetRayTracingVectorParam(_rt, IdVolLightShape, new Vector4(Mathf.Max(0f, s.hazeRange), Mathf.Max(0f, s.core), 0, 0));
             cmd.SetRayTracingVectorParam(_rt, IdVolSamples, new Vector4(Mathf.Clamp(s.lightSamples, 1, 8), Mathf.Clamp(s.emissiveSamples, 1, 8), 0, 0));
             cmd.SetRayTracingVectorParam(_rt, IdVolLightParams, new Vector4(f.localLightCount, Mathf.Clamp(s.lightCandidates, 1, 32), Mathf.Max(0f, s.lights), 0.01f));
             cmd.SetRayTracingVectorParam(_rt, IdVolFalloff, f.falloff);

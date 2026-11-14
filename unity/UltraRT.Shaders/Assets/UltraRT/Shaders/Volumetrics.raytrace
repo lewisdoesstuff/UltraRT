@@ -39,6 +39,7 @@ float4   _EmissiveParams;   // y: EmissiveLightScale / pi, z: min squared distan
 float    _VolEmissive;      // emissive scattering multiplier (0 = off)
 float    _VolClamp;         // max luminance of the one-sample light + emissive estimate per pixel (linear, 0 = none)
 float4   _VolSamples;       // x light samples per pixel, y emissive samples per pixel
+float4   _VolLightShape;    // x haze range (m; lights with a larger range scatter less, 0 = off), y soft core (x range)
 
 static const float kPi = 3.14159265;
 
@@ -88,6 +89,18 @@ float3 ToLightV(float3 g) { return _VolFalloff.z > 0.5 ? pow(max(g, 0.0), 2.2) :
 // A point/spot light's (unshadowed) radiance arriving at x, as the relight light model computes it at a surface but
 // without the cosine (UltraRTLights.hlsl, LightEval). Lights are evaluated with linear transport's curves when that is
 // on, else the game's gamma curves: either way the result is used as linear light here.
+// The haze a light makes is weighted down for large ranges: a light reaching across a whole room is the level's mood or
+// fill lighting (a broad source in the designer's mind), not a lamp the air glows around (docs/volumetrics.md).
+float HazeWeight(float range)
+{
+    if (_VolLightShape.x <= 0.0) return 1.0;
+    float x = range / _VolLightShape.x;
+    return 1.0 / (1.0 + x * x * x);
+}
+
+// Soft core radius^2 of a light in the medium: the inverse square becomes 1 / (d^2 + R^2), R = core x range.
+float CoreR2(float range) { float r = _VolLightShape.y * range; return r * r; }
+
 float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
 {
     float4 l0 = _Lights[i * 4];
@@ -95,7 +108,7 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
     float4 l2 = _Lights[i * 4 + 2];
     float4 l3 = _Lights[i * 4 + 3];
     float3 toL = l0.xyz - x;
-    float d2 = max(dot(toL, toL), _VolLightParams.w);
+    float d2 = max(dot(toL, toL) + CoreR2(l0.w), _VolLightParams.w);
     float d = sqrt(d2);
     L = toL / max(sqrt(dot(toL, toL)), 1e-4);
     dist = sqrt(dot(toL, toL));
@@ -119,7 +132,7 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
         phys = min(phys, 3.0 * game + 0.05);
         atten = lerp(game, phys, saturate(_VolFalloff.x)) * spot;
     }
-    return ToLightV(l1.rgb * _VolFalloff.y) * atten;
+    return ToLightV(l1.rgb * _VolFalloff.y) * atten * HazeWeight(r);
 }
 
 // Rough importance of light i for the ray segment [0, tMax]: intensity times the integral of 1/d^2 along the segment
@@ -151,10 +164,11 @@ float LightTarget(uint i, float3 o, float3 dir, float tMax)
     float tA, tB;
     if (!LightSegment(i, o, dir, tMax, tA, tB)) return 0.0;
     float delta = dot(l0.xyz - o, dir);
-    float h = max(length(l0.xyz - (o + dir * delta)), 0.05);
+    float3 perp = l0.xyz - (o + dir * delta);
+    float h = max(sqrt(dot(perp, perp) + CoreR2(l0.w)), 0.05);
     float angle = atan((tB - delta) / h) - atan((tA - delta) / h);
     float rRef = 0.5 * l0.w;
-    return lum * rRef * rRef * angle / h;
+    return lum * rRef * rRef * angle / h * HazeWeight(l0.w);
 }
 
 // One point on an emissive triangle, drawn from the alias table (power and distance to the camera), uniform in area.
@@ -198,10 +212,11 @@ bool SampleEmissivePoint(inout uint rng, out float3 x, out float3 nl, out bool t
 }
 
 // Equiangular distance along the ray [tStart, tEnd] for a point source at lp (Kulla & Fajardo 2012). Returns t and its pdf.
-float Equiangular(float3 o, float3 dir, float tStart, float tEnd, float3 lp, float u, out float pdf)
+float Equiangular(float3 o, float3 dir, float tStart, float tEnd, float3 lp, float u, out float pdf, float core2 = 0.0)
 {
     float delta = dot(lp - o, dir);
-    float h = max(length(lp - (o + dir * delta)), 0.05);
+    float3 perp = lp - (o + dir * delta);
+    float h = max(sqrt(dot(perp, perp) + core2), 0.05);
     float thA = atan((tStart - delta) / h), thB = atan((tEnd - delta) / h);
     float t = clamp(delta + h * tan(lerp(thA, thB, u)), tStart, tEnd);
     pdf = h / (max(thB - thA, 1e-6) * (h * h + (t - delta) * (t - delta)));
@@ -213,7 +228,7 @@ float3 LightSample(uint i, float w, float uT, float3 o, float3 dir, float tEnd, 
 {
     float pdf, tA, tB;
     LightSegment(i, o, dir, tEnd, tA, tB);
-    float t = Equiangular(o, dir, tA, tB, _Lights[i * 4].xyz, uT, pdf);
+    float t = Equiangular(o, dir, tA, tB, _Lights[i * 4].xyz, uT, pdf, CoreR2(_Lights[i * 4].w));
     float3 x = o + dir * t;
     float3 L;
     float dist;

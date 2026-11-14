@@ -21,7 +21,8 @@ namespace UltraRT
         private Volumetrics _volumetrics;
         private Material _volCompositeMat;
         private int _volLastFrame = -10;
-        private float _volNextLog;
+        private float _volNextLog, _volNextSurvey;
+        private Vector3 _volSurveyPos = new Vector3(1e9f, 0, 0);
 
         private void ParseVolumetricsArgs()
         {
@@ -128,6 +129,14 @@ namespace UltraRT
                     Mathf.Max(0f, _volSettings.strength) * _volSettings.meterHaze, 1f);
             }
 
+            // Light survey for tuning (which lights fill the air): at most once a second, when the camera has moved or every 10 s.
+            if (Time.realtimeSinceStartup >= _volNextSurvey &&
+                ((_camera.transform.position - _volSurveyPos).sqrMagnitude > 4f || Time.realtimeSinceStartup >= _volNextLog))
+            {
+                _volNextSurvey = Time.realtimeSinceStartup + 1f;
+                _volSurveyPos = _camera.transform.position;
+                LogVolumetricLights();
+            }
             if (Time.realtimeSinceStartup >= _volNextLog)
             {
                 _volNextLog = Time.realtimeSinceStartup + 10f;
@@ -136,6 +145,50 @@ namespace UltraRT
                 Logger.LogInfo(FormattableString.Invariant($"Volumetrics: medium {m.x:F4}/m (fog {_volumetrics.MediumSource}, colour {RenderSettings.fogColor}), tint ({m.y:F2}, {m.z:F2}, {m.w:F2}), ") +
                                $"sun {sunText}, {_lightCount} lights, game fog {(frame.applyGameFog && _volSettings.gameFog ? "on" : "off")}");
             }
+        }
+
+        /// <summary>The point/spot lights that light the most air along the view direction (the shader's LightTarget, for a
+        /// 100 m ray through the screen centre, before the haze range weight), with their names and ranges.</summary>
+        private void LogVolumetricLights()
+        {
+            var o = _camera.transform.position;
+            var dir = _camera.transform.forward;
+            const float tMax = 100f;
+            var list = new System.Collections.Generic.List<(float imp, int i)>();
+            for (int i = 0; i < _lightCount; i++)
+            {
+                var l0 = _lightData[i * 4];
+                if (l0.w == 0f) continue;
+                var c = _lightData[i * 4 + 1];
+                float lum = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
+                var p = new Vector3(l0.x, l0.y, l0.z);
+                float reach = 2f * l0.w, delta = Vector3.Dot(p - o, dir);
+                float h2 = (p - (o + dir * delta)).sqrMagnitude;
+                float k2 = reach * reach - h2;
+                if (k2 <= 0f || lum <= 0f) continue;
+                float k = Mathf.Sqrt(k2), tA = Mathf.Max(delta - k, 0f), tB = Mathf.Min(delta + k, tMax);
+                if (tB <= tA) continue;
+                float h = Mathf.Max(Mathf.Sqrt(h2), 0.05f);
+                float imp = lum * 0.25f * l0.w * l0.w * (Mathf.Atan((tB - delta) / h) - Mathf.Atan((tA - delta) / h)) / h;
+                list.Add((imp, i));
+            }
+            list.Sort((a, b) => b.imp.CompareTo(a.imp));
+            float total = 0f;
+            foreach (var e in list) total += e.imp;
+            var sb = new System.Text.StringBuilder();
+            sb.Append(FormattableString.Invariant($"Volumetrics lights at {o} ({_lightCount} lights, {list.Count} reach the view ray):"));
+            for (int n = 0; n < Mathf.Min(6, list.Count); n++)
+            {
+                int i = list[n].i;
+                var l0 = _lightData[i * 4];
+                var c = _lightData[i * 4 + 1];
+                var lt = _packedLights[i];
+                string nm = lt != null ? lt.name : "effect";
+                string type = _lightData[i * 4 + 3].x > -0.5f ? "spot" : "point";
+                float dist = Vector3.Distance(o, new Vector3(l0.x, l0.y, l0.z));
+                sb.Append(FormattableString.Invariant($" [{100f * list[n].imp / Mathf.Max(total, 1e-9f):F0}% '{nm}' {type} range {l0.w:F1} col ({c.x:F2},{c.y:F2},{c.z:F2}) dist {dist:F1}]"));
+            }
+            Logger.LogInfo(sb.ToString());
         }
 
         /// <summary>For bench logs.</summary>
