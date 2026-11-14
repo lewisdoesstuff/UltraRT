@@ -165,6 +165,25 @@ Available but **off by default** (no reliable gain in the measurements):
 - **Anti-lag** (`antilag`, `-ultrart-dn-antilag 3`; `antilagMinLength` 8): where the 5x5 same-surface mean of this frame's input leaves the reprojected history by more than `antilag` standard errors plus `antilagTolerance` (15%), the lighting really changed and the history length is cut by the square of the excess, never below `antilagMinLength` frames. It follows changing lights sooner, but every cut history is noisier for a while: with a muzzle-light flash every 0.1 s in 4-1 it raised the noise from 0.65 to 0.89 (cut to 0 frames: 1.45), and on the 0-2 windows it was inconclusive.
 - **Per-pixel ReSTIR history on light changes** (`LightSamplingSettings.perPixelLightChange`, `-ultrart-restir-pixel-change`; docs/light-sampling.md "Light changes"): a light appearing or disappearing caps the reservoir history only where it matters instead of on every pixel. No measurable difference on the flash and explosion scenes; on the 0-2 windows the whole-screen cap measured lower twice. Its per-pixel evaluation of the change list also cost about 0.3 ms in the 0-2 combat run.
 
+**Results** (`bench/suites/motion-final.json`, `motion-cost.json`; RTX 5070 Ti, 2560x1440, trace scale 0.5; motion σ Static → Full, same run):
+
+| Scenario | relight | hybrid |
+|---|---|---|
+| 1-1 sweep 180°/s | 0.88 → **0.66** (fresh 1.95 → 1.31, edges 1.24 → 0.89, thin 2.23 → 1.59) | 0.86 → 0.81 |
+| 1-1 sweep 500°/s | 1.14 → **0.86** (fresh 1.86 → 1.31) | 1.02 → 0.90 |
+| 4-1 indoor A sweep 180°/s | 0.95 → **0.64** (fresh 1.72 → 0.68) | 0.25 → 0.21 |
+| 0-2 run, 509°/s turn (40.9 s) | 2.22 → **1.84** (fresh 3.54 → 2.69) | 4.06 → 3.93 |
+| 0-2 run, 30 m/s slide (7.6 s) / 40 m/s dash (16.6 s) | 2.15 / 2.31 → 1.96 / 2.45 | 1.35 / 1.77 → 1.46 / 2.00 |
+| 1-1 corridor, muzzle flash every 0.1 s | 0.55 → 0.52 | 0.69 → 0.73 |
+| 4-1 indoor A, muzzle flash every 0.1 s | 0.62 → 0.65 | 0.25 → 0.24 |
+| 1-1 corridor, explosion light every 0.3 s (auto exposure off, 4 passes; `motion-blast.json`) | 1.33 → 1.34 (Static measured first and last: 1.36 / 1.30) | |
+
+(the flash rows and the two 0-2 slide windows are from the run's "Full without anti-lag" ablation, i.e. the current defaults.) Changing lights are not helped by the fresh-pixel fixes, and not hurt: the explosion scene's own spread between runs (Static alone measured 0.80 to 1.36) is larger than any difference between the settings. The 0-2 windows are the least reliable: lighting there also depends on game time (sprite-flicker lights, emissive visibility updates on a real-time schedule), so identical settings measured within ±10–20% between runs; the slide and dash windows have few fresh pixels, so the fixes have little to act on. Strips: the `_f92` .. `_f95` frames of each mode (4 consecutive frames at 360 Hz) in the run folder; at the entering screen edge the Full rows show visibly less mottling on flat walls.
+
+Static images are unchanged (bursts, masked σ / block σ, Static → Full): 1-1 spawn relight 0.26 / 0.17 → 0.26 / 0.17, hybrid 0.43 / 0.30 → 0.43 / 0.30; 4-1 indoor A relight 0.27 / 0.21 → 0.27 / 0.21; 0-3 ghosts relight 0.39 / 0.22 → 0.39 / 0.23, hybrid 0.64 / 0.44 → 0.63 / 0.44.
+
+**Cost** (GPU total ms, Static → Full, modes alternating in the same pass): 0-2 run with enemies and revolver fire: relight 4.36 → 4.49 (+0.13), hybrid 4.19 → 4.27 (+0.08); a sustained 500°/s sweep, the worst case (a quarter of the screen fresh every frame): relight 4.93 → 5.19 (+0.26), of which the extra ReSTIR candidates are about 0.3 (Full without them: 4.87). The cache seed and the wider footprint cost nothing measurable.
+
 Tried and not kept: a longer pre-blur fade (`boostFrames` 16: no change), TAAU weight 8 (0.90 → 0.86, mostly interiors, more smear in motion), a wider guard band (8%: 0.84 → 0.81 on the 500°/s sweep for 8% more rays), a vertical guard band (4%: mixed on the 0-2 windows), shortening ReSTIR history for lights that only change brightness (`lightChangeKept`: noisier around fading lights).
 
 ## Presets and Ctrl+F3
