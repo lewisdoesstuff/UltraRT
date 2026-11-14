@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
 
@@ -31,6 +32,13 @@ namespace UltraRT
         Indirect = 2,
     }
 
+    /// <summary>
+    /// Ctrl+F3 cycles these. Full: the defaults (docs/denoiser.md, "Temporal stability" and "Static noise").
+    /// Previous: the build before the static-noise work (alphaMin 0.1, 32 frames, no spatial variance floor, no output
+    /// stabilisation, no guard band). Legacy: Previous without the four stability features (plain SVGF).
+    /// </summary>
+    public enum DenoiserPreset { Full, Previous, Legacy, Custom }
+
     /// <summary>Tunables, read every <see cref="Denoiser.Execute"/>. Safe to change at any time.</summary>
     public sealed class DenoiserSettings
     {
@@ -38,10 +46,16 @@ namespace UltraRT
         public int iterations = 3;
         /// <summary>5x5 B3-spline taps instead of 3x3. Smoother, roughly 2.5x the filter cost.</summary>
         public bool wideKernel = false;
-        /// <summary>Lower bound on the temporal blend factor. Higher = less lag, more noise.</summary>
-        public float alphaMin = 0.1f;
+        /// <summary>Lower bound on the temporal blend factor at <see cref="referenceHz"/>. Higher = less lag, more noise.</summary>
+        public float alphaMin = 0.04f;
         /// <summary>History length cap (frames).</summary>
-        public int maxHistory = 32;
+        public int maxHistory = 64;
+        /// <summary>Frame rate the blend factors (alphaMin, stabilizeAlphaMin) are meant for. At other frame rates they are
+        /// rescaled to the same time constant: 1 - (1 - alpha)^(referenceHz * dt). 0 = per frame, whatever the frame rate.</summary>
+        public float referenceHz = 360f;
+        /// <summary>The a-trous variance never drops below this x the input's 3x3 spatial variance (0 = plain SVGF). Needed
+        /// for ReSTIR's temporally correlated direct-light noise, which the temporal moments don't see.</summary>
+        public float spatialVarianceFloor = 2f;
         /// <summary>A-trous normal weight exponent: pow(max(0, dot(n, nq)), phiNormal).</summary>
         public float phiNormal = 128f;
         /// <summary>A-trous plane-distance tolerance, in pixel footprints per pixel of offset.</summary>
@@ -77,12 +91,53 @@ namespace UltraRT
         /// <summary>Cache seed consistency test: relative tolerance added to the pre-blur's own noise.</summary>
         public float cacheSeedTolerance = 0.5f;
 
+        // ---- Temporal stabilisation of the filtered output (docs/denoiser.md, "Stabilisation"). Ctrl+F3 cycles
+        //      stabilize + stability -> stability only -> neither.
+        /// <summary>Blend the final filtered lighting with its own reprojected history, clamped to its temporal spread.</summary>
+        public bool stabilize = true;
+        /// <summary>Clamp half-size in temporal standard deviations of the filtered signal.</summary>
+        public float stabilizeSigma = 2f;
+        /// <summary>Lower bound on the stabilisation blend factor (0.05 = about 20 frames of averaging).</summary>
+        public float stabilizeAlphaMin = 0.05f;
+        /// <summary>Clamp tolerance relative to the current luminance (keeps a little slack where the spread is ~0).</summary>
+        public float stabilizeTolerance = 0.02f;
+        /// <summary>History length cap of the stabilisation (frames), on top of the history the input already has.</summary>
+        public float stabilizeMaxLength = 32f;
+
         /// <summary>
         /// Defaults overridden by command-line flags (both denoiser instances):
         /// -ultrart-dn-legacy (stability off), -ultrart-dn-boost N (frames, 0 = off), -ultrart-dn-boost-radius R,
         /// -ultrart-dn-firefly K (0 = off), -ultrart-dn-nosearch, -ultrart-dn-cache W (0 = off), -ultrart-dn-noclamp,
         /// -ultrart-dn-iterations N.
         /// </summary>
+        public DenoiserSettings Clone() => (DenoiserSettings)MemberwiseClone();
+
+        /// <summary>Ctrl+F3 presets (the temporal/stability fields only; other fields are kept).</summary>
+        public void ApplyPreset(DenoiserPreset p)
+        {
+            var d = new DenoiserSettings();
+            bool full = p == DenoiserPreset.Full;
+            alphaMin = full ? d.alphaMin : 0.1f;
+            maxHistory = full ? d.maxHistory : 32;
+            referenceHz = full ? d.referenceHz : 0f;
+            spatialVarianceFloor = full ? d.spatialVarianceFloor : 0f;
+            stabilize = full;
+            stability = p != DenoiserPreset.Legacy;
+        }
+
+        /// <summary>Which preset these settings match (Custom when they match none).</summary>
+        public DenoiserPreset CurrentPreset()
+        {
+            foreach (DenoiserPreset p in new[] { DenoiserPreset.Full, DenoiserPreset.Previous, DenoiserPreset.Legacy })
+            {
+                var t = Clone();
+                t.ApplyPreset(p);
+                if (t.alphaMin == alphaMin && t.maxHistory == maxHistory && t.referenceHz == referenceHz &&
+                    t.spatialVarianceFloor == spatialVarianceFloor && t.stabilize == stabilize && t.stability == stability) return p;
+            }
+            return DenoiserPreset.Custom;
+        }
+
         public static DenoiserSettings FromCommandLine()
         {
             var s = new DenoiserSettings();
@@ -93,7 +148,13 @@ namespace UltraRT
                 float F(float fallback) => float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
                 switch (a[i].ToLowerInvariant())
                 {
-                    case "-ultrart-dn-legacy": s.stability = false; break;
+                    case "-ultrart-dn-legacy": s.ApplyPreset(DenoiserPreset.Legacy); break;
+                    case "-ultrart-dn-previous": s.ApplyPreset(DenoiserPreset.Previous); break;
+                    case "-ultrart-dn-alpha": s.alphaMin = F(s.alphaMin); break;
+                    case "-ultrart-dn-spatialvar": s.spatialVarianceFloor = F(s.spatialVarianceFloor); break;
+                    case "-ultrart-dn-nostabilize": s.stabilize = false; break;
+                    case "-ultrart-dn-stabilize-alpha": s.stabilizeAlphaMin = F(s.stabilizeAlphaMin); break;
+                    case "-ultrart-dn-stabilize-sigma": s.stabilizeSigma = F(s.stabilizeSigma); break;
                     case "-ultrart-dn-boost": s.boostFrames = F(s.boostFrames); break;
                     case "-ultrart-dn-boost-radius": s.boostRadius = F(s.boostRadius); break;
                     case "-ultrart-dn-firefly": s.fireflySigma = F(s.fireflySigma); break;
@@ -139,9 +200,24 @@ namespace UltraRT
         public DenoiserCacheChannel CacheChannel = DenoiserCacheChannel.None;
         /// <summary>Added to the cached value: lighting terms PathTrace adds that the cache leaves out (ambient).</summary>
         public Vector3 CacheOffset;
+        /// <summary>Seconds since the previous frame (set per frame by the plugin): blend factors are kept at the same time
+        /// constant across frame rates (<see cref="DenoiserSettings.referenceHz"/>). 0 = assume the reference rate.</summary>
+        public float FrameTime;
+        /// <summary>Bench: when > 0, overrides <see cref="FrameTime"/> for every instance (captures run slower than real time).</summary>
+        public static float FrameTimeOverride;
+
+        private float RateAlpha(float alpha)
+        {
+            alpha = Mathf.Clamp01(alpha);
+            float dt = FrameTimeOverride > 0f ? FrameTimeOverride : FrameTime;
+            float hz = Settings.referenceHz;
+            if (hz <= 0f || dt <= 0f) return alpha;
+            float frames = Mathf.Clamp(dt * hz, 0.1f, 50f);
+            return 1f - Mathf.Pow(1f - alpha, frames);
+        }
 
         private readonly ComputeShader _shader;
-        private readonly int _kTemporal, _kAtrous3, _kAtrous5, _kComposite;
+        private readonly int _kTemporal, _kAtrous3, _kAtrous5, _kStabilize, _kComposite;
 
         private int _width, _height;
         private RenderTexture _hist;                       // first a-trous output, fed back as next frame's history
@@ -149,6 +225,8 @@ namespace UltraRT
         private readonly RenderTexture[] _moments = new RenderTexture[2];
         private readonly RenderTexture[] _geo = new RenderTexture[2];
         private RenderTexture _boostInfo;                 // Temporal's debug channels (DenoiserDebugView.SpatialBoost)
+        private RenderTexture _reproj;                    // Temporal's history footprint (R32G32_UInt), reused by Stabilize
+        private readonly RenderTexture[] _stable = new RenderTexture[2]; // stabilised lighting (ping-pong)
         private readonly ComputeBuffer _dummyKeys, _dummyResolved; // bound when there is no cache (Temporal declares them)
         private uint _frame;
         private int _cur;                                 // index written this frame
@@ -202,7 +280,15 @@ namespace UltraRT
             IdDnFrame = Shader.PropertyToID("_DnFrame"),
             IdCacheKeys = Shader.PropertyToID("_CacheKeys"),
             IdCacheResolved = Shader.PropertyToID("_CacheResolved"),
-            IdCacheMode = Shader.PropertyToID("_CacheMode");
+            IdCacheMode = Shader.PropertyToID("_CacheMode"),
+            IdOutReproj = Shader.PropertyToID("_OutReproj"),
+            IdReproj = Shader.PropertyToID("_Reproj"),
+            IdStabSrc = Shader.PropertyToID("_StabSrc"),
+            IdStabMoments = Shader.PropertyToID("_StabMoments"),
+            IdStableIn = Shader.PropertyToID("_StableIn"),
+            IdStableOut = Shader.PropertyToID("_StableOut"),
+            IdStabilize = Shader.PropertyToID("_Stabilize"),
+            IdSpatialVarFloor = Shader.PropertyToID("_SpatialVarFloor");
 
         public Denoiser(ComputeShader shader)
         {
@@ -210,6 +296,7 @@ namespace UltraRT
             _kTemporal = shader.FindKernel("Temporal");
             _kAtrous3 = shader.FindKernel("Atrous3");
             _kAtrous5 = shader.FindKernel("Atrous5");
+            _kStabilize = shader.FindKernel("Stabilize");
             _kComposite = shader.FindKernel("Composite");
             _dummyKeys = new ComputeBuffer(8, 4) { name = "UltraRT Denoise cache keys (unused)" };
             _dummyKeys.SetData(new uint[8]);
@@ -254,7 +341,8 @@ namespace UltraRT
 
             // 1. Temporal accumulation.
             cmd.SetComputeIntParam(cs, IdHistoryValid, _historyValid ? 1 : 0);
-            cmd.SetComputeFloatParam(cs, IdAlphaMin, Mathf.Clamp01(s.alphaMin));
+            cmd.SetComputeFloatParam(cs, IdAlphaMin, RateAlpha(s.alphaMin));
+            cmd.SetComputeFloatParam(cs, IdSpatialVarFloor, Mathf.Max(0f, s.spatialVarianceFloor));
             cmd.SetComputeFloatParam(cs, IdNormalTol, s.reprojNormalTolerance);
             cmd.SetComputeFloatParam(cs, IdPlaneTol, Mathf.Max(0f, s.reprojPlaneTolerance));
             cmd.SetComputeIntParam(cs, IdClampHistory, s.clampHistory ? 1 : 0);
@@ -269,6 +357,7 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutMoments, _moments[_cur]);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutGeo, _geo[_cur]);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutBoost, _boostInfo);
+            cmd.SetComputeTextureParam(cs, _kTemporal, IdOutReproj, _reproj);
             bool st = s.stability;
             cmd.SetComputeVectorParam(cs, IdBoost, new Vector4(
                 st ? Mathf.Max(0f, s.boostFrames) : 0f,
@@ -316,9 +405,23 @@ namespace UltraRT
                 filtered = src;
             }
 
+            // 3. Temporal stabilisation of the filtered lighting (not fed back into the history above).
+            if (s.stabilize)
+            {
+                cmd.SetComputeVectorParam(cs, IdStabilize, new Vector4(Mathf.Max(0f, s.stabilizeSigma), RateAlpha(s.stabilizeAlphaMin),
+                    Mathf.Max(0f, s.stabilizeTolerance), Mathf.Max(1f, s.stabilizeMaxLength)));
+                cmd.SetComputeTextureParam(cs, _kStabilize, IdStabSrc, filtered);
+                cmd.SetComputeTextureParam(cs, _kStabilize, IdStabMoments, _moments[_cur]);
+                cmd.SetComputeTextureParam(cs, _kStabilize, IdReproj, _reproj);
+                cmd.SetComputeTextureParam(cs, _kStabilize, IdStableIn, _stable[prev]);
+                cmd.SetComputeTextureParam(cs, _kStabilize, IdStableOut, _stable[_cur]);
+                cmd.DispatchCompute(cs, _kStabilize, gx, gy, 1);
+                filtered = _stable[_cur];
+            }
+
             FilteredLighting = filtered;
 
-            // 3. Composite.
+            // 4. Composite.
             cmd.SetComputeVectorParam(cs, IdOutDim, new Vector4(output.width, output.height, 0, 0));
             cmd.SetComputeIntParam(cs, IdDebugView, (int)s.debugView);
             cmd.SetComputeTextureParam(cs, _kComposite, IdFiltered, filtered);
@@ -368,22 +471,27 @@ namespace UltraRT
                 _geo[i] = Create($"UltraRT Denoise Geo {i}", RenderTextureFormat.ARGBInt);
             }
             _boostInfo = Create("UltraRT Denoise Boost", RenderTextureFormat.ARGB32);
+            _reproj = Create("UltraRT Denoise Reprojection", GraphicsFormat.R32G32_UInt);
+            for (int i = 0; i < 2; i++) _stable[i] = Create($"UltraRT Denoise Stable {i}", RenderTextureFormat.ARGBHalf);
             _cur = 0;
             _historyValid = false;
         }
 
-        private RenderTexture Create(string name, RenderTextureFormat format)
+        private RenderTexture Create(string name, RenderTextureFormat format) =>
+            Init(new RenderTexture(_width, _height, 0, format, RenderTextureReadWrite.Linear), name);
+
+        private RenderTexture Create(string name, GraphicsFormat format) =>
+            Init(new RenderTexture(_width, _height, 0, format), name);
+
+        private static RenderTexture Init(RenderTexture rt, string name)
         {
-            var rt = new RenderTexture(_width, _height, 0, format, RenderTextureReadWrite.Linear)
-            {
-                name = name,
-                enableRandomWrite = true,
-                filterMode = FilterMode.Point,
-                wrapMode = TextureWrapMode.Clamp,
-                useMipMap = false,
-                autoGenerateMips = false,
-                hideFlags = HideFlags.HideAndDontSave,
-            };
+            rt.name = name;
+            rt.enableRandomWrite = true;
+            rt.filterMode = FilterMode.Point;
+            rt.wrapMode = TextureWrapMode.Clamp;
+            rt.useMipMap = false;
+            rt.autoGenerateMips = false;
+            rt.hideFlags = HideFlags.HideAndDontSave;
             rt.Create();
             return rt;
         }
@@ -407,6 +515,8 @@ namespace UltraRT
                 Release(ref _geo[i]);
             }
             Release(ref _boostInfo);
+            Release(ref _reproj);
+            for (int i = 0; i < 2; i++) Release(ref _stable[i]);
             _historyValid = false;
         }
 

@@ -12,15 +12,17 @@ All passes use 8x8 thread groups and run at trace resolution, except Composite, 
 |---|---|---|---|
 | 1 | `Temporal` | radiance, normalDepth, instanceId, prevGeo, hist, prevMoments, radiance cache (optional) | t0 (lighting, variance), moments[cur], geo[cur], boost (debug) |
 | 2 | `Atrous3` or `Atrous5` ×N | previous iteration's output, geo[cur] | iteration 0 writes **hist** (the history fed back next frame). Later iterations alternate t0 and t1. |
-| 3 | `Composite` | last filtered output, albedo, emission, radiance, moments[cur], boost | output |
+| 3 | `Stabilize` (`stabilize`) | last filtered output, moments[cur], reproj, stable[prev] | stable[cur] (not fed back into hist). See [Static noise](#static-noise). |
+| 4 | `Composite` | stabilised (or last filtered) output, albedo, emission, radiance, moments[cur], boost | output |
 
 **Temporal**
 - Loads a 16x16 tile (the 8x8 group plus a 4-pixel apron) into groupshared memory: radiance, ray t, world position and normal. The 3x3 statistics and the pre-blur read from it.
 - Rebuilds each pixel's world position from the primary ray (`camPos + dir * t`), using the same formula as the ray generation shader.
 - Moves that position to where the surface was last frame, `p' = p + motion` (see [Motion vectors](#motion-vectors); 0 for static geometry), projects `p'` with the previous frame's viewProj, then does a 2x2 bilinear fetch. Each tap is validated separately: the valid bit is set (not sky), the low 7 bits of the instance id match, `dot(n, nPrev) ≥ reprojNormalTolerance`, and `|dot(pPrev − p', n)| ≤ reprojPlaneTolerance · t + 0.01`. The weights of the valid taps are renormalised.
 - If no tap is valid, a 3x3 search around the reprojected point takes the best texel that passes the same tests (`historySearch`). Only if that also fails does the history length go back to 0. See [Temporal stability](#temporal-stability).
-- Blends with an exponential moving average, `alpha = max(1 / len, alphaMin)` where `len = min(histLen + 1, maxHistory)`. Both the lighting and the luminance moments (m1, m2) are accumulated this way.
-- Variance is `m2 − m1²`. Below 4 frames of history it is replaced by the luminance variance of the 3x3 neighbourhood. The 3x3 is cached in groupshared memory and only includes pixels whose depth is within 10%.
+- Blends with an exponential moving average, `alpha = max(1 / len, alphaMin)` where `len = min(histLen + 1, maxHistory)`. Both the lighting and the luminance moments (m1, m2) are accumulated this way. alphaMin is rescaled to the frame time (`referenceHz`, see [Static noise](#static-noise)).
+- Variance is `m2 − m1²`. Below 4 frames of history it is replaced by the luminance variance of the 3x3 neighbourhood. The 3x3 is cached in groupshared memory and only includes pixels whose depth is within 10%. It never drops below `spatialVarianceFloor` × that 3x3 variance.
+- Writes the history footprint it used (`reproj`: base texel and the 4 validated bilinear weights, or the 3x3 search's texel) for `Stabilize`.
 - Long-history pixels get a firefly clamp, and short-history pixels accumulate a pre-blurred (and optionally cache-seeded) input instead of their own sample. See [Temporal stability](#temporal-stability).
 - Optional history clip (`clampHistory`): clamps the history to the mean of the noisy 3x3 neighbourhood ± `clampSigma · max(spatial σ, history σ)`. Including the history's own temporal σ in that floor means a sparse bright bounce, where all 9 neighbours miss it in a frame, does not get clamped away and flicker. A light switching off still pulls the history down within a few frames.
 - Writes this frame's packed geometry for the next frame: `int4(asint(worldPos), valid | inst&0x7F | oct12 normal)`. Storing world position directly means reprojection needs no inverse of the previous matrix, and plane tests are exact in float32.
@@ -39,7 +41,7 @@ All passes use 8x8 thread groups and run at trace resolution, except Composite, 
 
 ## Temporal stability
 
-ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has no history, so plain SVGF shows its 1 spp lighting, filtered only by the à-trous passes, for the first several frames. That shows up as speckle, worst along the leading screen edge while sliding. Four features in the `Temporal` kernel address it. `stability = false` (`-ultrart-dn-legacy`, Ctrl+F3) turns all four off and reproduces the previous output exactly.
+ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has no history, so plain SVGF shows its 1 spp lighting, filtered only by the à-trous passes, for the first several frames. That shows up as speckle, worst along the leading screen edge while sliding. Four features in the `Temporal` kernel address it. `stability = false` turns all four off and reproduces plain SVGF exactly (the `Legacy` preset, `-ultrart-dn-legacy`, Ctrl+F3). The [guard band](#guard-band) removes most of the leading-edge case.
 
 **1. History-aware pre-blur** (`boostFrames` 8, `boostRadius` 4). This is the "pre-pass" of ReBLUR and A-SVGF.
 - For a pixel with `histLen < boostFrames`, the value accumulated this frame is a geometry-aware Gaussian of the noisy input around it, instead of its own sample: `color = lerp(history, preBlur, 1 / len)`.
@@ -73,6 +75,79 @@ ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has 
 - **Bias**: on a converged surface whose bright samples are rarer than about 1 in 30 frames, those samples are partly clamped, which darkens it slightly. Use `-ultrart-dn-firefly 0` to compare.
 
 **Debug view `dn-boost`** (`DenoiserDebugView.SpatialBoost`, at the end of the Page Up/Page Down list), drawn over a dim grey image: **red** is pre-blur strength, **green** the cache seed weight, **blue** history recovered by the 3x3 search, and **white** a firefly clamped by more than 10%. While sliding, expect a red band along the leading edge that fades within 8 frames, green over most of it (indirect light near the camera), and blue specks along silhouettes. `dn-history` still shows the history length.
+
+## Static noise
+
+A still image in relight (and less so in hybrid) used to boil: the lighting kept changing on surfaces that should have converged. Measured with bench noise bursts (bench/README.md, "Temporal noise bursts"): the per-pixel σ of screen luma (0–255) over 64 frames, over the pixels the game itself keeps still, plus the σ of 8-frame means ("block"), which is what still shows at 360 Hz.
+
+**Where it came from** (1-4 drift pose, relight, the build before this work; `bench/suites/noise-diag.json`):
+
+| Variant | σ | block σ |
+|---|---|---|
+| relight | 0.66 | 0.60 |
+| ReSTIR off (`lights=ref`: every light, one ray each) | **0.16** | 0.12 |
+| radiance cache off / cache history 128 | 0.65 / 0.64 | 0.59 / 0.59 |
+| reflections off / emissive lights off / soft-shadow radius 0 | 0.65 / 0.63 / 0.66 | ≈ 0.59 |
+| stability features off | 0.65 | 0.59 |
+| denoiser alphaMin 0.03, 100 frames | 0.35 | 0.31 |
+| raw `pt-direct` / `pt-indirect` (no denoiser) | 8.2 / 2.5 | **7.0** / 0.85 |
+
+The bounce (radiance cache) and reflections contribute very little; nearly all of it is ReSTIR's direct light. A pixel keeps its reservoir sample for up to `historyLimit` × `candidates` (160) samples of M, so its error stays almost constant for dozens of frames (raw direct: block σ 7.0 of 8.2), while neighbouring pixels pick independently. That has two consequences. First, the temporal accumulation (about 10 frames at alphaMin 0.1, 28 ms at 360 Hz) can't average it out. Second, the temporal moments barely see it, so the à-trous luminance weights treat it as detail and keep it. Shortening the reservoir history (`historyLimit` 4) made it worse: there is more noise per frame. 1-1's sunlit start area shows the same pattern (0.73; 0.58 with ReSTIR off: there the sun's shadow edges and the cache add a little).
+
+**What changed** (the `Full` preset, i.e. the defaults):
+
+1. **Longer, frame-rate-independent history**: `alphaMin` 0.1 → 0.04 at `referenceHz` 360, rescaled to the actual frame time as `1 − (1 − α)^(360·dt)` (0.22 at 60 fps: the same 70 ms time constant). `maxHistory` 32 → 64. The history clip and the firefly clamp still catch real changes.
+2. **Spatial variance floor** (`spatialVarianceFloor` 2): Temporal's variance is at least 2 × the raw input's 3x3 spatial variance, so the à-trous passes blur ReSTIR's pixel-independent noise instead of preserving it.
+3. **Output stabilisation** (`Stabilize`, `stabilize`): a second, light temporal filter on the *filtered* lighting. It is not fed back into the SVGF history.
+   - It reuses Temporal's reprojection footprint, so there is no second validation.
+   - It keeps a moving average of luma² next to the colour, and clamps its history to the current filtered value ± `stabilizeSigma` (2) × that history's own temporal σ + `stabilizeTolerance` (2%) × luma.
+   - Noise-sized wobbles average out over about 1/`stabilizeAlphaMin` (20) frames. A real lighting change lies far outside the converged spread and pulls the history along within a frame or two.
+   - While the history is younger than 4 frames, the à-trous variance (an upper bound) sets the box.
+4. **ReSTIR spatial reuse in hybrid** (`LightSamplingSettings.spatialSamplesHybrid` 2, radius 6 px): two reservoirs from the previous frame near the reprojected pixel (docs/light-sampling.md). It cuts hybrid's remaining direct-light boiling by about a third. In relight it made 1-1's sun shadow edges boil more (0.38 → 0.46), so relight and pt-dn keep `spatialSamples` 0.
+5. **[Guard band](#guard-band)** for the screen edge in motion.
+
+**Results** (`bench/suites/noise-final.json`, masked σ / block σ, Previous preset → Full; RTX 5070 Ti, 1920x1080, trace scale 0.5):
+
+| Pose | relight σ | relight block σ | hybrid σ | hybrid block σ |
+|---|---|---|---|---|
+| 0-1 metal | 1.01 → 0.93 | 0.68 → 0.60 | 0.50 → 0.47 | 0.33 → 0.31 |
+| 0-3 ghosts | 0.94 → 0.69 | 0.72 → 0.48 | 0.60 → 0.53 | 0.42 → 0.36 |
+| 1-4 lamps | 0.45 → 0.31 | 0.40 → 0.27 | 0.34 → 0.28 | 0.29 → 0.23 |
+| 1-4 drift | 0.66 → 0.32 | 0.60 → 0.28 | 0.32 → 0.18 | 0.26 → 0.15 |
+| 1-1 user a | 1.22 → 0.79 | 0.77 → 0.43 | 0.96 → 0.70 | 0.53 → 0.33 |
+| 1-1 user b | 1.00 → 0.54 | 0.72 → 0.36 | 0.66 → 0.46 | 0.42 → 0.27 |
+| 1-1 user c | 0.88 → 0.44 | 0.66 → 0.32 | 0.54 → 0.37 | 0.32 → 0.21 |
+| 1-1 user d | 0.79 → 0.35 | 0.66 → 0.28 | 0.45 → 0.20 | 0.34 → 0.12 |
+| 8-3 b | 1.03 → 0.38 | 0.90 → 0.34 | 0.64 → 0.30 | 0.55 → 0.27 |
+| 1-1 start | 0.74 → 0.45 | 0.49 → 0.25 | 0.46 → 0.32 | 0.24 → 0.15 |
+| 1-1 torch hall | 1.15 → 0.45 | 1.00 → 0.40 | 0.29 → 0.10 | 0.22 → 0.08 |
+| 4-1 indoor A | 0.43 → 0.17 | 0.35 → 0.15 | 0.11 → 0.04 | 0.07 → 0.03 |
+
+The block σ (what survives the eye's own averaging at 360 Hz) drops by 33–62% in relight and by 14–65% in hybrid (half or more on most poses). 0-1 metal barely moves: the game animates that scene itself (σ 4.4 over the whole frame in `off`, flickering lights), and the RT lighting follows it.
+
+**Motion**: on the 1-1 sweep (180°/s), the guard band removes the speckled band along the leading edge (`dn-lighting` frames). The 0-2 run with active enemies shows no new ghosting.
+
+**Cost** (0-2 run, GPU total / dispatch / denoise in ms, Previous → Full): relight 1.98 / 1.28 / 0.20 → 2.11 / 1.34 / 0.22 (+0.12), hybrid 2.14 / 1.23 / 0.38 → 2.25 / 1.24 / 0.43 (+0.11). Most of it is the guard band (8% more rays and denoised pixels); the denoiser itself grows by 0.02 ms per instance (Stabilize plus the extra pixels).
+
+## Guard band
+
+Plugin.cs traces `_guardX` (4%) more than the screen on each side (`-ultrart-guard X [Y]`; Y is 0 by default), at the same pixel density.
+- The RT resolution grows by 2 × 4%, and the projection is scaled by the traced/visible ratio.
+- `Composite.shader` maps screen uv to trace uv (`_UltraRTUVScale`, with `_UltraRTDepthParams` scaled to match).
+- Every other consumer of the trace (denoiser, ReSTIR, reflections, the radiance cache update) works in trace space and needs no change.
+
+Surfaces that turn into view therefore already have denoiser and ReSTIR history and warm cache cells. At 180°/s (0.5°/frame at 360 Hz, about 4 trace px/frame) the 38 px band holds about 9 frames of history. That removes the speckled band along the leading edge while turning (compare the `1-1_sweep_burst_dn-lighting_*_frame.png` images). It costs about 8% more rays and denoised pixels. Vertical turns are rarer, so Y is off. The Previous and Legacy presets turn the band off.
+
+## Presets and Ctrl+F3
+
+Ctrl+F3 cycles `DenoiserPreset` on both denoiser instances:
+- **Full**: everything above.
+- **Previous**: the build before this work. alphaMin 0.1 per frame, 32 frames, no variance floor, no stabilisation, no guard band, no hybrid spatial reuse; the four stability features stay on.
+- **Legacy**: Previous without the stability features, i.e. plain SVGF.
+
+`-ultrart-dn-previous` and `-ultrart-dn-legacy` start in those presets. Individual flags: `-ultrart-dn-alpha A`, `-ultrart-dn-spatialvar K`, `-ultrart-dn-nostabilize`, `-ultrart-dn-stabilize-alpha A`, `-ultrart-dn-stabilize-sigma K`, `-ultrart-guard X [Y]`, `-ultrart-restir-spatial N`, `-ultrart-restir-spatial-hybrid N`.
+
+**Not the denoiser**: in 1-1's start area, the tree canopies and grass are the game's own animated foliage, drawn over the RT image. The thin wires against the sky flicker because of the half-resolution depth-guided upsample. Neither changes with these settings.
 
 ## Motion vectors
 
@@ -109,6 +184,8 @@ About +0.05 ms in DispatchRays (motion on primary hits of dynamic instances, the
 | moments[2] | ARGBHalf | m1, m2, history length, temporal variance (ping-pong) |
 | geo[2] | ARGBInt (R32G32B32A32_SInt) | packed world position, normal and instance (ping-pong) |
 | boost | ARGB32 | debug channels for `dn-boost`: pre-blur, cache seed, search, firefly cut (written every frame, 3.7 MB) |
+| reproj | R32G32_UInt | Temporal's history footprint: base texel + 1, 4 × unorm8 tap weights (read by Stabilize) |
+| stable[2] | ARGBHalf | stabilised lighting, a = moving average of luma² (ping-pong) |
 
 All of these are enableRandomWrite and point filtered. At 1280x720 they total about 70 MB. There are also two 8-slot dummy cache buffers, bound when there is no cache. They are reallocated, and the history is reset, whenever the radiance size changes.
 
@@ -118,14 +195,18 @@ All of these are enableRandomWrite and point filtered. At 1280x720 they total ab
 |---|---|---|
 | iterations | 3 | 0–5. 0 means temporal accumulation only; the integrated lighting is then copied into hist. |
 | wideKernel | false | 5x5 B3 instead of 3x3 |
-| alphaMin | 0.1 | Raise it (0.2) for less lag; lower it for more stability. Note that at 360 fps, 0.1 is only about 30 ms of history. |
-| maxHistory | 32 | Clamped to 1–255 |
+| alphaMin | 0.04 | At `referenceHz`, rescaled to the frame time. Raise it for less lag; lower it for more stability. `-ultrart-dn-alpha` |
+| maxHistory | 64 | Clamped to 1–255 |
+| referenceHz | 360 | Frame rate alphaMin and stabilizeAlphaMin are meant for (same time constant at any frame rate). 0 = per frame. |
+| spatialVarianceFloor | 2 | Variance ≥ this × the input's 3x3 spatial variance. 0 = plain SVGF. `-ultrart-dn-spatialvar` |
+| stabilize | true | Output stabilisation pass ([Static noise](#static-noise)). `-ultrart-dn-nostabilize` |
+| stabilizeSigma / stabilizeAlphaMin / stabilizeTolerance / stabilizeMaxLength | 2 / 0.05 / 0.02 / 32 | Its clamp (temporal σ of the filtered lighting, plus a relative slack), blend floor and history cap |
 | phiNormal / phiDepth / phiLuminance | 128 / 1 / 4 | Edge-stopping parameters, as in the SVGF paper |
 | reprojNormalTolerance | 0.9 | Minimum cosine between current and history normal |
 | reprojPlaneTolerance | 0.01 | Maximum plane distance, relative to ray t |
 | clampHistory / clampSigma | true / 2 | Turn the clip off to compare ghosting against noise |
 | debugView | Final | `Final`, `FilteredLighting`, `RawLighting`, `Variance` (heatmap of the relative σ of the temporal estimate; blue is clean, red is σ ≥ 2× the mean), `HistoryLength` (heatmap of len / maxHistory), `Disocclusion` (red where history was rejected this frame, grey elsewhere), `SpatialBoost` (see above), `Motion` (see [Motion vectors](#motion-vectors)) |
-| stability | true | Master switch for the four features below. false = the previous output, bit for bit. `-ultrart-dn-legacy`; Ctrl+F3 toggles both instances. |
+| stability | true | Master switch for the four features below. false = plain SVGF's temporal pass. Ctrl+F3 and `-ultrart-dn-legacy` (presets, [Presets and Ctrl+F3](#presets-and-ctrlf3)). |
 | boostFrames | 8 | Pre-blur fades out at this history length. 0 = off. `-ultrart-dn-boost N` |
 | boostRadius | 4 | Pre-blur radius in trace pixels at history 0. Clamped to 4 (tile apron). `-ultrart-dn-boost-radius R` |
 | historySearch | true | 3x3 fallback search. `-ultrart-dn-nosearch` |
@@ -135,7 +216,7 @@ All of these are enableRandomWrite and point filtered. At 1280x720 they total ab
 
 Other flags: `-ultrart-dn-noclamp` (clampHistory = false), `-ultrart-dn-iterations N`. Flags apply to both instances (main and hybrid's direct). They are read when a `Denoiser` is constructed; Plugin keeps the main instance's settings across F9 reloads.
 
-## Cost (estimated, not yet measured)
+## Cost (estimated, before the static-noise work; measured totals are in [Static noise](#static-noise))
 
 Per pixel at 1280x720:
 - Temporal: about 31 texture fetches; the 3x3 and the pre-blur read groupshared memory (10 KB per group). The 16x16 tile costs about 4 extra fetches and 4 ray reconstructions per pixel compared with the old 10x10 tile, about +0.01–0.02 ms with nothing boosted. That overhead remains with `stability = false`, so for timing A/B compare against the previous build, not just the flag.
@@ -195,6 +276,6 @@ There is no need to call it for camera motion or resolution changes. The denoise
 ## Known limitations
 - The history clip uses a 1 spp neighbourhood, so it is loose by design. Fast lighting changes, such as muzzle flashes or toggled lights, take a few frames to settle (about `1/alphaMin` frames at worst). An A-SVGF gradient pass would fix this properly.
 - Reprojection is bilinear, so the history is resampled slightly every frame while the camera moves. Lighting is smooth enough that this is hard to see, but it does slightly soften shadow edges in motion.
-- Screen-edge disocclusions have no history at all. They start from the pre-blur (4 px radius at trace resolution) plus the cache seed, and are visibly softer than converged regions for the first few frames. Raise `boostRadius` only together with the tile apron (`APRON` in Denoise.compute; groupshared cost grows quadratically).
+- Screen-edge disocclusions beyond the [guard band](#guard-band) (fast vertical turns, or turns faster than the band covers) have no history at all. They start from the pre-blur (4 px radius at trace resolution) plus the cache seed, and are visibly softer than converged regions for the first few frames. Raise `boostRadius` only together with the tile apron (`APRON` in Denoise.compute; groupshared cost grows quadratically).
 - The cache seed is biased wherever the cache and the input disagree by less than the consistency tolerance: at most about `cacheSeedTolerance` (50%) of the value, only for the first frames, and fading as `boost` does. The channel/offset table above is an approximation of what PathTrace adds; check `dn-boost`'s green against `-ultrart-dn-cache 0` in rooms with strong ambient.
 - Instance ids are compared modulo 128, and the normal is quantised to 12-bit octahedral components.

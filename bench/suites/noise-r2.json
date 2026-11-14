@@ -1,0 +1,137 @@
+{
+  "Name": "noise-r2",
+  "Scenarios": [
+    {
+      "Name": "1-4 drift",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "relight+dn.spatialVarianceFloor=0",
+        "relight+dn.stabilize=0",
+        "relight+dn.alphaMin=0.1+dn.maxHistory=32",
+        "relight+dn.alphaMin=0.03",
+        "relight+dn.spatialVarianceFloor=2",
+        "relight+ls.spatialSamples=2",
+        "relight+ls.candidates=16+ls.historyLimit=10",
+        "hybrid+preset=previous",
+        "hybrid",
+        "hybrid+ls.spatialSamples=2",
+        "dn-lighting+relight+preset=previous",
+        "dn-lighting+relight"
+      ]
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "relight+dn.spatialVarianceFloor=0",
+        "relight+dn.stabilize=0",
+        "relight+dn.alphaMin=0.1+dn.maxHistory=32",
+        "relight+dn.alphaMin=0.03",
+        "relight+dn.spatialVarianceFloor=2",
+        "relight+ls.spatialSamples=2",
+        "relight+ls.candidates=16+ls.historyLimit=10",
+        "hybrid+preset=previous",
+        "hybrid",
+        "hybrid+ls.spatialSamples=2",
+        "dn-lighting+relight+preset=previous",
+        "dn-lighting+relight"
+      ]
+    },
+    {
+      "Name": "1-1 start",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-approach.json",
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "relight+dn.spatialVarianceFloor=0",
+        "relight+dn.stabilize=0",
+        "relight+dn.alphaMin=0.1+dn.maxHistory=32",
+        "relight+dn.alphaMin=0.03",
+        "relight+dn.spatialVarianceFloor=2",
+        "relight+ls.spatialSamples=2",
+        "relight+ls.candidates=16+ls.historyLimit=10",
+        "hybrid+preset=previous",
+        "hybrid",
+        "hybrid+ls.spatialSamples=2",
+        "dn-lighting+relight+preset=previous",
+        "dn-lighting+relight"
+      ]
+    },
+    {
+      "Name": "1-1 sweep",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "sweep",
+        "YawSpeed": 180,
+        "PitchAmplitude": 5,
+        "Duration": 10
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1
+      ],
+      "Burst": 96,
+      "BurstSettle": 60,
+      "BurstModes": [
+        "off",
+        "relight+preset=previous",
+        "relight",
+        "hybrid+preset=previous",
+        "hybrid",
+        "dn-lighting+relight+preset=previous",
+        "dn-lighting+relight",
+        "dn-lighting+relight+plugin._guardX=0+plugin._guardY=0",
+        "dn-lighting+relight+cache.staleFrames=1200"
+      ]
+    }
+  ]
+}

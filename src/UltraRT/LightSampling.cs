@@ -36,6 +36,11 @@ namespace UltraRT
         public int spatialSamples = 0;
         /// <summary>Radius of the spatial neighbourhood, in trace-resolution pixels.</summary>
         public float spatialRadius = 12f;
+        /// <summary>Spatial reuse in hybrid (Bind's hybrid flag). Hybrid only uses ReSTIR's shadowed / unshadowed ratio, where
+        /// neighbours' samples cut the slow boiling of the direct light by about a third (docs/denoiser.md, "Static noise").
+        /// In relight / pt-dn they made outdoor sun shadows boil more, so those keep spatialSamples.</summary>
+        public int spatialSamplesHybrid = 2;
+        public float spatialRadiusHybrid = 6f;
         /// <summary>Reuse: minimum cosine between current and history normal.</summary>
         public float normalTolerance = 0.9f;
         /// <summary>Reuse: maximum distance from the history surface's plane, relative to hit distance (+0.01 absolute).</summary>
@@ -136,7 +141,7 @@ namespace UltraRT
         /// <param name="emissiveSetChanged">The active emissive triangles changed this frame (EmissiveLights.SetChanged): shortens
         /// history like a light-set change.</param>
         public void Bind(CommandBuffer cmd, RayTracingShader shader, int width, int height, Matrix4x4 viewProj, Vector3 camPos,
-                         IList<Light> lights, Vector4[] lightData, int lightCount, bool emissiveSetChanged = false)
+                         IList<Light> lights, Vector4[] lightData, int lightCount, bool emissiveSetChanged = false, bool hybrid = false)
         {
             var s = Settings;
             lightCount = Mathf.Clamp(lightCount, 0, _maxLights);
@@ -174,8 +179,8 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(shader, IdRestirHistoryValid, restir && _historyValid ? 1 : 0);
             cmd.SetRayTracingVectorParam(shader, IdRestirParams,
                 // M is stored as a 12-bit integer in the reservoir (docs/emissive-lights.md).
-                new Vector4(Mathf.Min(cap, 4000f), Mathf.Clamp(s.normalTolerance, -1f, 1f), Mathf.Max(0f, s.planeTolerance), Mathf.Max(0f, s.spatialRadius)));
-            cmd.SetRayTracingIntParam(shader, IdRestirSpatial, Mathf.Clamp(s.spatialSamples, 0, 8));
+                new Vector4(Mathf.Min(cap, 4000f), Mathf.Clamp(s.normalTolerance, -1f, 1f), Mathf.Max(0f, s.planeTolerance), Mathf.Max(0f, hybrid ? s.spatialRadiusHybrid : s.spatialRadius)));
+            cmd.SetRayTracingIntParam(shader, IdRestirSpatial, Mathf.Clamp(hybrid ? s.spatialSamplesHybrid : s.spatialSamples, 0, 8));
 
             if (restir)
             {

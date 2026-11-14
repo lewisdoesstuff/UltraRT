@@ -7,11 +7,15 @@
 //              accumulate a geometry-aware pre-blur of the input (optionally seeded from the radiance cache) instead of
 //              their single sample; long-history pixels get a firefly clamp.
 //   Atrous3/5  one a-trous iteration (3x3 or 5x5 B3-spline taps at _Step spacing), filters variance too.
+//   Stabilize  temporal stabilisation of the final filtered lighting: blends it with its own reprojected history (the
+//              Temporal pass's reprojection), clamped to the filtered signal's own temporal spread, so the residual
+//              low-frequency flicker the spatial filter leaves (correlated ReSTIR / radiance cache noise) averages out.
 //   Composite  albedo * lighting * keep + emission + specular (or a debug view) into the output.
 
 #pragma kernel Temporal
 #pragma kernel Atrous3
 #pragma kernel Atrous5
+#pragma kernel Stabilize
 #pragma kernel Composite
 
 // ---------------------------------------------------------------- shared
@@ -71,6 +75,8 @@ RWTexture2D<float4> _OutIntegrated; // rgb lighting, a variance
 RWTexture2D<float4> _OutMoments;    // m1, m2, history length, variance
 RWTexture2D<int4>   _OutGeo;
 RWTexture2D<float4> _OutBoost;      // debug (DenoiserDebugView.SpatialBoost): r pre-blur, g cache seed, b 3x3 search, a firefly cut
+RWTexture2D<uint2>  _OutReproj;     // the history footprint used this frame, for Stabilize: x base texel + 1 (x | y << 16;
+                                    // 0xFFFFFFFF = none), y the 4 bilinear tap weights as unorm8 (0 = rejected tap)
 
 int   _HistoryValid;
 float _UltraRTTonemapWhite; // global, set by the plugin in relight mode
@@ -85,6 +91,7 @@ float4 _Boost;           // x pre-blur history frames (0 = off), y pre-blur radi
 float4 _CacheSeed;       // x seed weight (virtual samples at history 0; 0 = off), y channel (1 total, 2 indirect), z relative tolerance
 float4 _CacheSeedOffset; // rgb added to the cached value (terms PathTrace adds that the cache leaves out, e.g. ambient)
 uint   _DnFrame;
+float  _SpatialVarFloor; // the variance never drops below this x the 3x3 spatial variance of the input (0 = plain SVGF)
 // Shared with the a-trous passes (the pre-blur uses the same geometry weights).
 float _PhiNormal;
 float _PhiDepth;
@@ -193,6 +200,7 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         _OutMoments[id.xy] = 0;
         _OutGeo[id.xy] = 0; // invalid
         _OutBoost[id.xy] = 0;
+        _OutReproj[id.xy] = uint2(0xFFFFFFFFu, 0u);
         return;
     }
 
@@ -231,6 +239,8 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     float3 hMom = 0; // m1, m2, length
     float wSum = 0;
     bool searched = false;
+    int2 reprojBase = 0;
+    float4 reprojW = 0;
     float4 pc = mul(_PrevViewProj, float4(prevPos, 1.0));
     if (_HistoryValid != 0 && pc.w > 1e-5)
     {
@@ -251,7 +261,9 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
             hColor += w * _HistColor[q].rgb;
             hMom += w * _PrevMoments[q].xyz;
             wSum += w;
+            reprojW += w * float4(k == 0, k == 1, k == 2, k == 3);
         }
+        reprojBase = base;
 
         // All four taps failed (silhouettes, thin geometry, sub-pixel slivers): take the best matching texel of the 3x3
         // around the reprojected position before giving up on the history. Same tests; the score prefers the closest
@@ -281,6 +293,8 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
                 hMom = _PrevMoments[bestQ].xyz;
                 wSum = 1.0;
                 searched = true;
+                reprojBase = bestQ;
+                reprojW = float4(1, 0, 0, 0);
             }
         }
     }
@@ -291,7 +305,12 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         hColor /= wSum;
         hMom /= wSum;
         histLen = hMom.z;
+        uint4 wq = (uint4)round(saturate(reprojW / wSum) * 255.0);
+        _OutReproj[id.xy] = uint2((uint)(reprojBase.x + 1) | ((uint)(reprojBase.y + 1) << 16),
+                                  wq.x | (wq.y << 8) | (wq.z << 16) | (wq.w << 24));
     }
+    else
+        _OutReproj[id.xy] = uint2(0xFFFFFFFFu, 0u);
 
     // Anti-firefly: with enough history, a sample far above both the history and the current neighbourhood is scaled
     // down (hue kept) before it enters the moving average. The bound never drops below 2x the reference and widens with
@@ -372,6 +391,10 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     float2 mom = lerp(hMom.xy, float2(lum, lum * lum), alpha);
     mom.y = min(mom.y, 65000.0);
     float variance = newLen < 4.0 ? spatialVar : max(0.0, mom.y - mom.x * mom.x);
+    // ReSTIR keeps a pixel's light sample for many frames, so its noise is nearly constant in time and the temporal
+    // moments see almost none of it, while neighbouring pixels pick independently. Without this floor the a-trous
+    // luminance weights treat that noise as detail and keep it; the spatial variance of the input exposes it.
+    variance = max(variance, _SpatialVarFloor * spatialVar);
 
     _OutIntegrated[id.xy] = float4(color, variance);
     _OutMoments[id.xy] = float4(mom, newLen, variance);
@@ -467,6 +490,72 @@ void Atrous3(uint3 id : SV_DispatchThreadID) { AtrousImpl((int2)id.xy, 1); }
 
 [numthreads(8, 8, 1)]
 void Atrous5(uint3 id : SV_DispatchThreadID) { AtrousImpl((int2)id.xy, 2); }
+
+// ---------------------------------------------------------------- temporal stabilisation
+
+Texture2D<float4>   _StabSrc;     // final a-trous output: rgb lighting, a variance (of the per-sample luminance, filtered)
+Texture2D<float4>   _StabMoments; // this frame's moments (z = history length; 1 = history rejected this frame)
+Texture2D<uint2>    _Reproj;      // Temporal's _OutReproj
+Texture2D<float4>   _StableIn;    // last frame's stabilised lighting: rgb, a = moving average of luma^2
+RWTexture2D<float4> _StableOut;
+float4 _Stabilize; // x sigma (clamp half-size in temporal standard deviations), y alpha min, z relative tolerance, w max length
+
+// The spatial filter leaves residual noise that is correlated over many frames (ReSTIR's reused reservoirs, radiance
+// cache cells shared by many pixels), which the input-side accumulation can't average: it shows as slow boiling on a
+// still image. This pass averages the *filtered* lighting over time once more. Its history is clamped to the current
+// filtered value +- _Stabilize.x x the filtered signal's own temporal standard deviation (tracked here as the moving
+// average of luma^2), so a real change in lighting, which is far outside that spread once the history has converged,
+// pulls the history along within a frame or two, while noise-sized wobbles are averaged out.
+[numthreads(8, 8, 1)]
+void Stabilize(uint3 id : SV_DispatchThreadID)
+{
+    int2 dim = (int2)_Dim.xy;
+    if (any((int2)id.xy >= dim)) return;
+    float4 f = _StabSrc[id.xy];
+    float lf = Luma(f.rgb);
+    float len = _StabMoments[id.xy].z; // 0 sky, 1 history rejected
+    uint2 rp = _Reproj[id.xy];
+
+    float3 h = 0;
+    float hm2 = 0, ws = 0;
+    if (rp.x != 0xFFFFFFFFu && len > 1.5)
+    {
+        int2 base = int2(rp.x & 0xFFFFu, rp.x >> 16) - 1;
+        [unroll] for (int k = 0; k < 4; k++)
+        {
+            float w = ((rp.y >> (8 * k)) & 0xFFu) * (1.0 / 255.0);
+            if (w <= 0.0) continue;
+            int2 q = clamp(base + int2(k & 1, k >> 1), 0, dim - 1);
+            float4 s = _StableIn[q];
+            h += w * s.rgb;
+            hm2 += w * s.a;
+            ws += w;
+        }
+    }
+
+    float4 o = float4(f.rgb, lf * lf);
+    if (ws > 1e-3)
+    {
+        h /= ws;
+        hm2 /= ws;
+        float lh = Luma(h);
+        float sigma = sqrt(max(0.0, hm2 - lh * lh));
+        // Young history: its spread isn't measured yet; the filtered per-sample variance is a (loose) upper bound.
+        if (len < 4.0) sigma = max(sigma, sqrt(max(f.a, 0.0)));
+        float ext = _Stabilize.x * sigma + _Stabilize.z * lf + 1e-3;
+        float lc = clamp(lh, lf - ext, lf + ext);
+        if (lc != lh)
+        {
+            // Move the history towards the current value until its luminance is inside the box (no hue shift, no
+            // division by a near-black history); keep the measured spread.
+            h = lerp(h, f.rgb, (lc - lh) / (lf - lh));
+            hm2 += lc * lc - lh * lh;
+        }
+        float a = max(1.0 / min(len, _Stabilize.w), _Stabilize.y);
+        o = float4(lerp(h, f.rgb, a), lerp(hm2, lf * lf, a));
+    }
+    _StableOut[id.xy] = float4(max(o.rgb, 0.0), min(max(o.a, 0.0), 65000.0));
+}
 
 // ---------------------------------------------------------------- composite
 
