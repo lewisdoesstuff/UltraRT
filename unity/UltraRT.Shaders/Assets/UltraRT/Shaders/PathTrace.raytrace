@@ -260,6 +260,9 @@ void RayGen()
     bool wantGameCube = _Mode == 3 && _ReflParams.x > 0.5 && _ReflCache.z > 0.5;
     uint inFlags = ULTRART_PAYLOAD_WANT_MOTION; // the hit returns its world-space motion in p.motion
     if (wantGameCube) inFlags |= ULTRART_FLAG_GAMECUBE;
+    // Portal mirrors: keep the game's own mirror view (it shows V1 and is sharper than a traced reflection). The ray stops
+    // there and the pixel is written like sky, which every composite leaves to the game (docs/portals.md, "Mirrors").
+    if (_UltraRTMirrors == 0) inFlags |= ULTRART_TRACE_STOP_AT_MIRROR;
     // Through portals the ray continues on the far side (UltraRTPortals.hlsl): from here on `ray` is the last segment, so
     // shading uses the real hit point and direction. The G-buffer gets the camera-side ("virtual") view of the hit: path
     // length, normal and motion as seen through the portals, so the denoiser, ReSTIR and the reflection filter reproject
@@ -418,7 +421,7 @@ void RayGen()
 
     // Water and glass: along the camera ray, up to the opaque hit or the first portal (the game doesn't overlay what it
     // shows through a portal).
-    _Output[id] = _TransParams.y > 0.5 ? TraceTransparent(camRay, path.hops > 0u ? path.firstT : p.t, rng) : float4(c, 1.0);
+    _Output[id] = _TransParams.y > 0.5 ? TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, rng) : float4(c, 1.0);
 }
 
 [shader("miss")]

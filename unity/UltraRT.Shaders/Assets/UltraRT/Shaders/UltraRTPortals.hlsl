@@ -18,11 +18,17 @@
 // only after crossing such a portal; the portal hit reports the flag in p.material bit 0.
 #define ULTRART_MASK_PORTAL_LAYER 0x40u
 #define ULTRART_MASK_PORTAL 0x20u // SceneProxies.PortalMask
+// TraceScene request (inFlags, never sent to a hit shader): stop at a portal mirror and report a miss there with
+// path.mirrorT set. Camera rays use it so the composites keep the game's own mirror view (docs/portals.md, "Mirrors").
+#define ULTRART_TRACE_STOP_AT_MIRROR 0x10000000u
 
 #ifndef ULTRART_PORTALS_DEFINES_ONLY
 
 StructuredBuffer<float4> _UltraRTPortals; // per portal side: 3 rows of its 3x4 travel matrix (world -> world)
 int _UltraRTPortalHops; // teleports per ray (SceneProxies.PortalHops, default 3); global, set every frame
+// 1: camera rays reflect off portal mirrors like any portal (-ultrart-rtmirrors); 0 (default): they stop there and the
+// game's mirror view is kept. Global, set every frame.
+int _UltraRTMirrors;
 
 // V1's third-person model (instance mask ULTRART_MASK_PLAYER, SceneProxies.Player.cs). Which rays see it (Plugin's
 // _playerRays, global, set every frame; 0 = none): 1 reflection rays, 2 bounce rays, 4 shadow rays, 8 camera rays after
@@ -41,6 +47,7 @@ struct PortalPath
     float travelled;  // path length before the last segment (0 without a portal)
     float firstT;     // distance to the first portal surface; -1 without a portal
     uint hops;
+    float mirrorT;    // ULTRART_TRACE_STOP_AT_MIRROR: the ray stopped at a portal mirror this far along the path (p.t = -1); else -1
 };
 
 // The camera-side ("virtual") version of a direction or normal at the hit: rot is orthonormal.
@@ -54,6 +61,9 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     path.travelled = 0.0;
     path.firstT = -1.0;
     path.hops = 0u;
+    path.mirrorT = -1.0;
+    bool stopAtMirror = (inFlags & ULTRART_TRACE_STOP_AT_MIRROR) != 0u;
+    inFlags &= ~ULTRART_TRACE_STOP_AT_MIRROR;
     uint baseMask = mask & ~(ULTRART_MASK_PORTAL_LAYER | ULTRART_MASK_PLAYER);
     // Past a hop, layer 30 (and V1, which lives on it) shows only through portals that can see that layer.
     uint portalLayerMask = ULTRART_MASK_PORTAL_LAYER | (((mask & ULTRART_MASK_PLAYER) != 0u) ? ULTRART_MASK_PLAYER : PlayerRayMask(ULTRART_PLAYER_PORTAL));
@@ -65,7 +75,13 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         p.flags = inFlags | (i > 0u ? ULTRART_PORTAL_IN_RECURSION : 0u);
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
-        if (path.firstT < 0.0) path.firstT = p.t;
+        if (path.firstT < 0.0) path.firstT = p.t; // first segment: travelled is 0
+        if (stopAtMirror && (p.material & 2u) != 0u)
+        {
+            path.mirrorT = path.travelled + p.t;
+            p.t = -1.0;
+            return;
+        }
         if (i >= (uint)_UltraRTPortalHops)
         {
             // Past the recursion limit the game doesn't draw the portal at all, so the level behind it shows: go on
