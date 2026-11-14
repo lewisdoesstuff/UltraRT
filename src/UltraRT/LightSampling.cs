@@ -42,6 +42,9 @@ namespace UltraRT
         public float lightChangeIntensity = 0.1f;
         /// <summary>or it moves by more than this fraction of its range (a spot turning: 1 - cos above a quarter of this).</summary>
         public float lightChangeMove = 0.05f;
+        /// <summary>Extra RIS candidates (on top of <see cref="candidates"/>) for a pixel whose temporal history failed
+        /// (disocclusions, the screen edge in motion). Light evaluations only, no rays.</summary>
+        public int freshCandidates = 0;
         /// <summary>Extra reservoirs reused from the previous frame around the reprojected pixel (0 = temporal only).</summary>
         public int spatialSamples = 0;
         /// <summary>Radius of the spatial neighbourhood, in trace-resolution pixels.</summary>
@@ -122,7 +125,8 @@ namespace UltraRT
             IdRestirSpatial = Shader.PropertyToID("_RestirSpatial"),
             IdLightChanges = Shader.PropertyToID("_LightChanges"),
             IdLightChangeCount = Shader.PropertyToID("_LightChangeCount"),
-            IdLightChangeTolerance = Shader.PropertyToID("_LightChangeTolerance");
+            IdLightChangeTolerance = Shader.PropertyToID("_LightChangeTolerance"),
+            IdRestirFreshCandidates = Shader.PropertyToID("_RestirFreshCandidates");
 
         public LightSampling(int maxLights)
         {
@@ -217,6 +221,7 @@ namespace UltraRT
             cmd.SetRayTracingBufferParam(shader, IdLightChanges, _changes);
             cmd.SetRayTracingIntParam(shader, IdLightChangeCount, restir && _historyValid ? changes : 0);
             cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, Mathf.Max(1e-3f, s.lightChangeTolerance));
+            cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, restir ? Mathf.Clamp(s.freshCandidates, 0, 64) : 0);
 
             if (restir)
             {
@@ -252,6 +257,7 @@ namespace UltraRT
             cmd.SetRayTracingBufferParam(shader, IdLightChanges, _changes);
             cmd.SetRayTracingIntParam(shader, IdLightChangeCount, 0);
             cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, 1f);
+            cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, 0);
         }
 
         private int _prevCountForShader;

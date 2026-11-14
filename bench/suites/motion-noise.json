@@ -48,7 +48,9 @@
     "relight+vol=0+taau=0",
     "relight+vol=0+plugin._motionJitterRotate=1",
     "relight+vol=0+dn.antilag=3",
-    "relight+vol=0+dn.cacheSeed=4"
+    "relight+vol=0+dn.cacheSeed=4",
+    "relight+vol=0+ls.freshCandidates=24",
+    "relight+vol=0+up.maxWeight=8"
    ]
   },
   {
@@ -72,7 +74,10 @@
    "MotionModes": [
     "off",
     "relight+vol=0",
-    "hybrid+vol=0"
+    "hybrid+vol=0",
+    "relight+vol=0+ls.freshCandidates=24",
+    "relight+vol=0+plugin._guardX=0.08",
+    "relight+vol=0+up.maxWeight=8"
    ]
   },
   {
@@ -225,7 +230,9 @@
     "relight+vol=0+ls.perPixelLightChange=1",
     "relight+vol=0+dn.antilag=3",
     "relight+vol=0+ls.perPixelLightChange=1+dn.antilag=3",
-    "hybrid+vol=0+ls.perPixelLightChange=1+dn.antilag=3"
+    "hybrid+vol=0+ls.perPixelLightChange=1+dn.antilag=3",
+    "relight+vol=0+ls.freshCandidates=24",
+    "relight+vol=0+plugin._guardY=0.04"
    ]
   }
  ]

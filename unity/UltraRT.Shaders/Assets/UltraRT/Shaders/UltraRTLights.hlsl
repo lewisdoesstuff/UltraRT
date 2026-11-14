@@ -55,6 +55,7 @@ int       _RestirSpatial;   // extra neighbour reservoirs taken from the previou
 StructuredBuffer<float4>  _LightChanges;
 int       _LightChangeCount;
 float     _LightChangeTolerance; // share of a pixel's direct light that may be stale before its history is shortened
+int       _RestirFreshCandidates; // extra RIS candidates for a pixel whose temporal history failed (disocclusion, screen edge)
 
 #define ULTRART_NO_LIGHT 0xFFFFu
 #define ULTRART_EMISSIVE 0x10000u // light code flag: the low 16 bits index _EmissiveTris
@@ -630,20 +631,22 @@ float RestirChangeCap(Reservoir fresh, float3 pos, float3 n)
     return clamp(m * h / max(1.0 - h, 1e-3), m, cap);
 }
 
-void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
+// Returns whether the temporal (reprojected) reservoir was merged.
+bool RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
 {
-    if (_RestirHistoryValid == 0) return;
+    if (_RestirHistoryValid == 0) return false;
     g_RestirCap = RestirChangeCap(r, pos, n);
     float3 vn = g_PrimaryVirtual ? g_PrimaryVirtualN : n;
     float3 prevPos = (g_PrimaryVirtual ? g_PrimaryVirtualPos : pos) + g_PrimaryMotion;
     float4 pc = mul(_PrevViewProj, float4(prevPos, 1.0));
-    if (pc.w <= 1e-6) return;
+    if (pc.w <= 1e-6) return false;
     float2 pp = (pc.xy / pc.w * 0.5 + 0.5) * (float2)dim;
 
+    bool merged = false;
     if (all(pp >= 0.0) && all(pp < (float2)dim))
     {
         uint4 h = _ReservoirPrev[RestirIndex((uint2)pp, dim)];
-        if (RestirMatch(h, prevPos, vn, t)) RestirMerge(r, h, pos, n, layer, rng);
+        if (RestirMatch(h, prevPos, vn, t)) { RestirMerge(r, h, pos, n, layer, rng); merged = true; }
     }
 
     for (int k = 0; k < _RestirSpatial; k++)
@@ -654,6 +657,19 @@ void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
         if (any(q < 0.0) || any(q >= (float2)dim)) continue;
         uint4 h = _ReservoirPrev[RestirIndex((uint2)q, dim)];
         if (RestirMatch(h, prevPos, vn, t)) RestirMerge(r, h, pos, n, layer, rng);
+    }
+    return merged;
+}
+
+// Merge reservoir b (its own wSum and M) into a.
+void ReservoirCombine(inout Reservoir a, Reservoir b, float u)
+{
+    a.wSum += b.wSum;
+    a.M += b.M;
+    if (b.wSum > 0.0 && u * a.wSum < b.wSum)
+    {
+        a.light = b.light; a.bary = b.bary; a.pHat = b.pHat;
+        a.c = b.c; a.L = b.L; a.dist = b.dist;
     }
 }
 
@@ -721,7 +737,10 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
     if (any(g_DetailN != 0.0)) sum = FillLighting(pos, g_DetailN, layer);
     Reservoir r = RisCandidates(pos, n, layer, _RisCandidates, rng);
     bool temporal = _LightSampling >= 2;
-    if (temporal) RestirReuse(r, dim, pos, n, t, layer, rng);
+    // A pixel without temporal history (disocclusion, screen edge in motion, first frame) would otherwise show an
+    // 8-candidate RIS sample: give it more candidates (light evaluations only, no extra rays).
+    if (temporal && !RestirReuse(r, dim, pos, n, t, layer, rng) && _RestirFreshCandidates > 0)
+        ReservoirCombine(r, RisCandidates(pos, n, layer, _RestirFreshCandidates, rng), Rand(rng));
 
     float W = ReservoirW(r);
     if (W > 0.0)
