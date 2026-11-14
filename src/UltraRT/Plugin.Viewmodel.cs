@@ -39,7 +39,7 @@ namespace UltraRT
         private int _vmLightMask;          // 0 = auto (layer 13 | the layer under the player)
         private bool _vmFullScreen;        // dispatch over the whole screen instead of the viewmodel's rectangle
         private bool _vmCheckerboard = true; // trace half the half-res pixels per frame (alternating); the filter fills the rest
-        private int _vmRayTest;              // measurement only: 1 = dispatch a single ray-gen thread (fixed cost of the dispatch)
+        private int _vmRayTest = 0;            // measurement only: 1 = dispatch a single ray-gen thread (fixed cost of the dispatch)
         private bool _vmStableRefl = true;   // mirror-direction reflection rays (stable); false = GGX samples like the world
         private int _vmKBounds;
         private ComputeBuffer _vmBoundsBuf;
@@ -423,7 +423,7 @@ namespace UltraRT
             rt.Create();
         }
 
-        private void EnsureViewmodelTargets(RenderTexture gameDepth, RenderTexture gameColor, bool hybrid)
+        private void EnsureViewmodelTargets(RenderTexture gameDepth)
         {
             int w = gameDepth.width, h = gameDepth.height;
             bool resized = _vmGB0 == null || _vmGB0.width != w || _vmGB0.height != h;
@@ -477,7 +477,7 @@ namespace UltraRT
             }
             if (_vmDraws.Count == 0) { _vmHistValid = false; return; }
             bool hybrid = _vmTraceKind == Kind.Hybrid;
-            EnsureViewmodelTargets(depth, color, hybrid);
+            EnsureViewmodelTargets(depth);
             UploadViewmodelMaterials();
             int w = depth.width, h = depth.height, hw = (w + 1) / 2, hh = (h + 1) / 2;
             var rect = ViewmodelRect(hud, w, h);
@@ -692,13 +692,6 @@ namespace UltraRT
                 Logger.LogInfo($"Viewmodel RT: {_vmDraws.Count} draws ({_vmRenderers.Count} renderers, {_vmMaterials.Count} materials), rect {rect.x}x{rect.y} {rect.width}x{rect.height} of {w}x{h} " +
                                $"({100f * rect.width * rect.height / (w * h):F0}%), light mask 0x{ViewmodelLightMask(hud):X8} (ground layer {_vmGroundLayer}), mode {_vmTraceMode}");
             }
-        }
-
-        private void ViewmodelDispose()
-        {
-            if (_vmCam != null && _vmCmd != null) _vmCam.RemoveCommandBuffer(CameraEvent.AfterForwardOpaque, _vmCmd);
-            _vmMatBuffer?.Release();
-            _vmDummyExposure?.Release();
         }
     }
 }
