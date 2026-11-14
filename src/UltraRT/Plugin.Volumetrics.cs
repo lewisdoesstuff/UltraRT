@@ -104,7 +104,7 @@ namespace UltraRT
         private bool VolumetricsFor(Kind kind, string name)
         {
             if (_volumetrics == null || !_volSettings.enabled) return false;
-            if (name == "relight") return true;
+            if (RelightLook(name)) return true;
             if (name == "pt-dn") return _volSettings.ptDn;
             return kind == Kind.Hybrid && _volSettings.hybrid;
         }

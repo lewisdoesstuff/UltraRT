@@ -68,6 +68,8 @@ namespace UltraRT
     internal sealed class TemporalUpsampler : IDisposable
     {
         public UpsamplerSettings Settings = UpsamplerSettings.FromCommandLine();
+        /// <summary>The accumulated value is not a displayed colour: keep values above 1 (DLSS RR's demodulation colour, DlssRR.cs).</summary>
+        public bool Unclamped;
 
         private readonly ComputeShader _shader;
         private readonly int _kernel;
@@ -152,8 +154,10 @@ namespace UltraRT
         /// is a copy of the game's depth buffer (the output gets its size). <paramref name="guardPx"/>: guard band per side in
         /// trace px; <paramref name="guardScale"/>: traced / visible size.
         /// </summary>
+        /// <param name="traceMap">Optional: the screen-to-trace map (trace px per screen px, then the trace position of the screen's
+        /// corner) when it is not the integer guard band, e.g. DLSS RR's exact-grid trace (DlssRR.cs).</param>
         public void Execute(CommandBuffer cmd, Camera cam, RenderTexture color, RenderTexture normalDepth, RenderTexture instanceId,
-                            RenderTexture gameDepth, Vector2Int guardPx, Vector2 guardScale, Vector2 jitter, bool resetHistory)
+                            RenderTexture gameDepth, Vector2Int guardPx, Vector2 guardScale, Vector2 jitter, bool resetHistory, Vector4? traceMap = null)
         {
             int W = gameDepth.width, H = gameDepth.height;
             EnsureTargets(W, H);
@@ -177,7 +181,7 @@ namespace UltraRT
 
             cmd.SetComputeVectorParam(cs, IdOutDim, new Vector4(W, H, 1f / W, 1f / H));
             cmd.SetComputeVectorParam(cs, IdTraceDim, new Vector4(tw, th, 1f / tw, 1f / th));
-            cmd.SetComputeVectorParam(cs, IdTraceMap, new Vector4((float)visW / W, (float)visH / H, guardPx.x, guardPx.y));
+            cmd.SetComputeVectorParam(cs, IdTraceMap, traceMap ?? new Vector4((float)visW / W, (float)visH / H, guardPx.x, guardPx.y));
             cmd.SetComputeVectorParam(cs, IdJitter, jitter);
             cmd.SetComputeVectorParam(cs, IdTraceRay, new Vector4(guardScale.x / proj.m00, guardScale.y / proj.m11, 0f, 0f));
             cmd.SetComputeVectorParam(cs, IdZParams, z);
@@ -188,7 +192,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdParams, new Vector4(sharp, Mathf.Max(0.1f, s.maxWeight), 0.5f / (sigmaScreen * sigmaScreen), _historyValid ? 1f : 0f));
             cmd.SetComputeVectorParam(cs, IdParams2, new Vector4(Mathf.Max(0f, s.depthTolerance), Mathf.Max(0f, s.depthToleranceAbs), Mathf.Max(0f, s.clipPadding), Mathf.Max(0, s.clipMinSamples)));
             cmd.SetComputeVectorParam(cs, IdParams3, new Vector4(Mathf.Max(0f, s.reprojTolerance), s.catmullRom ? 1f : 0f, Mathf.Max(1e-3f, s.spatialWeight), s.debugView));
-            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Max(1e-3f, s.holdMinWeight), Mathf.Clamp01(s.holdDecay), 0f, 0f));
+            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Max(1e-3f, s.holdMinWeight), Mathf.Clamp01(s.holdDecay), Unclamped ? 1f : 0f, 0f));
             cmd.SetComputeTextureParam(cs, k, IdColor, color);
             cmd.SetComputeTextureParam(cs, k, IdNormalDepth, normalDepth);
             cmd.SetComputeTextureParam(cs, k, IdInstanceId, instanceId);

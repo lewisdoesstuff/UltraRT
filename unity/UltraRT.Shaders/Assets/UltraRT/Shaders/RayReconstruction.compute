@@ -7,6 +7,15 @@
 //   Finish         screen res: back to display space, relight's tone curve, a = 1 where a trace sample matches the game's
 //                  depth (the composite keeps the game's pixel elsewhere, as with the temporal upsampler).
 //   ExposureInput  trace res: what relight's auto exposure meters (the lit part of the RR result, unexposed).
+//   Demod          trace res, before Prepare: the demodulation colour (see "Remodulation").
+//
+// Remodulation (_RRParams2.x; docs/dlss.md, "Remodulation"). RR reconstructs texture detail from a third to a half of
+// the screen's pixels, which blurs the game's point-sampled texels. So RR is given the image divided by what each
+// surface shows under white light, D = albedo x keep + specular weight + emission: the "effective lighting"
+// X = c / D, which has no texture in it. D is noise-free and is accumulated to screen resolution on its own by the
+// temporal upsampler (exact texel hits, the game's depth as geometry; TemporalUpsampler in DlssRR.cs); Finish multiplies
+// RR's output by it. Textures and silhouettes then converge to the exact texel grid at any render scale, and RR only
+// has to reconstruct lighting.
 //
 // Colour space. Relight's linear transport makes the lighting L linear; the composite then converts it to the game's
 // gamma units: c = (albedo L^(1/2.2) keep + spec) e + emission. RR wants linear HDR radiance, so it gets c^2.2 per
@@ -18,6 +27,7 @@
 #pragma kernel Prepare
 #pragma kernel Finish
 #pragma kernel ExposureInput
+#pragma kernel Demod
 
 #include "UltraRTMaterial.hlsl"
 #include "UltraRTCommon.hlsl" // UnpackMotion
@@ -41,6 +51,10 @@ float4   _Jitter;       // xy this frame's sample offset (trace px), zw last fra
 int4     _Guard;        // xy guard band (trace px), zw render (visible) size
 float4   _ReflParams;   // ReflectionSettings.ShaderParams (yz = SpecularTerms params)
 int      _UltraRTPlayerSplit; // global (Plugin.Noise.cs): V1's shadow is a factor in _Radiance.a, not in the lighting
+float4   _RRParams2;    // x remodulation on (0/1)
+Texture2D<float4> _DemodTex;   // trace res: the demodulation colour D (Demod kernel)
+Texture2D<float4> _DemodHi;    // screen res: D accumulated by the temporal upsampler (a = 0: no RT surface)
+RWTexture2D<float4> _DemodOut;
 float4   _RRParams;     // x linearize (with linear transport only; 0 = feed gamma terms), y sky depth, z history valid (0: no motion), w spec hit distance on
 
 #include "UltraRTExposure.hlsl" // _UltraRTLinear, UltraRTPixelExposure (needs _UltraRTLitWeight bound), UltraRTToneMap, _UltraRTLinear
@@ -63,6 +77,33 @@ float3 Dir(int2 s)
 
 bool Linearize() { return _UltraRTLinear > 0.5 && _RRParams.x > 0.5; }
 float3 Lin(float3 c) { return Linearize() ? pow(max(c, 0.0), 2.2) : max(c, 0.0); }
+bool Remodulate() { return _RRParams2.x > 0.5; }
+static const float kDemodMin = 1.0 / 255.0;
+
+// The specular weight the reflection resolve applied at trace pixel s (0 where it added nothing).
+float3 SpecWeight(int2 s, float4 nd, float3 dir, float3 albedo, float4 sp)
+{
+    if (nd.w < 0.0 || !(sp.a < 1.0 || any(sp.rgb > 0.0))) return 0;
+    float NdotV = saturate(dot(normalize(nd.xyz), -dir));
+    float3 specW;
+    float keep;
+    SpecularTerms(SurfaceMat(_Surface[s]), albedo, NdotV, _ReflParams.yz, false, specW, keep);
+    return specW;
+}
+
+// What the surface at trace pixel s shows under white light: diffuse + specular reflectance + its emission.
+[numthreads(8, 8, 1)]
+void Demod(uint3 id : SV_DispatchThreadID)
+{
+    int2 s = (int2)id.xy;
+    if (any(s >= (int2)_Dim.xy)) return;
+    float4 nd = _NormalDepth[s];
+    if (nd.w < 0.0) { _DemodOut[s] = float4(1, 1, 1, 1); return; }
+    float3 albedo = _Albedo[s].rgb;
+    float4 sp = _Specular[s];
+    float3 d = albedo * sp.a + SpecWeight(s, nd, Dir(s), albedo, sp) + max(_Emission[s].rgb, 0.0);
+    _DemodOut[s] = float4(min(d, 64.0), 1.0);
+}
 
 [numthreads(8, 8, 1)]
 void Prepare(uint3 id : SV_DispatchThreadID)
@@ -88,19 +129,22 @@ void Prepare(uint3 id : SV_DispatchThreadID)
 
     // The composite: (albedo * Disp(L) * keep + spec) * e + emission, Disp = ^(1/2.2) with linear transport.
     float3 disp = Linearize() ? pow(L, 1.0 / 2.2) : L;
-    float3 color = Lin((albedo * disp * sp.a + sp.rgb) * e + emission);
-    float3 specAlb = 0;
-    if (!sky && (sp.a < 1.0 || any(sp.rgb > 0.0)))
+    // x the area colour match (docs/relight.md, "Area colour"), as the denoiser's Composite applies it.
+    float3 color = Lin((albedo * disp * sp.a + sp.rgb) * e * UltraRTPixelBalance((uint2)s) + emission);
+    float3 specW = SpecWeight(s, nd, dir, albedo, sp);
+    float3 diffAlb = albedo * sp.a, specAlb = specW;
+    if (Remodulate())
     {
-        float NdotV = saturate(dot(normalize(nd.xyz), -dir));
-        float3 specW;
-        float keep;
-        SpecularTerms(m, albedo, NdotV, _ReflParams.yz, false, specW, keep);
-        specAlb = Lin(specW);
+        // The image over its demodulation colour; the albedo guides become each lobe's share of it (they sum to 1 on
+        // surfaces that emit nothing, so RR sees no texture to reconstruct).
+        float3 dm = max(_DemodTex[s].rgb, kDemodMin);
+        color = Lin((albedo * disp * sp.a + sp.rgb) * e * UltraRTPixelBalance((uint2)s) / dm + emission / dm);
+        diffAlb /= dm;
+        specAlb /= dm;
     }
-    _OutColor[id.xy] = float4(color, 1.0);
-    _OutDiffuse[id.xy] = float4(sky ? 0.5.xxx : saturate(Lin(albedo * sp.a)), 1.0);
-    _OutSpecular[id.xy] = float4(saturate(specAlb), 1.0);
+    _OutColor[id.xy] = float4(min(color, 65000.0), 1.0);
+    _OutDiffuse[id.xy] = float4(sky ? 0.5.xxx : saturate(Lin(diffAlb)), 1.0);
+    _OutSpecular[id.xy] = float4(sky ? 0.0.xxx : saturate(Lin(specAlb)), 1.0);
     _OutNormal[id.xy] = sky ? 0 : float4(normalize(nd.xyz), saturate(m.roughness));
 
     float viewZ = sky ? _RRParams.y : nd.w * dot(dir, _CamFwd.xyz);
@@ -139,8 +183,9 @@ float4 _TraceRay; // xy trace ndc -> view ray slope
 float4 _ZParams;  // eye depth = 1 / (z * raw + w)
 float4 _Match;    // x depth tolerance (relative), y (absolute, m)
 float4 _RRMap;    // xy RR output px per screen px (1 unless the bench's 1440p cost probe renders RR larger), zw RR size
+int4   _RROffset; // xy: where screen pixel (0, 0) is in the RR output (exact-grid mode: the output overscans the screen)
 
-float3 RRAt(int2 p) { return _RRColor[min((int2)(((float2)p + 0.5) * _RRMap.xy), (int2)_RRMap.zw - 1)].rgb; }
+float3 RRAt(int2 p) { return _RRColor[min((int2)(((float2)p + 0.5) * _RRMap.xy) + _RROffset.xy, (int2)_RRMap.zw - 1)].rgb; }
 
 float3 Display(float3 c) { return Linearize() ? pow(max(c, 0.0), 1.0 / 2.2) : max(c, 0.0); }
 
@@ -158,6 +203,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
     int2 kn = (int2)floor(q - _Jitter.xy);
     int2 tdim = (int2)_Dim.xy;
     float a = 0;
+    int2 kHit = clamp(kn, 0, tdim - 1);
     [unroll] for (int j = 0; j < 9; j++)
     {
         int2 k = clamp(kn + int2(j % 3 - 1, j / 3 - 1), 0, tdim - 1);
@@ -170,7 +216,15 @@ void Finish(uint3 id : SV_DispatchThreadID)
         uint pt = (uint)ix >> 16;
         bool hit = abs(z - zg) <= tol;
         if (!hit && ix > 65535 && pt != 0u) hit = abs(f16tof32(pt) / rayLen - zg) <= tol; // portal plane (docs/portals.md)
-        if (hit) { a = 1; break; }
+        if (hit) { a = 1; kHit = k; break; }
+    }
+    if (Remodulate())
+    {
+        // Back to the image: x the demodulation colour at screen resolution (the matching trace sample's where the
+        // upsampler has nothing yet).
+        float4 dh = _DemodHi[p];
+        c = Display(RRAt(p)) * (dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb);
+        c = saturate(UltraRTToneMap(c));
     }
     _Final[p] = float4(c, a);
 }
@@ -183,8 +237,10 @@ void ExposureInput(uint3 id : SV_DispatchThreadID)
     float2 screen = ((float2)s + 0.5 + _Jitter.xy - _TraceMap.zw) / _TraceMap.xy;
     int2 p = clamp((int2)floor(screen), 0, (int2)_OutDim.xy - 1);
     float3 g = Display(RRAt(p));
+    if (Remodulate()) g *= _DemodTex[s].rgb;
     float e = UltraRTPixelExposure((uint2)s);
-    float3 v = max(g - max(_Emission[s].rgb, 0.0), 0.0) / max(e, 1e-4); // the unexposed lit part, in display units
+    // The unexposed lit part, in display units, without the colour match gain (the meter compares it with the game).
+    float3 v = max(g - max(_Emission[s].rgb, 0.0), 0.0) / max(e * UltraRTPixelBalance((uint2)s), 1e-4);
     // Exposure.compute meters albedo * Disp(filtered) * keep + spec: give it albedo 1, no spec, filtered = Disp^-1(v).
     _AEFiltered[s] = float4(_UltraRTLinear > 0.5 ? pow(v, 2.2) : v, 0.0);
     _AEAlbedo[s] = 1.0;

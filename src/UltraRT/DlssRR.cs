@@ -49,10 +49,13 @@ namespace UltraRT
         private readonly float[] _w2v = new float[16], _v2c = new float[16];
 
         private ComputeShader _cs;
-        private int _kPrepare = -1, _kFinish = -1, _kExposure = -1;
-        private RenderTexture _color, _diffuse, _specular, _normals, _depth, _motion, _hitDist, _out, _final, _aeFiltered, _aeAlbedo;
+        private int _kPrepare = -1, _kFinish = -1, _kExposure = -1, _kDemod = -1;
+        private RenderTexture _color, _diffuse, _specular, _normals, _depth, _motion, _hitDist, _out, _final, _aeFiltered, _aeAlbedo, _demod;
+        // Remodulation (RayReconstruction.compute): the demodulation colour accumulated to screen resolution.
+        private TemporalUpsampler _demodUp;
         private IntPtr _pColor, _pDiffuse, _pSpecular, _pNormals, _pDepth, _pMotion, _pHitDist, _pOut;
         private int _slot;
+        private bool _remodWas;
         private uint _jitterIndex;
         private bool _historyValid;
         private Matrix4x4 _prevViewProj;
@@ -62,6 +65,11 @@ namespace UltraRT
         /// <summary>Halton(2,3) phases (DLSS-RR guide: at least 32). 4 = the temporal upsampler's pattern, (+-0.25, +-0.25): exact
         /// output pixel centres at 2x.</summary>
         public int JitterPhases = 64;
+        /// <summary>N > 1: instead of Halton, the N x N offsets that put the trace samples on the screen pixel centres in turn
+        /// (screen = N x the visible trace size, e.g. 3 at trace scale 1/3: every screen pixel is hit exactly once per 9
+        /// frames). With <see cref="Remodulate"/> the texels then converge to the exact grid within N x N frames.</summary>
+        public int ExactGrid;
+        private static readonly int[] GridOrder3 = { 4, 2, 6, 0, 8, 1, 7, 3, 5 }; // centre, then far apart
         /// <summary>Sign of the jitter handed to DLSS. Our J is the sample position relative to the texel centre (texel index space);
         /// DLSS takes the projection offset, which moves the image by +offset, i.e. -J (docs/dlss.md, "Jitter").</summary>
         public float JitterSign = -1f;
@@ -76,6 +84,11 @@ namespace UltraRT
         public bool LogStates = true;
         /// <summary>Bench cost probe: RR output = this x the screen (Finish point-samples it back). 1 = normal.</summary>
         public float OutScale = 1f;
+        /// <summary>RR reconstructs lighting only; textures are re-applied from exact texel hits accumulated at screen
+        /// resolution (docs/dlss.md, "Remodulation"). Needs the Upsample compute shader; not with <see cref="OutScale"/>.</summary>
+        public bool Remodulate = true;
+        /// <summary>Accumulation of the demodulation colour: the best (nearest) sample of each screen pixel wins.</summary>
+        public float DemodSharpness = 30f, DemodMaxWeight = 4f, DemodClipPadding = 0.5f;
 
         public RenderTexture Final => _final;
         public int State => _disposed ? -1 : _getState();
@@ -133,12 +146,16 @@ namespace UltraRT
             }
         }
 
-        public void SetShader(ComputeShader cs)
+        public void SetShader(ComputeShader cs, ComputeShader upsample = null)
         {
             _cs = cs;
             _kPrepare = cs != null ? cs.FindKernel("Prepare") : -1;
             _kFinish = cs != null ? cs.FindKernel("Finish") : -1;
             _kExposure = cs != null ? cs.FindKernel("ExposureInput") : -1;
+            _kDemod = cs != null && cs.HasKernel("Demod") ? cs.FindKernel("Demod") : -1;
+            _demodUp?.Dispose();
+            _demodUp = upsample != null ? new TemporalUpsampler(upsample) { Unclamped = true, Settings = new UpsamplerSettings() } : null;
+            _historyValid = false;
         }
 
         public bool HasShader => _cs != null;
@@ -156,7 +173,15 @@ namespace UltraRT
         public Vector2 NextJitter()
         {
             uint i = _jitterIndex++;
-            if (JitterPhases == 4)
+            if (ExactGrid > 2)
+            {
+                int n = ExactGrid, cell = (int)(i % (uint)(n * n));
+                if (n == 3) cell = GridOrder3[cell];
+                else cell = (int)((cell * 7L + 3) % (n * n)); // 7 is coprime to n x n for n = 4, 5: a spread-out order
+                Jitter = new Vector2((cell % n + 0.5f) / n - 0.5f, (cell / n + 0.5f) / n - 0.5f);
+                return Jitter;
+            }
+            if (JitterPhases == 4 || ExactGrid == 2)
             {
                 switch (i & 3)
                 {
@@ -200,14 +225,56 @@ namespace UltraRT
             int Ws = i.gameDepth.width, Hs = i.gameDepth.height;
             float os = Mathf.Clamp(OutScale, 0.25f, 4f);
             int W = Mathf.RoundToInt(Ws * os), H = Mathf.RoundToInt(Hs * os);
+            // Exact grid (Plugin.ExactGridTrace sized the trace for it): one trace pixel is exactly N screen pixels, so RR's
+            // output is N x its render size, a little larger than the screen and centred on it.
+            int grid = ExactGrid;
+            bool exact = grid > 2 && Mathf.Approximately(os, 1f) && rw * grid >= Ws && rh * grid >= Hs && (rw * grid - Ws) % 2 == 0 && (rh * grid - Hs) % 2 == 0
+                         && Mathf.Abs(i.guardScale.x - (float)tw * grid / Ws) < 1e-4f && Mathf.Abs(i.guardScale.y - (float)th * grid / Hs) < 1e-4f;
+            var outOffset = Vector2Int.zero;
+            var traceMap = new Vector4((float)rw / Ws, (float)rh / Hs, i.guardPx.x, i.guardPx.y);
+            if (exact)
+            {
+                W = rw * grid; H = rh * grid;
+                outOffset = new Vector2Int((W - Ws) / 2, (H - Hs) / 2);
+                traceMap = new Vector4(1f / grid, 1f / grid, i.guardPx.x + (float)outOffset.x / grid, i.guardPx.y + (float)outOffset.y / grid);
+            }
             EnsureTargets(rw, rh, W, H, tw, th, Ws, Hs);
             var cs = _cs;
             var cam = i.camera;
             var jitter = Jitter;
+            bool remod = Remodulate && _demodUp != null && _kDemod >= 0 && Mathf.Approximately(os, 1f);
+            if (remod != _remodWas) { _remodWas = remod; _historyValid = false; } // the RR history holds the other signal
             if (!_historyValid) { _prevViewProj = i.viewProj; _prevJitter = jitter; }
 
+            int k;
+            cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(tw, th, 1f / tw, 1f / th));
+            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, 0f, 0f, 0f));
+            cmd.SetComputeVectorParam(cs, "_CamPos", cam.transform.position);
+            cmd.SetComputeMatrixParam(cs, "_InvViewProj", i.viewProj.inverse);
+            cmd.SetComputeVectorParam(cs, "_ReflParams", i.reflParams);
+            if (remod)
+            {
+                // ---- Demod (trace res), then its accumulation at screen resolution with this frame's jitter
+                k = _kDemod;
+                cmd.SetComputeTextureParam(cs, k, "_Albedo", i.albedo);
+                cmd.SetComputeTextureParam(cs, k, "_Emission", i.emission);
+                cmd.SetComputeTextureParam(cs, k, "_Specular", i.specular);
+                cmd.SetComputeTextureParam(cs, k, "_NormalDepth", i.normalDepth);
+                cmd.SetComputeTextureParam(cs, k, "_Surface", i.surface);
+                cmd.SetComputeTextureParam(cs, k, "_DemodOut", _demod);
+                cmd.DispatchCompute(cs, k, Mathf.CeilToInt(tw / 8f), Mathf.CeilToInt(th / 8f), 1);
+                var us = _demodUp.Settings;
+                us.sharpness = DemodSharpness;
+                us.maxWeight = DemodMaxWeight;
+                us.clipPadding = DemodClipPadding;
+                us.clipMinSamples = 4;
+                us.spatialWeight = 1e-3f; // only until a pixel has a sample of its own
+                _demodUp.Execute(cmd, cam, _demod, i.normalDepth, i.instanceId, i.gameDepth, i.guardPx, i.guardScale, jitter, !_historyValid, traceMap);
+            }
+
             // ---- Prepare
-            int k = _kPrepare;
+            k = _kPrepare;
+            cmd.SetComputeTextureParam(cs, k, "_DemodTex", _demod);
             cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(tw, th, 1f / tw, 1f / th));
             cmd.SetComputeVectorParam(cs, "_CamPos", cam.transform.position);
             cmd.SetComputeVectorParam(cs, "_CamFwd", cam.transform.forward);
@@ -269,8 +336,9 @@ namespace UltraRT
                 ? new Vector4(-1f + far / near, 1f, (-1f + far / near) / far, 1f / far)
                 : new Vector4(1f - far / near, far / near, (1f - far / near) / far, far / near / far);
             cmd.SetComputeVectorParam(cs, "_OutDim", new Vector4(Ws, Hs, 1f / Ws, 1f / Hs));
-            cmd.SetComputeVectorParam(cs, "_RRMap", new Vector4((float)W / Ws, (float)H / Hs, W, H));
-            cmd.SetComputeVectorParam(cs, "_TraceMap", new Vector4((float)rw / Ws, (float)rh / Hs, i.guardPx.x, i.guardPx.y));
+            cmd.SetComputeVectorParam(cs, "_RRMap", exact ? new Vector4(1f, 1f, W, H) : new Vector4((float)W / Ws, (float)H / Hs, W, H));
+            cmd.SetComputeIntParams(cs, "_RROffset", outOffset.x, outOffset.y, 0, 0);
+            cmd.SetComputeVectorParam(cs, "_TraceMap", traceMap);
             cmd.SetComputeVectorParam(cs, "_TraceRay", new Vector4(i.guardScale.x / proj.m00, i.guardScale.y / proj.m11, 0f, 0f));
             cmd.SetComputeVectorParam(cs, "_ZParams", z);
             cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, 0f, 0f));
@@ -279,6 +347,8 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, k, "_NormalDepth", i.normalDepth);
             cmd.SetComputeTextureParam(cs, k, "_InstanceId", i.instanceId);
             cmd.SetComputeTextureParam(cs, k, "_Final", _final);
+            cmd.SetComputeTextureParam(cs, k, "_DemodTex", _demod);
+            cmd.SetComputeTextureParam(cs, k, "_DemodHi", remod ? _demodUp.Output : _demod);
             BindExposure(cmd, k, i);
             cmd.DispatchCompute(cs, k, Mathf.CeilToInt(Ws / 8f), Mathf.CeilToInt(Hs / 8f), 1);
 
@@ -295,6 +365,7 @@ namespace UltraRT
             int tw = i.radiance.width, th = i.radiance.height;
             cmd.SetComputeTextureParam(_cs, k, "_RRColor", _out);
             cmd.SetComputeTextureParam(_cs, k, "_Emission", i.emission);
+            cmd.SetComputeTextureParam(_cs, k, "_DemodTex", _demod);
             cmd.SetComputeTextureParam(_cs, k, "_AEFiltered", _aeFiltered);
             cmd.SetComputeTextureParam(_cs, k, "_AEAlbedo", _aeAlbedo);
             BindExposure(cmd, k, i);
@@ -366,6 +437,8 @@ namespace UltraRT
             }
             if (trace)
             {
+                Release(ref _demod);
+                _demod = Create(tw, th, RenderTextureFormat.ARGBHalf, "UltraRT RR Demod");
                 Release(ref _aeFiltered); Release(ref _aeAlbedo);
                 _aeFiltered = Create(tw, th, RenderTextureFormat.ARGBHalf, "UltraRT RR AE Lighting");
                 _aeAlbedo = Create(tw, th, RenderTextureFormat.ARGB32, "UltraRT RR AE Albedo");
@@ -408,7 +481,9 @@ namespace UltraRT
             cmd.Release();
             _disposed = true;
             Release(ref _color); Release(ref _diffuse); Release(ref _specular); Release(ref _normals); Release(ref _depth); Release(ref _motion);
-            Release(ref _hitDist); Release(ref _out); Release(ref _final); Release(ref _aeFiltered); Release(ref _aeAlbedo);
+            Release(ref _hitDist); Release(ref _out); Release(ref _final); Release(ref _aeFiltered); Release(ref _aeAlbedo); Release(ref _demod);
+            _demodUp?.Dispose();
+            _demodUp = null;
             _dummy?.Release();
             _dummy = null;
         }

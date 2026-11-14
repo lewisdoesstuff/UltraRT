@@ -152,7 +152,7 @@ namespace UltraRT
                                     var rec = new MotionRecord(MotionClassNames.Length);
                                     var rsum = rec.Sum;
                                     var rcnt = rec.Cnt;
-                                    int visW = Mathf.RoundToInt(W * _scale), visH = Mathf.RoundToInt(H * _scale);
+                                    float ts = _lastTraceScale > 0f ? _lastTraceScale : _scale; int visW = Mathf.RoundToInt(W * ts), visH = Mathf.RoundToInt(H * ts);
                                     int gx = Math.Max(0, (tw - visW) / 2), gy = Math.Max(0, (th - visH) / 2);
                                     for (int by = 0; by + 4 <= H; by += 4)
                                     for (int bx = 0; bx + 4 <= W; bx += 4)

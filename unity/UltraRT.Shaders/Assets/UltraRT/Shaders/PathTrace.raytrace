@@ -103,6 +103,7 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 #include "UltraRTLights.hlsl"
 #include "UltraRTCache.hlsl" // radiance cache lookups (read-only: no UAVs)
 #include "UltraRTSky.hlsl"   // sky radiance and sky light sampling (SRVs only)
+#include "UltraRTEffects.hlsl" // glowing effects along a specular ray (EffectsAlong)
 
 // The game's lighting at a point: same lights and falloff, but no shadows (the game has none) and its full ambient.
 // Used as the denominator of the ratio composite: game colour * (RT lighting / game lighting).
@@ -190,6 +191,8 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
         float3 hitLight = ReflectionHitLight(hp, h, footprint, rng);
         c = PayloadEmission(h) * _EmissionScale + h.albedo * lerp(1.0, LightToDisplay(hitLight), h.alpha);
     }
+    // Fire, explosions, flashes and beams in front of the hit (the last segment after portals), added as the game blends them.
+    c += EffectsAlong(r.Origin, r.Direction, h.t < 0.0 ? 1.0e4 : h.t);
     c = max(c, 0.0); // also drops NaN
     if (glossy)
     {
@@ -234,10 +237,13 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, inout uint rng)
     return float4(lr, p.t);
 }
 
+#include "UltraRTPathTraceFull.hlsl" // the pathtrace mode's paths: PtIndirect, PtReflection (docs/path-tracing.md)
+
 // ---------------------------------------------------------------- ray generation
 
-[shader("raygeneration")]
-void RayGen()
+// full: the pathtrace mode (RayGenPT). A compile-time constant at both call sites, so RayGen (relight and every other
+// mode) compiles to exactly what it was.
+void RayGenBody(bool full)
 {
     uint2 id = DispatchRaysIndex().xy;
     uint2 dim = DispatchRaysDimensions().xy;
@@ -316,6 +322,7 @@ void RayGen()
         // Hybrid: sample with the vertex normal and re-shade the shadowed part with the detail normal (UltraRTLights.hlsl).
         if (hybridDetail) g_DetailN = n;
         float3 direct = DirectLighting(id, dim, pos, nLight, tTotal, layer, rng);
+        if (full) PtMoreDirect(direct, id, dim, pos, nLight, tTotal, layer, rng); // pathtrace: more samples where there are no reservoirs
         if (hybridDetail)
         {
             // The composite scales the game's whole colour by shadowed / unshadowed, but the game's ambient doesn't
@@ -333,7 +340,13 @@ void RayGen()
         // ray; mode 1 takes the lighting at the bounce hit from the cache (all further bounces, no shadow ray).
         float3 indirect = 0;
         bool cachedPrimary = false;
-        if (_CacheMode == 2)
+        if (full)
+        {
+            // Path tracing: N multi-bounce paths with next-event estimation at every vertex (UltraRTPathTraceFull.hlsl).
+            indirect = PtIndirect(pos, n, nv, rng);
+            cachedPrimary = true;
+        }
+        else if (_CacheMode == 2)
         {
             float u1 = Rand(rng), u2 = Rand(rng);
             cachedPrimary = CacheQueryIndirect(pos, nv, u1, u2, indirect);
@@ -409,7 +422,9 @@ void RayGen()
                 // One trace pixel's angle, for the cache footprint test (from the neighbouring pixel's ray).
                 float4 farN = mul(_InvViewProj, float4(ndc + float2(2.0 / (float)dim.x, 0.0), 1.0, 1.0));
                 float pixelAngle = length(normalize(farN.xyz / farN.w - _CamPos.xyz) - camDir);
-                float3 lr = TraceReflection(pos, nv, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, tTotal, rng, dist);
+                float3 lr;
+                if (full) lr = PtReflection(pos, nv, n, ray.Direction, mat.roughness, rng, dist); // specular paths
+                else lr = TraceReflection(pos, nv, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, tTotal, rng, dist);
                 refl = float4(lr, dist);
                 // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered
                 // reflection in Reflections.compute instead.
@@ -458,6 +473,13 @@ void RayGen()
     // shows through a portal).
     _Output[id] = _TransParams.y > 0.5 ? TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, rng) : float4(c, 1.0);
 }
+
+[shader("raygeneration")]
+void RayGen() { RayGenBody(false); }
+
+// The pathtrace mode (docs/path-tracing.md). Same bindings, same outputs.
+[shader("raygeneration")]
+void RayGenPT() { RayGenBody(true); }
 
 [shader("miss")]
 void Miss(inout RayPayload p : SV_RayPayload)

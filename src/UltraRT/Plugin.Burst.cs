@@ -64,6 +64,8 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("pl", _particleSettings); // lit particles, e.g. pl.additiveSmoke=0
             yield return new KeyValuePair<string, object>("shaft", _shaftSettings); // lamp cones, e.g. shaft.keepFakes=1
             yield return new KeyValuePair<string, object>("trans", SceneProxies.Transparents); // water/glass, e.g. trans.frosted=0
+            yield return new KeyValuePair<string, object>("ptx", _ptSettings); // the pathtrace mode, e.g. ptx.bounces=3
+            yield return new KeyValuePair<string, object>("fxg", _fxgSettings); // effects in reflections, e.g. fxg.enabled=0
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>

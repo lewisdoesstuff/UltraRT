@@ -13,6 +13,10 @@ namespace UltraRT
     public partial class Plugin
     {
         private EffectLights _effectLights;
+        // Effects in reflections (EffectGeometry.cs, docs/path-tracing.md): bench prefix fxg., -ultrart-noeffectgeometry.
+        private EffectGeometry _effectGeometry;
+        private readonly EffectGeometrySettings _fxgSettings = new EffectGeometrySettings();
+        private Shader _effectProxyShader;
         private readonly EffectLightSettings _effectSettings = new EffectLightSettings();
         private readonly int[] _lightIds = new int[MaxLights];
         private EffectSurvey _effectSurvey;
@@ -30,6 +34,7 @@ namespace UltraRT
                 {
                     case "-ultrart-effectsurvey": _effectSurveyEnabled = true; break;
                     case "-ultrart-noeffectlights": _effectLightsEnabled = false; break;
+                    case "-ultrart-noeffectgeometry": _fxgSettings.enabled = false; break;
                     case "-ultrart-nospawnedlights": _effectSettings.spawnedLights = false; break;
                     case "-ultrart-novirtuallights": _effectSettings.virtualLights = false; break;
                     case "-ultrart-noflicker": _effectSettings.flicker = false; break;
@@ -50,16 +55,38 @@ namespace UltraRT
             if (_effectLights == null)
             {
                 _effectLights = new EffectLights(Logger) { Settings = _effectSettings };
+                _effectGeometry = new EffectGeometry(Logger) { Settings = _fxgSettings };
+                _effectGeometry.SetShader(_effectProxyShader);
+                _effectLights.GlowSink = _effectGeometry.Track;
                 if (_lightSampling != null) _lightSampling.VirtualIds = _lightIds;
             }
             if (_effectSurveyEnabled && _effectSurvey == null) _effectSurvey = new EffectSurvey(Logger);
             EffectSpawns.Enabled = _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker || _effectSurvey != null;
+            // Without a traced frame (view off, menus) nothing updates the effect instances: tell the shaders there are none.
+            if (!_viewEnabled && _effectGeometry != null && _effectGeometry.Active > 0) _effectGeometry.Update(null, null);
             _effectLights.ProcessSpawns(_effectSurvey);
             if (_effectSurvey != null)
             {
                 try { _effectSurvey.Update(_camera); }
                 catch (Exception e) { Logger.LogWarning($"effect survey: {e.Message}"); }
             }
+        }
+
+        /// <summary>LoadShaders: the billboards' hit shader (optional: without it effects stay out of reflections).</summary>
+        private void LoadEffectShaders(Shader[] shaders)
+        {
+            _effectProxyShader = System.Linq.Enumerable.FirstOrDefault(shaders, s => s.name == "UltraRT/EffectProxy");
+            if (_effectProxyShader == null) Logger.LogWarning("UltraRT/EffectProxy missing from the bundle: effects are not traced");
+            _effectGeometry?.SetShader(_effectProxyShader);
+        }
+
+        /// <summary>Trace(), before the RTAS build: this frame's effect billboards (EffectGeometry.cs).</summary>
+        private void UpdateEffectGeometry(bool pt)
+        {
+            if (_effectGeometry == null) return;
+            long t0 = Perf.Now;
+            _effectGeometry.Update(pt ? _proxies.Rtas : null, _camera);
+            Perf.Add(Perf.Sec.Emissive, t0);
         }
 
         /// <summary>End of GatherLights, before the upload: effect lights go after the scene lights.</summary>
