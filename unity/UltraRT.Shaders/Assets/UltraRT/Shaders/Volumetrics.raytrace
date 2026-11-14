@@ -30,6 +30,21 @@ StructuredBuffer<float4> _Lights;
 // One bit per light: lights the medium skips (the player's own light and anything else attached to the player or the
 // camera: every view ray starts inside them, which lit the air in front of the eyes over the whole screen).
 StructuredBuffer<uint>   _VolSkip;
+// Two float4 per light (Plugin.Shafts.cs, LightShafts.cs; docs/volumetrics.md "Lamp cones"): [0] cone axis (away from the
+// light) + cos(half angle), w < -0.5: the light's own shape; [1] x scattering weight (x the haze range weight), y cone
+// edge sharpness. Lamps the game draws a fake light cone for scatter in that cone only.
+StructuredBuffer<float4> _VolLightCone;
+
+// The cone that clips light i's scattering: the fake-cone override, else its spot cone (cos <= -0.5: none).
+void ScatterCone(uint i, out float3 axis, out float cosHalf, out float sharp)
+{
+    float4 o = _VolLightCone[i * 2];
+    if (o.w > -0.5) { axis = o.xyz; cosHalf = o.w; sharp = _VolLightCone[i * 2 + 1].y; return; }
+    axis = _Lights[i * 4 + 2].xyz;
+    cosHalf = _Lights[i * 4 + 3].x;
+    sharp = _Lights[i * 4 + 3].y;
+}
+float ScatterWeight(uint i) { return _VolLightCone[i * 2 + 1].x; }
 
 // Emissive triangles (EmissiveLights.cs; layout in UltraRTLights.hlsl), bound by EmissiveLights.Bind.
 StructuredBuffer<uint4>  _EmissiveTris;
@@ -120,7 +135,10 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
     float rRef = 0.5 * r;
     float xr = d / (2.0 * r);
     float window = saturate(1.0 - xr * xr * xr * xr);
-    float spot = saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
+    float3 coneAxis;
+    float coneCos, coneSharp;
+    ScatterCone(i, coneAxis, coneCos, coneSharp);
+    float spot = saturate((max(dot(L, -coneAxis), 0.0) - coneCos) * coneSharp);
     float atten;
     if (_VolFalloff.z > 0.5)
     {
@@ -135,16 +153,17 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
         phys = min(phys, 3.0 * game + 0.05);
         atten = lerp(game, phys, saturate(_VolFalloff.x)) * spot;
     }
-    return ToLightV(l1.rgb * _VolFalloff.y) * atten * HazeWeight(r);
+    return ToLightV(l1.rgb * _VolFalloff.y) * atten * HazeWeight(r) * ScatterWeight(i);
 }
 
 // A spot light's cone (half angle: cos l3.x, apex at the light, axis l2.xyz) clips the ray segment [tA, tB] to the part
 // inside it (the hull of the inside pieces), so samples are not wasted on air the spot never lights. Point lights pass.
 bool ClipSpot(uint i, float3 o, float3 dir, inout float tA, inout float tB)
 {
-    float c = _Lights[i * 4 + 3].x;
+    float3 a;
+    float c, sharpUnused;
+    ScatterCone(i, a, c, sharpUnused);
     if (c <= -0.5) return true;
-    float3 a = _Lights[i * 4 + 2].xyz;
     float3 v = o - _Lights[i * 4].xyz;
     float da = dot(dir, a), va = dot(v, a), vd = dot(v, dir), vv = dot(v, v);
     // (va + t da)^2 - c^2 |v + t dir|^2 = A t^2 + 2 B t + C changes sign at the cone surface (both nappes)
@@ -209,7 +228,7 @@ float LightTarget(uint i, float3 o, float3 dir, float tMax)
     float h = max(sqrt(dot(perp, perp) + CoreR2(l0.w)), 0.05);
     float angle = atan((tB - delta) / h) - atan((tA - delta) / h);
     float rRef = 0.5 * l0.w;
-    return lum * rRef * rRef * angle / h * HazeWeight(l0.w);
+    return lum * rRef * rRef * angle / h * HazeWeight(l0.w) * ScatterWeight(i);
 }
 
 // One point on an emissive triangle, drawn from the alias table (power and distance to the camera), uniform in area.

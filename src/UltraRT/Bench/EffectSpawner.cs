@@ -12,15 +12,18 @@ namespace UltraRT.Bench
     internal static class EffectSpawner
     {
         public static ManualLogSource Log;
+        /// <summary>"whiplash": seconds the button is held (the hook flies out until released).</summary>
+        public static float WhiplashHold = 0.25f;
         private static int _failures;
 
-        public static void Spawn(EffectSpec spec)
+        public static void Spawn(EffectSpec spec, bool periodic = false)
         {
-            if (spec?.Kinds == null) return;
+            var kinds = periodic && spec?.PeriodicKinds != null ? spec.PeriodicKinds : spec?.Kinds;
+            if (kinds == null) return;
             var cc = MonoSingleton<CameraController>.Instance;
             if (cc == null) return;
             var cam = cc.transform;
-            foreach (var kind in spec.Kinds)
+            foreach (var kind in kinds)
             {
                 try { SpawnOne((kind ?? "").ToLowerInvariant(), cam, Mathf.Max(0.5f, spec.Distance)); }
                 catch (Exception e)
@@ -142,11 +145,69 @@ namespace UltraRT.Bench
                     // Light only: an explosion-like light, 60 / range 10, rising over 0.05 s and fading over 0.4 s.
                     SpawnLight(InFront(cam, distance), new Color(1f, 0.55f, 0.2f), 60f, 10f, 0.05f, 0.4f);
                     break;
+                case "holdtorch":
+                {
+                    // Puts the level's torch (4-3) in the player's hand as picking it up does (Punch.ForceHold): Torch.Update
+                    // then keeps its light at the player. Recordings hold the camera path only, not the item.
+                    var fc = MonoSingleton<FistControl>.Instance;
+                    if (fc == null || fc.currentPunch == null) throw new InvalidOperationException("no FistControl / punch");
+                    if (fc.heldObject != null && fc.heldObject.GetComponent<Torch>() != null) break; // already held
+                    Torch best = null;
+                    float bestD = float.MaxValue;
+                    foreach (var t in UnityEngine.Object.FindObjectsOfType<Torch>(true))
+                    {
+                        if (t == null) continue;
+                        float d = (t.transform.position - cam.position).sqrMagnitude;
+                        if (d < bestD) { bestD = d; best = t; }
+                    }
+                    if (best == null) throw new InvalidOperationException("no Torch in the level");
+                    var itid = best.GetComponent<ItemIdentifier>();
+                    if (itid == null) throw new InvalidOperationException("Torch without ItemIdentifier");
+                    if (!best.gameObject.activeSelf) best.gameObject.SetActive(true);
+                    fc.currentPunch.ForceHold(itid);
+                    Log?.LogInfo($"EffectSpawner: holding torch '{best.name}' (was {Mathf.Sqrt(bestD):F1} m away)");
+                    break;
+                }
+                case "lightbrazier":
+                {
+                    // As the held torch does when it hits something (Torch.HitWith -> Flammable.Burn(4)): the nearest
+                    // flammable within 6 m of the camera, once (4-3's brazier, whose special activation opens the door).
+                    Flammable best = null;
+                    float bestD = 144f;
+                    foreach (var f in UnityEngine.Object.FindObjectsOfType<Flammable>())
+                    {
+                        if (f == null || f.enemyOnly || f.burning || _lit.Contains(f) || f.transform.IsChildOf(cam) || f.gameObject.layer == 13 || f.gameObject.layer == 22) continue; // not the held torch
+                        float d = (f.transform.position - cam.position).sqrMagnitude;
+                        if (d < bestD) { bestD = d; best = f; }
+                    }
+                    if (best == null) break; // not there yet (12 m)
+                    _lit.Add(best);
+                    best.Burn(4f);
+                    Log?.LogInfo($"EffectSpawner: lit '{best.name}' (special {best.specialFlammable}) {Mathf.Sqrt(bestD):F1} m away");
+                    break;
+                }
+                case "whiplashlong":
+                    // Held for a second: the hook (and a held torch) stays out at its farthest before coming back.
+                    BenchWhiplash.Press(BenchWhiplash.Action.Hook, 1f);
+                    break;
+                case "whiplash":
+                    // Presses the whiplash (R) as the player would: InputSource.Hook performed next frame, held for
+                    // WhiplashHold seconds of game time, then released (HookArm pulls back). With a held item (4-3's
+                    // torch) the item flies out on the hook and its light with it (Torch.Update stops pinning it to the
+                    // player while hooked). Recordings hold the camera path only, not these inputs.
+                    BenchWhiplash.Press(BenchWhiplash.Action.Hook, WhiplashHold);
+                    break;
+                case "melee":
+                    // Presses melee (the punch) for one frame, as the player would: with the torch held, a hit lights what
+                    // it hits (Torch.HitWith / HitSurface), e.g. 4-3's brazier that opens the door.
+                    BenchWhiplash.Press(BenchWhiplash.Action.Punch, 0.05f);
+                    break;
                 default: throw new ArgumentException("unknown effect kind");
             }
         }
 
         private static GameObject _lightTemplate;
+        private static readonly System.Collections.Generic.HashSet<Flammable> _lit = new System.Collections.Generic.HashSet<Flammable>();
 
         /// <summary>Instantiates a light-only effect (through Object.Instantiate, so EffectLights sees it spawn like the game's).</summary>
         private static void SpawnLight(Vector3 pos, Color color, float peak, float range, float rise, float fall)
@@ -169,6 +230,51 @@ namespace UltraRT.Bench
             var fade = go.GetComponent<BenchLightFade>();
             fade.Peak = peak; fade.Rise = rise; fade.Fall = fall;
             go.SetActive(true);
+        }
+    }
+
+    /// <summary>Simulated whiplash button (EffectSpawner "whiplash"): sets the game's InputActionState for Hook.</summary>
+    internal sealed class BenchWhiplash : MonoBehaviour
+    {
+        public enum Action { Hook, Punch }
+        private static BenchWhiplash _instance;
+        private Action _held;
+        private static readonly System.Reflection.PropertyInfo PerformedFrame = typeof(InputActionState).GetProperty("PerformedFrame");
+        private static readonly System.Reflection.PropertyInfo PerformedTime = typeof(InputActionState).GetProperty("PerformedTime");
+        private static readonly System.Reflection.PropertyInfo IsPressed = typeof(InputActionState).GetProperty("IsPressed");
+        private float _release = -1f;
+
+        private static InputActionState State(Action a)
+        {
+            var src = MonoSingleton<InputManager>.Instance?.InputSource;
+            return src == null ? null : a == Action.Hook ? src.Hook : src.Punch;
+        }
+
+        public static void Press(Action a, float hold)
+        {
+            var h = State(a);
+            if (h == null) throw new InvalidOperationException("no InputManager / Hook action");
+            if (_instance == null)
+            {
+                var go = new GameObject("UltraRT bench whiplash");
+                DontDestroyOnLoad(go);
+                _instance = go.AddComponent<BenchWhiplash>();
+            }
+            // Next frame: HookArm.Update sees WasPerformedThisFrame whether it runs before or after us.
+            PerformedFrame.SetValue(h, Time.frameCount + 1);
+            PerformedTime.SetValue(h, Time.time);
+            IsPressed.SetValue(h, true);
+            if (_instance._release >= 0f && _instance._held != a) { var prev = State(_instance._held); if (prev != null) IsPressed.SetValue(prev, false); }
+            _instance._held = a;
+            _instance._release = Time.time + Mathf.Max(0.02f, hold);
+        }
+
+        private void Update()
+        {
+            if (_release < 0f || Time.time < _release) return;
+            _release = -1f;
+            var h = State(_held);
+            if (h != null) IsPressed.SetValue(h, false);
         }
     }
 

@@ -267,6 +267,15 @@ Candidates are scored by strength x size / (1 + d²/25), with a 1.5x bonus for l
 
 When a game light sits on a flame sprite or particle system (a torch FireSprite on its Fire light, or a pooled Fire), the flame drives that light. Its packed intensity is multiplied by (the flame's brightness x radius²) / its running mean over about 1 s, clamped to 0.65 to 1.35. At most 16 such flames near the camera are measured, every frame.
 
+### Viewmodel effects
+Emitters on the viewmodel layer (13) never become virtual lights: a held item's flame (4-3's torch) is drawn by the HUD
+camera at the hand, and its own Light already lights the scene from the player (`Torch.Update`). The 4-3 torch flame
+used to add a second light (I 1.0) at the hand.
+
+The 5 s log line also names the flames driving flicker (`flicker now: Sprite 'FireSprite'/'Fire' r 0.42 -> light
+'Fire'`). The 8-2 standing-lamp "flicker" (user report) was not this: no emitter sits on that light, and the burst is the
+same with `fx.flicker=0` (bench variant target `fx`); see docs/relight.md, "Lamp shades".
+
 ## Costs
 
 Measured on an RTX 5070 Ti at 1920x1080, trace scale 0.5, effects suite.

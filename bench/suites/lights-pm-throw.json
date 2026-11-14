@@ -1,0 +1,211 @@
+{
+  "Name": "lights-pm-throw",
+  "Scenarios": [
+    {
+      "Name": "4-3 throw 4 off",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/4-3-torch-grapple.json"
+      },
+      "Enemies": "blind",
+      "Effects": {
+        "Kinds": [
+          "holdtorch",
+          "whiplash"
+        ],
+        "PeriodicKinds": [
+          "holdtorch"
+        ],
+        "Every": 0.5,
+        "ShotDelay": 0.04
+      },
+      "Modes": [
+        "off"
+      ],
+      "Screenshots": [
+        10.0
+      ]
+    },
+    {
+      "Name": "4-3 throw 4 relight",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/4-3-torch-grapple.json"
+      },
+      "Enemies": "blind",
+      "Effects": {
+        "Kinds": [
+          "holdtorch",
+          "whiplash"
+        ],
+        "PeriodicKinds": [
+          "holdtorch"
+        ],
+        "Every": 0.5,
+        "ShotDelay": 0.04
+      },
+      "Modes": [
+        "relight"
+      ],
+      "Screenshots": [
+        10.0
+      ]
+    },
+    {
+      "Name": "4-3 throw 4 relight+vol=0",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/4-3-torch-grapple.json"
+      },
+      "Enemies": "blind",
+      "Effects": {
+        "Kinds": [
+          "holdtorch",
+          "whiplash"
+        ],
+        "PeriodicKinds": [
+          "holdtorch"
+        ],
+        "Every": 0.5,
+        "ShotDelay": 0.04
+      },
+      "Modes": [
+        "relight+vol=0"
+      ],
+      "Screenshots": [
+        10.0
+      ]
+    },
+    {
+      "Name": "4-3 throw 15 off",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/4-3-torch-grapple.json"
+      },
+      "Enemies": "blind",
+      "Effects": {
+        "Kinds": [
+          "holdtorch",
+          "whiplash"
+        ],
+        "PeriodicKinds": [
+          "holdtorch"
+        ],
+        "Every": 0.5,
+        "ShotDelay": 0.15
+      },
+      "Modes": [
+        "off"
+      ],
+      "Screenshots": [
+        10.0
+      ]
+    },
+    {
+      "Name": "4-3 throw 15 relight",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/4-3-torch-grapple.json"
+      },
+      "Enemies": "blind",
+      "Effects": {
+        "Kinds": [
+          "holdtorch",
+          "whiplash"
+        ],
+        "PeriodicKinds": [
+          "holdtorch"
+        ],
+        "Every": 0.5,
+        "ShotDelay": 0.15
+      },
+      "Modes": [
+        "relight"
+      ],
+      "Screenshots": [
+        10.0
+      ]
+    },
+    {
+      "Name": "4-3 throw 15 relight+vol=0",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/4-3-torch-grapple.json"
+      },
+      "Enemies": "blind",
+      "Effects": {
+        "Kinds": [
+          "holdtorch",
+          "whiplash"
+        ],
+        "PeriodicKinds": [
+          "holdtorch"
+        ],
+        "Every": 0.5,
+        "ShotDelay": 0.15
+      },
+      "Modes": [
+        "relight+vol=0"
+      ],
+      "Screenshots": [
+        10.0
+      ]
+    },
+    {
+      "Name": "4-3 held off",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/4-3-torch-grapple.json"
+      },
+      "Enemies": "blind",
+      "Effects": {
+        "Kinds": [
+          "holdtorch"
+        ],
+        "PeriodicKinds": [
+          "holdtorch"
+        ],
+        "Every": 0.5,
+        "ShotDelay": 0.1
+      },
+      "Modes": [
+        "off"
+      ],
+      "Screenshots": [
+        10.0
+      ]
+    },
+    {
+      "Name": "4-3 held relight",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/4-3-torch-grapple.json"
+      },
+      "Enemies": "blind",
+      "Effects": {
+        "Kinds": [
+          "holdtorch"
+        ],
+        "PeriodicKinds": [
+          "holdtorch"
+        ],
+        "Every": 0.5,
+        "ShotDelay": 0.1
+      },
+      "Modes": [
+        "relight"
+      ],
+      "Screenshots": [
+        10.0
+      ]
+    }
+  ]
+}

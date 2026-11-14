@@ -122,6 +122,7 @@ namespace UltraRT
         public RayTracingAccelerationStructure rtas;
         public ComputeBuffer lights;
         public ComputeBuffer skip;         // one bit per light: skipped by the medium (attached to the player / camera)
+        public ComputeBuffer cones;        // two float4 per light: cone override and scattering weight (LightShafts.cs)
         public int lightCount;
         public Vector4 sunDir;             // xyz towards the sun, w cos(angular radius); w = 0: no sun
         public Color sunColor;             // linear irradiance
@@ -187,7 +188,7 @@ namespace UltraRT
             IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
             IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
-            IdVolSkip = Shader.PropertyToID("_VolSkip"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
+            IdVolSkip = Shader.PropertyToID("_VolSkip"), IdVolLightCone = Shader.PropertyToID("_VolLightCone"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
             IdTemporalParams3 = Shader.PropertyToID("_TemporalParams3"), IdAtrousIn = Shader.PropertyToID("_AtrousIn"),
             IdAtrousMom = Shader.PropertyToID("_AtrousMom"), IdAtrousOut = Shader.PropertyToID("_AtrousOut"),
             IdAtrousParams = Shader.PropertyToID("_AtrousParams"), IdAtrousParams2 = Shader.PropertyToID("_AtrousParams2");
@@ -304,6 +305,7 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(_rt, IdVolFalloff, f.falloff);
             cmd.SetRayTracingBufferParam(_rt, IdLights, f.lights);
             cmd.SetRayTracingBufferParam(_rt, IdVolSkip, f.skip);
+            cmd.SetRayTracingBufferParam(_rt, IdVolLightCone, f.cones);
             cmd.SetRayTracingFloatParam(_rt, IdVolEmissive, Mathf.Max(0f, s.emissive));
             cmd.SetRayTracingFloatParam(_rt, IdVolClamp, Mathf.Max(0f, s.maxSample));
             cmd.DispatchRays(_rt, "VolumeRayGen", (uint)w, (uint)h, 1);

@@ -77,6 +77,7 @@ Shader "UltraRT/Particles/Lit"
             StructuredBuffer<float4> _UltraRTExposureGlobal; // relight auto exposure ([0].x), bound globally when in use
             float _UltraRTAutoExposure;
             float _UltraRTTonemapWhite;
+            float4 _UltraRTPLAdditiveMax;  // additive smoke: x scale, y soft maximum of the lighting multiplier (0 = raw; ParticleLighting.cs)
             float4 _UltraRTTonemapParams;
 
             struct appdata
@@ -206,7 +207,18 @@ Shader "UltraRT/Particles/Lit"
                 }
                 c.a *= i.fogFade.y;
 
-                float3 lit = c.rgb * i.light;
+                float3 light = i.light;
+                if (_PLKind > 3.5 && _PLFog > 1.5 && _UltraRTPLAdditiveMax.x > 0.0 && _UltraRTPLAdditiveMax.y > 0.0 && _UltraRTPLCam.w > 0.5)
+                {
+                    // ULTRAKILL/Master additive smoke (_PLKind 4) is in-scattered light. The game lights it with its flat ambient only, so the art at
+                    // lighting 1 is much brighter than anything the game shows: scale it down, and let the brightest
+                    // channel saturate softly towards the maximum, keeping the light's hue (a red light keeps the gas red
+                    // rather than pushing it through the tone curve to fiery orange).
+                    float m = max(light.r, max(light.g, light.b));
+                    float s = _UltraRTPLAdditiveMax.x * m;
+                    if (m > 1e-5) light *= (s / (1.0 + s / _UltraRTPLAdditiveMax.y)) / m;
+                }
+                float3 lit = c.rgb * light;
                 if (_UltraRTPLCam.w > 0.5) lit = UltraRTToneCurve(lit, _UltraRTTonemapWhite, _UltraRTTonemapParams);
                 if (_PLFog > 1.5) lit *= i.fogFade.x;                                          // additive: fade out
                 else if (_PLFog > 0.5) lit = lerp(_UltraRTPLFogColor.rgb, lit, i.fogFade.x);    // blended: fog colour

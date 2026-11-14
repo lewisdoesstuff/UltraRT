@@ -216,6 +216,7 @@ namespace UltraRT
                     case "-ultrart-rtmirrors": _rtMirrors = true; break;
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
+                    case "-ultrart-norain": _rainOn = false; break;
                     case "-ultrart-player-noanimate": SceneProxies.PlayerAlwaysAnimate = false; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
@@ -342,6 +343,7 @@ namespace UltraRT
         {
             UpdateRecorder();
             UpdateEffects();
+            UpdateShaftFakes(); // lamp cones: the game's fake cone meshes hide while ours draw (Plugin.Shafts.cs)
             UpdateParticles(); // lit particles (Plugin.Particles.cs)
             MaterialsUpdate(); // Ctrl+F1, _UltraRTDetail global
             try
@@ -408,6 +410,7 @@ namespace UltraRT
             _radianceCache?.Reset();
             _autoExposure?.Reset();
             _volumetrics?.Reset();
+            _lightShafts?.Clear();
             ViewmodelReset();
         }
 
@@ -499,6 +502,7 @@ namespace UltraRT
                     pos.y += lift.y;
                     shadowRadius = lift.w;
                 }
+                else if (_fixtureLift && _proxies.StaticEnclosed.Contains(l)) shadowRadius = EnclosedLightRadius; // lamp shades (SceneProxies.StaticEnclosed)
                 Vector4 l0, l3;
                 switch (l.type)
                 {
@@ -534,6 +538,7 @@ namespace UltraRT
             }
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
+            FlagPlayerLights();   // Plugin.PlayerLights.cs: V1 never shadows the player's own lights (flashlight, held torch)
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
         }
@@ -548,6 +553,7 @@ namespace UltraRT
         private bool _fixtureLift = true; // -ultrart-nofixturelift
         private bool _logFixtures;        // -ultrart-logfixtures
         private float _nextLightDump;
+        private const float EnclosedLightRadius = 0.03f; // soft-shadow radius of lights inside a static lamp housing / shade
         private const float FixtureLiftAbove = 0.15f, FixtureLiftMax = 1.5f, FixtureRadiusMin = 0.08f, FixtureRadiusMax = 0.75f;
 
         private void UpdateFixtureLifts()
@@ -583,7 +589,7 @@ namespace UltraRT
                 if (hitAbove) { covered++; continue; }
                 _fixtureLifts[l] = new Vector4(0f, lift, 0f, -radius); // negative: upper half-sphere (UltraRTLights.hlsl)
             }
-            Logger.LogInfo($"Fixture lights: {_fixtureLifts.Count} lifted above their fixture, {covered} covered (kept), {tooDeep} too deep in it (kept)");
+            Logger.LogInfo($"Fixture lights: {_fixtureLifts.Count} lifted above their fixture, {covered} covered (kept), {tooDeep} too deep in it (kept); {px.StaticEnclosed.Count} in a static housing (soft-shadow radius {EnclosedLightRadius} m)");
         }
 
         private void LogLightsNear(Vector3 c, float radius)
@@ -594,12 +600,16 @@ namespace UltraRT
                 if (l.type != LightType.Point && l.type != LightType.Spot) continue;
                 var p = l.transform.position;
                 if ((p - c).magnitude > radius) continue;
-                var near = renderers.Where(r => r != null && !r.name.EndsWith("[UltraRT]") && r.bounds.SqrDistance(p) < 1f && r.bounds.size.magnitude < 12f)
+                // Small props around the light, plus big transparents (fake light cones / shafts hanging from it).
+                var near = renderers.Where(r => r != null && !r.name.EndsWith("[UltraRT]") && r.bounds.SqrDistance(p) < 1f &&
+                                                (r.bounds.size.magnitude < 12f || (r.sharedMaterial != null && r.sharedMaterial.renderQueue >= 2500 && r.bounds.size.magnitude < 60f)))
                     .OrderBy(r => r.bounds.size.magnitude).Take(12)
                     .Select(r => $"{r.name}{(r.isPartOfStaticBatch ? "[static]" : "")} L{r.gameObject.layer} {r.bounds.min}..{r.bounds.max} " +
                                  string.Join("+", r.sharedMaterials.Where(m => m != null).Select(m => $"{m.name}/{m.shader.name}/q{m.renderQueue}" +
                                      (m.HasProperty("_SurfaceType") ? $"/st{m.GetFloat("_SurfaceType")}" : ""))));
-                Logger.LogInfo($"light near cam: {Bench.GameControl.PathOf(l.transform)} {l.type} at {p} range {l.range:F1} int {l.intensity:F2} | {string.Join(" ; ", near)}");
+                Logger.LogInfo($"light near cam: {Bench.GameControl.PathOf(l.transform)} {l.type} at {p} range {l.range:F1} int {l.intensity:F2} col {l.color} " +
+                               $"{(l.type == LightType.Spot ? $"angle {l.spotAngle:F0} fwd {l.transform.forward:F2} " : "")}mask 0x{l.cullingMask:X8} on {l.isActiveAndEnabled} " +
+                               $"comps {string.Join(",", l.GetComponents<MonoBehaviour>().Where(b => b != null).Select(b => b.GetType().Name))} | {string.Join(" ; ", near)}");
             }
         }
 
@@ -959,6 +969,7 @@ namespace UltraRT
             }
             long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);
+            UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
             Perf.Add(Perf.Sec.Emissive, te);
             _cpuMs += cpu.Elapsed.TotalMilliseconds;
             _cpuFrames++;

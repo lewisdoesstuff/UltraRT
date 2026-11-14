@@ -128,6 +128,7 @@ namespace UltraRT
         // water. Matched against material and texture names (lower case).
         private static readonly string[] Excluded = { "smoke", "dust", "gas", "fog", "cloud", "mist", "steam", "checkpoint", "water", "splash", "glass", "shockwave", "hole", "lava", "pillar" };
         private const float MaxRadius = 6f;
+        private const int ViewmodelLayer = 13;
 
         private readonly List<Light> _tmpLights = new List<Light>(16);
         private readonly List<Renderer> _tmpRenderers = new List<Renderer>(64);
@@ -392,7 +393,8 @@ namespace UltraRT
                 _log.LogInfo($"Effect lights: CPU {_cpuMs / _logFrames * 1000.0:F1} us/frame; tracked lights {_trackedCount}, appended {(double)_logAppended / _logFrames:F2}/frame; " +
                              $"virtual {(double)_logVirtual / _logFrames:F2}/frame (max {_logMaxVirtual}) from {_emitters.Count} emitters; " +
                              $"flickering lights {(double)_logFlicker / _logFrames:F1}/frame (x{(_flickerMax > 0 ? _flickerMin : 1):F2}..{(_flickerMax > 0 ? _flickerMax : 1):F2}); spawn queue drops {EffectSpawns.Dropped}" +
-                             (_logs < 40 && _selected.Count > 0 ? $"; selected now: {string.Join(", ", _selected.Take(6).Select(e => $"{e.Kind} '{e.Name}' I {e.Smoothed * Settings.intensityScale:F1}"))}" : ""));
+                             (_logs < 40 && _selected.Count > 0 ? $"; selected now: {string.Join(", ", _selected.Take(6).Select(e => $"{e.Kind} '{e.Name}' I {e.Smoothed * Settings.intensityScale:F1}"))}" : "") +
+                             (_logs < 40 && _flickers.Count > 0 ? $"; flicker now: {string.Join(", ", _flickers.Take(8).Select(e => $"{e.Kind} '{e.Go.name}'/'{e.Name}' r {e.Radius:F2} -> light '{(e.CoverLight != null ? e.CoverLight.name : "-")}'"))}" : ""));
                 _logs++;
                 _cpuMs = 0; _logFrames = 0; _logAppended = 0; _logVirtual = 0; _logMaxVirtual = 0; _logFlicker = 0;
                 _flickerMin = float.MaxValue; _flickerMax = 0f;
@@ -484,6 +486,9 @@ namespace UltraRT
                     e.Score = 0f;
                     if (e.NextCheck > _frame) continue;
                     if (!e.Go.activeInHierarchy || !e.R.enabled) { e.Smoothed = 0f; e.Mean = -1f; e.NextCheck = _frame + 16; continue; }
+                    // Viewmodel (layer 13): a held item's flame (the 4-3 torch) is drawn by the HUD camera at the hand; the
+                    // item's own Light already lights the scene from the player (Torch.Update), so no second light.
+                    if (e.Go.layer == ViewmodelLayer) { e.Smoothed = 0f; e.Mean = -1f; continue; }
                     float d2 = (e.T.position - camPos).sqrMagnitude;
                     if (d2 > cull2 || !Measure(e)) continue;
                     if (_frame - e.CoverFrame > 60) { e.CoverLight = FindCoveringLight(e, data, packed, count); e.CoverFrame = _frame; }

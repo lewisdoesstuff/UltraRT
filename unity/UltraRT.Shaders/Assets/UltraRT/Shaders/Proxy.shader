@@ -53,6 +53,18 @@ Shader "UltraRT/Proxy"
         // the texture per cell, so 1), w: 1 = _DetailTex is bound.
         _DetailTex ("Detail (normal xy, roughness, valid)", 2D) = "black" {}
         _DetailParams ("Detail params", Vector) = (0,0,0,0)
+        // The game's RAIN keyword (SceneProxies.Rain.cs, docs/materials.md "Rain"): mirrored from the source material.
+        _Rain ("Rain", Float) = 0
+        _RainDrops ("Rain drops", 2D) = "black" {}
+        _RainTrails ("Rain trails", 2D) = "black" {}
+        _RainDarkening ("Rain darkening", Color) = (1,1,1,1)
+        _RainColor ("Rain colour", Color) = (0.2,0.2,0.3,1)
+        _RainSpeed ("Rain speed", Float) = 2
+        _RaindropsIntensity ("Raindrops intensity", Float) = 1
+        _RainScale ("Rain scale", Float) = 1
+        _WarpDetail ("Warp detail", Float) = 1
+        _LocalOffsetRain ("Local offset rain", Float) = 0
+        _RainCeilingToggle ("Rain ceiling toggle", Float) = 1
     }
 
     SubShader
@@ -112,6 +124,47 @@ Shader "UltraRT/Proxy"
             float4 _DetailParams;
             // Global (Plugin, MaterialMaps): x enabled, y normal strength multiplier, z roughness amount multiplier.
             float4 _UltraRTDetail;
+
+            Texture2D _RainDrops, _RainTrails;
+            float4 _RainDarkening, _RainColor;
+            float _Rain, _RainSpeed, _RaindropsIntensity, _RainScale, _WarpDetail, _LocalOffsetRain, _RainCeilingToggle;
+            float _UltraRTRainTime; // global: Time.timeSinceLevelLoad, the game shaders' _Time.y
+
+            // The game's RAIN term (ULTRAKILL/Master and ULTRAKILL-Stationary pixel shaders, decoded from their DXBC): an
+            // albedo change before lighting. Dominant-axis planar projection of the world position (tile 16 / _RainScale
+            // m); up- or down-facing surfaces get expanding raindrop rings (none on ceilings with _RainCeilingToggle 1),
+            // walls get running streaks. albedo * _RainDarkening + amount * _RainColor.
+            float3 RainAlbedo(float3 albedo, float3 P, float3 N)
+            {
+                float3 p = P;
+                if (_LocalOffsetRain != 0.0) { float3x4 o = ObjectToWorld3x4(); p -= float3(o[0][3], o[1][3], o[2][3]); }
+                float3 a = abs(N);
+                bool yDom = a.y >= max(a.x, a.z);
+                float2 uv = yDom ? p.xz : (a.z >= max(a.x, a.y) ? p.xy : p.zy);
+                uv *= _RainScale * 0.0625;
+                float amount;
+                if (yDom)
+                {
+                    float4 d = _RainDrops.SampleLevel(my_point_repeat_sampler, uv, 0);
+                    float y = d.r * 31.45 + _UltraRTRainTime * _RainSpeed * 1.5;
+                    float f = frac(y);
+                    float z = d.g * (1.0 - f) * sin(1.5 * clamp(9.0 * (d.g + f - 1.0), 0.0, 3.0));
+                    float alt = floor(frac(y * 0.5) * 2.0); // every other cycle
+                    float ceilingCut = abs(_RainCeilingToggle - 1.0) < 1e-3 ? saturate(ceil(N.y - 0.001)) : 1.0;
+                    amount = saturate(alt * z) * 0.5 * ceilingCut * _RaindropsIntensity;
+                }
+                else
+                {
+                    float warpDetail = max(_WarpDetail, 1e-3);
+                    float wb = _RainTrails.SampleLevel(my_point_repeat_sampler, uv, 0).b;
+                    float warp = floor(wb * warpDetail * 8.0) / (warpDetail * 128.0);
+                    float4 tr = _RainTrails.SampleLevel(my_point_repeat_sampler, uv + warp, 0);
+                    float x = (tr.r + _UltraRTRainTime) * _RainSpeed * 0.5 + tr.g;
+                    float m = saturate((1.0 - 2.0 * frac(abs(x))) * ceil(tr.g) - 0.1);
+                    amount = tr.a * m * m * 0.5;
+                }
+                return albedo * _RainDarkening.rgb + amount * _RainColor.rgb;
+            }
 
             float3 WorldNormalAt(uint v)
             {
@@ -325,6 +378,7 @@ Shader "UltraRT/Proxy"
                 }
 
                 float3 n = normalize(mul(nObj, (float3x3)WorldToObject3x4()));
+                float3 nGame = n; // the game's (unflipped) vertex normal: rain projection and ceiling test
                 if (dot(n, WorldRayDirection()) > 0.0) n = -n; // treat everything as two-sided for now
 
                 float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
@@ -334,6 +388,7 @@ Shader "UltraRT/Proxy"
                 float litWeight, blendWeight;
                 float2 texUV;
                 float4 albedo = SampleAlbedo(tri, b, uv, litWeight, blendWeight, texUV);
+                if (_Rain > 0.5) albedo.rgb = RainAlbedo(albedo.rgb, WorldRayOrigin() + WorldRayDirection() * RayTCurrent(), nGame);
 
                 // Per-texel detail: perturbed shading normal and roughness. Primary rays also return the vertex normal
                 // (packed in `primitive`) for the hybrid shadow ratio's denominator (the game lights with it).

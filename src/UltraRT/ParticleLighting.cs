@@ -14,6 +14,12 @@ namespace UltraRT
         public bool ptDn = true;         // also in pt-dn
         public bool additiveSmoke = true; // relight additive smoke / dust / mist too (not fire, flashes, glows)
         public float strength = 1f;      // relight / pt-dn: 0 = the game's look, 1 = fully ray-traced lighting
+        // Additive smoke / gas / mist (ULTRAKILL/Master "Smoke", in-scattering). The game lights these with its flat ambient
+        // only (no vertex lights), so the art at lighting 1 is far brighter than anything the game draws: P-2's vent gas,
+        // invisible in the game (black ambient), became a glowing column next to a flickering red streetlight (intensity
+        // up to 13). The multiplier is m s / (1 + m s / max) of the brightest lighting channel m (hue kept: a red light
+        // keeps the gas red instead of pushing it through the tone curve to fiery orange). 0 = the raw lighting.
+        public float additiveScale = 0.5f, additiveMax = 0.6f;
         public float hybridStrength = 1f;
         public int gridX = 64, gridY = 36, gridZ = 32;
         public float near = 0.5f, far = 96f;
@@ -47,6 +53,8 @@ namespace UltraRT
                         break;
                     }
                     case "-ultrart-particles-far": far = F(far); break;
+                    case "-ultrart-particles-additive-max": additiveMax = F(additiveMax); break;
+                    case "-ultrart-particles-additive-scale": additiveScale = F(additiveScale); break;
                     case "-ultrart-particles-alpha": alpha = F(alpha); break;
                     case "-ultrart-particles-noindirect": indirect = false; break;
                 }
@@ -54,7 +62,7 @@ namespace UltraRT
         }
 
         public override string ToString() => FormattableString.Invariant(
-            $"{(enabled ? "on" : "off")}, strength {strength} (hybrid {(hybrid ? hybridStrength : 0f)}, pt-dn {(ptDn ? "on" : "off")}), additive smoke {(additiveSmoke ? "on" : "off")}, grid {gridX}x{gridY}x{gridZ} {near}-{far} m, {candidates} candidates, alpha {alpha}, indirect {(indirect ? "on" : "off")}");
+            $"{(enabled ? "on" : "off")}, strength {strength} (hybrid {(hybrid ? hybridStrength : 0f)}, pt-dn {(ptDn ? "on" : "off")}), additive smoke {(additiveSmoke ? "on" : "off")} (x{additiveScale}, max {additiveMax}), grid {gridX}x{gridY}x{gridZ} {near}-{far} m, {candidates} candidates, alpha {alpha}, indirect {(indirect ? "on" : "off")}");
     }
 
     /// <summary>What <see cref="ParticleLighting.Execute"/> needs from the plugin each frame.</summary>

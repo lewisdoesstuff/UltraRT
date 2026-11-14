@@ -260,3 +260,14 @@ Lights with something solid within 1 m above the fixture (ceiling lamps; a physi
 its top stay where they are. The per-light radius goes in `_Lights[i*4+2].w` (0 = the global `_LightRadius`).
 This applies in every mode; `-ultrart-nofixturelift` turns it off, `-ultrart-nofixtureshadows` removes fixture
 shadows altogether.
+
+**Lamp shades** (2026-11-14 pm, user report: an 8-2 standing lamp that is constant in the game had a fairly smooth
+flicker in RT). The lamp (`ApartmentLamp/Point Light`, range 25, inside the shade of a 4 m `StandingLamp`) is part of a
+static batch, so it can't carry the fixture mask and is too tall for the fixture test; the shade shadows its own light,
+which escapes through the top and bottom openings as cones. With the global soft-shadow radius (0.15 m) the openings
+cast wide penumbrae, and their ReSTIR noise boiled slowly under the denoiser: a burst at the user's pose measured masked
+sigma 1.88, block sigma 1.68 and drift 2.86 (the same with effect-light flicker off; auto exposure stayed at 0 EV;
+volumetrics off: 1.24; radiance cache off: 1.79; a 0.02 m radius everywhere: 0.65). `SceneProxies.StaticEnclosed` now
+records point/spot lights inside a static-batched renderer of at most 6 m with a footprint of at most 2 m, and
+`GatherLights` gives those that are not lifted a 0.03 m radius: sigma 0.73, block 0.59, drift 0.90
+(`bench/results/20261114-185737_lights-pm-check2_alt`). 8-2 has 7 such lights, P-2 17.

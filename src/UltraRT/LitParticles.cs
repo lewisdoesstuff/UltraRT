@@ -141,6 +141,10 @@ namespace UltraRT
                 m.SetFloat("_PLVertexColor", v.vcol);
                 m.SetFloat("_PLFade", v.fade);
                 m.SetFloat("_PLLit", 1f);
+                if (v.kind == "master")
+                    _log.LogInfo($"Lit particles: '{m.name}' custom fog {(m.IsKeywordEnabled("_USECUSTOMFOGDISTS_ON") ? "on" : "off")} " +
+                                 $"emissive fog {Get(m, "_EmissiveFogStart", -1):F1}..{Get(m, "_EmissiveFogEnd", -1):F1}, opacity {Get(m, "_Opacity", -1):F2}, " +
+                                 $"emissive intensity {Get(m, "_EmissiveIntensity", -1):F2}, colour {(m.HasProperty("_Color") ? m.GetColor("_Color").ToString() : "-")}");
                 if (Active) Swap(m, saved);
                 added++;
             }
