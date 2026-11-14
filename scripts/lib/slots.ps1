@@ -126,13 +126,16 @@ function Get-QuickHash([string] $path) {
 $script:DisplayPrefsKey = 'HKCU:\Software\Hakita\ULTRAKILL'
 $script:DisplayPrefsPattern = '^(UnitySelectMonitor|Screenmanager (Resolution Width|Resolution Height|Fullscreen mode|Window Position X|Window Position Y|Resolution Use Native))_h\d+$'
 
+# A registry DWORD (UInt32 or Int32 or Int64 from JSON) as the signed Int32 Set-ItemProperty -Type DWord accepts.
+function ConvertTo-DWordInt($v) { [BitConverter]::ToInt32([BitConverter]::GetBytes([uint32] ([int64] $v -band 0xFFFFFFFFL)), 0) }
+
 function Get-DisplayPrefsFile([string] $MainDir) { Join-Path $MainDir 'BepInEx\ultrart\display-prefs.json' }
 
 function Save-DisplayPrefs([string] $MainDir) {
     $p = Get-ItemProperty $script:DisplayPrefsKey -ErrorAction SilentlyContinue
     if (-not $p) { return $false }
     $o = [ordered]@{}
-    foreach ($x in $p.PSObject.Properties) { if ($x.Name -match $script:DisplayPrefsPattern) { $o[$x.Name] = [int] $x.Value } }
+    foreach ($x in $p.PSObject.Properties) { if ($x.Name -match $script:DisplayPrefsPattern) { $o[$x.Name] = ConvertTo-DWordInt $x.Value } }
     Write-JsonFile (Get-DisplayPrefsFile $MainDir) $o
     return $true
 }
@@ -146,8 +149,9 @@ function Restore-DisplayPrefs([string] $MainDir) {
     $changed = @()
     foreach ($x in $want.PSObject.Properties) {
         $now = $cur.($x.Name)
-        if ($null -ne $now -and [int] $now -ne [int] $x.Value) {
-            Set-ItemProperty $script:DisplayPrefsKey $x.Name ([int] $x.Value) -Type DWord
+        # DWORDs come back as UInt32 (a window on a monitor left of the primary has a 'negative' position).
+        if ($null -ne $now -and (ConvertTo-DWordInt $now) -ne (ConvertTo-DWordInt $x.Value)) {
+            Set-ItemProperty $script:DisplayPrefsKey $x.Name (ConvertTo-DWordInt $x.Value) -Type DWord
             $changed += "$($x.Name -replace '_h\d+$','') $now -> $($x.Value)"
         }
     }
