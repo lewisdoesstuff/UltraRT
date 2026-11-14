@@ -216,6 +216,8 @@ namespace UltraRT
                     case "-ultrart-noreflections": _reflSettings.enabled = false; break;
                     case "-ultrart-refl-strength": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _reflSettings.reflStrength); break;
                     case "-ultrart-spec-weight": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _reflSettings.specWeight); break;
+                    case "-ultrart-refl-cache": { var v = Next(); _reflSettings.cacheShading = v == "off" ? 0 : v == "always" ? 2 : 1; break; }
+                    case "-ultrart-refl-keepcube": _reflSettings.replaceGameCube = false; break;
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
                 }
             }
@@ -767,6 +769,7 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_Reflection", _gReflection);
                 _cmd.SetRayTracingVectorParam(shader, "_ReflParams", _reflSettings.ShaderParams);
                 _cmd.SetRayTracingFloatParam(shader, "_ReflMaxRadiance", Mathf.Max(0.01f, _reflSettings.maxRadiance));
+                _cmd.SetRayTracingVectorParam(shader, "_ReflCache", _reflSettings.CacheParams);
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
                 _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);

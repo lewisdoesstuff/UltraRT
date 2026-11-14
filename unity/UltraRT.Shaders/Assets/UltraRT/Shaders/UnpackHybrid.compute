@@ -3,7 +3,7 @@
 // Done as a compute pass because PathTrace is at Unity's 8-UAV limit for ray tracing shaders.
 #pragma kernel Unpack
 
-Texture2D<uint4> _Packed;     // x: un.r | un.g<<16, y: un.b | sh.r<<16, z: sh.g | sh.b<<16, w: lit weight
+Texture2D<uint4> _Packed;     // x: un.r | un.g<<16, y: un.b | sh.r<<16, z: sh.g | sh.b<<16, w: lit weight unorm8 | game cubemap << 8
 RWTexture2D<float4> _Shadowed; // r: luminance of shadowed direct, g: of unshadowed direct, a: lit weight
 uint2 _Dim;
 
@@ -17,5 +17,5 @@ void Unpack(uint3 id : SV_DispatchThreadID)
     // Luminance of shadowed (r) and unshadowed (g) direct light from the same samples, filtered together so their
     // ratio (the shadow term) is stable. b unused, a lit weight.
     float3 lw = float3(0.2126, 0.7152, 0.0722);
-    _Shadowed[id.xy] = float4(dot(sh, lw), dot(un, lw), 0.0, f16tof32(pk.w));
+    _Shadowed[id.xy] = float4(dot(sh, lw), dot(un, lw), 0.0, (pk.w & 0xFFu) * (1.0 / 255.0));
 }

@@ -79,6 +79,33 @@ namespace UltraRT
     }
 
     /// <summary>
+    /// The game's own cubemap reflection (ULTRAKILL/Master, REFLECTION keyword), copied to the proxy so the hit shader can
+    /// reconstruct it and the hybrid composite can replace it with ours (docs/reflections.md). From the shader's DXBC:
+    /// <c>C = cube(per-vertex reflect) * lerp(1, _Color, _ColorContribution) * lerp(1, vertex lighting, _LightingContribution)</c>,
+    /// masked by <c>_ReflectionMask.r</c> and applied after emission and fog: blend (<c>_CubeMode</c> 0)
+    /// <c>lit * (1 - m RS) + m^2 RS C</c>, additive <c>lit + m RS^2 C</c>, saturated.
+    /// Independent of our classification (an override may change our mode; the game still draws its cube).
+    /// </summary>
+    internal static class GameReflection
+    {
+        public static bool Apply(Material proxy, Material src)
+        {
+            proxy.SetVector("_GameRefl", Vector4.zero);
+            if (src == null || src.shader == null || src.shader.name != "ULTRAKILL/Master" || !src.IsKeywordEnabled("REFLECTION")) return false;
+            if (!src.HasProperty("_CubeTex") || !(src.GetTexture("_CubeTex") is Cubemap cube)) return false;
+            float rs = src.HasProperty("_ReflectionStrength") ? src.GetFloat("_ReflectionStrength") : 1f;
+            if (rs <= 0f) return false;
+            bool additive = src.HasProperty("_CubeMode") && src.GetFloat("_CubeMode") != 0f; // the shader tests _CubeMode == 0
+            float light = src.HasProperty("_LightingContribution") ? src.GetFloat("_LightingContribution") : 0f;
+            float color = src.HasProperty("_ColorContribution") ? src.GetFloat("_ColorContribution") : 0f;
+            proxy.SetTexture("_GameCube", cube);
+            if (src.HasProperty("_ReflectionMask") && src.GetTexture("_ReflectionMask") is Texture mask) proxy.SetTexture("_GameReflMask", mask);
+            proxy.SetVector("_GameRefl", new Vector4(additive ? 2f : 1f, rs, Mathf.Clamp01(light), Mathf.Clamp01(color)));
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Material classification for reflections (docs/reflections.md):
     ///  1. ULTRAKILL/Master REFLECTION keyword with _ReflectionStrength > 0: the game's cubemap reflection, re-done with RT
     ///     (_CubeMode 0 blend, 1 additive), roughness from the strength.
@@ -200,22 +227,27 @@ namespace UltraRT
             return p;
         }
 
+        /// <summary>Relative weight of dielectric specular classes (metals use 1).</summary>
+        public const float DielectricWeight = 0.6f;
+
         /// <summary>Default parameters of a class (the research table). Weights are relative: the global specular weight scales them.</summary>
         public static MaterialParams ClassDefaults(SurfaceClass c, string source)
         {
             switch (c)
             {
+                // Dielectric weights are 0.6 of the metals' so that, with the global 0.5, they keep their old effective
+                // weight (0.3 x 1.0) while metals reflect clearly (0.5).
                 case SurfaceClass.Wood:
-                case SurfaceClass.WoodThin: return MaterialParams.Spec(c, 0.75f, 0f, 0.03f, 0.5f, source);
-                case SurfaceClass.Flesh: return MaterialParams.Spec(c, 0.45f, 0f, 0.03f, 0.6f, source);
-                case SurfaceClass.Marble: return MaterialParams.Spec(c, 0.25f, 0f, 0.04f, 1f, source);
-                case SurfaceClass.Glass: return MaterialParams.Spec(c, 0.05f, 0f, 0.04f, 1f, source);
-                case SurfaceClass.Wet: return MaterialParams.Spec(c, 0.1f, 0f, 0.03f, 1f, source);
-                case SurfaceClass.MetalHigh: return MaterialParams.Spec(c, 0.3f, 1f, 0.04f, 1f, source);
-                case SurfaceClass.MetalLow: return MaterialParams.Spec(c, 0.55f, 0.8f, 0.04f, 1f, source);
-                case SurfaceClass.MetalThin: return MaterialParams.Spec(c, 0.5f, 0.7f, 0.04f, 1f, source);
+                case SurfaceClass.WoodThin: return MaterialParams.Spec(c, 0.75f, 0f, 0.03f, 0.3f, source);
+                case SurfaceClass.Flesh: return MaterialParams.Spec(c, 0.45f, 0f, 0.03f, 0.36f, source);
+                case SurfaceClass.Marble: return MaterialParams.Spec(c, 0.25f, 0f, 0.04f, DielectricWeight, source);
+                case SurfaceClass.Glass: return MaterialParams.Spec(c, 0.05f, 0f, 0.04f, DielectricWeight, source);
+                case SurfaceClass.Wet: return MaterialParams.Spec(c, 0.1f, 0f, 0.03f, DielectricWeight, source);
+                case SurfaceClass.MetalHigh: return MaterialParams.Spec(c, 0.2f, 1f, 0.04f, 1f, source);
+                case SurfaceClass.MetalLow: return MaterialParams.Spec(c, 0.35f, 0.8f, 0.04f, 1f, source);
+                case SurfaceClass.MetalThin: return MaterialParams.Spec(c, 0.3f, 0.7f, 0.04f, 1f, source);
                 case SurfaceClass.MetalStumpy:
-                case SurfaceClass.MetalGrill: return MaterialParams.Spec(c, 0.6f, 0.6f, 0.04f, 1f, source);
+                case SurfaceClass.MetalGrill: return MaterialParams.Spec(c, 0.4f, 0.6f, 0.04f, 1f, source);
                 case SurfaceClass.Mirror: return new MaterialParams { Class = c, Mode = ReflMode.Blend, Roughness = 0f, F0 = 0.04f, ReflStrength = 0.6f, Source = source };
                 // Generic, Carpet, Dirt, Sand, Snow, Grass, Gravel, Rubble, Crunchy (rough, 0.9-1.0), Hologram, Other.
                 default: return MaterialParams.None(c, source);
@@ -268,7 +300,7 @@ namespace UltraRT
             // 2. Name allow-list: fake mirrors (plain textures) and water.
             if (mirrorName) return ClassDefaults(SurfaceClass.Mirror, "mirror name");
             if (water && master)
-                return MaterialParams.Spec(TypeOf(m, "_SurfaceType"), 0f, 0f, 0.02f, 1f, "water name");
+                return MaterialParams.Spec(TypeOf(m, "_SurfaceType"), 0f, 0f, 0.02f, DielectricWeight, "water name");
 
             if (master)
             {

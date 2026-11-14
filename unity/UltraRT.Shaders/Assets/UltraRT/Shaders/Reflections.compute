@@ -266,6 +266,7 @@ int    _Enabled;
 int    _Hybrid;
 int    _DebugView;   // 1 raw reflection, 2 filtered reflection, 3 specular contribution, 4 history length
 float4 _ReflParams;  // as PathTrace: y global specular weight, z global reflection strength
+float  _MaxCubeKeep; // hybrid game cubemap removal: cap on keep / k (k: what the game left of the lit colour)
 
 float3 Heat(float x)
 {
@@ -285,13 +286,18 @@ void Resolve(uint3 id : SV_DispatchThreadID)
     float4 spec = float4(0, 0, 0, 1);
     float4 nd = _NormalDepth[id.xy];
     float4 refl = _Filtered[id.xy];
-    if (_Enabled != 0 && nd.w >= 0.0 && refl.a >= 0.0)
+    // Hybrid, game cubemap removed (PathTrace sets the bit only then): the composite's base is the game colour minus the
+    // cube term C, which still carries the game's (1 - m RS) on the lit colour, so the keep factor is divided by it. This
+    // also applies where no ray was traced (specular weight below the threshold): the stock cube is gone there too.
+    bool gameCube = _Hybrid != 0 && SurfaceHasGameCube(sf);
+    if (_Enabled != 0 && nd.w >= 0.0 && (refl.a >= 0.0 || gameCube))
     {
         float NdotV = saturate(dot(normalize(nd.xyz), -PrimaryDir(id.xy)));
         float3 specW;
         float keep;
         SpecularTerms(SurfaceMat(sf), albedo, NdotV, _ReflParams.yz, _Hybrid != 0, specW, keep);
-        spec = float4(specW * refl.rgb, keep);
+        if (gameCube) keep = min(keep / max(SurfaceGameCubeKeep(sf), 1.0 / 255.0), _MaxCubeKeep);
+        spec = float4(refl.a >= 0.0 ? specW * refl.rgb : 0.0, keep);
     }
     _SpecularOut[id.xy] = spec;
 

@@ -624,6 +624,7 @@ namespace UltraRT
                 var p = _classifier.Classify(src, out var secondary);
                 MaterialParams.Apply(m, p, secondary);
                 _classifier.Count(p);
+                GameReflection.Apply(m, src);
             }
 
             _materialCache[src] = m;

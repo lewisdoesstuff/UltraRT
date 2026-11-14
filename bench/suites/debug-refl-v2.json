@@ -1,0 +1,152 @@
+{
+ "Name": "debug-refl-v2",
+ "Scenarios": [
+  {
+   "Name": "1-1 terminal",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-terminal-glancing.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "relight",
+    "pt-dn",
+    "refl",
+    "materials"
+   ],
+   "Segment": 1.25,
+   "Screenshots": [
+    5
+   ]
+  },
+  {
+   "Name": "1-1 start",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-approach.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "relight",
+    "pt-dn",
+    "refl",
+    "materials"
+   ],
+   "Segment": 1.25,
+   "Screenshots": [
+    5
+   ]
+  },
+  {
+   "Name": "1-1 indoor a",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-indoor-a.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "relight",
+    "pt-dn",
+    "refl",
+    "materials"
+   ],
+   "Segment": 1.25,
+   "Screenshots": [
+    5
+   ]
+  },
+  {
+   "Name": "1-1 indoor b",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-indoor-b.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "relight",
+    "pt-dn",
+    "refl",
+    "materials"
+   ],
+   "Segment": 1.25,
+   "Screenshots": [
+    5
+   ]
+  },
+  {
+   "Name": "1-1 indoor c",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-indoor-c.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "relight",
+    "pt-dn",
+    "refl",
+    "materials"
+   ],
+   "Segment": 1.25,
+   "Screenshots": [
+    5
+   ]
+  },
+  {
+   "Name": "1-1 torch hall",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-torch-hall.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "relight",
+    "pt-dn",
+    "refl",
+    "materials"
+   ],
+   "Segment": 1.25,
+   "Screenshots": [
+    5
+   ]
+  },
+  {
+   "Name": "4-1 indoor A",
+   "Scene": "Level 4-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/4-1-approach-a.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "relight",
+    "pt-dn",
+    "refl",
+    "materials"
+   ],
+   "Segment": 1.25,
+   "Screenshots": [
+    5
+   ]
+  }
+ ]
+}
