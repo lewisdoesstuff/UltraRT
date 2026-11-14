@@ -85,7 +85,9 @@ if ($NoDeploy) {
         (Join-Path $root 'src\UltraRT\bin\Release\netstandard2.1\UltraRT.dll'),
         (Join-Path $root 'src\UltraRT.Probe\bin\Release\netstandard2.1\UltraRT.Probe.dll'),
         (Join-Path $root 'src\UltraRT\ultrart-materials.json'),
-        $bundle, $nativeDll)
+        $bundle, $nativeDll,
+        # DLSS Ray Reconstruction runtime (scripts\fetch-dlss.ps1; NVIDIA's file, never committed; docs/dlss.md)
+        (Join-Path $root 'lib\dlss\bin\nvngx_dlssd.dll'))
     foreach ($f in $files) { if (Test-Path $f) { Copy-Item $f $StageDir -Force } }
     if (-not (Test-Path (Join-Path $StageDir 'UltraRT.dll'))) { throw "Nothing staged: UltraRT.dll missing (build skipped or failed?)" }
     $head = (git -C $root rev-parse --short HEAD 2>$null)

@@ -1,0 +1,191 @@
+// UltraRT: inputs and output handling for NVIDIA DLSS Ray Reconstruction (docs/dlss.md). Driven by src/UltraRT/DlssRR.cs.
+//
+//   Prepare        render res (the visible part of the trace, guard band cropped): noisy colour, diffuse/specular albedo,
+//                  normal + roughness, linear depth, 2D motion, specular hit distance, from the existing G-buffer. Also
+//                  touches the RR output as a UAV so Unity tracks every resource the plugin event uses as UNORDERED_ACCESS.
+//   (plugin event: DLSS-RR denoises and upscales to screen res)
+//   Finish         screen res: back to display space, relight's tone curve, a = 1 where a trace sample matches the game's
+//                  depth (the composite keeps the game's pixel elsewhere, as with the temporal upsampler).
+//   ExposureInput  trace res: what relight's auto exposure meters (the lit part of the RR result, unexposed).
+//
+// Colour space. Relight's linear transport makes the lighting L linear; the composite then converts it to the game's
+// gamma units: c = (albedo L^(1/2.2) keep + spec) e + emission. RR wants linear HDR radiance, so it gets c^2.2 per
+// noisy sample. Where only the diffuse term is present that is (albedo keep e)^2.2 * L, exactly linear in the noisy L, so
+// RR averages what our denoiser averages; Finish takes the result back with ^(1/2.2), exact for noise-free input.
+// (Linearising each term on its own was wrong: (a^2.2 + b^2.2)^(1/2.2) < a + b darkened reflective and emissive
+// surfaces.) Gamma transport (pt-dn) feeds c directly, as our denoiser averages gamma lighting there.
+
+#pragma kernel Prepare
+#pragma kernel Finish
+#pragma kernel ExposureInput
+
+#include "UltraRTMaterial.hlsl"
+#include "UltraRTCommon.hlsl" // UnpackMotion
+
+// ---- trace inputs (trace res, guard band included)
+Texture2D<float4> _Radiance;    // demodulated lighting (1 spp)
+Texture2D<float4> _Albedo;      // unpacked by the reflection resolve
+Texture2D<float4> _Emission;
+Texture2D<float4> _Specular;    // rgb added specular term, a keep factor of the diffuse part
+Texture2D<float4> _NormalDepth; // xyz normal, w ray t (< 0 sky)
+Texture2D<int2>   _InstanceId;  // y packed world-space motion
+Texture2D<uint4>  _Surface;     // packed material
+Texture2D<float4> _Reflection;  // raw reflection: a = hit distance (-1 not traced)
+
+float4   _Dim;          // trace w, h, 1/w, 1/h
+float4   _CamPos;
+float4   _CamFwd;
+float4x4 _InvViewProj;  // this frame (jittered, guard band)
+float4x4 _PrevViewProj; // last frame (jittered with last frame's jitter)
+float4   _Jitter;       // xy this frame's sample offset (trace px), zw last frame's
+int4     _Guard;        // xy guard band (trace px), zw render (visible) size
+float4   _ReflParams;   // ReflectionSettings.ShaderParams (yz = SpecularTerms params)
+int      _UltraRTPlayerSplit; // global (Plugin.Noise.cs): V1's shadow is a factor in _Radiance.a, not in the lighting
+float4   _RRParams;     // x linearize (with linear transport only; 0 = feed gamma terms), y sky depth, z history valid (0: no motion), w spec hit distance on
+
+#include "UltraRTExposure.hlsl" // _UltraRTLinear, UltraRTPixelExposure (needs _UltraRTLitWeight bound), UltraRTToneMap, _UltraRTLinear
+
+RWTexture2D<float4> _OutColor;
+RWTexture2D<float4> _OutDiffuse;
+RWTexture2D<float4> _OutSpecular;
+RWTexture2D<float4> _OutNormal;   // xyz world normal, w linear roughness
+RWTexture2D<float>  _OutDepth;    // linear view depth
+RWTexture2D<float2> _OutMotion;   // render px, previous - current
+RWTexture2D<float>  _OutHitDist;
+RWTexture2D<float4> _RROutput;    // RR's output (screen res): touched here, read by Finish / ExposureInput
+
+float3 Dir(int2 s)
+{
+    float2 ndc = ((float2)s + 0.5) * _Dim.zw * 2.0 - 1.0;
+    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
+    return normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+}
+
+bool Linearize() { return _UltraRTLinear > 0.5 && _RRParams.x > 0.5; }
+float3 Lin(float3 c) { return Linearize() ? pow(max(c, 0.0), 2.2) : max(c, 0.0); }
+
+[numthreads(8, 8, 1)]
+void Prepare(uint3 id : SV_DispatchThreadID)
+{
+    if (all(id.xy == 0u)) _RROutput[uint2(0, 0)] = 0; // resource-state touch (see header)
+    if (any((int2)id.xy >= _Guard.zw)) return;
+    int2 s = (int2)id.xy + _Guard.xy;
+    float4 nd = _NormalDepth[s];
+    bool sky = nd.w < 0.0;
+    float3 dir = Dir(s);
+
+    float4 rad = _Radiance[s];
+    float3 L = min(max(rad.rgb, 0.0), 65000.0); // max() first drops NaN
+    // Player shadow split (docs/denoiser.md, "Moving shadows"): our denoiser filters V1's shadow factor separately and
+    // multiplies it in at the composite. RR gets it multiplied into its noisy input instead (+2 = moving-shadow flag).
+    if (_UltraRTPlayerSplit != 0) L *= saturate(rad.a > 1.5 ? rad.a - 2.0 : rad.a);
+    float3 albedo = _Albedo[s].rgb;
+    float3 emission = max(_Emission[s].rgb, 0.0);
+    float4 sp = _Specular[s];
+    float e = UltraRTPixelExposure((uint2)s);
+    uint4 sf = _Surface[s];
+    SurfaceMaterial m = SurfaceMat(sf);
+
+    // The composite: (albedo * Disp(L) * keep + spec) * e + emission, Disp = ^(1/2.2) with linear transport.
+    float3 disp = Linearize() ? pow(L, 1.0 / 2.2) : L;
+    float3 color = Lin((albedo * disp * sp.a + sp.rgb) * e + emission);
+    float3 specAlb = 0;
+    if (!sky && (sp.a < 1.0 || any(sp.rgb > 0.0)))
+    {
+        float NdotV = saturate(dot(normalize(nd.xyz), -dir));
+        float3 specW;
+        float keep;
+        SpecularTerms(m, albedo, NdotV, _ReflParams.yz, false, specW, keep);
+        specAlb = Lin(specW);
+    }
+    _OutColor[id.xy] = float4(color, 1.0);
+    _OutDiffuse[id.xy] = float4(sky ? 0.5.xxx : saturate(Lin(albedo * sp.a)), 1.0);
+    _OutSpecular[id.xy] = float4(saturate(specAlb), 1.0);
+    _OutNormal[id.xy] = sky ? 0 : float4(normalize(nd.xyz), saturate(m.roughness));
+
+    float viewZ = sky ? _RRParams.y : nd.w * dot(dir, _CamFwd.xyz);
+    _OutDepth[id.xy] = viewZ;
+
+    // Motion: where this sample's surface point was last frame minus where it is now, both unjittered, in render (= trace)
+    // px. The jittered viewProj maps an unjittered position u to texel u - j, and this pixel's ray goes through
+    // u = s + 0.5 + J, so: prev = projected (last jittered matrix) + last J, cur = s + 0.5 + J. A still camera gives 0.
+    // Sky: direction only.
+    float2 mv = 0;
+    if (_RRParams.z > 0.5)
+    {
+        float4 pc = sky ? mul(_PrevViewProj, float4(dir, 0.0))
+                        : mul(_PrevViewProj, float4(_CamPos.xyz + dir * nd.w + UnpackMotion((uint)_InstanceId[s].y), 1.0));
+        if (pc.w > 1e-6)
+        {
+            float2 prevPx = (pc.xy / pc.w * 0.5 + 0.5) * _Dim.xy + _Jitter.zw;
+            float2 curPx = (float2)s + 0.5 + _Jitter.xy;
+            mv = prevPx - curPx;
+        }
+    }
+    _OutMotion[id.xy] = mv;
+    float hd = _Reflection[s].a;
+    _OutHitDist[id.xy] = sky ? 65504.0 : (hd >= 0.0 ? hd : 0.0);
+}
+
+// ---- Finish / ExposureInput
+Texture2D<float4> _RRColor;   // RR output (screen res)
+Texture2D<float>  _GameDepth; // the game's raw device depth (screen res)
+RWTexture2D<float4> _Final;   // screen res: rgb displayed colour, a 1 = RT pixel
+RWTexture2D<float4> _AEFiltered;
+RWTexture2D<float4> _AEAlbedo;
+float4 _OutDim;   // W, H, 1/W, 1/H
+float4 _TraceMap; // xy trace px per screen px, zw guard band (trace px)
+float4 _TraceRay; // xy trace ndc -> view ray slope
+float4 _ZParams;  // eye depth = 1 / (z * raw + w)
+float4 _Match;    // x depth tolerance (relative), y (absolute, m)
+float4 _RRMap;    // xy RR output px per screen px (1 unless the bench's 1440p cost probe renders RR larger), zw RR size
+
+float3 RRAt(int2 p) { return _RRColor[min((int2)(((float2)p + 0.5) * _RRMap.xy), (int2)_RRMap.zw - 1)].rgb; }
+
+float3 Display(float3 c) { return Linearize() ? pow(max(c, 0.0), 1.0 / 2.2) : max(c, 0.0); }
+
+[numthreads(8, 8, 1)]
+void Finish(uint3 id : SV_DispatchThreadID)
+{
+    int2 p = (int2)id.xy;
+    if (any(p >= (int2)_OutDim.xy)) return;
+    float3 c = Display(RRAt(p));
+    c = saturate(UltraRTToneMap(c));
+
+    float zg = 1.0 / (_ZParams.z * _GameDepth[p] + _ZParams.w);
+    float tol = zg * _Match.x + _Match.y;
+    float2 q = ((float2)p + 0.5) * _TraceMap.xy + _TraceMap.zw;
+    int2 kn = (int2)floor(q - _Jitter.xy);
+    int2 tdim = (int2)_Dim.xy;
+    float a = 0;
+    [unroll] for (int j = 0; j < 9; j++)
+    {
+        int2 k = clamp(kn + int2(j % 3 - 1, j / 3 - 1), 0, tdim - 1);
+        float t = _NormalDepth[k].w;
+        if (t < 0.0) continue;
+        float2 ndc = ((float2)k + 0.5 + _Jitter.xy) * _Dim.zw * 2.0 - 1.0;
+        float rayLen = length(float3(ndc * _TraceRay.xy, 1.0));
+        float z = t / rayLen;
+        int ix = _InstanceId[k].x;
+        uint pt = (uint)ix >> 16;
+        bool hit = abs(z - zg) <= tol;
+        if (!hit && ix > 65535 && pt != 0u) hit = abs(f16tof32(pt) / rayLen - zg) <= tol; // portal plane (docs/portals.md)
+        if (hit) { a = 1; break; }
+    }
+    _Final[p] = float4(c, a);
+}
+
+[numthreads(8, 8, 1)]
+void ExposureInput(uint3 id : SV_DispatchThreadID)
+{
+    int2 s = (int2)id.xy;
+    if (any(s >= (int2)_Dim.xy)) return;
+    float2 screen = ((float2)s + 0.5 + _Jitter.xy - _TraceMap.zw) / _TraceMap.xy;
+    int2 p = clamp((int2)floor(screen), 0, (int2)_OutDim.xy - 1);
+    float3 g = Display(RRAt(p));
+    float e = UltraRTPixelExposure((uint2)s);
+    float3 v = max(g - max(_Emission[s].rgb, 0.0), 0.0) / max(e, 1e-4); // the unexposed lit part, in display units
+    // Exposure.compute meters albedo * Disp(filtered) * keep + spec: give it albedo 1, no spec, filtered = Disp^-1(v).
+    _AEFiltered[s] = float4(_UltraRTLinear > 0.5 ? pow(v, 2.2) : v, 0.0);
+    _AEAlbedo[s] = 1.0;
+}
