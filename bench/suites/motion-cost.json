@@ -2,6 +2,38 @@
  "Name": "motion-cost",
  "Scenarios": [
   {
+   "Name": "1-1 spawn blast",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 4
+   },
+   "Effects": {
+    "Kinds": [
+     "blast"
+    ],
+    "Every": 0.3,
+    "Distance": 6,
+    "ShotDelay": 0.1
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Motion": 96,
+   "MotionStrip": 0,
+   "MotionModes": [
+    "off",
+    "relight+vol=0+preset=static",
+    "relight+vol=0",
+    "relight+vol=0+preset=static+ae.enabled=0",
+    "relight+vol=0+ae.enabled=0"
+   ]
+  },
+  {
    "Name": "1-1 sweep 500 timing",
    "Scene": "Level 1-1",
    "Path": {
