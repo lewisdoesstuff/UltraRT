@@ -26,6 +26,16 @@ namespace UltraRT
     {
         /// <summary>Portal quads. Camera, bounce, reflection and cache rays (ULTRART_MASK_SCENE, 0xEF) see them; shadow rays (0x05) don't.</summary>
         public const uint PortalMask = 0x20;
+        /// <summary>
+        /// Renderers on layer 30 ("Portal"): the main camera never draws them, but a portal view whose canSeePortalLayer is
+        /// set adds the layer to its culling mask (PortalRenderV2), e.g. 8-3's theatre chandeliers. Rays include this mask
+        /// only after passing through such a portal (UltraRTPortals.hlsl). Static-batched ones are not traced.
+        /// </summary>
+        public const uint PortalLayerMask = 0x40;
+        public const int PortalLayer = 30;
+        /// <summary>Trace layer-30 renderers (read at scene build).</summary>
+        public static bool TracePortalLayer = true;
+        private static bool IsPortalLayer(int layer) => TracePortalLayer && layer == PortalLayer;
         public const int MaxPortalSides = 1024;
 
         /// <summary>UltraRT/Portal; set by the plugin when the bundle loads. Null: portals are not traced.</summary>
@@ -159,6 +169,7 @@ namespace UltraRT
                 s.Material = new Material(PortalShader) { name = $"UltraRT Portal {s.Index}" };
                 s.Material.SetFloat("_PortalIndex", s.Index);
                 s.Material.SetFloat("_PortalNoRecursion", portal.appearsInRecursions ? 0f : 1f);
+                s.Material.SetFloat("_PortalSeesLayer", portal.canSeePortalLayer ? 1f : 0f);
                 s.Proxy = CreateMeshProxy($"{portal.name} {(exitSide ? "exit" : "enter")} [UltraRT]", null, _portalQuad, new[] { s.Material });
                 _portalSides[key] = s;
                 _portalSideList.Add(s);

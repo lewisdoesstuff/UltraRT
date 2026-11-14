@@ -397,7 +397,8 @@ namespace UltraRT
         {
             if (IsProxyClone(r)) return; // our own proxies (and copies of them)
             NoteSky(r);
-            if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; return; }
+            bool portalLayer = IsPortalLayer(r.gameObject.layer); // seen only through portals (SceneProxies.Portals.cs)
+            if (!LayerIncluded(r.gameObject.layer) && !portalLayer) { stats.SkippedLayer++; return; }
             if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
             var mf = r.GetComponent<MeshFilter>();
             var mesh = mf != null ? mf.sharedMesh : null;
@@ -406,6 +407,7 @@ namespace UltraRT
             bool transparent = TryAddTransparent(r, mesh); // water/glass submeshes: a separate proxy (SceneProxies.Transparent.cs)
             if (!AnyTraceable(mats)) { if (!transparent) stats.SkippedMaterial++; return; }
 
+            if (r.isPartOfStaticBatch && portalLayer) { stats.SkippedLayer++; return; } // merged batches can't carry PortalLayerMask
             if (r.isPartOfStaticBatch)
             {
                 // Merged batches can't carry the fixture mask, but the light can still be lifted out (Plugin.cs).
@@ -425,7 +427,7 @@ namespace UltraRT
                 var proxyMats = new Material[mats.Length];
                 for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
                 var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
-                AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats);
+                AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, portalLayer ? PortalLayerMask : (uint?)null);
                 stats.Dynamic++;
             }
         }
@@ -434,12 +436,13 @@ namespace UltraRT
         {
             if (IsProxyClone(r)) return;
             if (r.sharedMesh == null) { stats.SkippedMesh++; return; }
-            if (!LayerIncluded(r.gameObject.layer)) { stats.SkippedLayer++; return; }
+            bool portalLayer = IsPortalLayer(r.gameObject.layer);
+            if (!LayerIncluded(r.gameObject.layer) && !portalLayer) { stats.SkippedLayer++; return; }
             if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
             var mats = r.sharedMaterials;
             if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
             var proxy = CreateSkinnedProxy(r, mats);
-            AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats);
+            AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats, portalLayer ? PortalLayerMask : (uint?)null);
             stats.Skinned++;
         }
 

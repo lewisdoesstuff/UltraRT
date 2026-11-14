@@ -14,6 +14,9 @@
 // The same bit as a request (ray gen -> hit): this ray already went through a portal. Sides with appearsInRecursions off
 // ignore such rays, as the game skips them in portal views (PortalRenderV2.GetOnscreenPortalsBurst, depth > 0).
 #define ULTRART_PORTAL_IN_RECURSION 0x20000000u
+// Layer-30 renderers (SceneProxies.PortalLayerMask): only portal views with canSeePortalLayer show them, so rays see them
+// only after crossing such a portal; the portal hit reports the flag in p.material bit 0.
+#define ULTRART_MASK_PORTAL_LAYER 0x40u
 
 #ifndef ULTRART_PORTALS_DEFINES_ONLY
 
@@ -40,6 +43,8 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     path.travelled = 0.0;
     path.firstT = -1.0;
     path.hops = 0u;
+    uint baseMask = mask & ~ULTRART_MASK_PORTAL_LAYER;
+    mask = baseMask;
     [loop] for (uint i = 0u; ; i++)
     {
         p = (RayPayload)0;
@@ -67,6 +72,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         path.travelled += p.t;
         path.rot = mul(m, path.rot);
         path.hops++;
+        mask = (p.material & 1u) != 0u ? baseMask | ULTRART_MASK_PORTAL_LAYER : baseMask;
         ray.Origin = float3(dot(r0, h), dot(r1, h), dot(r2, h)) + d * 1e-3;
         ray.Direction = d;
         ray.TMin = 0.0;

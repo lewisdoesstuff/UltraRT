@@ -7,6 +7,7 @@ Shader "UltraRT/Portal"
     {
         _PortalIndex ("Portal side index", Float) = 0
         _PortalNoRecursion ("Hidden in portal views (appearsInRecursions off)", Float) = 0
+        _PortalSeesLayer ("Portal view sees layer 30 (canSeePortalLayer)", Float) = 1
     }
 
     SubShader
@@ -40,6 +41,7 @@ Shader "UltraRT/Portal"
 
             float _PortalIndex;
             float _PortalNoRecursion;
+            float _PortalSeesLayer;
 
             // Only rays crossing the side from its back half-space along its forward axis enter it (PortalMath.Raycast);
             // from behind, the quad is not there.
@@ -62,7 +64,7 @@ Shader "UltraRT/Portal"
                 p.normal = -WorldRayDirection();
                 p.albedo = 0;
                 p.alpha = 0;
-                p.material = 0;
+                p.material = _PortalSeesLayer > 0.5 ? 1u : 0u; // ray gen: add layer-30 geometry to the next segment's mask
                 p.motion = 0;
             }
             ENDHLSL

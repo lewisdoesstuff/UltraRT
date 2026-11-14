@@ -203,6 +203,7 @@ namespace UltraRT
                     case "-ultrart-logfixtures": _logFixtures = true; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-noportals": _portals = false; break;
+                    case "-ultrart-noportallayer": SceneProxies.TracePortalLayer = false; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
                         switch ((Next() ?? "").ToLowerInvariant())
