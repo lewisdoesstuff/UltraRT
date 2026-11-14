@@ -1,0 +1,111 @@
+{
+    "Scenarios":  [
+                      {
+                          "Name":  "0-1 metal",
+                          "Scene":  "Level 0-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/0-1-metal.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "relight",
+                                        "pt-dn"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
+                          "Name":  "1-4 lamps",
+                          "Scene":  "Level 1-4",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-4-lamps.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight",
+                                        "pt-direct"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
+                          "Name":  "0-3 ghosts",
+                          "Scene":  "Level 0-3",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/0-3-ghosts.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight",
+                                        "albedo"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
+                          "Name":  "cerberus",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-cerberus.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight",
+                                        "hybrid"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
+                          "Name":  "0-3 ghosts",
+                          "Scene":  "Level 0-3",
+                          "Enemies":  "active",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/0-3-ghosts.json",
+                                       "Duration":  10,
+                                       "ApproachKillEnemies":  false
+                                   },
+                          "Modes":  [
+                                        "relight",
+                                        "albedo",
+                                        "off"
+                                    ],
+                          "Segment":  2.5,
+                          "Screenshots":  [
+                                              2,
+                                              5,
+                                              8
+                                          ]
+                      },
+                      {
+                          "Name":  "torch",
+                          "Scene":  "Level 1-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-1-torch-hall.json",
+                                       "Duration":  5
+                                   },
+                          "Modes":  [
+                                        "relight"
+                                    ],
+                          "Screenshots":  [
+                                              3
+                                          ]
+                      }
+                  ],
+    "Name":  "merge-regress"
+}
