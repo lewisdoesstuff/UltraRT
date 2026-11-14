@@ -15,6 +15,7 @@ namespace UltraRT
     ///   -ultrart-ae-comp EV, -ultrart-ae-ptdn
     ///   -ultrart-relight-tonemap lum|max       shoulder on luminance (the old curve) or on the largest channel
     ///   -ultrart-relight-knee K                where the shoulder starts (default 0.75)
+    ///   -ultrart-relight-toe S[,END]           toe strength (0 = none) and where it joins the identity
     /// Ctrl+F4: toggle auto exposure.
     /// </summary>
     public partial class Plugin
@@ -26,6 +27,7 @@ namespace UltraRT
         private int _aeLastFrame = -10;
         private float _tonemapCurve = 0f; // 0 = luminance shoulder (default, the original curve), 1 = max-channel shoulder
         private float _tonemapKnee = 0.75f;
+        private float _tonemapToe = 0f, _tonemapToeEnd = 0.25f; // toe strength (0 = none) and where it ends (UltraRTToneCurve.hlsl)
 
         private static readonly int
             UltraRTAutoExposureId = Shader.PropertyToID("_UltraRTAutoExposure"),
@@ -47,13 +49,20 @@ namespace UltraRT
                     case "-ultrart-relight-knee":
                         if (float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var k)) _tonemapKnee = Mathf.Clamp(k, 0.05f, 0.99f);
                         break;
+                    case "-ultrart-relight-toe":
+                    {
+                        var p = (Next() ?? "").Split(',');
+                        if (float.TryParse(p[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var t)) _tonemapToe = Mathf.Clamp01(t);
+                        if (p.Length > 1 && float.TryParse(p[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var te)) _tonemapToeEnd = Mathf.Clamp(te, 0.01f, 0.7f);
+                        break;
+                    }
                 }
             }
             _hdrRequested = Config.Bind("Display", "HDR", false,
                 "Experimental: ask Unity for HDR display output. ULTRAKILL is built without HDR display support, so this " +
                 "currently only logs why it is unavailable (docs/relight.md, \"HDR displays\").").Value;
             LogHdrDisplay();
-            Logger.LogInfo($"Relight: {_aeSettings}; tone map {(_tonemapCurve > 0.5f ? "max-channel" : "luminance")} shoulder, knee {_tonemapKnee}, white {_relightWhite}");
+            Logger.LogInfo($"Relight: {_aeSettings}; tone map {(_tonemapCurve > 0.5f ? "max-channel" : "luminance")} shoulder, knee {_tonemapKnee}, white {_relightWhite}, toe {_tonemapToe} to {_tonemapToeEnd}");
         }
 
         private void LoadExposureShader(AssetBundle bundle, ComputeShader denoise)
@@ -105,7 +114,7 @@ namespace UltraRT
             _cmd.SetGlobalFloat(UltraRTAutoExposureId, ae ? 1f : 0f);
             bool tonemap = _relightActive || ae;
             _cmd.SetGlobalFloat("_UltraRTTonemapWhite", tonemap ? _relightWhite : 0f);
-            _cmd.SetGlobalVector(UltraRTTonemapParamsId, new Vector4(_tonemapCurve, _tonemapKnee, 0, 0));
+            _cmd.SetGlobalVector(UltraRTTonemapParamsId, new Vector4(_tonemapCurve, _tonemapKnee, _tonemapToe, Mathf.Min(_tonemapToeEnd, _tonemapKnee)));
         }
 
         /// <summary>After the denoiser: measure this frame and adapt (used from the next frame on).</summary>
@@ -115,12 +124,17 @@ namespace UltraRT
             if (Time.frameCount - _aeLastFrame > 2) _autoExposure.Reset(); // first frame after another mode or the view off
             _aeLastFrame = Time.frameCount;
             _gpu?.Begin(_cmd, SlotExposure); // nested inside the denoise slot
+            // The bench's bursts capture far below real time and set FrameTimeOverride so the denoiser blends as at 360 Hz;
+            // adapt on the same clock, or every slow captured frame takes a large step after the noisy meter.
+            float dt = _aeBenchClock && Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
             _autoExposure.Execute(_cmd, _aeSettings, _denoiser.FilteredLighting, _gAlbedo, _gSpecular, _gNormalDepth, _gHybrid,
-                w, h, Time.unscaledDeltaTime);
+                w, h, dt);
             _gpu?.End(_cmd, SlotExposure);
         }
 
         private bool _hdrRequested;
+        /// <summary>Bench variant plugin._aeBenchClock=0: adapt on real time during bursts (the old behaviour).</summary>
+        private bool _aeBenchClock = true;
 
         /// <summary>
         /// HDR display output probe. Unity 2022.3 only allows HDR output when the player was built with

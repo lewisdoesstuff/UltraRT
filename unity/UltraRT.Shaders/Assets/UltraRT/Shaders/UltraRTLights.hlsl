@@ -162,6 +162,9 @@ bool LightUnshadowed(uint i) { return _Lights[i * 4 + 3].z > 0.5; }
 //   z: exposure multiplier for lights (0 = 1)
 //   w: ambient cut, 0 keeps the game's flat ambient, 1 removes it
 float4 _Relight;
+// Linear transport: coefficient K of the physical curve K * r^2 / d^2 (r = the light's range), i.e. g(f)^2.2 * f^2 for
+// a curve that equals the game's g(d) = 1 / (1 + 25 d^2 / r^2) at d = f * r. 0 = f 0.5 (0.003205). Plugin.SkyGI.cs.
+float _RelightLinearK;
 
 float RelightExposure() { return _Relight.z > 0.0 ? _Relight.z : 1.0; }
 float RelightAmbientScale() { return 1.0 - saturate(_Relight.w); }
@@ -186,7 +189,8 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
     if (local && lin)
     {
         // Linear transport: the same curves on linear values. The physical curve is inverse-square in linear light,
-        // equal to the game's at half the range ((1/7.25)^2.2 there), windowed to 2r and capped at 3x the game.
+        // equal to the game's at a fraction f of the range (_RelightLinearK; f 0.5: (1/7.25)^2.2 at r/2), windowed to 2r
+        // and capped at 3x the game.
         float4 l2 = _Lights[i * 4 + 2];
         float4 l3 = _Lights[i * 4 + 3];
         float r = max(l0.w, 1e-6);
@@ -194,10 +198,10 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
         float gameL = pow(game, 2.2);
         if (_Relight.x > 0.0)
         {
-            float rRef = 0.5 * r;
             float x = d / (2.0 * r);
             float window = saturate(1.0 - x * x * x * x);
-            float phys = 0.012820 * (rRef * rRef) / max(d2, 0.01) * window * window; // (1/7.25)^2.2
+            float k = _RelightLinearK > 0.0 ? _RelightLinearK : 0.003205; // (1/7.25)^2.2 * 0.5^2
+            float phys = k * (r * r) / max(d2, 0.01) * window * window;
             phys = min(phys, pow(3.0 * game + 0.05, 2.2));
             gameL = lerp(gameL, phys, saturate(_Relight.x));
         }

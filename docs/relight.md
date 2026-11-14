@@ -12,18 +12,22 @@ everything is derived from each light's colour, intensity and range, plus a few 
 | White point | `-ultrart-relight-white` | 3 | shoulder tone map in the denoiser's composite: values below the knee are untouched, the white point maps to 1, so hotspots roll off instead of clipping |
 | Tone curve | `-ultrart-relight-tonemap` | `lum` | `lum` scales by luminance (the original curve); `max` scales by the largest channel (keeps hue and saturation, never clips below the white point, but dims hot saturated colours such as torch-lit orange walls a little) |
 | Knee | `-ultrart-relight-knee` | 0.75 | where the shoulder starts |
+| Toe | `-ultrart-relight-toe S[,END]` | 0 (end 0.25) | optional filmic toe below END: luminance v becomes `lerp(v, v^2/END * (2 - v/END), S)` (same value and slope at END, slope 1 - S at black), for deeper shadows. Off: at 0.3 it changed the bench poses by under 2% |
 | Auto exposure | `-ultrart-relight-autoexposure on\|off` | on | see below; config `[Relight] AutoExposure`; **Ctrl+F4** toggles in game |
 | Linear transport | `-ultrart-relight-linear on\|off` | on | light transport on linear values; see "Sky and GI" |
 | Sun disk | `-ultrart-sun-angle DEG` | 0.5 | angular radius of shadowed directional lights (soft sun shadows); 0 = hard |
 | Sky sampling | `-ultrart-sky-sampling on\|off` | on | one sky light sample with a visibility ray per pixel |
 | Sky scale | `-ultrart-sky-scale F` | 1 | sky light multiplier (1 = the sky lights the level as brightly as it is drawn) |
+| Light reference | `-ultrart-relight-ref F` | 0.3 | linear transport: the fraction of a light's range at which the inverse-square falloff equals the game's curve; see "Light reference distance" |
 
-**Ctrl+F5** toggles the last four together (A/B against the gamma-space relight).
+**Ctrl+F5** toggles linear transport, sun disk, sky sampling and sky scale together (A/B against the gamma-space
+relight; the light reference only applies with linear transport).
 
 The radiance cache uses the same light model (it shares `UltraRTLights.hlsl`), so the bounce is consistent with
 the relit direct light. Shader side: `_Relight` (float4, zero = the game's model) in `UltraRTLights.hlsl`,
 `_UltraRTTonemapWhite` / `_UltraRTTonemapParams` (globals) and the exposure in `UltraRTExposure.hlsl`, used by
-`Denoise.compute`'s Composite.
+`Denoise.compute`'s Composite. The tone curve itself is `UltraRTToneCurve.hlsl`, shared with the water/glass
+reflection overlay (`TransparentOverlay.shader`), so the two can't drift apart.
 
 Not done yet: per-level/per-light JSON overrides, emissive exposure, a hybrid variant.
 
@@ -37,9 +41,17 @@ rooms. Relight therefore adapts the exposure to what's on screen, like an eye or
    pixels, fullbright surfaces (lit weight < 0.5, from PathTrace's `_HybridLight.w`) and emission are left out, because
    they aren't exposed. The game's UI and viewmodel are drawn later by the game, so they never get in.
 2. `Adapt` (one 64-thread group): the mean log2 luminance of the pixels between the 40th and 95th percentile (bright
-   specks and black corners don't move it), the target `EV = log2(key) - mean`, clamped to [min, max] EV, and the
-   adapted EV: `ev += (target - ev) * (1 - exp(-dt * speed))`, with a separate speed for each direction. The first frame
-   after a scene load or a switch into the mode snaps straight to the target.
+   specks and black corners don't move it), smoothed over time (the *meter*, 4/s). The target:
+   - meter above the key: `EV = log2(key) - meter` (full darkening: sunlit areas are pulled down to the key);
+   - between the dark key and the key: 0 (rooms keep the look of their own lights);
+   - below the dark key: `up * (log2(keyLow) - meter)`, part of the way up, so a very dark place gets readable but stays
+     darker than a lit one;
+
+   clamped to [min, max] EV. Then the adapted EV: `ev += aim * (1 - exp(-dt * speed))`, with a separate speed for each
+   direction, where `aim` is the error minus a dead band (0.05 EV): a target that wanders by less than that (noise,
+   flickering torches, small camera moves) never moves the exposure. The first frame after a scene load or a switch into
+   the mode snaps to the target; for the next 0.5 s it follows at 8/s with no dead band (*settle*), because that first
+   frame comes from a freshly reset denoiser and radiance cache (see "Flicker" below).
 3. The denoiser's Composite reads the result one frame later from a GPU buffer (no CPU round trip) and computes
    `(albedo * lighting * keep + specular) * lerp(1, exposure, litWeight) + emission`, then tone maps.
 
@@ -48,17 +60,40 @@ their brightness, so a dim outdoor scene doesn't dull the palette.
 
 | Knob | Flag | Default | Effect |
 |---|---|---|---|
-| Key | `-ultrart-ae-key` | 0.45 | mean luminance that is left alone. Indoor 1-1/4-1/1-4 measure 0.13-0.39, so they stay at exactly 0 EV |
-| Min / max EV | `-ultrart-ae-min` / `-ultrart-ae-max` | -4 / 0 | relative to the fixed look. Max 0 means it only ever darkens: dark rooms are never lifted into flat grey. Raise max (e.g. 1) to brighten dark areas too |
+| Key | `-ultrart-ae-key` | 0.45 | mean luminance above which the exposure darkens (to the key) |
+| Dark key | `-ultrart-ae-key-low` | 0.1 | mean luminance below which it brightens. Between the two nothing changes: indoor 1-1/4-1/1-4/0-1 measure 0.22-0.34 with the default light reference |
+| Up strength | `-ultrart-ae-up` | 0.5 | fraction of the way to the dark key a darker scene is lifted (0 = never brightens) |
+| Min / max EV | `-ultrart-ae-min` / `-ultrart-ae-max` | -4 / 1 | relative to the fixed look |
 | Speed | `-ultrart-ae-speed UP[,DOWN]` | 1.5,3 | 1/s, exponential in EV. Up = exposure rising (into the dark, slower, like eyes); down = into the light |
+| Dead band | `-ultrart-ae-deadband` | 0.05 | EV; the exposure stops this far short of the target |
+| Meter | `-ultrart-ae-meter` | 4 | 1/s smoothing of the measured luminance before the target (0 = raw) |
+| Settle | `-ultrart-ae-settle S[,SPEED]` | 0.5,8 | after a reset: seconds of fast adaptation (1/s), no dead band |
 | Band | `-ultrart-ae-band LO,HI` | 0.4,0.95 | histogram percentiles that are averaged |
 | Compensation | `-ultrart-ae-comp` | 0 | EV added to the target |
 | pt-dn | `-ultrart-ae-ptdn` | off | also apply auto exposure and the tone map to pt-dn. Off by default: pt-dn uses the game's light model and matches its brightness by design |
 
-Measured (bench suite `exposure`, `bench/suites/exposure.json`): 1-1 start -0.39 EV, 1-1 grass/user a-c -0.6 to -0.7,
-1-1 cerberus -1.44, 1-1 user d (sunlit courtyard) -2.0, 0-5 lava -0.24; 1-1 indoor a / torch hall, 1-4 lamps / drift
-(night) and 4-1 indoor A stay at 0. The bench logs the state for every relight screenshot
-(`Benchmark: '<scenario>' ... relight: exposure x0.369 (-1.44 EV, target -1.44), mean lum 1.220, ...`).
+Measured with the current defaults (bench suite `relight-polish`, the 13 poses of `exposure.json` plus 0-1 metal, 0-3
+ghosts and 8-3 b): 1-1 start -0.19 EV, user a/b -0.3, user c -0.47, grass -0.5, cerberus -1.0, user d (sunlit
+courtyard) -1.1, 0-5 lava -0.35, 0-3 ghosts -0.7, 8-3 b -0.4, 1-4 drift (moonlit bridge) -0.18; 1-1 torch hall /
+indoor a, 1-4 lamps, 4-1 indoor A and 0-1 metal stay at 0 (mean 0.22-0.34). The bench logs the state for every relight
+screenshot (`Benchmark: '<scenario>' ... relight: exposure x0.369 (-1.44 EV, target -1.44), mean lum 1.220, ...`), and
+bursts log a per-frame trace (`Burst AE '<scenario>' <mode>: settle ... EV; capture N frames: EV mean sd [min,max]
+step ...; target ...; band mean log2 ...; meter ...`).
+
+### Flicker
+`-ultrart-ae-max 0.5` (with the old full brightening) measured as flicker on 1-4 drift (masked burst sigma 0.97 vs 0.26).
+The per-frame trace shows what it was: the *target* is steady to 0.001 EV on every static pose tested (1-4 drift,
+lamps, torch hall, indoor a, cerberus, 4-1; band mean sd 0.000-0.014 EV with the torches flickering), but the
+*exposure* was still climbing during the capture (1-4 drift: +0.26 to +0.31 EV over the 64 frames, sd 0.015). The
+bench resets every history before a burst mode, and auto exposure then snapped to the first frame's measurement. That
+frame comes from a fresh denoiser: noise widens the histogram, and the 40-95% band of a noisy image reads too bright
+(1-4 drift: +0.10 EV instead of +0.31). It then crept up at the slow up-speed. During a burst each captured frame takes
+50-100 ms, and auto exposure ran on real time while the denoiser ran on the bench's 1/360 s clock, so the creep landed
+inside the capture. Fixes: adapt on the same clock as the denoiser during bursts (`Denoiser.FrameTimeOverride`), and
+settle after a reset (0.5 s at 8/s). With both, 1-4 drift at +0.5 EV measures EV sd 0.001 and masked sigma 0.35
+(0.26 at 0 EV, and the image is 1.4x brighter). In play the same snap-then-creep showed as a slow brightening for a
+second or two after a level load or Ctrl+F4; the settle removes it. The meter smoothing and the dead band are there for
+moving cameras and flickering torches; at static poses the trace shows they never move the exposure.
 
 Cost (RTX 5070 Ti, 1920x1080, trace scale 0.5): 0.004-0.008 ms GPU for both kernels (GPU timer slot `exposure`), plus
 one extra texture read per pixel in Composite. The histogram buffer is 256 bytes.
@@ -77,9 +112,9 @@ every game colour that acts as light or reflectance (light colours after exposur
 cones, emissive triangles, the sky, albedo and emission at bounce hits, ambient) is raised to ^2.2 first.
 PathTrace, the cache and the denoiser then work on linear lighting. The denoiser's Composite and `Exposure.compute`
 convert the *filtered* lighting back (`UltraRTDisplayLighting`), so the conversion never sees noisy samples (that
-would bias dark). The physical falloff is inverse-square in linear light, equal to the game's at half the range
-((1/7.25)^2.2), so a light on its own keeps its brightness there and falls off as `1/d^0.91` in display terms
-(it used to be `1/d^2` in gamma, i.e. `1/d^4.4` in linear). Reflections convert each reflection sample's hit
+would bias dark). The physical falloff is inverse-square in linear light, equal to the game's curve at a fraction of
+the range (0.3 by default, see "Light reference distance"), and falls off as `1/d^0.91` in display terms (it used to be
+`1/d^2` in gamma, i.e. `1/d^4.4` in linear). Reflections convert each reflection sample's hit
 lighting back to gamma, because the reflection filter works in display units. `pt` with `-ultrart-accumulate`
 accumulates displayed colour, so it is slightly biased dark in linear mode. Use the radiance statistics (below) for
 energy comparisons.
@@ -131,10 +166,11 @@ linear), within the usual 10-20% of a clear day, so the sky scale stays 1.
 - **Fill cut 1** (fully ray traced). With linear transport, the 0.25 fill changes outdoor side-facing lighting by about
   4% and down-facing (statue undersides) from 0.74 to 0.86 display. Auto exposure is the same within 0.07 EV, and
   the screenshots are near identical. Fill lights only reach outdoor layers, so rooms are unaffected.
-- **Auto exposure max stays 0 EV.** Linear transport makes torch-lit rooms about 0.6 EV darker (1-1 torch hall mean
-  0.34 to 0.23, indoor a 0.38 to 0.23), because gamma-space sums of direct and bounce light over-brighten. `maxEV`
-  0.5 restores them, but where the target falls inside the clamp (1-4 drift at night, +0.3 EV) the exposure follows
-  the noisy histogram and flickers (masked burst sigma 0.97 vs 0.26). Use `-ultrart-ae-max 0.5` for brighter rooms.
+- **Torch rooms: light reference 0.3, not an exposure lift.** Linear transport made torch-lit rooms about 0.6 EV
+  darker than the gamma relight (1-1 torch hall mean 0.34 to 0.23, indoor a 0.38 to 0.23). Lifting them with auto
+  exposure also lifts every other dim room: at +0.6 EV, 4-1's corridor and 0-1's metal hall came out at 2x and 1.6x the
+  game. The cause is the falloff (see "Light reference distance"), so that is where it's fixed. See
+  "Auto exposure" / "Flicker" for why the old +0.5 EV attempt measured as flicker.
 - Sky scale 1, sun 0.5 deg, sky sampling on.
 
 ### Cost and noise (RTX 5070 Ti, 1920x1080, trace scale 0.5)
@@ -154,8 +190,26 @@ against a same-session build of the base commit: 0-1 pt-dn mean luma 33.8 vs 33.
 
 Look: shaded faces outdoors now get coloured sky light and ground bounce instead of the fills' flat orange. Lava and
 emissive panels light much further (linear falloff of emitted light), and 1-4's night sky lights the scene. 4-1's
-green corridor comes out noticeably brighter and greener than the game. That is physically what its emissive panels
-do, but it is the most visible departure from the game's look.
+green corridor comes out noticeably brighter and greener than the game (screen mean luma 44 vs the game's 16 and the
+gamma relight's 31). It is lit mostly by green point lights, so it gets the light reference boost too (33 with
+reference 0.5). That is the most visible departure from the game's look; `-ultrart-relight-ref 0.4` halves the boost
+(+0.24 EV instead of +0.49 over 0.5) for every local light, torch rooms included.
+
+### Light reference distance
+The linear-transport falloff is `K r^2 / d^2` (r = the light's range), windowed to 2r and capped at 3x the game's
+curve, with K chosen so it equals the game's `g(d) = 1 / (1 + 25 d^2 / r^2)` at `d = f r`: `K = g(f)^2.2 f^2`
+(`Plugin.SkyGI.cs` `RelightLinearK`, shader `_RelightLinearK`). In display terms, `g(f) (f r / d)^0.91`.
+
+With f = 0.5 (the first version) the curve is far flatter than the game's: 35% dimmer than the game at a quarter of
+the range and about half the old gamma relight there (gamma inverse-square was steeper: `1/d^2` in display), and
+brighter than the game beyond the range. Torch-lit walls sit close to their torches, so torch rooms lost their glow
+(about 0.6 EV darker than the gamma relight), while far-reaching lights (4-1, 0-1) changed little. Matching at 0.3 of
+the range scales every local light by 2.1 in linear, 1.4x displayed (+0.49 EV). Sun, sky and emissive surfaces are
+unaffected, and outdoor scenes come back to the same image because auto exposure darkens them more. Screen mean luma
+(bench `relight-polish`, game / gamma relight / f 0.5 / f 0.3): torch hall 50 / 75 / 54 / 72, indoor a 48 / 84 / 55 / 75,
+1-4 lamps 31 / 21 / 23 / 29, 4-1 indoor A 16 / 31 / 33 / 44, 0-1 metal 45 / 40 / 43 / 55; outdoor 1-1 poses within
++-3. f 0.35 gives 67 / 68 / 28 / 42 / 52 for the same five. Lowering the cap's 0.05 floor (it bounds the tail beyond
+the range) to 0.01 changed 4-1 by 2%, so the tail isn't what brightens it.
 
 ### Radiance statistics
 Every RT screenshot in a bench run logs `radiance: all/up/side/down <share> L=<mean lighting> (rgb)` (with linear

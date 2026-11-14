@@ -23,6 +23,9 @@ namespace UltraRT
         private float _sunAngle = 0.5f;   // degrees (angular radius)
         private bool _skySampling = true;
         private float _skyScale = 1f;
+        /// <summary>Linear transport: fraction of a light's range at which the physical falloff equals the game's
+        /// (-ultrart-relight-ref F). See docs/relight.md, "Light reference distance".</summary>
+        private float _relightRef = 0.3f;
         private bool _skyGI = true;       // Ctrl+F5: master switch for the three above
         private float _lastLinear = -1f;
         private SkyTable _skyTable;
@@ -42,9 +45,10 @@ namespace UltraRT
                     case "-ultrart-sky-sampling": _skySampling = On(Next()); break;
                     case "-ultrart-sun-angle": float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out _sunAngle); break;
                     case "-ultrart-sky-scale": float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out _skyScale); break;
+                    case "-ultrart-relight-ref": float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out _relightRef); break;
                 }
             }
-            Logger.LogInfo($"Relight sky/GI: linear {_relightLinear}, sun {_sunAngle} deg, sky sampling {_skySampling}, sky scale {_skyScale}");
+            Logger.LogInfo($"Relight sky/GI: linear {_relightLinear}, sun {_sunAngle} deg, sky sampling {_skySampling}, sky scale {_skyScale}, light reference {_relightRef} of the range");
         }
 
         private void SkyHotkeys()
@@ -62,6 +66,17 @@ namespace UltraRT
         private Vector4 SkyLightParams => _relightActive && _skyGI
             ? new Vector4(_relightLinear ? 1f : 0f, Mathf.Max(0f, _sunAngle) * Mathf.Deg2Rad, _skySampling ? 1f : 0f, Mathf.Max(0f, _skyScale))
             : new Vector4(0f, 0f, 0f, 1f);
+
+        /// <summary>UltraRTLights.hlsl's _RelightLinearK: g(f)^2.2 * f^2, where g(d/r) = 1 / (1 + 25 (d/r)^2) is the game's
+        /// falloff, so the inverse-square curve K r^2 / d^2 equals the game's at f * r.</summary>
+        private float RelightLinearK
+        {
+            get
+            {
+                float f = Mathf.Clamp(_relightRef, 0.05f, 1f);
+                return Mathf.Pow(1f / (1f + 25f * f * f), 2.2f) * f * f;
+            }
+        }
 
         /// <summary>Per frame, before the traces: the composites' conversion flag, and a cache reset when the lighting space changes.</summary>
         private void SkyGlobals()
@@ -88,6 +103,7 @@ namespace UltraRT
             _cmd.SetRayTracingVectorParam(shader, "_SkyParams", skyParams);
             _cmd.SetRayTracingBufferParam(shader, "_SkyAlias", _skyTable.Buffer);
             _cmd.SetRayTracingVectorParam(shader, "_SkyLight", SkyLightParams);
+            _cmd.SetRayTracingFloatParam(shader, "_RelightLinearK", RelightLinearK);
         }
 
         /// <summary>

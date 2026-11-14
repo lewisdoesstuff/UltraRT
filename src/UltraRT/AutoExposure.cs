@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -16,7 +17,7 @@ namespace UltraRT
         public float key = 0.45f;
         /// <summary>Exposure clamp in EV relative to the fixed relight look (0 = no change): -ultrart-ae-min / -ultrart-ae-max.
         /// max 0 means auto exposure only ever darkens, so dim rooms keep exactly the old look.</summary>
-        public float minEV = -4f, maxEV = 0f;
+        public float minEV = -4f, maxEV = 1f;
         /// <summary>Adaptation rates in 1/s (exponential, in EV): up = exposure rising (walking into the dark),
         /// down = exposure falling (walking into the light). -ultrart-ae-speed UP[,DOWN].</summary>
         public float speedUp = 1.5f, speedDown = 3f;
@@ -24,6 +25,20 @@ namespace UltraRT
         public float lowFraction = 0.4f, highFraction = 0.95f;
         /// <summary>Exposure compensation in EV, added to the target: -ultrart-ae-comp.</summary>
         public float compensation;
+        /// <summary>Dark key: scenes whose mean luminance is between this and the key are left alone; darker ones are
+        /// brightened towards it (by upStrength), so a dark room stays dark but readable. -ultrart-ae-key-low K.</summary>
+        public float keyLow = 0.1f;
+        /// <summary>Fraction of the brightening towards the dark key a darker scene gets (1 = all the way, 0 = never
+        /// brightens). Darkening above the key is always full. -ultrart-ae-up F.</summary>
+        public float upStrength = 0.5f;
+        /// <summary>Dead band in EV: the exposure stops this far short of the target, so a target that wanders by less
+        /// than this (noise, flickering torches) never moves it. -ultrart-ae-deadband EV.</summary>
+        public float deadBand = 0.05f;
+        /// <summary>Smoothing of the metered luminance before the target is derived, 1/s (0 = none). -ultrart-ae-meter F.</summary>
+        public float meterSpeed = 4f;
+        /// <summary>After a reset (scene load, mode switch): adapt at settleSpeed (1/s, no dead band) for settleTime seconds,
+        /// so the exposure follows the denoiser and radiance cache while they converge. -ultrart-ae-settle SECONDS[,SPEED].</summary>
+        public float settleTime = 0.5f, settleSpeed = 8f;
 
         public void ParseArgs()
         {
@@ -45,6 +60,17 @@ namespace UltraRT
                     case "-ultrart-ae-min": minEV = F(Next(), minEV); break;
                     case "-ultrart-ae-max": maxEV = F(Next(), maxEV); break;
                     case "-ultrart-ae-comp": compensation = F(Next(), compensation); break;
+                    case "-ultrart-ae-up": upStrength = F(Next(), upStrength); break;
+                    case "-ultrart-ae-key-low": keyLow = F(Next(), keyLow); break;
+                    case "-ultrart-ae-deadband": deadBand = F(Next(), deadBand); break;
+                    case "-ultrart-ae-meter": meterSpeed = F(Next(), meterSpeed); break;
+                    case "-ultrart-ae-settle":
+                    {
+                        var p = (Next() ?? "").Split(',');
+                        settleTime = F(p[0], settleTime);
+                        if (p.Length > 1) settleSpeed = F(p[1], settleSpeed);
+                        break;
+                    }
                     case "-ultrart-ae-speed":
                     {
                         var p = (Next() ?? "").Split(',');
@@ -64,7 +90,7 @@ namespace UltraRT
         }
 
         public override string ToString() =>
-            FormattableString.Invariant($"auto exposure {(enabled ? "on" : "off")}{(ptDn ? " (+pt-dn)" : "")}: key {key}, EV [{minEV}, {maxEV}], speed up {speedUp}/s down {speedDown}/s, band {lowFraction}-{highFraction}, comp {compensation}");
+            FormattableString.Invariant($"auto exposure {(enabled ? "on" : "off")}{(ptDn ? " (+pt-dn)" : "")}: key {key} (dark key {keyLow}), EV [{minEV}, {maxEV}], speed up {speedUp}/s down {speedDown}/s, band {lowFraction}-{highFraction}, comp {compensation}, up {upStrength}, dead band {deadBand} EV, meter {meterSpeed}/s, settle {settleTime}s@{settleSpeed}/s");
     }
 
     /// <summary>
@@ -80,6 +106,7 @@ namespace UltraRT
         private readonly int _kHistogram, _kAdapt;
         private readonly ComputeBuffer _hist, _exposure;
         private bool _snap = true;
+        private float _settleLeft = -1f; // < 0: start a settle period on the next Execute
         private float _nextReadback;
         private bool _readbackPending;
 
@@ -103,6 +130,8 @@ namespace UltraRT
             IdParams0 = Shader.PropertyToID("_Params0"),
             IdParams1 = Shader.PropertyToID("_Params1"),
             IdParams2 = Shader.PropertyToID("_Params2"),
+            IdParams3 = Shader.PropertyToID("_Params3"),
+            IdParams4 = Shader.PropertyToID("_Params4"),
             IdCompositeExposure = Shader.PropertyToID("_UltraRTExposure"),
             IdCompositeLitWeight = Shader.PropertyToID("_UltraRTLitWeight");
 
@@ -118,7 +147,10 @@ namespace UltraRT
         }
 
         /// <summary>Jump straight to the measured exposure next frame (scene load, teleport, mode switch).</summary>
-        public void Reset() => _snap = true;
+        public void Reset() { _snap = true; _settleLeft = -1f; }
+
+        /// <summary>Bench: when non-null, every frame's state is read back and appended here (exposure state, info).</summary>
+        public List<(Vector4 state, Vector4 info)> Trace;
 
         /// <summary>
         /// Binds the exposure buffer and the lit-weight texture on the denoiser's Composite kernel. Needed every frame the
@@ -153,11 +185,27 @@ namespace UltraRT
                 Mathf.Clamp01(s.lowFraction), Mathf.Clamp(s.highFraction, Mathf.Clamp01(s.lowFraction) + 0.01f, 1f)));
             // A measurement needs at least 2% of the sampled pixels (the rest is sky or fullbright).
             cmd.SetComputeVectorParam(cs, IdParams2, new Vector4(_snap ? 1f : 0f, Mathf.Max(16f, w * h / 4f * 0.02f), s.compensation, 0));
+            if (_settleLeft < 0f) _settleLeft = s.settleTime; // first frame after a reset
+            bool settling = _settleLeft > 0f;
+            _settleLeft = Mathf.Max(0f, _settleLeft - dt);
+            cmd.SetComputeVectorParam(cs, IdParams3, new Vector4(Mathf.Clamp01(s.upStrength), Mathf.Max(0f, s.deadBand),
+                Mathf.Max(0f, s.meterSpeed), settling ? Mathf.Max(0f, s.settleSpeed) : 0f));
+            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.key, 1e-4f)), 2f), 0, 0, 0));
             cmd.SetComputeBufferParam(cs, _kAdapt, IdHist, _hist);
             cmd.SetComputeBufferParam(cs, _kAdapt, IdExposure, _exposure);
             cmd.DispatchCompute(cs, _kAdapt, 1, 1, 1);
             _snap = false;
 
+            if (Trace != null)
+            {
+                var trace = Trace;
+                cmd.RequestAsyncReadback(_exposure, r =>
+                {
+                    if (r.hasError) return;
+                    var d = r.GetData<Vector4>();
+                    trace.Add((d[0], d[1]));
+                });
+            }
             if (!_readbackPending && Time.realtimeSinceStartup >= _nextReadback)
             {
                 _readbackPending = true;

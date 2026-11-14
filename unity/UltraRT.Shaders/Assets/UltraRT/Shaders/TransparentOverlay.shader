@@ -35,6 +35,7 @@ Shader "UltraRT/TransparentOverlay"
         CGINCLUDE
         #include "UnityCG.cginc"
         #include "UltraRTWater.hlsl"
+        #include "UltraRTToneCurve.hlsl"
 
         sampler2D _MainTex;
         float4 _MainTex_ST;
@@ -52,6 +53,7 @@ Shader "UltraRT/TransparentOverlay"
         StructuredBuffer<float4> _UltraRTExposureGlobal; // relight auto exposure ([0].x), bound globally when in use
         float _UltraRTLinear;            // global, relight: 1 = RT lighting is linear (docs/relight.md "Sky and GI")
         float _UltraRTAutoExposure;      // 1: apply _UltraRTExposureGlobal (as the denoiser's composite does for the lit part)
+        float4 _UltraRTTonemapParams;    // global: relight tone curve parameters (UltraRTToneCurve.hlsl)
         float4 _UltraRTFog;              // x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
         Texture2D _UltraRTPreAlpha;      // colour target after the RT composite, before transparents
         Texture2D _UltraRTGameDepth;     // the game's opaque depth (raw), copied by the RT composite
@@ -112,19 +114,11 @@ Shader "UltraRT/TransparentOverlay"
             return m < 2.5 ? exp2(-x * 1.442695) : exp2(-x * x * 1.442695);
         }
 
-        // Relight's shoulder tone map (Denoise.compute, composite), so reflections roll off like the surfaces around.
+        // Relight's tone curve, the same function as the denoiser's composite (UltraRTToneCurve.hlsl), so reflections
+        // roll off like the surfaces around them.
         float3 Tonemap(float3 c)
         {
-            float white = _UltraRTTransParams.z;
-            if (white <= 0.0) return saturate(c);
-            const float knee = 0.75;
-            float lum = dot(c, float3(0.2126, 0.7152, 0.0722));
-            if (lum > knee)
-            {
-                float x = lum - knee, room = 1.0 - knee, range = max(white - knee, 1e-3);
-                c *= (knee + room * x * (1.0 + x / (range * range) * room) / (x + room)) / lum;
-            }
-            return saturate(c);
+            return saturate(UltraRTToneCurve(c, _UltraRTTransParams.z, _UltraRTTonemapParams));
         }
 
         // Screen-space refraction (water): (1 - a) (B(uv') - B(uv)), uv' = where the rippled refracted ray meets the
