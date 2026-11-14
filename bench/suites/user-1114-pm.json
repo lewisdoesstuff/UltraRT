@@ -74,6 +74,7 @@
       "Scene": "Level 4-4",
       "Path": {
         "Type": "static",
+        "Load": "checkpoint",
         "Approach": "../recordings/4-4-v2-chair.json",
         "Duration": 4
       },

@@ -47,6 +47,7 @@ namespace UltraRT
                 {
                     if (slot == null || !filter(slot.Material)) continue;
                     var s = slot;
+                    int gen = s.MatGen;
                     output.Add(new TracedSubmesh
                     {
                         Material = s.Material,
@@ -57,7 +58,7 @@ namespace UltraRT
                         Static = true,
                         TwoSided = (s.Part & 1) != 0,
                         SkyWall = (s.Part & 2) != 0,
-                        Visible = () => s.VisibleSources > 0,
+                        Visible = () => s.VisibleSources > 0 && s.MatGen == gen,
                         Streams = c.FlagsMode ? null : c.Streams,
                         Strides = c.FlagsMode ? null : c.Strides,
                         Indices = c.FlagsMode ? null : c.Indices,
@@ -84,6 +85,7 @@ namespace UltraRT
                 {
                     if (d.Flags[i] == RayTracingSubMeshFlags.Disabled || !filter(mats[i])) continue;
                     var e = d;
+                    int gen = d.MatGen;
                     output.Add(new TracedSubmesh
                     {
                         Material = mats[i],
@@ -94,7 +96,7 @@ namespace UltraRT
                         Static = false,
                         TwoSided = IsTwoSided(mats[i]),
                         SkyWall = IsSkyWall(mats[i]) || d.Mask == SkyWallMask,
-                        Visible = () => e.Visible && e.Proxy != null,
+                        Visible = () => e.Visible && e.Proxy != null && e.MatGen == gen,
                     });
                 }
             }

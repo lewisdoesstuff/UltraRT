@@ -117,3 +117,46 @@ The remaining worst frame on the route is the game's own clone. RT off shows the
 - `SceneProxies.StaticActivation = false`: static batches are always present (the old behaviour), for A/B tests.
 - `SceneProxies.ForceGroupLevel = 0..4`: force a grouping level.
 - `SceneProxies.StaticRecordBudget`: the record budget.
+
+## Runtime material changes
+
+Proxy materials copy their source material's properties once (`SceneProxies.Proxy`). Game scripts change materials while
+playing, so `src/UltraRT/SceneProxies.Sync.cs` follows them (`-ultrart-nomatsync` turns it off, for A/B):
+
+| Change | Examples | How it is followed |
+|---|---|---|
+| Material swap on a dynamic renderer (`sharedMaterial =`, `renderer.material(s)` instancing) | `FinalDoor.Open` (the lit door frames: 0-2's start door), enrage/radiance variants, Gabriel's enrage materials | 16 active proxies per frame compare their source's materials (one `sharedMaterial` read for single-material renderers; our transparent overlay is ignored). On a change the proxy gets the new proxy materials; its submesh flags are re-added only if they changed. |
+| Material swap on a static-batched renderer | the FinalDoor frame pieces that are Unity static batches | The static slice poll (256 sources per frame) checks non-atlas sources (multi-material ones on every 4th visit). The slot takes the new proxy material and its group part is rebuilt (merged meshes group submeshes by material). Atlas (StaticSceneOptimizer) sources are never checked: their material is the scene atlas. |
+| MaterialPropertyBlock | `Door` light colours (locked red/black, unlocked), `PulsateEmissiveMaterial`, `BloodFiller` (`_FillAmount`, `_MeshScale`) | A proxy whose source has a block with `_Color`, `_EmissiveColor`, `_EmissiveIntensity` or `_FillAmount` is "followed": 8 per frame re-read their block, hash the values and, only when they changed, write them into the proxy's own copy of its material for that slot (made on first need, destroyed with the scene). |
+| Property edits on a source material | scripts that set colours on an instanced material, scrolling offsets | 4 source materials per frame are re-read (`_Color`, emission, `_MainTex` and its scale/offset) and copied when changed. |
+
+Emitters sampled as lights (docs/emissive-lights.md) follow swaps and emission changes too: the changed submeshes are
+re-registered (`TakeMaterialChanges`), at most once a second per proxy for property blocks, and the old entries stop
+counting through a per-proxy / per-slot material generation.
+
+**BLOOD_FILLER** (7-3's tree): the game's shader paints the albedo's green and blue out below a noisy fill height. The
+proxy hit shader does the same (`BloodFillTint` in `Proxy.shader`, decompiled from the Master shader): mesh TEXCOORD2.xyz
+in [-1, 1], height `h = y/2 + 1/2`, noise `_BloodNoiseTex` at (angle, h x `_MeshScale.z` / 4) on sides and (x, h) on caps,
+blended by the world normal's y; red where `h - 0.05 n < _FillAmount`. Only meshes with a 3-component TEXCOORD2.
+
+**Fullbright** (`_Unlit`): `ULTRAKILL/Master` without `VERTEX_LIGHTING` is never lit by the game (Gabriel, screens, gibs,
+unlit props): their proxies now return lit weight 0 like atlas fullbright geometry, so relight no longer darkens them (6-2's
+Gabriel looked dim and red-brown instead of gold). Enemies (`ENEMY`) are also unlit in the game, but fully fullbright
+enemies would lose all RT shadowing, so they keep half of it: `SceneProxies.UnlitEnemyLitWeight` = 0.5
+(`-ultrart-enemy-lit w`, 0 = like the game, 1 = the old relit look). `-ultrart-lit-unlit` restores the old behaviour.
+
+**Cost** (600-frame log line `Material sync: ...`, split into swap checks, blocks, re-copies and static checks): 0.006 to
+0.03 ms per frame in 0-2, 1-3, 4-4, 6-2 and 7-3 (visual runs; first version was 0.05 to 0.2 ms with larger slices and
+string property lookups). A swap creates a proxy material once per new source material (classification and material maps,
+a one-off), and a static swap rebuilds one group mesh (budgeted with the partial rebuilds).
+
+**Limits.** Latency is a slice cycle: about `active proxies / 16` frames for swaps (a few frames to a quarter second).
+Keyword changes on a material (e.g. `EMISSIVE` switched on at runtime) and `_EmissiveTex` changes are not followed.
+Skinned proxies' emission is not sampled as lights (as before). A static slot swapped to a material that isn't traced keeps
+its old material (a merged slot can't be switched off).
+
+**Diagnostics.** `-ultrart-viewprobe` logs, at every bench screenshot (after the first RT mode's effects spawned), the
+renderers in a 30 degree cone ahead: materials, keywords, notable properties, property blocks, static slots' original
+materials, and the proxy state (`SceneProxies.Probe.cs`). Bench effect kinds `coin`, `coinfront` (the revolver's coin,
+hovering) and `opendoors` (the game's `FinalDoor.Open()` on every final door) exist for these tests;
+`bench/suites/materials-pm.json` is the suite.

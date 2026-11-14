@@ -31,8 +31,11 @@ namespace UltraRT
         /// opaque, which hides a physical-strength reflection everywhere but at grazing angles.</summary>
         public float waterF0 = 0.12f, glassF0 = 0.08f;
         /// <summary>Liquid blood (0-2's river): thick and opaque, so a calmer, weaker sheen than water, no ripples in the
-        /// reflection ray (traced like glass), no refraction (overlay _Kind 2), and a lower cap on the reflection weight.</summary>
-        public float bloodF0 = 0.06f, bloodWeight = 0.7f;
+        /// reflection ray (traced like glass), no refraction (overlay _Kind 2), and a lower cap on the reflection weight.
+        /// The game's blood is alpha blended and thin; with the floor under it relit (brighter, more contrast than the
+        /// game's) it looked like water. <see cref="bloodAbsorb"/> absorbs what shows through toward the blood's colour
+        /// (overlay pass "Absorb"); a weaker reflection keeps a glossy sheen without washing the colour out.</summary>
+        public float bloodF0 = 0.06f, bloodWeight = 0.4f, bloodAbsorb = 0.9f;
     }
 
     /// <summary>
@@ -131,6 +134,16 @@ namespace UltraRT
                 overlay.SetFloat("_F0", kind == TransparentKind.Water ? _settings.waterF0 : kind == TransparentKind.Blood ? _settings.bloodF0 : _settings.glassF0);
                 overlay.SetFloat("_Weight", kind == TransparentKind.Blood ? _settings.bloodWeight : 1f);
                 overlay.SetFloat("_CullMode", src.HasProperty("_CullMode") ? src.GetFloat("_CullMode") : 2f);
+                overlay.SetFloat("_Absorb", kind == TransparentKind.Blood ? _settings.bloodAbsorb : 0f);
+                if (src.IsKeywordEnabled("LIMBO_WATER_FADE"))
+                {
+                    // The game hides this water around the player and enemies (1-3's floor puddles): follow its fade.
+                    overlay.SetFloat("_LimboFade", 1f);
+                    overlay.SetFloat("_NearClip", src.HasProperty("_NearClip") ? src.GetFloat("_NearClip") : 0f);
+                    overlay.SetFloat("_FarClip", src.HasProperty("_FarClip") ? src.GetFloat("_FarClip") : 1f);
+                    var dither = src.HasProperty("_DitherTexture") ? src.GetTexture("_DitherTexture") : null;
+                    if (dither != null && dither.dimension == UnityEngine.Rendering.TextureDimension.Tex2D) overlay.SetTexture("_FadeDither", dither);
+                }
                 _materials[src] = overlay;
             }
             var withOverlay = new Material[mats.Length + 1];

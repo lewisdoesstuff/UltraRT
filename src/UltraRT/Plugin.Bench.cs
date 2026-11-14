@@ -902,6 +902,7 @@ namespace UltraRT
                                            $"tex=[{string.Join(", ", texProps.Select(x => $"{x.n}={x.t.name}{(x.t is RenderTexture ? "(RT)" : "")}"))}] " +
                                            $"why={(usesRT ? "RT " : "")}{(skyShader ? "skyshader " : "")}{(bigNear ? "encloses-camera" : "")}");
                         }
+                        bool probed = false;
                         foreach (var m in sc.Modes)
                         {
                             ApplyBenchMode(m);
@@ -925,6 +926,12 @@ namespace UltraRT
                                 EffectSpawner.Spawn(sc.Effects);
                                 float until = Time.realtimeSinceStartup + Mathf.Max(0f, sc.Effects.ShotDelay);
                                 while (Time.realtimeSinceStartup < until) { GameControl.HideCheatPanels(); yield return null; }
+                            }
+                            if (SceneProxies.ViewProbe && _proxies != null && m != "off" && !probed)
+                            {
+                                // After the mode's effects spawned (and their proxies were made): what is in front of the camera.
+                                probed = true;
+                                foreach (var line in _proxies.DescribeView(GameControl.Cam != null ? GameControl.Cam.cam : null)) Logger.LogInfo("  view probe: " + line);
                             }
                             yield return new WaitForEndOfFrame();
                             // What the player sees (RT composited under transparents/post/HUD), plus the raw RT image.

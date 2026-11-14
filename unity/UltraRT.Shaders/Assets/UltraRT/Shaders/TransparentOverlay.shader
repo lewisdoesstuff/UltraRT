@@ -1,12 +1,15 @@
 // Water and glass on top of the game's own transparent draw (docs/reflections.md, "Water and glass").
 // TransparentSurfaces.cs appends this material to a water/glass renderer's material list, so Unity draws the same
 // (last) submesh again right after the game's material, at the same point of the transparent queue: particles and
-// effects in front of the surface still draw over it. Three passes, all reading screen-space inputs:
+// effects in front of the surface still draw over it. Four passes, all reading screen-space inputs:
 //   1-2 RefractAdd / RefractSub (water only): screen-space refraction. The game blended its water colour W over the
 //       background B: dst = W a + B (1 - a). Shifting the background by the rippled refraction offset is
 //       dst + (1 - a) (B(uv') - B(uv)); a signed term, so it is added and subtracted in two blended passes.
 //       B is a copy of the colour target taken after the RT composite, before any transparents (_UltraRTPreAlpha).
-//   3   Reflect: dst * (1 - w) + w * R, with R the ray-traced reflection (PathTrace.raytrace, TransparentGen) at trace
+//   3   Absorb (blood only): dst * T, T = 1 - (1 - a) s (1 - tint): what shows through the game's thin alpha-blended
+//       blood (the floor, relit and much brighter than the game's own) is absorbed toward the blood's colour, so a river
+//       of blood reads as thick liquid. Multiplicative, so it is safe on 8-bit targets.
+//   4   Reflect: dst * (1 - w) + w * R, with R the ray-traced reflection (PathTrace.raytrace, TransparentGen) at trace
 //       resolution and w = Fresnel(ripple normal) x weight, faded by fog.
 // Everything is skipped unless the plugin traced this camera's frame (_UltraRTTransOn, camera position match).
 Shader "UltraRT/TransparentOverlay"
@@ -20,6 +23,13 @@ Shader "UltraRT/TransparentOverlay"
         _F0 ("F0", Float) = 0.04
         _Weight ("Reflection weight", Float) = 1
         _CullMode ("Cull", Float) = 2
+        _Absorb ("Blood: absorption of what shows through", Float) = 0
+        // LIMBO_WATER_FADE (1-3's floor water): the game fades the water out within _NearClip.._FarClip of the player and
+        // every enemy (LimboWater.cs sets the global _FadePositions); no water there means no reflection or refraction.
+        _LimboFade ("Limbo water fade", Float) = 0
+        _NearClip ("Fade start", Float) = 0
+        _FarClip ("Fade end", Float) = 1
+        _FadeDither ("Fade dither", 2D) = "gray" {}
     }
 
     SubShader
@@ -44,6 +54,11 @@ Shader "UltraRT/TransparentOverlay"
         float _Kind;
         float _F0;
         float _Weight;
+        float _Absorb;
+        float _LimboFade, _NearClip, _FarClip;
+        sampler2D _FadeDither;
+        StructuredBuffer<float3> _FadePositions; // global, LimboWater.cs: [0] the player, then enemies
+        int _FadePositionsCount;
 
         float _UltraRTTransOn;           // 1 while the plugin traced transparents this frame
         float4 _UltraRTTransCam;         // xyz camera position of that trace, w = refraction inputs bound
@@ -114,6 +129,23 @@ Shader "UltraRT/TransparentOverlay"
             return m < 2.5 ? exp2(-x * 1.442695) : exp2(-x * x * 1.442695);
         }
 
+        // The game's LIMBO_WATER_FADE alpha factor (decompiled ULTRAKILL/Master): saturate(n + (d - near) / (far - near)),
+        // d = distance to the nearest fade position, n = length(rg) of the material's _DitherTexture at uv x 4. 1
+        // when the material has no fade or the game set no positions.
+        float LimboCoverage(v2f i)
+        {
+            if (_LimboFade < 0.5 || _FadePositionsCount <= 0) return 1.0;
+            float dmin = 999999.0;
+            int count = min(_FadePositionsCount, 256);
+            for (int k = 0; k < count; k++)
+            {
+                float3 dv = _FadePositions[k] - i.wpos;
+                dmin = min(dmin, dot(dv, dv));
+            }
+            float n = length(tex2Dlod(_FadeDither, float4(i.uv * 4.0, 0, 0)).rg); // the material's _DitherTexture at uv x 4
+            return saturate(n + (sqrt(dmin) - _NearClip) / max(_FarClip - _NearClip, 1e-3));
+        }
+
         // Relight's tone curve, the same function as the denoiser's composite (UltraRTToneCurve.hlsl), so reflections
         // roll off like the surfaces around them.
         float3 Tonemap(float3 c)
@@ -145,7 +177,7 @@ Shader "UltraRT/TransparentOverlay"
             float a = saturate(tex2D(_MainTex, i.uv).a * _Color.a * _Opacity);
             float3 d = (1.0 - a) * (_UltraRTPreAlpha.SampleLevel(my_point_clamp_sampler, uv2, 0).rgb
                                   - _UltraRTPreAlpha.SampleLevel(my_point_clamp_sampler, suv, 0).rgb);
-            return d * FogVisibility(dist);
+            return d * (FogVisibility(dist) * LimboCoverage(i));
         }
         ENDCG
 
@@ -174,6 +206,35 @@ Shader "UltraRT/TransparentOverlay"
             ENDCG
         }
 
+        Pass
+        {
+            Name "Absorb"
+            Blend DstColor Zero
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 4.5
+            float4 frag(v2f i) : SV_Target
+            {
+                float3 v, ng, n;
+                float dist;
+                if (_Kind < 1.5 || _Absorb <= 0.0 || !Surface(i, v, dist, ng, n)) discard;
+                float4 tex = tex2D(_MainTex, i.uv) * _Color;
+                float a = saturate(tex.a * _Opacity);
+                // Thickness: how far the game's opaque surface is behind (thin films over a floor absorb less).
+                float thick = 1.0;
+                if (_UltraRTDepthParams.z > 0.5)
+                {
+                    float behind = LinearEyeDepth(_UltraRTGameDepth.SampleLevel(my_point_clamp_sampler, i.pos.xy / _ScreenParams.xy, 0).r) - i.eye;
+                    thick = saturate(behind / 0.1);
+                }
+                float3 tint = tex.rgb / max(max(tex.r, max(tex.g, tex.b)), 1e-3);
+                float k = (1.0 - a) * _Absorb * thick * FogVisibility(dist);
+                // Toward the blood's own hue, and darker (thick blood lets little light back out).
+                return float4(1.0 - k * (1.0 - tint * 0.6), 1.0);
+            }
+            ENDCG
+        }
         Pass
         {
             Name "Reflect"
@@ -217,7 +278,7 @@ Shader "UltraRT/TransparentOverlay"
                 refl = Tonemap(refl);
 
                 float fres = SchlickFresnel(_F0, dot(n, v));
-                float wgt = min(saturate(fres * _Weight * _UltraRTTransParams.x) * FogVisibility(dist), _UltraRTTransParams.y);
+                float wgt = min(saturate(fres * _Weight * _UltraRTTransParams.x) * FogVisibility(dist), _UltraRTTransParams.y) * LimboCoverage(i);
                 return float4(refl * wgt, 1.0 - wgt);
             }
             ENDCG

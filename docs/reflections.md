@@ -54,7 +54,7 @@ Default table. The weight is relative: the global `-ultrart-spec-weight` (defaul
 SurfaceType is a footstep-sound tag, so it is noisy. The shipped `ultrart-materials.json` corrects the worst cases from the research scan:
 - `Concrete*` and `CaveRock*` are tagged Marble.
 - Lamp fixtures and screens are tagged Glass.
-- `M_ShopTerminal` / `M_TestamentTerminal`: CRT glass, specular, roughness 0.08, f0 0.1 (about 5 % head-on, Fresnel towards grazing). The game's `_ReflectionMask` limits it to the screen.
+- `M_ShopTerminal` / `M_TestamentTerminal`: CRT glass, specular, roughness 0.04, f0 0.25 (about 25 % head-on, Fresnel towards grazing; was 0.08 / 0.1, the user asked for a clearer screen reflection, e.g. a thrown coin behind the player). The game's `_ReflectionMask` limits it to the screen. Up close the screen switches on and the shop UI covers it.
 - Credits portraits, signs and maze tiles are tagged MetalThin.
 
 ### Overrides: `ultrart-materials.json`
@@ -385,12 +385,25 @@ F0 is 0.12 (water) and 0.08 (glass), above the physical 0.02/0.04: the game's wa
 
 So about +0.02–0.1 ms where water or glass is on screen, plus 0.01 ms for the copy; frame times are within run-to-run noise. The short suite is unchanged (1-1 pose hybrid GPU total 0.486 → 0.481 ms, doors run 1.922 → 1.984 ms, within noise). The under-water row is the exception, see below. Overlay raster cost is three extra draws per visible water/glass renderer; they discard early when nothing applies.
 
+### Blood and limbo water (2026-11-14)
+
+- **Blood** (0-2's `Mulch` river) read as thin water in RT: the game's blood is alpha blended, and the floor under it,
+  relit, is much brighter and more contrasted than the game's, so it showed through. The overlay's `Absorb` pass (blood
+  only, multiplicative, before `Reflect`) multiplies what shows through by `1 - (1 - a) s (1 - 0.6 tint)` (tint = the
+  blood colour normalised, `s` = `bloodAbsorb` 0.9, scaled by the depth behind the surface over 0.1 m and by fog), and the
+  sheen is weaker (`bloodWeight` 0.7 -> 0.4).
+- **LIMBO_WATER_FADE** (`Water 2` over 1-3's floor and grass beds): `LimboWater` passes the player's and every enemy's
+  position (`_FadePositions`), and the game fades the water out within `_NearClip`..`_FarClip` (3..4 m) of them with a
+  `_DitherTexture` edge: alpha x `saturate(n + (d - near) / (far - near))`, n = length(rg) of the dither at uv x 4
+  (decompiled). The overlay applies the same factor to its reflection and refraction. The water itself really is there
+  (faint, colour alpha 0.37); our reflection makes it visible over the beds, which the user accepted.
+
 ### Limits
 
 - **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.
 - **Static-batched transparents are skipped**: 4-2 has 54 batched glass renderers, 2-1/2-4/7-1 a few. They would need StaticGroups support.
 - **No temporal filter**: one ray per trace texel. Reflection hits are shaded from the radiance cache, so they are smooth. Where a cache cell is missing, the hit falls back to `DirectOne` and shows speckle; ripples hide most of it.
-- **Game geometry vs. RT mesh**: VERTEX_DISPLACEMENT waves, SCROLLING UVs and LIMBO_WATER_FADE are not reproduced, so the reflection covers the undisplaced surface and the alpha estimate ignores scrolling. The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
+- **Game geometry vs. RT mesh**: VERTEX_DISPLACEMENT waves and SCROLLING UVs are not reproduced (LIMBO_WATER_FADE is, see above), so the reflection covers the undisplaced surface and the alpha estimate ignores scrolling. The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
 - **The game's own cubemap stays** on REFLECTION water (`Water 10A-D`, `1C`, `6 Still/Reflection`, `Limbo Water ... V2Arena`), on top of ours. For opaque materials it is removed (section 7), but here it is baked into the game's transparent draw.
 - **Renderers whose last material slot is not water/glass** get no overlay (logged as `without overlay`). Unity repeats only the last submesh for an extra material.
 - **Total internal reflection, caustics, glass thickness, frosted glass**: not done. Glass is a single mirror-Fresnel surface with no refraction.

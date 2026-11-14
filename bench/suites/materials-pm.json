@@ -1,0 +1,18 @@
+{
+  "Name": "materials-pm",
+  "Scenarios": [
+    { "Name": "0-2 door opened", "Scene": "Level 0-2", "Path": { "Type": "static", "Approach": "../recordings/0-2-door-red-metal.json", "Duration": 4 },
+      "Effects": { "Kinds": ["opendoors"], "Every": 0, "ShotDelay": 1.5 }, "Modes": ["off", "relight", "hybrid", "emission"], "Screenshots": [2] },
+    { "Name": "0-2 blood river", "Scene": "Level 0-2", "Path": { "Type": "static", "Approach": "../recordings/0-2-blood-river.json", "Duration": 3 }, "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] },
+    { "Name": "0-2 coin wall", "Scene": "Level 0-2", "FreshLoad": true, "Path": { "Type": "static", "Load": "none", "Position": [7.92, -0.5, -37.89], "Yaw": -35.56, "Pitch": -7.88, "Duration": 3 },
+      "Effects": { "Kinds": ["coin"], "Every": 0, "Distance": 3, "ShotDelay": 0.4 }, "Modes": ["off", "relight", "hybrid", "emission"], "Screenshots": [2] },
+    { "Name": "0-2 coin terminal", "Scene": "Level 0-2", "Path": { "Type": "static", "Load": "none", "Position": [7.92, -0.5, -37.89], "Yaw": -20, "Pitch": -10, "Duration": 3 },
+      "Effects": { "Kinds": ["coinfront"], "Every": 0, "Distance": 6, "ShotDelay": 0.6 }, "Modes": ["off", "relight", "hybrid", "refl-raw"], "Screenshots": [2] },
+    { "Name": "1-3 start water", "Scene": "Level 1-3", "Path": { "Type": "static", "Approach": "../recordings/1-3-start-water.json", "Duration": 3 }, "Modes": ["off", "relight", "relight+refl=0", "hybrid"], "Screenshots": [2] },
+    { "Name": "4-4 v2 chair", "Scene": "Level 4-4", "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/4-4-v2-chair.json", "Duration": 3 }, "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] },
+    { "Name": "6-2 gabriel wings", "Scene": "Level 6-2", "Path": { "Type": "static", "Approach": "../recordings/6-2-gabriel-wings.json", "Duration": 3 }, "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] },
+    { "Name": "7-3 tree a", "Scene": "Level 7-3", "Path": { "Type": "static", "Approach": "../recordings/7-3-tree-a.json", "Duration": 3 }, "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] },
+    { "Name": "7-3 tree b", "Scene": "Level 7-3", "Path": { "Type": "static", "Approach": "../recordings/7-3-tree-b.json", "Duration": 3 }, "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] },
+    { "Name": "8-2 pool", "Scene": "Level 8-2", "Path": { "Type": "static", "Approach": "../recordings/8-2-a.json", "Position": [0, -11.6, 345], "Yaw": 0, "Pitch": -89, "Duration": 3 }, "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] }
+  ]
+}
