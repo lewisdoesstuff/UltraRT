@@ -313,10 +313,11 @@ void RayGen()
         {
             // The composite scales the game's whole colour by shadowed / unshadowed, but the game's ambient doesn't
             // depend on the normal: apply the detail as (detail + ambient) / (vertex + ambient) on the vertex-normal
-            // result, so grazing lights don't turn tilted texels black.
+            // result, so grazing lights don't turn tilted texels black. Clamped: at night the vertex-normal light can be
+            // tiny next to a texel tilted towards a lamp, and the ratio then made single texels glow.
             const float3 lw = float3(0.2126, 0.7152, 0.0722);
             float a = dot(ToLight(_Ambient.rgb), lw) + 1e-3;
-            direct = g_DirectVertex * ((dot(direct, lw) + a) / (dot(g_DirectVertex, lw) + a));
+            direct = g_DirectVertex * clamp((dot(direct, lw) + a) / (dot(g_DirectVertex, lw) + a), 0.3, 1.5);
         }
         g_DetailN = 0;
 
