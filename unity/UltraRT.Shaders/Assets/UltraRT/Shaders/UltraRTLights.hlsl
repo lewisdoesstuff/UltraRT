@@ -59,6 +59,13 @@ float4x4  _PrevViewProj;    // viewProj of the frame that wrote _ReservoirPrev
 int       _RestirHistoryValid;
 float4    _RestirParams;    // x max history M (<= 4095), y min normal cosine, z plane tolerance (x ray t), w spatial radius (px)
 int       _RestirSpatial;   // extra neighbour reservoirs taken from the previous frame (0 = temporal only)
+// Lights that changed since the previous frame (LightSampling.cs, docs/light-sampling.md "Light changes"): per change,
+// 8 x float4 = the light's packed data last frame (zero colour: it is new) and this frame (zero colour: it is gone).
+// The history M cap is shortened only where these changes matter (RestirChangeCap).
+StructuredBuffer<float4>  _LightChanges;
+int       _LightChangeCount;
+float     _LightChangeTolerance; // share of a pixel's direct light that may be stale before its history is shortened
+int       _RestirFreshCandidates; // extra RIS candidates for a pixel whose temporal history failed (disocclusion, screen edge)
 
 #define ULTRART_NO_LIGHT 0xFFFFu
 #define ULTRART_EMISSIVE 0x10000u // light code flag: the low 16 bits index _EmissiveTris
@@ -195,16 +202,10 @@ float _RelightLinearK;
 float RelightExposure() { return _Relight.z > 0.0 ? _Relight.z : 1.0; }
 float RelightAmbientScale() { return 1.0 - saturate(_Relight.w); }
 
-bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float dist, out float3 c)
+// The light model on one light's packed data (4 x float4, see _Lights); the culling mask is the caller's.
+bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n, out float3 L, out float dist, out float3 c)
 {
     L = 0; dist = 0; c = 0;
-#ifdef ULTRART_LIGHT_ISOTROPIC
-    if ((_LightMasks[i] & _LightIsoMask) == 0u) return false;
-#else
-    if (!ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer)) return false;
-#endif
-
-    float4 l0 = _Lights[i * 4];
     bool local = l0.w != 0.0;
     float3 toL = local ? l0.xyz - p : l0.xyz;
     float d2 = max(dot(toL, toL), 1e-6);
@@ -225,8 +226,6 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
         // Linear transport: the same curves on linear values. The physical curve is inverse-square in linear light,
         // equal to the game's at a fraction f of the range (_RelightLinearK; f 0.5: (1/7.25)^2.2 at r/2), windowed to 2r
         // and capped at 3x the game.
-        float4 l2 = _Lights[i * 4 + 2];
-        float4 l3 = _Lights[i * 4 + 3];
         float r = max(l0.w, 1e-6);
         float game = (1.0 / (1.0 + d2 * 25.0 / (r * r))) * saturate(2.0 - d / r);
         float gameL = pow(game, 2.2);
@@ -245,8 +244,6 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
     }
     else if (local)
     {
-        float4 l2 = _Lights[i * 4 + 2];
-        float4 l3 = _Lights[i * 4 + 3];
         float r = max(l0.w, 1e-6);
         float game = (1.0 / (1.0 + d2 * 25.0 / (r * r))) * saturate(2.0 - d / r);
         if (_Relight.x > 0.0)
@@ -267,11 +264,22 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
     }
     if (!lin && atten < 1e-3) return false;
     float scale = RelightExposure();
-    if (_Lights[i * 4 + 3].z > 0.5) scale *= 1.0 - saturate(_Relight.y); // unshadowed fill light
+    if (l3.z > 0.5) scale *= 1.0 - saturate(_Relight.y); // unshadowed fill light
     if (scale <= 0.0) return false;
     // Exposure and fill cut scale the light's (gamma) colour, so a light on its own keeps its brightness either way.
-    c = ToLight(_Lights[i * 4 + 1].rgb * scale) * (atten * ndl);
+    c = ToLight(l1.rgb * scale) * (atten * ndl);
     return true;
+}
+
+bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float dist, out float3 c)
+{
+    L = 0; dist = 0; c = 0;
+#ifdef ULTRART_LIGHT_ISOTROPIC
+    if ((_LightMasks[i] & _LightIsoMask) == 0u) return false;
+#else
+    if (!ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer)) return false;
+#endif
+    return LightEvalRaw(_Lights[i * 4], _Lights[i * 4 + 1], _Lights[i * 4 + 2], _Lights[i * 4 + 3], p, n, L, dist, c);
 }
 
 float3 LightFrom(uint i, float3 p, float3 n, uint layer)
@@ -574,9 +582,11 @@ bool RestirMatch(uint4 h, float3 pos, float3 n, float t)
 }
 
 // Merge a previous-frame reservoir into r, re-targeting its sample at the current pixel (biased 1/M combine).
+static float g_RestirCap = 1.0;
+
 void RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, inout uint rng)
 {
-    float M = min(RestirM(h), _RestirParams.x);
+    float M = min(RestirM(h), g_RestirCap);
     uint prevLight = RestirLight(h);
     uint light = ULTRART_NO_LIGHT;
     uint bary = 0;
@@ -618,19 +628,51 @@ static bool   g_PrimaryVirtual = false;
 static float3 g_PrimaryVirtualPos = 0;
 static float3 g_PrimaryVirtualN = 0;
 
-void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
+// History M cap at this pixel. Lights that appeared, disappeared, changed brightness or moved since the previous frame
+// leave the history describing a different light set. rho = how much of this pixel's direct light changed (the sum of
+// |p_now - p_before| over the changes, against the fresh candidates' estimate of the total, wSum / M). The history may
+// keep at most a share tol / rho of the merged reservoir, i.e. cap = M_fresh * h / (1 - h), h = tol / rho. Pixels the
+// changes don't reach keep their full history (a muzzle flash no longer resets ReSTIR over the whole screen).
+float RestirChangeCap(Reservoir fresh, float3 pos, float3 n)
 {
-    if (_RestirHistoryValid == 0) return;
+    float cap = _RestirParams.x;
+    if (_LightChangeCount <= 0) return cap;
+    float delta = 0, before = 0;
+    for (int k = 0; k < _LightChangeCount; k++)
+    {
+        float3 L, c0, c1;
+        float d;
+        uint b = (uint)k * 8u;
+        LightEvalRaw(_LightChanges[b], _LightChanges[b + 1], _LightChanges[b + 2], _LightChanges[b + 3], pos, n, L, d, c0);
+        LightEvalRaw(_LightChanges[b + 4], _LightChanges[b + 5], _LightChanges[b + 6], _LightChanges[b + 7], pos, n, L, d, c1);
+        float l0 = LightLuminance(c0), l1 = LightLuminance(c1);
+        delta += abs(l1 - l0);
+        before += l0;
+    }
+    float total = (fresh.M > 0.0 ? fresh.wSum / fresh.M : 0.0) + before;
+    float rho = delta / max(total, 1e-6);
+    if (rho <= _LightChangeTolerance) return cap;
+    float h = saturate(_LightChangeTolerance / rho);
+    float m = max(fresh.M, 1.0);
+    return clamp(m * h / max(1.0 - h, 1e-3), m, cap);
+}
+
+// Returns whether the temporal (reprojected) reservoir was merged.
+bool RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
+{
+    if (_RestirHistoryValid == 0) return false;
+    g_RestirCap = RestirChangeCap(r, pos, n);
     float3 vn = g_PrimaryVirtual ? g_PrimaryVirtualN : n;
     float3 prevPos = (g_PrimaryVirtual ? g_PrimaryVirtualPos : pos) + g_PrimaryMotion;
     float4 pc = mul(_PrevViewProj, float4(prevPos, 1.0));
-    if (pc.w <= 1e-6) return;
+    if (pc.w <= 1e-6) return false;
     float2 pp = (pc.xy / pc.w * 0.5 + 0.5) * (float2)dim;
 
+    bool merged = false;
     if (all(pp >= 0.0) && all(pp < (float2)dim))
     {
         uint4 h = _ReservoirPrev[RestirIndex((uint2)pp, dim)];
-        if (RestirMatch(h, prevPos, vn, t)) RestirMerge(r, h, pos, n, layer, rng);
+        if (RestirMatch(h, prevPos, vn, t)) { RestirMerge(r, h, pos, n, layer, rng); merged = true; }
     }
 
     for (int k = 0; k < _RestirSpatial; k++)
@@ -641,6 +683,19 @@ void RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, ui
         if (any(q < 0.0) || any(q >= (float2)dim)) continue;
         uint4 h = _ReservoirPrev[RestirIndex((uint2)q, dim)];
         if (RestirMatch(h, prevPos, vn, t)) RestirMerge(r, h, pos, n, layer, rng);
+    }
+    return merged;
+}
+
+// Merge reservoir b (its own wSum and M) into a.
+void ReservoirCombine(inout Reservoir a, Reservoir b, float u)
+{
+    a.wSum += b.wSum;
+    a.M += b.M;
+    if (b.wSum > 0.0 && u * a.wSum < b.wSum)
+    {
+        a.light = b.light; a.bary = b.bary; a.pHat = b.pHat;
+        a.c = b.c; a.L = b.L; a.dist = b.dist;
     }
 }
 
@@ -708,7 +763,10 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
     if (any(g_DetailN != 0.0)) sum = FillLighting(pos, g_DetailN, layer);
     Reservoir r = RisCandidates(pos, n, layer, _RisCandidates, rng);
     bool temporal = _LightSampling >= 2;
-    if (temporal) RestirReuse(r, dim, pos, n, t, layer, rng);
+    // A pixel without temporal history (disocclusion, screen edge in motion, first frame) would otherwise show an
+    // 8-candidate RIS sample: give it more candidates (light evaluations only, no extra rays).
+    if (temporal && !RestirReuse(r, dim, pos, n, t, layer, rng) && _RestirFreshCandidates > 0)
+        ReservoirCombine(r, RisCandidates(pos, n, layer, _RestirFreshCandidates, rng), Rand(rng));
 
     float W = ReservoirW(r);
     if (W > 0.0)

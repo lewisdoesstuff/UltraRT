@@ -32,6 +32,25 @@ namespace UltraRT
         public float historyLimit = 20f;
         /// <summary>On frames where lights appear or disappear, cap history M to 1x candidates (cuts lag on room toggles).</summary>
         public bool shortenHistoryOnLightChange = true;
+        /// <summary>Shorten the history per pixel, only where the changed lights matter (docs/light-sampling.md, "Light
+        /// changes"), instead of over the whole screen. Also covers lights that change brightness or move. Falls back to the
+        /// whole-screen cap when more than <see cref="LightSampling.MaxChanges"/> lights changed in one frame. Off by default: no
+        /// measurable noise benefit in the motion-noise runs (docs/denoiser.md, "Motion noise").</summary>
+        public bool perPixelLightChange = false;
+        /// <summary>Per-pixel shortening: share of a pixel's direct light that may be stale before its history is shortened.</summary>
+        public float lightChangeTolerance = 0.1f;
+        /// <summary>Per-pixel shortening also for lights that stay but change brightness or move (off: only lights that appear or
+        /// disappear). Measured noisier: a fading muzzle light then shortens the history around it on every frame of the fade,
+        /// while the stale share it leaves in a full history is small and smooth.</summary>
+        public bool lightChangeKept = false;
+        /// <summary>With <see cref="lightChangeKept"/>: a light counts as changed when its luminance changes by more than this
+        /// fraction since the previous frame,</summary>
+        public float lightChangeIntensity = 0.1f;
+        /// <summary>or it moves by more than this fraction of its range (a spot turning: 1 - cos above a quarter of this).</summary>
+        public float lightChangeMove = 0.05f;
+        /// <summary>Extra RIS candidates (on top of <see cref="candidates"/>) for a pixel whose temporal history failed
+        /// (disocclusions, the screen edge in motion). Light evaluations only, no rays.</summary>
+        public int freshCandidates = 24;
         /// <summary>Extra reservoirs reused from the previous frame around the reprojected pixel (0 = temporal only).</summary>
         public int spatialSamples = 0;
         /// <summary>Radius of the spatial neighbourhood, in trace-resolution pixels.</summary>
@@ -62,6 +81,10 @@ namespace UltraRT
         public int FillLightCount { get; private set; }
         /// <summary>True when lights were added or removed relative to the previous <see cref="Bind"/>.</summary>
         public bool LightSetChanged { get; private set; }
+        /// <summary>Lights in this frame's change list (added, removed, brightness or position changed) and whether it overflowed.</summary>
+        public int ChangeCount { get; private set; }
+        public bool ChangeOverflow { get; private set; }
+        public const int MaxChanges = 16;
         /// <summary>
         /// Identity of packed entries that have no Light (EffectLights' virtual lights): VirtualIds[i] is used when
         /// lights[i] is null. Ids must not collide with Light instance ids (use another object's instance id).
@@ -72,6 +95,10 @@ namespace UltraRT
 
         private readonly int _maxLights;
         private readonly ComputeBuffer _alias, _fill, _remap, _dummyPrev, _dummyCur; // dummies: never bind one buffer as SRV and UAV
+        private readonly ComputeBuffer _changes;
+        private readonly Vector4[] _changeData = new Vector4[MaxChanges * 8];
+        private readonly Vector4[] _prevData;
+        private readonly bool[] _isNew;
         private readonly uint[] _aliasData, _fillData, _remapData;
         private readonly float[] _prob;
         private readonly int[] _risLights, _small, _large, _aliasIdx;
@@ -101,7 +128,11 @@ namespace UltraRT
             IdPrevViewProj = Shader.PropertyToID("_PrevViewProj"),
             IdRestirHistoryValid = Shader.PropertyToID("_RestirHistoryValid"),
             IdRestirParams = Shader.PropertyToID("_RestirParams"),
-            IdRestirSpatial = Shader.PropertyToID("_RestirSpatial");
+            IdRestirSpatial = Shader.PropertyToID("_RestirSpatial"),
+            IdLightChanges = Shader.PropertyToID("_LightChanges"),
+            IdLightChangeCount = Shader.PropertyToID("_LightChangeCount"),
+            IdLightChangeTolerance = Shader.PropertyToID("_LightChangeTolerance"),
+            IdRestirFreshCandidates = Shader.PropertyToID("_RestirFreshCandidates");
 
         public LightSampling(int maxLights)
         {
@@ -122,6 +153,10 @@ namespace UltraRT
             _aliasIdx = new int[maxLights];
             _threshold = new float[maxLights];
             _prevIds = new int[maxLights];
+            _prevData = new Vector4[maxLights * 4];
+            _isNew = new bool[maxLights];
+            _changes = new ComputeBuffer(MaxChanges * 8, 16) { name = "UltraRT LightChanges" };
+            _changes.SetData(_changeData);
             // Zero-fill so nothing is ever read uninitialised.
             _alias.SetData(_aliasData);
             _fill.SetData(_fillData);
@@ -167,7 +202,10 @@ namespace UltraRT
 
             int candidates = Mathf.Clamp(s.candidates, 1, 64);
             float cap = Mathf.Max(1f, s.historyLimit) * candidates;
-            if (s.shortenHistoryOnLightChange && (LightSetChanged || emissiveSetChanged)) cap = candidates;
+            bool perPixel = s.perPixelLightChange && !ChangeOverflow;
+            if (s.shortenHistoryOnLightChange && ((LightSetChanged && !perPixel) || emissiveSetChanged)) cap = candidates;
+            int changes = s.shortenHistoryOnLightChange && perPixel ? ChangeCount : 0;
+            if (changes > 0) _changes.SetData(_changeData, 0, 0, changes * 8);
 
             cmd.SetRayTracingIntParam(shader, IdLightSampling, (int)s.mode);
             cmd.SetRayTracingIntParam(shader, IdRisCandidates, candidates);
@@ -186,6 +224,10 @@ namespace UltraRT
                 // M is stored as a 12-bit integer in the reservoir (docs/emissive-lights.md).
                 new Vector4(Mathf.Min(cap, 4000f), Mathf.Clamp(s.normalTolerance, -1f, 1f), Mathf.Max(0f, s.planeTolerance), Mathf.Max(0f, hybrid ? s.spatialRadiusHybrid : s.spatialRadius)));
             cmd.SetRayTracingIntParam(shader, IdRestirSpatial, Mathf.Clamp(hybrid ? s.spatialSamplesHybrid : s.spatialSamples, 0, 8));
+            cmd.SetRayTracingBufferParam(shader, IdLightChanges, _changes);
+            cmd.SetRayTracingIntParam(shader, IdLightChangeCount, restir && _historyValid ? changes : 0);
+            cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, Mathf.Max(1e-3f, s.lightChangeTolerance));
+            cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, restir ? Mathf.Clamp(s.freshCandidates, 0, 64) : 0);
 
             if (restir)
             {
@@ -218,6 +260,10 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(shader, IdRestirHistoryValid, 0);
             cmd.SetRayTracingVectorParam(shader, IdRestirParams, new Vector4(1f, 1f, 0f, 0f));
             cmd.SetRayTracingIntParam(shader, IdRestirSpatial, 0);
+            cmd.SetRayTracingBufferParam(shader, IdLightChanges, _changes);
+            cmd.SetRayTracingIntParam(shader, IdLightChangeCount, 0);
+            cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, 1f);
+            cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, 0);
         }
 
         private int _prevCountForShader;
@@ -236,11 +282,26 @@ namespace UltraRT
                 if (id != 0) _indexById[id] = i;
             }
             int kept = 0;
+            ChangeCount = 0;
+            ChangeOverflow = false;
+            for (int i = 0; i < count; i++) _isNew[i] = true;
             for (int i = 0; i < _prevCount; i++)
             {
-                if (_prevIds[i] != 0 && _indexById.TryGetValue(_prevIds[i], out int j)) { _remapData[i] = (uint)j; kept++; }
-                else _remapData[i] = NoLight;
+                if (_prevIds[i] != 0 && _indexById.TryGetValue(_prevIds[i], out int j))
+                {
+                    _remapData[i] = (uint)j;
+                    kept++;
+                    _isNew[j] = false;
+                    if (Settings.lightChangeKept && LightChanged(i, lightData, j)) AddChange(i, lightData, j);
+                }
+                else
+                {
+                    _remapData[i] = NoLight;
+                    AddChange(i, null, -1); // gone
+                }
             }
+            for (int j = 0; j < count; j++)
+                if (_isNew[j]) AddChange(-1, lightData, j);
             LightSetChanged = kept != _prevCount || kept != count;
             _prevCountForShader = _prevCount;
             if (_prevCount > 0) _remap.SetData(_remapData, 0, 0, _prevCount);
@@ -250,6 +311,7 @@ namespace UltraRT
                 var l = i < lights.Count ? lights[i] : null;
                 _prevIds[i] = IdOf(l, i);
             }
+            Array.Copy(lightData, _prevData, count * 4);
 
             // ---- split: unshadowed fill lights are evaluated exhaustively, the rest go through RIS
             int nRis = 0, nFill = 0;
@@ -301,6 +363,38 @@ namespace UltraRT
             _alias.SetData(_aliasData, 0, 0, nRis * 4);
         }
 
+        /// <summary>Did kept light (previous index i, current index j) change enough to count as a light change?</summary>
+        private bool LightChanged(int i, Vector4[] cur, int j)
+        {
+            var s = Settings;
+            Vector4 p0 = _prevData[i * 4], p1 = _prevData[i * 4 + 1], c0 = cur[j * 4], c1 = cur[j * 4 + 1];
+            float lp = 0.2126f * p1.x + 0.7152f * p1.y + 0.0722f * p1.z;
+            float lc = 0.2126f * c1.x + 0.7152f * c1.y + 0.0722f * c1.z;
+            if (Mathf.Abs(lc - lp) > s.lightChangeIntensity * Mathf.Max(Mathf.Max(lc, lp), 1e-6f)) return true;
+            float range = Mathf.Max(c0.w, 1e-3f);
+            if (c0.w != 0f && ((Vector3)c0 - (Vector3)p0).magnitude > s.lightChangeMove * range) return true;
+            if (c0.w != 0f && Mathf.Abs(c0.w - p0.w) > s.lightChangeMove * range) return true;
+            Vector3 d0 = _prevData[i * 4 + 2], d1 = cur[j * 4 + 2];
+            if (cur[j * 4 + 3].x > -1f && 1f - Vector3.Dot(d0, d1) > s.lightChangeMove * 0.25f) return true; // a spot turned
+            return false;
+        }
+
+        /// <summary>Append one change: the light's data last frame (previous index i, -1 = new) and now (current index j, -1 = gone).</summary>
+        private void AddChange(int i, Vector4[] cur, int j)
+        {
+            if (ChangeCount >= MaxChanges) { ChangeOverflow = true; return; }
+            int b = ChangeCount * 8;
+            for (int k = 0; k < 4; k++)
+            {
+                _changeData[b + k] = i >= 0 ? _prevData[i * 4 + k] : Vector4.zero;
+                _changeData[b + 4 + k] = j >= 0 ? cur[j * 4 + k] : Vector4.zero;
+            }
+            // An absent side evaluates to nothing: zero colour, harmless position and range.
+            if (i < 0) _changeData[b] = new Vector4(0f, 0f, 0f, 1f);
+            if (j < 0) _changeData[b + 4] = new Vector4(0f, 0f, 0f, 1f);
+            ChangeCount++;
+        }
+
         /// <summary>
         /// Cheap guess at how much a light matters to what the camera sees: luminance times a soft falloff with the
         /// distance from the camera to the light's sphere of influence (2 x range, where ULTRAKILL's fade reaches 0).
@@ -349,6 +443,7 @@ namespace UltraRT
             _remap?.Release();
             _dummyPrev?.Release();
             _dummyCur?.Release();
+            _changes?.Release();
         }
     }
 }

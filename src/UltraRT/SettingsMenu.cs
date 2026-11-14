@@ -36,7 +36,7 @@ namespace UltraRT
         }
 
         internal enum TraceQuality { Performance, Balanced, Quality }
-        internal enum DenoiserQuality { Full, Previous, Legacy, Custom }
+        internal enum DenoiserQuality { Full, Static, Previous, Legacy, Custom } // same order as DenoiserPreset
 
         private static readonly UpsamplerSettings UpsamplerDefaults = new UpsamplerSettings();
 
@@ -89,7 +89,7 @@ namespace UltraRT
                 () => _denoiser == null ? DenoiserQuality.Full : (DenoiserQuality)(int)_denoiser.Settings.CurrentPreset(),
                 v => { if (v != DenoiserQuality.Custom) ApplyDenoiserPreset((DenoiserPreset)(int)v); },
                 v => v.ToString(),
-                v => v == DenoiserQuality.Full ? "Full" : v == DenoiserQuality.Previous ? "Previous build" : v == DenoiserQuality.Legacy ? "Legacy (plain SVGF)" : "Custom (command line)",
+                v => v == DenoiserQuality.Full ? "Full" : v == DenoiserQuality.Static ? "Static (before the motion work)" : v == DenoiserQuality.Previous ? "Previous build" : v == DenoiserQuality.Legacy ? "Legacy (plain SVGF)" : "Custom (command line)",
                 "-ultrart-dn-*");
             m.Choice("Quality", "RadianceCache", "Radiance cache  [F3]",
                 () => _cacheSettings.enabled ? _cacheSettings.mode : RadianceCacheMode.Off,

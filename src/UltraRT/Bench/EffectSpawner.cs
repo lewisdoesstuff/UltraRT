@@ -114,8 +114,59 @@ namespace UltraRT.Bench
                     UnityEngine.Object.Instantiate(nm.impactDust, p, Quaternion.identity);
                     break;
                 }
+                case "flash":
+                    // Light only (no particles, so replays are identical): a revolver-like muzzle light, 20 / range 5, fading
+                    // out over 0.2 s like RevolverBeam's light.
+                    SpawnLight(cam.position + cam.right * 0.35f - cam.up * 0.3f + cam.forward * 0.6f, new Color(1f, 0.85f, 0.6f), 20f, 5f, 0f, 0.2f);
+                    break;
+                case "blast":
+                    // Light only: an explosion-like light, 60 / range 10, rising over 0.05 s and fading over 0.4 s.
+                    SpawnLight(InFront(cam, distance), new Color(1f, 0.55f, 0.2f), 60f, 10f, 0.05f, 0.4f);
+                    break;
                 default: throw new ArgumentException("unknown effect kind");
             }
+        }
+
+        private static GameObject _lightTemplate;
+
+        /// <summary>Instantiates a light-only effect (through Object.Instantiate, so EffectLights sees it spawn like the game's).</summary>
+        private static void SpawnLight(Vector3 pos, Color color, float peak, float range, float rise, float fall)
+        {
+            if (_lightTemplate == null)
+            {
+                _lightTemplate = new GameObject("UltraRT bench light");
+                _lightTemplate.SetActive(false);
+                UnityEngine.Object.DontDestroyOnLoad(_lightTemplate);
+                var l = _lightTemplate.AddComponent<Light>();
+                l.type = LightType.Point;
+                l.shadows = LightShadows.None;
+                _lightTemplate.AddComponent<BenchLightFade>();
+            }
+            var go = UnityEngine.Object.Instantiate(_lightTemplate, pos, Quaternion.identity);
+            var light = go.GetComponent<Light>();
+            light.color = color;
+            light.range = range;
+            light.intensity = rise > 0f ? 0f : peak;
+            var fade = go.GetComponent<BenchLightFade>();
+            fade.Peak = peak; fade.Rise = rise; fade.Fall = fall;
+            go.SetActive(true);
+        }
+    }
+
+    /// <summary>Intensity envelope of a bench light (game time, so a fixed capture clock replays it exactly).</summary>
+    internal sealed class BenchLightFade : MonoBehaviour
+    {
+        public float Peak, Rise, Fall;
+        private float _age;
+        private Light _light;
+
+        private void Update()
+        {
+            if (_light == null) _light = GetComponent<Light>();
+            _age += Time.deltaTime;
+            float k = _age < Rise ? _age / Rise : 1f - (_age - Rise) / Mathf.Max(Fall, 1e-3f);
+            if (k <= 0f) { Destroy(gameObject); return; }
+            _light.intensity = Peak * Mathf.Clamp01(k);
         }
     }
 }

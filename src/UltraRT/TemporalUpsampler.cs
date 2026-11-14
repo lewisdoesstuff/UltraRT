@@ -113,6 +113,9 @@ namespace UltraRT
 
         public void Reset() => _historyValid = false;
 
+        /// <summary>Position in the jitter sequence (bench: motion-noise passes start at a chosen phase).</summary>
+        public uint JitterIndex { get => _jitterIndex; set => _jitterIndex = value; }
+
         /// <summary>
         /// This frame's sample offset from the trace texel centre, in trace px. When the screen is exactly twice the visible
         /// trace size, the 4 offsets (+-0.25, +-0.25) put the samples on the 4 screen pixel centres of each 2x2 block in turn;

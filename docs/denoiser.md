@@ -138,14 +138,63 @@ Plugin.cs traces `_guardX` (4%) more than the screen on each side (`-ultrart-gua
 
 Surfaces that turn into view therefore already have denoiser and ReSTIR history and warm cache cells. At 180°/s (0.5°/frame at 360 Hz, about 4 trace px/frame) the 38 px band holds about 9 frames of history. That removes the speckled band along the leading edge while turning (compare the `1-1_sweep_burst_dn-lighting_*_frame.png` images). It costs about 8% more rays and denoised pixels. Vertical turns are rarer, so Y is off. The Previous and Legacy presets turn the band off.
 
+## Motion noise
+
+The static-noise work above roughly halved the noise of a still image, but in motion (slides, dashes, fast turns) the image was still visibly noisier than Quake II RTX or Minecraft RTX. Measured with the bench's motion-noise tool (bench/README.md, "Motion noise"): the same window of a camera path is replayed several times on a fixed 1/360 s clock with every history reset, and the per-pixel difference between replays at the same frame is the noise the player sees in motion (sigma, screen luma 0–255, over traced surfaces; the viewmodel, the HUD and what the game animates itself are left out). The denoiser classifies each pixel, so the noise is split by cause. Suites: `bench/suites/motion-noise.json`, `motion-noise-r3.json` (variant study), `motion-final.json` (results below). Volumetric haze is measured off (`vol=0`): with it on, its own noise dominated every scene (σ 3.6 instead of 0.9 on the 1-1 sweep), see docs/volumetrics.md.
+
+**Where it comes from** (relight, before this work):
+
+| Scenario | σ | Breakdown (σ / share of pixels / share of the squared error) |
+|---|---|---|
+| 1-1 spawn, still | 0.48 | interior 0.49 |
+| 1-1 sweep 180°/s | 0.90 | **fresh 1.97 / 10% / 48%**, young (8–31 frames) 0.84 / 11% / 10%, screen edge 0.78 / 27% / 20%, edges 1.29 / 2% / 5%, interior 0.51 / 49% / 16% |
+| 1-1 sweep 500°/s | 1.14 | **fresh 1.88 / 26% / 70%**, young 0.95 / 15% / 10%, edges 1.56 / 3% / 5%, interior 0.52 / 38% / 8% |
+| 0-2 run, 509°/s turn (40.9 s) | 2.31 | **fresh 3.62 / 16% / 41%**, edges 2.78 / 8% / 12%, young 2.22 / 13% / 12% |
+
+- **Disocclusions dominate.** Pixels with under 8 frames of denoiser history are 10–26% of the screen in a fast turn but carry half to two thirds of the error, at about 4x the noise of a converged pixel. A pixel that has history is almost as calm in motion as when still (interior 0.51 vs 0.49): reprojection itself costs little.
+- **Silhouettes and thin geometry** are 2–3x noisier than interiors, but only 2–8% of the pixels.
+- **Changing lights**: a muzzle-light flash every 0.1 s in the 1-1 corridor adds little (0.48 → 0.56); a large explosion-like light every 0.3 s more (0.83). Lights that move with the camera while sliding (0-2) are the worst case.
+- The user's "noisy around the edges while sliding" is the screen-edge and fresh classes: in forward motion the edges carry the fastest flow and the nearest geometry, so they disocclude most.
+
+**What changed** (the `Full` preset; `Static` = the build before). All three act only on pixels without history, so a converged image is unchanged:
+1. **Cache seed 1 → 4** (`cacheSeed`). A fresh pixel takes 4 virtual samples of its radiance-cache cell (fading out with the pre-blur by 8 frames), under the same consistency test. The cache is world space and averages dozens of paths per cell, so it is the best prior a pixel without history has. 1-1 sweep: 0.90 → 0.73 alone (8: 0.70; 4 keeps the bias bound of the seed smaller).
+2. **More ReSTIR candidates for fresh pixels** (`LightSamplingSettings.freshCandidates` 24, docs/light-sampling.md "Fresh pixels"): a pixel whose temporal reservoir failed resamples 32 lights instead of 8. 0.90 → 0.71 alone, and silhouettes and thin geometry (which lose their reservoir often) improve most: edges 1.29 → 0.96, thin 2.30 → 1.63.
+3. **Wider à-trous for young pixels** (`freshSpread` 2): the à-trous steps of a pixel with no history are doubled (radius 14 instead of 7 trace px after three iterations), fading back to normal by 8 frames. 0.90 → 0.80 alone. No extra pass: the same taps, further apart.
+
+Available but **off by default** (no reliable gain in the measurements):
+- **Anti-lag** (`antilag`, `-ultrart-dn-antilag 3`; `antilagMinLength` 8): where the 5x5 same-surface mean of this frame's input leaves the reprojected history by more than `antilag` standard errors plus `antilagTolerance` (15%), the lighting really changed and the history length is cut by the square of the excess, never below `antilagMinLength` frames. It follows changing lights sooner, but every cut history is noisier for a while: with a muzzle-light flash every 0.1 s in 4-1 it raised the noise from 0.65 to 0.89 (cut to 0 frames: 1.45), and on the 0-2 windows it was inconclusive.
+- **Per-pixel ReSTIR history on light changes** (`LightSamplingSettings.perPixelLightChange`, `-ultrart-restir-pixel-change`; docs/light-sampling.md "Light changes"): a light appearing or disappearing caps the reservoir history only where it matters instead of on every pixel. No measurable difference on the flash and explosion scenes; on the 0-2 windows the whole-screen cap measured lower twice. Its per-pixel evaluation of the change list also cost about 0.3 ms in the 0-2 combat run.
+
+**Results** (`bench/suites/motion-final.json`, `motion-cost.json`; RTX 5070 Ti, 2560x1440, trace scale 0.5; motion σ Static → Full, same run):
+
+| Scenario | relight | hybrid |
+|---|---|---|
+| 1-1 sweep 180°/s | 0.88 → **0.66** (fresh 1.95 → 1.31, edges 1.24 → 0.89, thin 2.23 → 1.59) | 0.86 → 0.81 |
+| 1-1 sweep 500°/s | 1.14 → **0.86** (fresh 1.86 → 1.31) | 1.02 → 0.90 |
+| 4-1 indoor A sweep 180°/s | 0.95 → **0.64** (fresh 1.72 → 0.68) | 0.25 → 0.21 |
+| 0-2 run, 509°/s turn (40.9 s) | 2.22 → **1.84** (fresh 3.54 → 2.69) | 4.06 → 3.93 |
+| 0-2 run, 30 m/s slide (7.6 s) / 40 m/s dash (16.6 s) | 2.15 / 2.31 → 1.96 / 2.45 | 1.35 / 1.77 → 1.46 / 2.00 |
+| 1-1 corridor, muzzle flash every 0.1 s | 0.55 → 0.52 | 0.69 → 0.73 |
+| 4-1 indoor A, muzzle flash every 0.1 s | 0.62 → 0.65 | 0.25 → 0.24 |
+| 1-1 corridor, explosion light every 0.3 s (auto exposure off, 4 passes; `motion-blast.json`) | 1.33 → 1.34 (Static measured first and last: 1.36 / 1.30) | |
+
+(the flash rows and the two 0-2 slide windows are from the run's "Full without anti-lag" ablation, i.e. the current defaults.) Changing lights are not helped by the fresh-pixel fixes, and not hurt: the explosion scene's own spread between runs (Static alone measured 0.80 to 1.36) is larger than any difference between the settings. The 0-2 windows are the least reliable: lighting there also depends on game time (sprite-flicker lights, emissive visibility updates on a real-time schedule), so identical settings measured within ±10–20% between runs; the slide and dash windows have few fresh pixels, so the fixes have little to act on. Strips: the `_f92` .. `_f95` frames of each mode (4 consecutive frames at 360 Hz) in the run folder; at the entering screen edge the Full rows show visibly less mottling on flat walls.
+
+Static images are unchanged (bursts, masked σ / block σ, Static → Full): 1-1 spawn relight 0.26 / 0.17 → 0.26 / 0.17, hybrid 0.43 / 0.30 → 0.43 / 0.30; 4-1 indoor A relight 0.27 / 0.21 → 0.27 / 0.21; 0-3 ghosts relight 0.39 / 0.22 → 0.39 / 0.23, hybrid 0.64 / 0.44 → 0.63 / 0.44.
+
+**Cost** (GPU total ms, Static → Full, modes alternating in the same pass): 0-2 run with enemies and revolver fire: relight 4.36 → 4.49 (+0.13), hybrid 4.19 → 4.27 (+0.08); a sustained 500°/s sweep, the worst case (a quarter of the screen fresh every frame): relight 4.93 → 5.19 (+0.26), of which the extra ReSTIR candidates are about 0.3 (Full without them: 4.87). The cache seed and the wider footprint cost nothing measurable.
+
+Tried and not kept: a longer pre-blur fade (`boostFrames` 16: no change), TAAU weight 8 (0.90 → 0.86, mostly interiors, more smear in motion), a wider guard band (8%: 0.84 → 0.81 on the 500°/s sweep for 8% more rays), a vertical guard band (4%: mixed on the 0-2 windows), shortening ReSTIR history for lights that only change brightness (`lightChangeKept`: noisier around fading lights).
+
 ## Presets and Ctrl+F3
 
-Ctrl+F3 cycles `DenoiserPreset` on both denoiser instances:
-- **Full**: everything above.
-- **Previous**: the build before this work. alphaMin 0.1 per frame, 32 frames, no variance floor, no stabilisation, no guard band, no hybrid spatial reuse; the four stability features stay on.
+Ctrl+F3 cycles `DenoiserPreset` on both denoiser instances (`Plugin.ApplyStabilityPreset`, also used by the bench's `preset=` variant):
+- **Full**: everything above and [Motion noise](#motion-noise).
+- **Static**: the build before the motion-noise work: cache seed 1, the normal à-trous footprint for young pixels, no extra ReSTIR candidates for fresh pixels (and the optional anti-lag and per-pixel light-change history off).
+- **Previous**: the build before the static-noise work. alphaMin 0.1 per frame, 32 frames, no variance floor, no stabilisation, no guard band, no hybrid spatial reuse; the four stability features stay on (motion features off, as in Static).
 - **Legacy**: Previous without the stability features, i.e. plain SVGF.
 
-`-ultrart-dn-previous` and `-ultrart-dn-legacy` start in those presets. Individual flags: `-ultrart-dn-alpha A`, `-ultrart-dn-spatialvar K`, `-ultrart-dn-nostabilize`, `-ultrart-dn-stabilize-alpha A`, `-ultrart-dn-stabilize-sigma K`, `-ultrart-guard X [Y]`, `-ultrart-restir-spatial N`, `-ultrart-restir-spatial-hybrid N`.
+`-ultrart-dn-static`, `-ultrart-dn-previous` and `-ultrart-dn-legacy` start in those presets (denoiser fields only). Individual flags: `-ultrart-dn-alpha A`, `-ultrart-dn-spatialvar K`, `-ultrart-dn-nostabilize`, `-ultrart-dn-stabilize-alpha A`, `-ultrart-dn-stabilize-sigma K`, `-ultrart-guard X [Y]`, `-ultrart-restir-spatial N`, `-ultrart-restir-spatial-hybrid N`.
 
 **Not the denoiser**: in 1-1's start area, the tree canopies and grass are the game's own animated foliage, drawn over the RT image. The thin wires against the sky used to flicker because of the half-resolution depth-guided upsample; the [temporal upsampler](#temporal-upsampling) fixes that in the replace modes.
 
@@ -221,6 +270,7 @@ About +0.05 ms in DispatchRays (motion on primary hits of dynamic instances, the
 | boost | ARGB32 | debug channels for `dn-boost`: pre-blur, cache seed, search, firefly cut (written every frame, 3.7 MB) |
 | reproj | R32G32_UInt | Temporal's history footprint: base texel + 1, 4 × unorm8 tap weights (read by Stabilize) |
 | stable[2] | ARGBHalf | stabilised lighting, a = moving average of luma² (ping-pong) |
+| Classes | R8 | bench only (`ClassifyFrame`): per-pixel motion-noise classes, written by `Classify` (bench/README.md, "Motion noise") |
 
 All of these are enableRandomWrite and point filtered. At 1280x720 they total about 70 MB. There are also two 8-slot dummy cache buffers, bound when there is no cache. They are reallocated, and the history is reset, whenever the radiance size changes.
 
@@ -245,9 +295,11 @@ All of these are enableRandomWrite and point filtered. At 1280x720 they total ab
 | boostFrames | 8 | Pre-blur fades out at this history length. 0 = off. `-ultrart-dn-boost N` |
 | boostRadius | 4 | Pre-blur radius in trace pixels at history 0. Clamped to 4 (tile apron). `-ultrart-dn-boost-radius R` |
 | historySearch | true | 3x3 fallback search. `-ultrart-dn-nosearch` |
-| cacheSeed | 1 | Cache seed weight in virtual samples at history 0. 0 = off. `-ultrart-dn-cache W` |
+| cacheSeed | 4 | Cache seed weight in virtual samples at history 0. 0 = off. `-ultrart-dn-cache W`. 1 before the motion work ([Motion noise](#motion-noise)) |
 | cacheSeedTolerance | 0.5 | Relative tolerance of the seed's consistency test |
 | fireflySigma | 8 | Firefly bound in spreads above the reference. 0 = off. `-ultrart-dn-firefly K` |
+| freshSpread / freshSpreadFrames | 2 / 8 | À-trous step multiplier for pixels with no history, fading out at this history length. 1 = off. `-ultrart-dn-fresh-spread K` ([Motion noise](#motion-noise)) |
+| antilag / antilagTolerance / antilagMinLength | 0 / 0.15 / 8 | Anti-lag for changing lights: history shortened where the 5x5 input mean leaves the history by more than this many standard errors plus the relative tolerance, never below the minimum length. 0 = off. `-ultrart-dn-antilag K` |
 
 Other flags: `-ultrart-dn-noclamp` (clampHistory = false), `-ultrart-dn-iterations N`. Flags apply to both instances (main and hybrid's direct). They are read when a `Denoiser` is constructed; Plugin keeps the main instance's settings across F9 reloads.
 
@@ -309,8 +361,9 @@ There is no need to call it for camera motion or resolution changes. The denoise
 - The output must be enableRandomWrite and not sRGB. It is written with `saturate()` and no tonemapping.
 
 ## Known limitations
-- The history clip uses a 1 spp neighbourhood, so it is loose by design. Fast lighting changes, such as muzzle flashes or toggled lights, take a few frames to settle (about `1/alphaMin` frames at worst). An A-SVGF gradient pass would fix this properly.
+- The history clip uses a 1 spp neighbourhood, so it is loose by design. Fast lighting changes, such as muzzle flashes or toggled lights, take a few frames to settle (about `1/alphaMin` frames at worst; the optional anti-lag cuts that to about 8 at the price of more noise, see [Motion noise](#motion-noise)). An A-SVGF gradient pass would fix this properly.
 - Reprojection is bilinear, so the history is resampled slightly every frame while the camera moves. Lighting is smooth enough that this is hard to see, but it does slightly soften shadow edges in motion.
-- Screen-edge disocclusions beyond the [guard band](#guard-band) (fast vertical turns, or turns faster than the band covers) have no history at all. They start from the pre-blur (4 px radius at trace resolution) plus the cache seed, and are visibly softer than converged regions for the first few frames. Raise `boostRadius` only together with the tile apron (`APRON` in Denoise.compute; groupshared cost grows quadratically).
+- Screen-edge disocclusions beyond the [guard band](#guard-band) (fast vertical turns, or turns faster than the band covers) have no history at all. They start from the pre-blur (4 px radius at trace resolution), the cache seed (4 virtual samples), 32 ReSTIR candidates and a doubled à-trous footprint ([Motion noise](#motion-noise)), so they are softer than converged regions for the first few frames and still about twice as noisy. Raise `boostRadius` only together with the tile apron (`APRON` in Denoise.compute; groupshared cost grows quadratically).
+- Hybrid's disocclusions barely improved with the motion work: its fresh-pixel noise is the one-ray visibility of the shadowed/unshadowed ratio, which more candidates and the bounce channel's cache seed don't touch.
 - The cache seed is biased wherever the cache and the input disagree by less than the consistency tolerance: at most about `cacheSeedTolerance` (50%) of the value, only for the first frames, and fading as `boost` does. The channel/offset table above is an approximation of what PathTrace adds; check `dn-boost`'s green against `-ultrart-dn-cache 0` in rooms with strong ambient.
 - Instance ids are compared modulo 128, and the normal is quantised to 12-bit octahedral components.

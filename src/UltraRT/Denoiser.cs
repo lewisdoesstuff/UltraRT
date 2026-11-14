@@ -33,11 +33,13 @@ namespace UltraRT
     }
 
     /// <summary>
-    /// Ctrl+F3 cycles these. Full: the defaults (docs/denoiser.md, "Temporal stability" and "Static noise").
+    /// Ctrl+F3 cycles these. Full: the defaults (docs/denoiser.md, "Temporal stability", "Static noise" and "Motion noise").
+    /// Static: the build before the motion-noise work (no anti-lag, cache seed 1, normal a-trous footprint for young pixels,
+    /// and in LightSampling no per-pixel light-change history or extra candidates for fresh pixels).
     /// Previous: the build before the static-noise work (alphaMin 0.1, 32 frames, no spatial variance floor, no output
     /// stabilisation, no guard band). Legacy: Previous without the four stability features (plain SVGF).
     /// </summary>
-    public enum DenoiserPreset { Full, Previous, Legacy, Custom }
+    public enum DenoiserPreset { Full, Static, Previous, Legacy, Custom }
 
     /// <summary>Tunables, read every <see cref="Denoiser.Execute"/>. Safe to change at any time.</summary>
     public sealed class DenoiserSettings
@@ -87,9 +89,20 @@ namespace UltraRT
         public bool historySearch = true;
         /// <summary>Radiance cache seed weight (virtual samples at history 0, fading like the pre-blur). 0 = off.
         /// Needs <see cref="Denoiser.CacheSource"/> and a channel other than None.</summary>
-        public float cacheSeed = 1f;
+        public float cacheSeed = 4f;
         /// <summary>Cache seed consistency test: relative tolerance added to the pre-blur's own noise.</summary>
         public float cacheSeedTolerance = 0.5f;
+        /// <summary>Anti-lag for changing lights: the history is shortened where the 5x5 mean of the input differs from it by
+        /// more than this many standard errors plus <see cref="antilagTolerance"/> x the luminance. 0 = off.</summary>
+        public float antilag = 0f;
+        public float antilagTolerance = 0.15f;
+        /// <summary>The anti-lag never cuts the history below this many frames. At the pre-blur length (boostFrames) a changed
+        /// pixel only blends faster; lower values also put it back on the pre-blur, which follows sooner but is noisier.</summary>
+        public float antilagMinLength = 8f;
+        /// <summary>A-trous step multiplier for pixels without history (disocclusions), fading out at
+        /// <see cref="freshSpreadFrames"/> frames of history. 1 = off.</summary>
+        public float freshSpread = 2f;
+        public float freshSpreadFrames = 8f;
 
         // ---- Temporal stabilisation of the filtered output (docs/denoiser.md, "Stabilisation"). Ctrl+F3 cycles
         //      stabilize + stability -> stability only -> neither.
@@ -116,24 +129,29 @@ namespace UltraRT
         public void ApplyPreset(DenoiserPreset p)
         {
             var d = new DenoiserSettings();
-            bool full = p == DenoiserPreset.Full;
+            bool full = p == DenoiserPreset.Full || p == DenoiserPreset.Static;
+            bool motion = p == DenoiserPreset.Full;
             alphaMin = full ? d.alphaMin : 0.1f;
             maxHistory = full ? d.maxHistory : 32;
             referenceHz = full ? d.referenceHz : 0f;
             spatialVarianceFloor = full ? d.spatialVarianceFloor : 0f;
             stabilize = full;
             stability = p != DenoiserPreset.Legacy;
+            cacheSeed = motion ? d.cacheSeed : 1f;
+            antilag = motion ? d.antilag : 0f;
+            freshSpread = motion ? d.freshSpread : 1f;
         }
 
         /// <summary>Which preset these settings match (Custom when they match none).</summary>
         public DenoiserPreset CurrentPreset()
         {
-            foreach (DenoiserPreset p in new[] { DenoiserPreset.Full, DenoiserPreset.Previous, DenoiserPreset.Legacy })
+            foreach (DenoiserPreset p in new[] { DenoiserPreset.Full, DenoiserPreset.Static, DenoiserPreset.Previous, DenoiserPreset.Legacy })
             {
                 var t = Clone();
                 t.ApplyPreset(p);
                 if (t.alphaMin == alphaMin && t.maxHistory == maxHistory && t.referenceHz == referenceHz &&
-                    t.spatialVarianceFloor == spatialVarianceFloor && t.stabilize == stabilize && t.stability == stability) return p;
+                    t.spatialVarianceFloor == spatialVarianceFloor && t.stabilize == stabilize && t.stability == stability &&
+                    t.cacheSeed == cacheSeed && t.antilag == antilag && t.freshSpread == freshSpread) return p;
             }
             return DenoiserPreset.Custom;
         }
@@ -150,6 +168,9 @@ namespace UltraRT
                 {
                     case "-ultrart-dn-legacy": s.ApplyPreset(DenoiserPreset.Legacy); break;
                     case "-ultrart-dn-previous": s.ApplyPreset(DenoiserPreset.Previous); break;
+                    case "-ultrart-dn-static": s.ApplyPreset(DenoiserPreset.Static); break;
+                    case "-ultrart-dn-antilag": s.antilag = F(s.antilag); break;
+                    case "-ultrart-dn-fresh-spread": s.freshSpread = F(s.freshSpread); break;
                     case "-ultrart-dn-alpha": s.alphaMin = F(s.alphaMin); break;
                     case "-ultrart-dn-spatialvar": s.spatialVarianceFloor = F(s.spatialVarianceFloor); break;
                     case "-ultrart-dn-nostabilize": s.stabilize = false; break;
@@ -217,7 +238,14 @@ namespace UltraRT
         }
 
         private readonly ComputeShader _shader;
-        private readonly int _kTemporal, _kAtrous3, _kAtrous5, _kStabilize, _kComposite;
+        private readonly int _kTemporal, _kAtrous3, _kAtrous5, _kStabilize, _kComposite, _kClassify;
+
+        /// <summary>Bench (Plugin.MotionNoise.cs): when set, Execute also writes the per-pixel motion-noise classes into
+        /// <see cref="Classes"/> (R8, trace resolution; see Denoise.compute, Classify).</summary>
+        public bool ClassifyFrame;
+        /// <summary>Short-history threshold of the classes (frames).</summary>
+        public float ClassifyFreshFrames = 8f;
+        public RenderTexture Classes { get; private set; }
 
         private int _width, _height;
         private RenderTexture _hist;                       // first a-trous output, fed back as next frame's history
@@ -288,7 +316,12 @@ namespace UltraRT
             IdStableIn = Shader.PropertyToID("_StableIn"),
             IdStableOut = Shader.PropertyToID("_StableOut"),
             IdStabilize = Shader.PropertyToID("_Stabilize"),
-            IdSpatialVarFloor = Shader.PropertyToID("_SpatialVarFloor");
+            IdSpatialVarFloor = Shader.PropertyToID("_SpatialVarFloor"),
+            IdClassOut = Shader.PropertyToID("_ClassOut"),
+            IdAntilag = Shader.PropertyToID("_Antilag"),
+            IdAtrousMoments = Shader.PropertyToID("_AtrousMoments"),
+            IdFreshSpread = Shader.PropertyToID("_FreshSpread"),
+            IdClassFresh = Shader.PropertyToID("_ClassFresh");
 
         public Denoiser(ComputeShader shader)
         {
@@ -298,6 +331,7 @@ namespace UltraRT
             _kAtrous5 = shader.FindKernel("Atrous5");
             _kStabilize = shader.FindKernel("Stabilize");
             _kComposite = shader.FindKernel("Composite");
+            _kClassify = shader.HasKernel("Classify") ? shader.FindKernel("Classify") : -1;
             _dummyKeys = new ComputeBuffer(8, 4) { name = "UltraRT Denoise cache keys (unused)" };
             _dummyKeys.SetData(new uint[8]);
             _dummyResolved = new ComputeBuffer(8, 16) { name = "UltraRT Denoise cache resolved (unused)" };
@@ -346,6 +380,7 @@ namespace UltraRT
             cmd.SetComputeIntParam(cs, IdHistoryValid, _historyValid ? 1 : 0);
             cmd.SetComputeFloatParam(cs, IdAlphaMin, RateAlpha(s.alphaMin));
             cmd.SetComputeFloatParam(cs, IdSpatialVarFloor, Mathf.Max(0f, s.spatialVarianceFloor));
+            cmd.SetComputeVectorParam(cs, IdAntilag, new Vector4(s.stability ? Mathf.Max(0f, s.antilag) : 0f, Mathf.Max(0f, s.antilagTolerance), Mathf.Max(0f, s.antilagMinLength), 0f));
             cmd.SetComputeFloatParam(cs, IdNormalTol, s.reprojNormalTolerance);
             cmd.SetComputeFloatParam(cs, IdPlaneTol, Mathf.Max(0f, s.reprojPlaneTolerance));
             cmd.SetComputeIntParam(cs, IdClampHistory, s.clampHistory ? 1 : 0);
@@ -394,6 +429,8 @@ namespace UltraRT
                 int kAtrous = s.wideKernel ? _kAtrous5 : _kAtrous3;
                 cmd.SetComputeFloatParam(cs, IdPhiLuminance, Mathf.Max(1e-3f, s.phiLuminance));
                 cmd.SetComputeTextureParam(cs, kAtrous, IdGeo, _geo[_cur]);
+                cmd.SetComputeTextureParam(cs, kAtrous, IdAtrousMoments, _moments[_cur]);
+                cmd.SetComputeVectorParam(cs, IdFreshSpread, new Vector4(s.stability ? Mathf.Clamp(s.freshSpread, 1f, 4f) : 1f, Mathf.Max(1f, s.freshSpreadFrames), 0f, 0f));
                 RenderTexture src = _t0;
                 for (int i = 0; i < iterations; i++)
                 {
@@ -423,6 +460,20 @@ namespace UltraRT
             }
 
             FilteredLighting = filtered;
+
+            if (ClassifyFrame && _kClassify >= 0)
+            {
+                if (Classes == null || Classes.width != w || Classes.height != h)
+                {
+                    if (Classes != null) { Classes.Release(); Object.Destroy(Classes); }
+                    Classes = Init(new RenderTexture(w, h, 0, RenderTextureFormat.R8, RenderTextureReadWrite.Linear), "UltraRT Denoise Classes");
+                }
+                cmd.SetComputeFloatParam(cs, IdClassFresh, ClassifyFreshFrames);
+                cmd.SetComputeTextureParam(cs, _kClassify, IdGeo, _geo[_cur]);
+                cmd.SetComputeTextureParam(cs, _kClassify, IdMoments, _moments[_cur]);
+                cmd.SetComputeTextureParam(cs, _kClassify, IdClassOut, Classes);
+                cmd.DispatchCompute(cs, _kClassify, gx, gy, 1);
+            }
 
             // 4. Composite.
             cmd.SetComputeVectorParam(cs, IdOutDim, new Vector4(output.width, output.height, 0, 0));
@@ -520,6 +571,7 @@ namespace UltraRT
             Release(ref _boostInfo);
             Release(ref _reproj);
             for (int i = 0; i < 2; i++) Release(ref _stable[i]);
+            if (Classes != null) { Classes.Release(); Object.Destroy(Classes); Classes = null; }
             _historyValid = false;
         }
 
