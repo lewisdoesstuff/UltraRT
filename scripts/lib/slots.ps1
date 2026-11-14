@@ -128,11 +128,19 @@ $script:DisplayPrefsPattern = '^(UnitySelectMonitor|Screenmanager (Resolution Wi
 
 function Get-DisplayPrefsFile([string] $MainDir) { Join-Path $MainDir 'BepInEx\ultrart\display-prefs.json' }
 
+# Registry DWORDs come back as UInt32 when the high bit is set (a window position of -30080 reads 4294937216); [int]
+# throws on those. Reinterpret the 32 bits as signed.
+function ConvertTo-Dword32($v) {
+    $l = [int64] $v
+    if ($l -gt [int]::MaxValue) { $l -= 4294967296 }
+    return [int] $l
+}
+
 function Save-DisplayPrefs([string] $MainDir) {
     $p = Get-ItemProperty $script:DisplayPrefsKey -ErrorAction SilentlyContinue
     if (-not $p) { return $false }
     $o = [ordered]@{}
-    foreach ($x in $p.PSObject.Properties) { if ($x.Name -match $script:DisplayPrefsPattern) { $o[$x.Name] = [int] $x.Value } }
+    foreach ($x in $p.PSObject.Properties) { if ($x.Name -match $script:DisplayPrefsPattern) { $o[$x.Name] = ConvertTo-Dword32 $x.Value } }
     Write-JsonFile (Get-DisplayPrefsFile $MainDir) $o
     return $true
 }
@@ -146,8 +154,8 @@ function Restore-DisplayPrefs([string] $MainDir) {
     $changed = @()
     foreach ($x in $want.PSObject.Properties) {
         $now = $cur.($x.Name)
-        if ($null -ne $now -and [int] $now -ne [int] $x.Value) {
-            Set-ItemProperty $script:DisplayPrefsKey $x.Name ([int] $x.Value) -Type DWord
+        if ($null -ne $now -and (ConvertTo-Dword32 $now) -ne (ConvertTo-Dword32 $x.Value)) {
+            Set-ItemProperty $script:DisplayPrefsKey $x.Name (ConvertTo-Dword32 $x.Value) -Type DWord
             $changed += "$($x.Name -replace '_h\d+$','') $now -> $($x.Value)"
         }
     }
