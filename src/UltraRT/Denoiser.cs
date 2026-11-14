@@ -90,6 +90,10 @@ namespace UltraRT
         public float cacheSeed = 1f;
         /// <summary>Cache seed consistency test: relative tolerance added to the pre-blur's own noise.</summary>
         public float cacheSeedTolerance = 0.5f;
+        /// <summary>Anti-lag for changing lights: the history is shortened where the 5x5 mean of the input differs from it by
+        /// more than this many standard errors plus <see cref="antilagTolerance"/> x the luminance. 0 = off.</summary>
+        public float antilag = 0f;
+        public float antilagTolerance = 0.15f;
 
         // ---- Temporal stabilisation of the filtered output (docs/denoiser.md, "Stabilisation"). Ctrl+F3 cycles
         //      stabilize + stability -> stability only -> neither.
@@ -297,6 +301,7 @@ namespace UltraRT
             IdStabilize = Shader.PropertyToID("_Stabilize"),
             IdSpatialVarFloor = Shader.PropertyToID("_SpatialVarFloor"),
             IdClassOut = Shader.PropertyToID("_ClassOut"),
+            IdAntilag = Shader.PropertyToID("_Antilag"),
             IdClassFresh = Shader.PropertyToID("_ClassFresh");
 
         public Denoiser(ComputeShader shader)
@@ -356,6 +361,7 @@ namespace UltraRT
             cmd.SetComputeIntParam(cs, IdHistoryValid, _historyValid ? 1 : 0);
             cmd.SetComputeFloatParam(cs, IdAlphaMin, RateAlpha(s.alphaMin));
             cmd.SetComputeFloatParam(cs, IdSpatialVarFloor, Mathf.Max(0f, s.spatialVarianceFloor));
+            cmd.SetComputeVectorParam(cs, IdAntilag, new Vector4(s.stability ? Mathf.Max(0f, s.antilag) : 0f, Mathf.Max(0f, s.antilagTolerance), 0f, 0f));
             cmd.SetComputeFloatParam(cs, IdNormalTol, s.reprojNormalTolerance);
             cmd.SetComputeFloatParam(cs, IdPlaneTol, Mathf.Max(0f, s.reprojPlaneTolerance));
             cmd.SetComputeIntParam(cs, IdClampHistory, s.clampHistory ? 1 : 0);

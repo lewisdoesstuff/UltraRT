@@ -93,6 +93,7 @@ float4 _CacheSeed;       // x seed weight (virtual samples at history 0; 0 = off
 float4 _CacheSeedOffset; // rgb added to the cached value (terms PathTrace adds that the cache leaves out, e.g. ambient)
 uint   _DnFrame;
 float  _SpatialVarFloor; // the variance never drops below this x the 3x3 spatial variance of the input (0 = plain SVGF)
+float4 _Antilag;         // x sigma (0 = off), y relative tolerance: history shortened where the lighting changed (see Temporal)
 // Shared with the a-trous passes (the pre-blur uses the same geometry weights).
 float _PhiNormal;
 float _PhiDepth;
@@ -312,6 +313,29 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     }
     else
         _OutReproj[id.xy] = uint2(0xFFFFFFFFu, 0u);
+
+    // Anti-lag (changing lights: muzzle flashes, explosions, lights switching): the 5x5 same-surface mean of this frame's
+    // input against the reprojected (filtered) history. Where they differ by more than _Antilag.x standard errors of that
+    // mean plus a relative tolerance, the lighting really changed: the history length shrinks with the square of the
+    // excess, so the pixel follows within a frame or two and, being "young" again, gets the pre-blur instead of its raw
+    // sample. Noise alone (a single bright sample, ReSTIR's per-pixel bias) stays inside the bound.
+    if (_Antilag.x > 0.0 && histLen > 0.0)
+    {
+        float a1 = 0, a2 = 0, an = 0;
+        [unroll] for (int ay = -2; ay <= 2; ay++)
+        [unroll] for (int ax = -2; ax <= 2; ax++)
+        {
+            float4 v = gsRadT[centerIdx + ay * TILE + ax];
+            if (v.w < 0.0 || abs(v.w - t) > 0.1 * t) continue;
+            float l = Luma(v.rgb);
+            a1 += l; a2 += l * l; an += 1.0;
+        }
+        a1 /= an;
+        float se = sqrt(max(0.0, a2 / an - a1 * a1) / an);
+        float lh = Luma(hColor);
+        float z = abs(a1 - lh) / (_Antilag.x * se + _Antilag.y * max(lh, a1) + 1e-3);
+        if (z > 1.0) histLen = histLen / (z * z);
+    }
 
     // Anti-firefly: with enough history, a sample far above both the history and the current neighbourhood is scaled
     // down (hue kept) before it enters the moving average. The bound never drops below 2x the reference and widens with
