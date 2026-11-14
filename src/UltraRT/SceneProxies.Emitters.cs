@@ -76,7 +76,7 @@ namespace UltraRT
             for (int k = Math.Max(0, from); k < _dynamic.Count; k++)
             {
                 var d = _dynamic[k];
-                if (d.SkinnedProxy != null || d.Mask == TransparentMask || !(d.Proxy is MeshRenderer mr) || mr == null) continue;
+                if (d.SkinnedProxy != null || d.Mask == TransparentMask || d.Mask == PlayerMask || !(d.Proxy is MeshRenderer mr) || mr == null) continue;
                 var mesh = mr.GetComponent<MeshFilter>()?.sharedMesh;
                 if (mesh == null) continue;
                 var mats = mr.sharedMaterials;

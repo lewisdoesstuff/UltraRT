@@ -206,6 +206,9 @@ namespace UltraRT
                     case "-ultrart-noportals": _portals = false; break;
                     case "-ultrart-noportallayer": SceneProxies.TracePortalLayer = false; break;
                     case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
+                    case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
+                    case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
+                    case "-ultrart-player-noanimate": SceneProxies.PlayerAlwaysAnimate = false; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
                         switch ((Next() ?? "").ToLowerInvariant())
@@ -649,6 +652,13 @@ namespace UltraRT
         private int _compositeDebug; // -ultrart-compdebug 1..6: shadow ratio / unshadowed direct / shadowed direct / bounce / portal depth / game-albedo overlay
         private bool _portals = true; // -ultrart-noportals (bench variant: plugin._portals=0): rays ignore portals (docs/portals.md)
         private int _portalHops = 3;  // -ultrart-portal-hops N (bench variant: plugin._portalHops=N): teleports per ray
+        // Which rays see V1's third-person model (SceneProxies.PlayerMask; docs/reflections.md, "The player in reflections"):
+        // 1 reflection rays (incl. water/glass), 2 bounce rays, 4 shadow rays, 8 camera rays after a portal hop (8-x
+        // mirrors, as the game's portal views). Camera rays never see it directly. -ultrart-player-rays N, bench plugin._playerRays=N.
+        private int _playerRays = 15;
+        private float _mirrorOffset = 0.02f; // bench plugin._mirrorOffset=X: portal mirror quads this far in front of their wall (docs/portals.md)
+        private static readonly int PlayerRaysId = Shader.PropertyToID("_UltraRTPlayerRays");
+        private static readonly int PlayerBoxMinId = Shader.PropertyToID("_UltraRTPlayerBoxMin"), PlayerBoxMaxId = Shader.PropertyToID("_UltraRTPlayerBoxMax");
         private bool _flipY;
         private int _recordedFrame = -1;
         private int _camSwitchLogs;
@@ -909,7 +919,19 @@ namespace UltraRT
             }
             _proxies.SyncDynamic();
             SceneProxies.PortalHops = _portalHops;
+            SceneProxies.MirrorOffset = _mirrorOffset;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
+            Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? _playerRays & 15 : 0);
+            if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))
+            {
+                Shader.SetGlobalVector(PlayerBoxMinId, playerBox.min);
+                Shader.SetGlobalVector(PlayerBoxMaxId, playerBox.max);
+            }
+            else
+            {
+                Shader.SetGlobalVector(PlayerBoxMinId, Vector4.one);
+                Shader.SetGlobalVector(PlayerBoxMaxId, Vector4.zero);
+            }
             long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);
             Perf.Add(Perf.Sec.Emissive, te);
@@ -927,6 +949,7 @@ namespace UltraRT
                                $"new {_emissive.PendingTicks * 1000.0 / Stopwatch.Frequency:F1} ms, visibility {_emissive.VisibilityTicks * 1000.0 / Stopwatch.Frequency:F1} ms, transforms {_emissive.TransformTicks * 1000.0 / Stopwatch.Frequency:F1} ms; " +
                                $"{_emissive.EmitterCount} emitters, {_emissive.OwnerCount} owners; dynamic: {_proxies.DirtyEvaluations} dirty evaluations " +
                                $"({_proxies.DirtyTicks * Perf.TickMs:F1} ms), active loop {_proxies.ActiveTicks * Perf.TickMs:F1} ms over {_proxies.ActiveDynamicCount}, poll {_proxies.PollTicks * Perf.TickMs:F1} ms");
+                if (_proxies.PlayerProxiesTotal > 0) Logger.LogInfo(_proxies.DescribePlayerModel(_camera.transform.position));
                 _proxies.DirtyEvaluations = 0; _proxies.DirtyTicks = _proxies.ActiveTicks = _proxies.PollTicks = 0;
                 _emissive.AliasBuilds = 0; _emissive.AliasTicks = 0; _emissive.ActiveUpdates = 0; _emissive.PendingTicks = _emissive.VisibilityTicks = _emissive.TransformTicks = 0;
                 _proxies.DeferredMade = 0; _proxies.DeferredMs = 0; _proxies.DeferredMaxQueue = 0; _proxies.HierarchiesAdded = 0; Patches.SpawnCount = 0;

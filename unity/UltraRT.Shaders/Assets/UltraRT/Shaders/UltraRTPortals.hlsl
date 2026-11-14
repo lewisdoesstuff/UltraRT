@@ -24,6 +24,17 @@
 StructuredBuffer<float4> _UltraRTPortals; // per portal side: 3 rows of its 3x4 travel matrix (world -> world)
 int _UltraRTPortalHops; // teleports per ray (SceneProxies.PortalHops, default 3); global, set every frame
 
+// V1's third-person model (instance mask ULTRART_MASK_PLAYER, SceneProxies.Player.cs). Which rays see it (Plugin's
+// _playerRays, global, set every frame; 0 = none): 1 reflection rays, 2 bounce rays, 4 shadow rays, 8 camera rays after
+// a hop through a portal whose canSeePortalLayer is set (the game draws V1, layer 30, in those views: 8-x mirrors).
+// Camera rays never see it before a hop.
+int _UltraRTPlayerRays;
+#define ULTRART_PLAYER_REFLECTION 1
+#define ULTRART_PLAYER_BOUNCE     2
+#define ULTRART_PLAYER_SHADOW     4
+#define ULTRART_PLAYER_PORTAL     8
+uint PlayerRayMask(int kind) { return (_UltraRTPlayerRays & kind) != 0 ? ULTRART_MASK_PLAYER : 0u; }
+
 struct PortalPath
 {
     float3x3 rot;     // camera side -> hit side: a direction d seen by the camera is mul(rot, d) at the hit (incl. mirror flips)
@@ -43,8 +54,10 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     path.travelled = 0.0;
     path.firstT = -1.0;
     path.hops = 0u;
-    uint baseMask = mask & ~ULTRART_MASK_PORTAL_LAYER;
-    mask = baseMask;
+    uint baseMask = mask & ~(ULTRART_MASK_PORTAL_LAYER | ULTRART_MASK_PLAYER);
+    // Past a hop, layer 30 (and V1, which lives on it) shows only through portals that can see that layer.
+    uint portalLayerMask = ULTRART_MASK_PORTAL_LAYER | (((mask & ULTRART_MASK_PLAYER) != 0u) ? ULTRART_MASK_PLAYER : PlayerRayMask(ULTRART_PLAYER_PORTAL));
+    mask &= ~ULTRART_MASK_PORTAL_LAYER;
     [loop] for (uint i = 0u; ; i++)
     {
         p = (RayPayload)0;
@@ -72,7 +85,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         path.travelled += p.t;
         path.rot = mul(m, path.rot);
         path.hops++;
-        mask = (p.material & 1u) != 0u ? baseMask | ULTRART_MASK_PORTAL_LAYER : baseMask;
+        mask = (p.material & 1u) != 0u ? baseMask | portalLayerMask : baseMask;
         ray.Origin = float3(dot(r0, h), dot(r1, h), dot(r2, h)) + d * 1e-3;
         ray.Direction = d;
         ray.TMin = 0.0;

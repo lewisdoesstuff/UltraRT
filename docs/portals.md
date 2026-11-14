@@ -57,7 +57,7 @@ The portal quads are a procedural mesh drawn by a command buffer: no renderer, s
 ## 3. Ray teleportation
 
 **Portal surfaces in the RTAS.** `SceneProxies.SyncPortals` (every frame, from `Plugin.Trace` after `SyncDynamic`) reads `PortalManagerV2.portalComponents` by reflection (it never creates the singleton) and applies the game's rules: active portal and ends, `disableRange`, `renderSettings` per side, enter side only for mirrors. Each rendered side gets a hidden `MeshRenderer` proxy: a unit quad scaled to the `PlaneShape`, placed at the side's transform (not parented: the game ignores the transform's scale), with its own `UltraRT/Portal` material whose `_PortalIndex` is the side's slot. It is added with:
-- instance mask `SceneProxies.PortalMask = 0x20`. Camera, bounce, reflection and cache rays use `ULTRART_MASK_SCENE` (0xEF: everything but water and glass, 0x10) and see it; shadow rays use 0x05 and never do, so portals don't block light. The transparent pass (0x10 only) doesn't see portals either.
+- instance mask `SceneProxies.PortalMask = 0x20`. Camera, bounce, reflection and cache rays use `ULTRART_MASK_SCENE` (0x6F: everything but water and glass, 0x10, and V1's third-person model, 0x80) and see it; shadow rays use 0x05 and never do, so portals don't block light. The transparent pass (0x10 only) doesn't see portals either.
 - triangle culling off and not opaque (`RayTracingSubMeshFlags.Enabled` only), so the any-hit shader runs: it ignores hits from the back (`dot(rayDir, forward) <= 0`), which makes the side one-way exactly like `PortalMath.Raycast`.
 - moved with `UpdateInstanceTransform` when the side moves, removed when it leaves the game's set.
 

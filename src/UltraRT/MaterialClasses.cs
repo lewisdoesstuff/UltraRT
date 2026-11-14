@@ -18,7 +18,7 @@ namespace UltraRT
         MetalLow = 17, Dirt = 18, Crunchy = 19, Snow = 20,
         /// <summary>Not an ULTRAKILL/Master material (or baked geometry whose original material is unknown).</summary>
         Other = 21,
-        /// <summary>Name allow-list mirror (Mirror, FerrymanMirror, MirrorTexture).</summary>
+        /// <summary>Name allow-list mirror (Mirror, MirrorTexture).</summary>
         Mirror = 22,
     }
 
@@ -254,9 +254,10 @@ namespace UltraRT
             }
         }
 
+        // Not FerrymanMirror: despite the name it is 5-3's painting of the Ferryman at an easel (a plain texture).
         private static bool IsMirrorName(string n) =>
-            n.Equals("Mirror", StringComparison.OrdinalIgnoreCase) || n.Equals("FerrymanMirror", StringComparison.OrdinalIgnoreCase) ||
-            n.Equals("MirrorTexture", StringComparison.OrdinalIgnoreCase) || n.Equals("GlassReflective", StringComparison.OrdinalIgnoreCase);
+            n.Equals("Mirror", StringComparison.OrdinalIgnoreCase) || n.Equals("MirrorTexture", StringComparison.OrdinalIgnoreCase) ||
+            n.Equals("GlassReflective", StringComparison.OrdinalIgnoreCase);
 
         // "Water 10A", "Water 6 Still", "Limbo Water ...", "M_7S_Water", "M_WaterUps"; not signs like "WaterControl1".
         private static readonly Regex WaterName = new Regex(@"(^|[\s_])Water(?![A-Z])|WaterUps", RegexOptions.CultureInvariant);
