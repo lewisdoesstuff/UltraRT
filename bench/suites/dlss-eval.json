@@ -46,8 +46,9 @@
     "off",
     "relight",
     "relight+plugin._rrEnabled=1",
-    "relight+plugin._rrEnabled=1+plugin._rrJitterSign=-1",
-    "relight+plugin._rrEnabled=1+plugin._rrPreset=5"
+    "relight+plugin._rrEnabled=1+plugin._rrJitterPhases=4",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=5",
+    "relight+plugin._rrEnabled=1+plugin._rrLinear=0"
    ]
   },
   {
@@ -71,6 +72,7 @@
     "off",
     "relight",
     "relight+plugin._rrEnabled=1",
+    "relight+plugin._rrEnabled=1+plugin._rrJitterPhases=4",
     "relight+plugin._rrEnabled=1+plugin._rrSpecHit=0"
    ]
   },
@@ -118,7 +120,7 @@
     "off",
     "relight",
     "relight+plugin._rrEnabled=1",
-    "relight+plugin._rrEnabled=1+plugin._rrPreset=5"
+    "relight+plugin._rrEnabled=1+plugin._rrJitterPhases=4"
    ]
   },
   {

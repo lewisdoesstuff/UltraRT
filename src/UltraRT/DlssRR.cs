@@ -59,7 +59,8 @@ namespace UltraRT
         private Vector2 _prevJitter;
         private bool _disposed;
 
-        /// <summary>Halton(2,3) phases (DLSS-RR guide: at least 32).</summary>
+        /// <summary>Halton(2,3) phases (DLSS-RR guide: at least 32). 4 = the temporal upsampler's pattern, (+-0.25, +-0.25): exact
+        /// output pixel centres at 2x.</summary>
         public int JitterPhases = 64;
         /// <summary>Sign of the jitter handed to DLSS. Our J is the sample position relative to the texel centre (texel index space);
         /// DLSS takes the projection offset, which moves the image by +offset, i.e. -J (docs/dlss.md, "Jitter").</summary>
@@ -154,7 +155,19 @@ namespace UltraRT
         /// <summary>This frame's sample offset from the trace texel centre (trace px): Halton(2,3), JitterPhases long.</summary>
         public Vector2 NextJitter()
         {
-            uint k = _jitterIndex++ % (uint)Mathf.Max(1, JitterPhases) + 1;
+            uint i = _jitterIndex++;
+            if (JitterPhases == 4)
+            {
+                switch (i & 3)
+                {
+                    case 0: Jitter = new Vector2(-0.25f, -0.25f); break;
+                    case 1: Jitter = new Vector2(0.25f, 0.25f); break;
+                    case 2: Jitter = new Vector2(0.25f, -0.25f); break;
+                    default: Jitter = new Vector2(-0.25f, 0.25f); break;
+                }
+                return Jitter;
+            }
+            uint k = i % (uint)Mathf.Max(1, JitterPhases) + 1;
             Jitter = new Vector2(Halton(k, 2) - 0.5f, Halton(k, 3) - 0.5f);
             return Jitter;
         }

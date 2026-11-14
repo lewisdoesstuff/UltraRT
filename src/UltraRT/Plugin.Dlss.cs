@@ -24,6 +24,7 @@ namespace UltraRT
         private float _rrJitterSign = -1f;
         /// <summary>Bench cost probe (docs/dlss.md): RR output at this x the screen, e.g. 1.3333 with plugin._scale=0.6667 = 720p -> 1440p on a 1080p screen.</summary>
         private float _rrOutScale = 1f;
+        private int _rrJitterPhases = 64;
         private int _rrGen = -1;
         private float _rrLastUsed;
         private string _rrStatusLogged;
@@ -132,6 +133,7 @@ namespace UltraRT
                 _rr.SpecularHitDistance = _rrSpecHit;
                 _rr.Linearize = _rrLinear;
                 _rr.OutScale = _rrOutScale;
+                _rr.JitterPhases = _rrJitterPhases;
             }
             return want;
         }
