@@ -124,7 +124,9 @@ namespace UltraRT
             m.Group = "Effects";
             m.Bool("Volumetrics", "Enabled", "Volumetric light and fog  [Ctrl+F6]", () => _volSettings.enabled, v => { _volSettings.enabled = v; _volumetrics?.Reset(); }, "-ultrart-volumetrics").Legacy();
             m.Float("Volumetrics", "Density", "Fog density", 0f, 4f, 2, () => _volSettings.densityScale, v => _volSettings.densityScale = v, "-ultrart-vol-density");
-            m.Float("Volumetrics", "Strength", "Light shaft strength", 0f, 4f, 2, () => _volSettings.strength, v => _volSettings.strength = v, "-ultrart-vol-strength");
+            // Key renamed from "Strength" when the default went from 1 to 0.65 (docs/volumetrics.md, "Balance"): config files
+            // keep the default they were first written with, so the old key would have pinned 1.
+            m.Float("Volumetrics", "ShaftStrength", "Light shaft strength", 0f, 4f, 2, () => _volSettings.strength, v => _volSettings.strength = v, "-ultrart-vol-strength");
             m.Bool("Materials", "Enabled", "Surface detail maps  [Ctrl+F1]", () => MaterialMaps.Settings.enabled, v => MaterialMaps.Settings.enabled = v, "-ultrart-materials").Legacy();
             m.Float("Materials", "NormalStrength", "Detail strength (relight, pt-dn)", 0f, 4f, 2, () => MaterialMaps.Settings.normalStrength, v => MaterialMaps.Settings.normalStrength = v, "-ultrart-materials-normal").Legacy();
             m.Float("Materials", "HybridNormalStrength", "Detail strength (hybrid)", 0f, 4f, 2, () => MaterialMaps.Settings.hybridNormalStrength, v => MaterialMaps.Settings.hybridNormalStrength = v, "-ultrart-materials-hybrid-normal").Legacy();

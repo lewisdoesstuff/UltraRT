@@ -28,6 +28,10 @@ namespace UltraRT
         public bool importance = true;
         /// <summary>Fraction of the source pdf that stays uniform, so no light is ever starved.</summary>
         public float uniformMix = 0.2f;
+        /// <summary>Importance also counts the camera's images through visible portals (<see cref="LightSampling.ViewPoints"/>):
+        /// surfaces seen through a portal (8-2's fake mirrors, 8-3's doorways) are often far from the camera in world space,
+        /// and their lights were sampled almost only through the uniform mix (docs/light-sampling.md, "Portals").</summary>
+        public bool portalImportance = true;
         /// <summary>History M cap, as a multiple of <see cref="candidates"/>.</summary>
         public float historyLimit = 20f;
         /// <summary>On frames where lights appear or disappear, cap history M to 1x candidates (cuts lag on room toggles).</summary>
@@ -81,6 +85,18 @@ namespace UltraRT
         public int FillLightCount { get; private set; }
         /// <summary>True when lights were added or removed relative to the previous <see cref="Bind"/>.</summary>
         public bool LightSetChanged { get; private set; }
+        /// <summary>Extra viewpoints for the importance weights: the camera seen through each portal side in front of it
+        /// (SceneProxies.PortalViewpoints). Set by the plugin before <see cref="Bind"/>.</summary>
+        public readonly List<Vector3> ViewPoints = new List<Vector3>();
+        /// <summary>Diagnostics: frames with a light-set change since the last <see cref="TakeChangeStats"/>, and some names.</summary>
+        public int SetChangeFrames;
+        private readonly System.Collections.Generic.List<string> _changeNames = new System.Collections.Generic.List<string>();
+        public string TakeChangeStats()
+        {
+            string r = $"{SetChangeFrames} frames with light-set changes [{string.Join(", ", _changeNames)}]";
+            SetChangeFrames = 0; _changeNames.Clear();
+            return r;
+        }
         /// <summary>Lights in this frame's change list (added, removed, brightness or position changed) and whether it overflowed.</summary>
         public int ChangeCount { get; private set; }
         public bool ChangeOverflow { get; private set; }
@@ -303,6 +319,14 @@ namespace UltraRT
             for (int j = 0; j < count; j++)
                 if (_isNew[j]) AddChange(-1, lightData, j);
             LightSetChanged = kept != _prevCount || kept != count;
+            if (LightSetChanged)
+            {
+                SetChangeFrames++;
+                // Diagnostics: a light that keeps appearing and disappearing (flicker by enable toggling) caps the ReSTIR
+                // history over the whole screen and speeds up the radiance cache every time.
+                for (int j = 0; j < count && _changeNames.Count < 6; j++)
+                    if (_isNew[j] && j < lights.Count && !ReferenceEquals(lights[j], null) && lights[j] != null) _changeNames.Add("+" + lights[j].name);
+            }
             _prevCountForShader = _prevCount;
             if (_prevCount > 0) _remap.SetData(_remapData, 0, 0, _prevCount);
             _prevCount = count;
@@ -321,6 +345,8 @@ namespace UltraRT
                 if (lightData[i * 4 + 3].z > 0.5f) { _fillData[nFill++] = (uint)i; continue; }
                 _risLights[nRis] = i;
                 float w = Settings.importance ? ImportanceWeight(lightData, i, camPos) : 1f;
+                if (Settings.importance && Settings.portalImportance)
+                    foreach (var vp in ViewPoints) w = Mathf.Max(w, ImportanceWeight(lightData, i, vp));
                 _prob[nRis] = w;
                 sum += w;
                 nRis++;

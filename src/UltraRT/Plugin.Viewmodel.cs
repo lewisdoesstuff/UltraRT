@@ -34,6 +34,14 @@ namespace UltraRT
         private int _vmDebug;              // composite debug view: 1 coverage, 2 lighting, 3 albedo, 4 reflection, 5 history
         private int _vmSamples = 1;        // direct light samples (shadow rays) per half-res pixel
         private float _vmMaxHistory = 32f, _vmMaxHistoryRefl = 12f, _vmClampK = 3f;
+        /// <summary>Fast response (ViewmodelFilter Temporal): history cut to 2 frames where the 3x3 mean leaves the history by
+        /// more than this many standard errors plus the relative tolerance (lower tolerance on frames where lights appeared or
+        /// disappeared). Sigma 0 = the old ratio test (1.8x / 0.55x, and every light-set change), which fired on noise.</summary>
+        private float _vmFastSigma = 3f, _vmFastTol = 0.3f, _vmFastTolChange = 0.1f;
+        /// <summary>RIS candidates per direct-light sample on the viewmodel (0 = the world's LightSamplingSettings.candidates).</summary>
+        private int _vmCandidates = 32;
+        /// <summary>3x3 history search when the bilinear taps fail (edges of an idling gun); bench plugin._vmHistorySearch=0.</summary>
+        private bool _vmHistorySearch = true;
         private int _vmAtrous = 3;         // a-trous iterations (0-3: steps 1, 2, 4)
         private float _vmDepthTol = 0.03f; // composite: |game depth - ours| tolerance, fraction of the depth (+ 5 mm)
         private int _vmLightMask;          // 0 = auto (layer 13 | the layer under the player)
@@ -557,6 +565,9 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(rt, "_Relight", RelightParams);
             cmd.SetRayTracingFloatParam(rt, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
             _lightSampling.BindTables(cmd, rt);
+            // More RIS candidates than the world's 8: the viewmodel has no ReSTIR history to lean on, and candidates are
+            // light evaluations only (no rays) over a few thousand half-res pixels.
+            if (_vmCandidates > 0) cmd.SetRayTracingIntParam(rt, "_RisCandidates", Mathf.Clamp(_vmCandidates, 1, 64));
             _emissive.Bind(cmd, rt, _lightSamplingSettings.mode);
             _radianceCache.BindLookupOn(cmd, rt);
             var ambient = RenderSettings.ambientLight;
@@ -588,7 +599,8 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, "_CamFwd", fwd);
             cmd.SetComputeVectorParam(cs, "_Stamps", new Vector4(stamp, _vmPrevStamp, 0, 0));
             // Lights appeared or disappeared (muzzle flashes, explosions): keep only a few frames of history.
-            cmd.SetComputeVectorParam(cs, "_Params2", new Vector4(_lightSampling.LightSetChanged ? 2f : 1000f, 0, 0, 0));
+            cmd.SetComputeVectorParam(cs, "_Params2", new Vector4(_lightSampling.LightSetChanged ? 1f : 0f, Mathf.Max(0f, _vmFastSigma), Mathf.Max(0f, _vmFastTol), Mathf.Max(0f, _vmFastTolChange)));
+            cmd.SetComputeVectorParam(cs, "_Params3", new Vector4(_vmHistorySearch ? 1f : 0f, 0, 0, 0));
             cmd.SetComputeVectorParam(cs, "_Params", new Vector4(Mathf.Max(1f, _vmMaxHistory), Mathf.Max(1f, _vmMaxHistoryRefl), Mathf.Max(0.5f, _vmClampK), _vmHistValid ? 1f : 0f));
             int k = _vmKTemporal;
             cmd.SetComputeTextureParam(cs, k, "_RawLight", _vmRawLight);

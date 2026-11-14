@@ -223,6 +223,27 @@ namespace UltraRT
             }
         }
 
+        /// <summary>
+        /// The camera's images through the portal sides it can look into (in front of the side, within
+        /// <paramref name="maxDistance"/>): travel * camera. Light importance uses them (LightSampling.ViewPoints), so
+        /// lights around what the camera sees through a portal are sampled like lights near the camera.
+        /// </summary>
+        public void PortalViewpoints(Vector3 camPos, List<Vector3> output, float maxDistance = 120f, int max = 8)
+        {
+            output.Clear();
+            foreach (var s in _portalSideList)
+            {
+                if (output.Count >= max) break;
+                if (!s.Seen || !s.InRtas || s.Proxy == null) continue;
+                Vector3 c = s.Pose.GetColumn(3), f = s.Pose.GetColumn(2);
+                // The game's rule (PortalMath.Raycast): rays start in the side's back half-space and move along its forward.
+                if (Vector3.Dot(camPos - c, f) > 0f) continue;
+                if ((camPos - c).sqrMagnitude > maxDistance * maxDistance) continue;
+                var v = s.Travel.MultiplyPoint3x4(camPos);
+                if ((v - camPos).sqrMagnitude > 1f) output.Add(v);
+            }
+        }
+
         private void BindPortalBuffer()
         {
             if (_portalBuffer == null || _portalBuffer.count < _portalRows.Length)

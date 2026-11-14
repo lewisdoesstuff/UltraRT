@@ -26,7 +26,10 @@ namespace UltraRT
         public float minDensity = 0.002f;
         public float maxDensity = 0.008f;
         /// <summary>In-scattering multiplier.</summary>
-        public float strength = 1f;
+        public float strength = 0.65f;
+        /// <summary>The most the in-scattering may add to a pixel, in display units (a soft shoulder, not a clip); 0 = up to
+        /// white. With strength 1 and no cap, dark levels (7-3, 4-4, 1-4 at night) read 1.4x to 10x brighter than the game.</summary>
+        public float maxAdd = 0.25f;
         /// <summary>Henyey-Greenstein anisotropy: forward scattering makes shafts brighter looking toward the sun.</summary>
         public float anisotropy = 0.4f;
         /// <summary>How much of the fog colour's hue the medium takes (0 = white scattering, 1 = the fog colour's hue).</summary>
@@ -185,6 +188,7 @@ namespace UltraRT
             IdVolDepthTex = Shader.PropertyToID("_VolDepthTex"), IdVolExposure = Shader.PropertyToID("_VolExposure"),
             IdVolViewRay = Shader.PropertyToID("_VolViewRay"), IdVolFog = Shader.PropertyToID("_VolFog"),
             IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
+            IdVolMaxAdd = Shader.PropertyToID("_VolMaxAdd"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
             IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
             IdVolSkip = Shader.PropertyToID("_VolSkip"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
@@ -365,6 +369,7 @@ namespace UltraRT
             var fc = RenderSettings.fogColor;
             m.SetVector(IdVolFogColor, new Vector4(fc.r, fc.g, fc.b, f.applyGameFog && s.gameFog && fogMode > 0f ? 1f : 0f));
             m.SetVector(IdVolComposite, new Vector4(Mathf.Max(0f, s.strength), f.autoExposure && f.exposure != null ? 1f : 0f, 1f, s.debugView));
+            m.SetFloat(IdVolMaxAdd, Mathf.Max(0f, s.maxAdd));
             if (f.applyGameFog && s.gameFog && fogMode > 0f && s.debugView == 0)
                 cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
             var late = lateCmd ?? cmd;
