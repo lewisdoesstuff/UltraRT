@@ -357,7 +357,7 @@ namespace UltraRT
                 Root = ss != null ? (ss.rootBone != null ? ss.rootBone : ss.transform) : null,
                 SkinVerts = ss != null && ss.sharedMesh != null ? ss.sharedMesh.vertexCount : 0,
                 TwoSided = source.sharedMaterials.Any(m => Traceable(m) && SourceTwoSided(m)),
-                Mask = source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? FixtureMask : GeometryMask,
+                Mask = source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask,
             };
             _dynamic.Add(entry);
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
@@ -633,7 +633,23 @@ namespace UltraRT
         /// Instance masks: shadow rays only test GeometryMask. Sky walls (LIMBO_WALLS, the "TV sky") stop camera and bounce
         /// rays and report sky, so the level behind them stays hidden as in game, but never block light.
         /// </summary>
-        public const uint GeometryMask = 0x01, SkyWallMask = 0x02, FixtureMask = 0x04;
+        public const uint GeometryMask = 0x01, SkyWallMask = 0x02, FixtureMask = 0x04, EmitterMask = 0x08;
+
+        /// <summary>
+        /// A light fixture that glows itself (the 1-4 streetlight's "Light" cylinder, the statues' orbs): it is the visible
+        /// lamp the light stands for, so it gets EmitterMask, which no shadow ray tests (they use 0x01 | 0x04). Camera and
+        /// bounce rays (0xFF) still see it.
+        /// </summary>
+        private static bool IsGlowing(Renderer r)
+        {
+            foreach (var m in r.sharedMaterials)
+            {
+                if (m == null) continue;
+                if (m.IsKeywordEnabled("EMISSIVE") || m.IsKeywordEnabled("_EMISSION")) return true;
+                if (m.shader != null && m.shader.name == "ULTRAKILL/Master" && !m.IsKeywordEnabled("VERTEX_LIGHTING")) return true; // fullbright
+            }
+            return false;
+        }
 
         /// <summary>
         /// Light fixtures: small objects whose bounds contain a point/spot light (torch bowls, lamp housings). ULTRAKILL

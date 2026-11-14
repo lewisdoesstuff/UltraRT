@@ -1,0 +1,56 @@
+{
+  "Name": "bugs-1114",
+  "Scenarios": [
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pt-direct"
+      ],
+      "Screenshots": [
+        4
+      ]
+    },
+    {
+      "Name": "0-3 ghosts",
+      "Scene": "Level 0-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-3-ghosts.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "albedo"
+      ],
+      "Screenshots": [
+        4
+      ]
+    },
+    {
+      "Name": "cerberus",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-cerberus.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ]
+    }
+  ]
+}

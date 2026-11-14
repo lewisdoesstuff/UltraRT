@@ -499,9 +499,11 @@ namespace UltraRT
                 if (l.type != LightType.Point && l.type != LightType.Spot) continue;
                 var p = l.transform.position;
                 if ((p - c).magnitude > radius) continue;
-                var near = renderers.Where(r => r != null && r.bounds.SqrDistance(p) < 0.25f && r.bounds.size.magnitude < 12f)
-                    .OrderBy(r => r.bounds.size.magnitude).Take(4)
-                    .Select(r => $"{r.name}{(r.isPartOfStaticBatch ? "[static]" : "")} {r.bounds.min}..{r.bounds.max}");
+                var near = renderers.Where(r => r != null && !r.name.EndsWith("[UltraRT]") && r.bounds.SqrDistance(p) < 1f && r.bounds.size.magnitude < 12f)
+                    .OrderBy(r => r.bounds.size.magnitude).Take(12)
+                    .Select(r => $"{r.name}{(r.isPartOfStaticBatch ? "[static]" : "")} L{r.gameObject.layer} {r.bounds.min}..{r.bounds.max} " +
+                                 string.Join("+", r.sharedMaterials.Where(m => m != null).Select(m => $"{m.name}/{m.shader.name}/q{m.renderQueue}" +
+                                     (m.HasProperty("_SurfaceType") ? $"/st{m.GetFloat("_SurfaceType")}" : ""))));
                 Logger.LogInfo($"light near cam: {Bench.GameControl.PathOf(l.transform)} {l.type} at {p} range {l.range:F1} int {l.intensity:F2} | {string.Join(" ; ", near)}");
             }
         }
@@ -714,6 +716,8 @@ namespace UltraRT
         private void LogLightingEnvironment()
         {
             var sky = RenderSettings.skybox;
+            var rtSky = FindSkyMaterial();
+            Logger.LogInfo($"RT sky: {(rtSky != null ? $"{rtSky.name} tex {rtSky.mainTexture?.name} {rtSky.mainTexture?.dimension}" : "none (flat ambient colour)")}");
             Logger.LogInfo($"Lighting env: ambientMode={RenderSettings.ambientMode} ambient={RenderSettings.ambientLight} sky={(sky ? sky.shader.name : "none")} skyTex={(sky && sky.HasProperty("_MainTex") && sky.mainTexture ? sky.mainTexture.name : "-")} fog={RenderSettings.fog} fogColor={RenderSettings.fogColor}");
             foreach (var l in FindObjectsOfType<Light>().Where(l => l.type == LightType.Directional))
                 Logger.LogInfo($"  directional '{l.name}' enabled={l.isActiveAndEnabled} color={l.color} intensity={l.intensity:F2} mask=0x{l.cullingMask:X8} rot={l.transform.eulerAngles}");
