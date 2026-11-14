@@ -4,12 +4,13 @@
 //              specular, on every second pixel in x and y. Sky (t < 0) and fullbright pixels (lit weight < 0.5) are left
 //              out: neither is exposed. Emission isn't measured either (it isn't exposed).
 //   Adapt      one group: the mean log2 luminance of the pixels between two percentiles (bright specks and black
-//              corners don't move it), the target EV that maps that mean to the key, clamped to [min, max] EV, and the
-//              adapted EV (separate speeds up and down, exponential in EV). Clears the histogram for the next frame.
+//              corners don't move it), optionally smoothed over time (the meter), the target EV (down to the key above
+//              it; part of the way up to the dark key below that), clamped to [min, max] EV, and the adapted EV (separate
+//              speeds up and down, exponential in EV, stopping a dead band short of the target). Clears the histogram.
 //
 // The result lives on the GPU only (no readback in the loop): _Exposure[0] = (exposure, EV, mean log2 lum, target EV),
-// _Exposure[1] = (pixels counted, pixels in the percentile band, valid, 0). The denoiser's Composite reads [0].x one frame
-// later (UltraRTExposure.hlsl).
+// _Exposure[1] = (pixels counted, pixels in the percentile band, valid, meter = smoothed mean log2 lum). The denoiser's
+// Composite reads [0].x one frame later (UltraRTExposure.hlsl).
 
 #pragma kernel Histogram
 #pragma kernel Adapt
@@ -30,6 +31,8 @@ float4 _Params0; // x key (log2), y min EV, z max EV, w dt (s)
 float  _UltraRTLinear; // global: 1 = _Filtered is linear lighting (relight's linear transport); measured in gamma units
 float4 _Params1; // x speed up (1/s, exposure rising: into the dark), y speed down (1/s, into the light), z low fraction, w high fraction
 float4 _Params2; // x snap (1 = jump to the target), y min pixels for a valid measurement, z exposure compensation (EV)
+float4 _Params3; // x up strength (fraction of brightening), y dead band (EV), z meter speed (1/s, 0 = raw), w settle speed (1/s, 0 = not settling)
+float4 _Params4; // x dark key (log2): meters between it and the key are left alone; darker ones are brightened towards it
 
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
@@ -72,7 +75,7 @@ void Adapt(uint gi : SV_GroupIndex)
     {
         // Nothing to measure (all sky or fullbright): hold the current exposure.
         _Exposure[0] = valid ? prev : float4(1.0, 0.0, 0.0, 0.0);
-        _Exposure[1] = float4(total, 0.0, valid ? 1.0 : 0.0, 0.0);
+        _Exposure[1] = float4(total, 0.0, valid ? 1.0 : 0.0, info.w);
         return;
     }
 
@@ -87,17 +90,35 @@ void Adapt(uint gi : SV_GroupIndex)
         acc += n;
     }
     float meanLog = sumW > 0.0 ? sumLog / sumW : _Range.x;
-    float target = clamp(_Params0.x - meanLog + _Params2.z, _Params0.y, _Params0.z);
+    bool snap = _Params2.x > 0.5 || !valid;
+    float dt = max(_Params0.w, 0.0);
+
+    // Meter: the band mean, smoothed over time so single-frame noise never reaches the target.
+    float meter = meanLog;
+    if (!snap && _Params3.z > 0.0 && !isnan(info.w))
+        meter = info.w + (meanLog - info.w) * (1.0 - exp(-dt * _Params3.z));
+
+    // Target: above the key, the EV that maps the meter to the key (full darkening). Between the dark key and the key,
+    // nothing: rooms keep the look of their lights. Below the dark key, part of the way (up strength) towards it, so
+    // a very dark scene gets readable but stays darker than a lit one.
+    float down = _Params0.x - meter, up = _Params4.x - meter;
+    float shaped = down < 0.0 ? down : (up > 0.0 ? up * _Params3.x : 0.0);
+    float target = clamp(shaped + _Params2.z, _Params0.y, _Params0.z);
 
     float ev = prev.y;
-    if (_Params2.x > 0.5 || !valid)
+    if (snap)
         ev = target;
     else
     {
-        float speed = target > ev ? _Params1.x : _Params1.y;
-        ev += (target - ev) * (1.0 - exp(-max(_Params0.w, 0.0) * speed));
+        float err = target - ev;
+        float speed = err > 0.0 ? _Params1.x : _Params1.y;
+        float band = _Params3.y;
+        if (_Params3.w > 0.0) { speed = max(speed, _Params3.w); band = 0.0; } // settling after a reset
+        // Dead band: aim band EV short of the target, so a wandering target within the band leaves the exposure alone.
+        float aim = sign(err) * max(abs(err) - band, 0.0);
+        ev += aim * (1.0 - exp(-dt * speed));
     }
     ev = clamp(ev, _Params0.y, _Params0.z);
     _Exposure[0] = float4(exp2(ev), ev, meanLog, target);
-    _Exposure[1] = float4(total, sumW, 1.0, 0.0);
+    _Exposure[1] = float4(total, sumW, 1.0, meter);
 }

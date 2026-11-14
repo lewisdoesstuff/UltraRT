@@ -165,7 +165,11 @@ namespace UltraRT
                 ApplyBenchMode(mode);
                 int frame = 0;
                 CamPose Pose() => path.Sample(moving ? Mathf.Min(t0 + frame++ / 360f, path.Duration) : t0);
+                // Auto exposure trace (relight): every frame's state, to tell exposure drift and flicker from lighting noise.
+                var aeTrace = _autoExposure != null && AutoExposureFor(mode) ? new List<(Vector4 state, Vector4 info)>() : null;
+                if (_autoExposure != null) _autoExposure.Trace = aeTrace;
                 for (int f = 0; f < sc.BurstSettle; f++) { GameControl.SetPose(Pose()); GameControl.HideCheatPanels(); yield return null; }
+                int aeCaptureStart = aeTrace?.Count ?? 0;
                 double hfL = 0, hfC = 0, hfR = 0;
 
                 int w = 0, h = 0, nb = 0;
@@ -208,6 +212,12 @@ namespace UltraRT
                     last = px;
                     yield return null;
                 }
+                if (aeTrace != null)
+                {
+                    for (int f = 0; f < 6; f++) yield return null; // pending readbacks
+                    _autoExposure.Trace = null;
+                    LogExposureTrace(sc.Name, spec, aeTrace, aeCaptureStart);
+                }
                 if (sum == null || nb < 2) continue;
 
                 // Reduce.
@@ -249,6 +259,30 @@ namespace UltraRT
             RestoreVariantState(saved);
             Denoiser.FrameTimeOverride = 0f;
             ApplyBenchMode("off");
+        }
+
+        /// <summary>Burst: auto exposure statistics over the captured frames (EV, target, raw band mean, smoothed meter).</summary>
+        private void LogExposureTrace(string scenario, string spec, List<(Vector4 state, Vector4 info)> t, int captureStart)
+        {
+            if (t.Count == 0) { Logger.LogInfo($"Burst AE '{scenario}' {spec}: no samples"); return; }
+            int start = Mathf.Clamp(captureStart, 0, t.Count - 1);
+            string Stat(Func<(Vector4 state, Vector4 info), float> get)
+            {
+                double s = 0, sq = 0; float lo = float.MaxValue, hi = float.MinValue; int n = 0;
+                double d = 0; float prev = float.NaN;
+                for (int i = start; i < t.Count; i++)
+                {
+                    float v = get(t[i]); s += v; sq += v * v; n++; lo = Mathf.Min(lo, v); hi = Mathf.Max(hi, v);
+                    if (!float.IsNaN(prev)) d += Mathf.Abs(v - prev);
+                    prev = v;
+                }
+                double m = s / n;
+                return FormattableString.Invariant($"{m:+0.000;-0.000} sd {Math.Sqrt(Math.Max(0, sq / n - m * m)):F3} [{lo:+0.000;-0.000},{hi:+0.000;-0.000}] step {(n > 1 ? d / (n - 1) : 0):F4}");
+            }
+            var first = t[0].state;
+            Logger.LogInfo(FormattableString.Invariant(
+                $"Burst AE '{scenario}' {spec}: settle {first.y:+0.000;-0.000} -> {t[start].state.y:+0.000;-0.000} EV ({start} frames); capture {t.Count - start} frames: ") +
+                $"EV {Stat(x => x.state.y)}; target {Stat(x => x.state.w)}; band mean log2 {Stat(x => x.state.z)}; meter {Stat(x => x.info.w)}");
         }
 
         private static (double left, double centre, double right) Laplacian(Color32[] px, int w, int h)

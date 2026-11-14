@@ -226,6 +226,7 @@ namespace UltraRT
                 }
             }
 
+            var variantDefaults = SaveVariantState(); // restored when a scenario fails mid-variant
             foreach (var job in jobs)
             {
                 Logger.LogInfo($"Benchmark: {(_benchValidate ? "validating" : "scenario")} '{job.name}'");
@@ -256,7 +257,15 @@ namespace UltraRT
                 _host.OnFixed = null;
                 PoseLoader.SetGameSpeed(1f);
                 // The player stays taken over between chained scenarios; it is released before the next level load.
-                if (failed) { _level = null; GameControl.ReleaseControl(); }
+                if (failed)
+                {
+                    _level = null; GameControl.ReleaseControl();
+                    // A failure inside a burst or a variant mode would otherwise leave its settings on for the rest of the run.
+                    _benchModeVariant = null;
+                    RestoreVariantState(variantDefaults);
+                    Denoiser.FrameTimeOverride = 0f;
+                    if (_autoExposure != null) _autoExposure.Trace = null;
+                }
                 if (_benchValidate) File.WriteAllText(Path.Combine(outDir, "validation.json"), JsonConvert.SerializeObject(checks, Formatting.Indented));
                 else File.WriteAllText(Path.Combine(outDir, "results.json"), JsonConvert.SerializeObject(result, Formatting.Indented));
             }
