@@ -114,10 +114,23 @@ namespace UltraRT
             if (!Available || r == null) return false;
             var mats = r.sharedMaterials;
             if (mats.Length == 0) return false;
+            if (IsOverlay(mats[mats.Length - 1]))
+            {
+                // A copy of a renderer we already attached to (checkpoint room clones keep the material list): adopt it,
+                // so Dispose removes it there too.
+                if (mats.Length < 2 || TransparentClassifier.Of(mats[mats.Length - 2]) == TransparentKind.None) return false;
+                var original = new Material[mats.Length - 1];
+                Array.Copy(mats, original, original.Length);
+                _attached.Add((r, original, mats[mats.Length - 1]));
+                return true;
+            }
             var src = mats[mats.Length - 1];
             var kind = TransparentClassifier.Of(src);
             if (kind == TransparentKind.None) return false;
-            if (r is MeshRenderer && r.GetComponent<MeshFilter>()?.sharedMesh is Mesh mesh && mesh.subMeshCount > mats.Length) return false;
+            // Unity draws the last submesh again for an extra material. A static-batched renderer's MeshFilter holds the
+            // combined mesh; Unity clamps the extra material to the renderer's own last submesh of it (subMeshStartIndex +
+            // count - 1), so the check is for unbatched meshes only.
+            if (r is MeshRenderer && !r.isPartOfStaticBatch && r.GetComponent<MeshFilter>()?.sharedMesh is Mesh mesh && mesh.subMeshCount > mats.Length) return false;
             if (!_materials.TryGetValue(src, out var overlay))
             {
                 overlay = new Material(_shader) { name = src.name + " [UltraRT overlay]", renderQueue = src.renderQueue };

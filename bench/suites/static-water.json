@@ -1,0 +1,13 @@
+{
+  "Name": "static-water",
+  "Scenarios": [
+    { "Name": "8-2 pool", "Scene": "Level 8-2",
+      "Path": { "Type": "static", "Approach": "../recordings/8-2-a.json", "Position": [0, -11.6, 345], "Yaw": 0, "Pitch": -89, "Duration": 3 },
+      "Modes": ["off", "relight", "relight+refl=0", "hybrid", "refl-raw"], "Screenshots": [2] },
+    { "Name": "8-2 pool oblique", "Scene": "Level 8-2",
+      "Path": { "Type": "static", "Approach": "../recordings/8-2-a.json", "Position": [0, -11.6, 335], "Yaw": 0, "Pitch": -40, "Duration": 3 },
+      "Modes": ["off", "relight", "relight+refl=0", "hybrid"], "Screenshots": [2] },
+    { "Name": "4-2 start", "Scene": "Level 4-2", "Path": { "Type": "static", "Load": "none", "Duration": 3 },
+      "Enemies": "blind", "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] }
+  ]
+}

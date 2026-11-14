@@ -422,7 +422,9 @@ namespace UltraRT
             var mats = r.sharedMaterials;
             bool transparent = TryAddTransparent(r, mesh); // water/glass submeshes: a separate proxy (SceneProxies.Transparent.cs)
             transparent |= TryAddLava(r, mesh); // lava/acid submeshes: an emissive proxy (SceneProxies.Lava.cs)
-            if (!AnyTraceable(mats)) { if (!transparent) stats.SkippedMaterial++; return; }
+            // Static-batched water/glass/blood: slots of the static groups, like opaque submeshes (StaticGroups.cs).
+            bool staticTransparent = r.isPartOfStaticBatch && TransparentCandidate(r, mats);
+            if (!AnyTraceable(mats) && !staticTransparent) { if (!transparent) stats.SkippedMaterial++; return; }
 
             if (r.isPartOfStaticBatch && (portalLayer || player)) { stats.SkippedLayer++; return; } // merged batches can't carry PortalLayerMask
             if (r.isPartOfStaticBatch)
