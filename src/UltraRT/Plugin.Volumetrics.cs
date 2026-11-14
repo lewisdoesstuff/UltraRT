@@ -71,6 +71,7 @@ namespace UltraRT
         private void TraceVolumetrics(Kind kind, bool upsampled)
         {
             string name = Modes[_mode].name;
+            if (_autoExposure != null) _autoExposure.HazeParams = Vector4.zero; // set again below when the pass runs
             if (!VolumetricsFor(kind, name) || _depthCopy == null || _proxies?.Rtas == null || _camera == null) return;
             var target = MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex;
             if (target == null || target.width != _depthCopy.width || target.height != _depthCopy.height) return;
@@ -120,6 +121,12 @@ namespace UltraRT
             _emissive.Bind(_cmd, _volumetrics.RtShader, _lightSamplingSettings.mode); // emissive triangles for surface glow scattering
             _volumetrics.Execute(_cmd, frame);
             _gpu?.End(_cmd, SlotVolumetrics);
+            if (_autoExposure != null && _volSettings.meterHaze > 0f)
+            {
+                _autoExposure.Haze = _volumetrics.Result;
+                _autoExposure.HazeParams = new Vector4(_volumetrics.ResultSize.x, _volumetrics.ResultSize.y,
+                    Mathf.Max(0f, _volSettings.strength) * _volSettings.meterHaze, 1f);
+            }
 
             if (Time.realtimeSinceStartup >= _volNextLog)
             {

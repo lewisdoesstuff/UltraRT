@@ -63,6 +63,8 @@ namespace UltraRT
         public float prefilterSamples = 8f;
         /// <summary>Fastest blend of the luminance moments (their variance must follow lighting changes).</summary>
         public float momentsAlpha = 0.1f;
+        /// <summary>How much of the haze auto exposure meters with the image (0 = none: a hazy dark scene is lifted as dark).</summary>
+        public float meterHaze = 0f;
         /// <summary>1 = show the exposed in-scattering only, 2 = the same without the temporal filter (raw samples).</summary>
         public int debugView;
 
@@ -135,6 +137,9 @@ namespace UltraRT
         /// <summary>The ray tracing shader, for binding shared scene inputs (emissive triangles) before <see cref="Execute"/>.</summary>
         public RayTracingShader RtShader => _rt;
         public string MediumSource { get; private set; } = "-";
+        /// <summary>The last frame's filtered low-res in-scattering (linear, unexposed) and its size, for auto exposure.</summary>
+        public Texture Result { get; private set; }
+        public Vector2 ResultSize { get; private set; }
 
         private readonly RayTracingShader _rt;
         private readonly ComputeShader _cs;
@@ -328,6 +333,9 @@ namespace UltraRT
             _prevVP = vp;
             _prevCamPos = cam.transform.position;
             _historyValid = true;
+
+            Result = result;
+            ResultSize = new Vector2(w, h);
 
             // 5. composite into the camera target, from a copy of it
             cmd.CopyTexture(f.target, _sceneCopy);

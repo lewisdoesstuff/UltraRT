@@ -115,6 +115,10 @@ namespace UltraRT
         /// <summary>Pixels counted last read-back (0 = nothing measurable).</summary>
         public float LastCount { get; private set; }
         public ComputeBuffer ExposureBuffer => _exposure;
+        /// <summary>Volumetric haze metered with the image (last frame's low-res in-scattering; null = none) and its params
+        /// (x, y low-res size, z scale, w 1 = on). Set by the volumetrics pass every frame (Plugin.Volumetrics.cs).</summary>
+        public Texture Haze;
+        public Vector4 HazeParams;
 
         private static readonly int
             IdFiltered = Shader.PropertyToID("_Filtered"),
@@ -132,6 +136,8 @@ namespace UltraRT
             IdParams2 = Shader.PropertyToID("_Params2"),
             IdParams3 = Shader.PropertyToID("_Params3"),
             IdParams4 = Shader.PropertyToID("_Params4"),
+            IdVolHaze = Shader.PropertyToID("_VolHaze"),
+            IdVolHazeParams = Shader.PropertyToID("_VolHazeParams"),
             IdCompositeExposure = Shader.PropertyToID("_UltraRTExposure"),
             IdCompositeLitWeight = Shader.PropertyToID("_UltraRTLitWeight");
 
@@ -176,6 +182,10 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kHistogram, IdNormalDepth, normalDepth);
             cmd.SetComputeTextureParam(cs, _kHistogram, IdLitWeight, litWeight);
             cmd.SetComputeBufferParam(cs, _kHistogram, IdHist, _hist);
+            bool haze = Haze != null && HazeParams.w > 0.5f;
+            cmd.SetComputeTextureParam(cs, _kHistogram, IdVolHaze, haze ? Haze : Texture2D.blackTexture);
+            cmd.SetComputeVectorParam(cs, IdVolHazeParams, haze ? HazeParams : Vector4.zero);
+            cmd.SetComputeBufferParam(cs, _kHistogram, IdExposure, _exposure);
             // Every second pixel in x and y: 16x16 threads cover 32x32 pixels.
             cmd.DispatchCompute(cs, _kHistogram, Mathf.CeilToInt(w / 32f), Mathf.CeilToInt(h / 32f), 1);
 

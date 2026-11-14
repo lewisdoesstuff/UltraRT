@@ -33,6 +33,10 @@ float4 _Params1; // x speed up (1/s, exposure rising: into the dark), y speed do
 float4 _Params2; // x snap (1 = jump to the target), y min pixels for a valid measurement, z exposure compensation (EV)
 float4 _Params3; // x up strength (fraction of brightening), y dead band (EV), z meter speed (1/s, 0 = raw), w settle speed (1/s, 0 = not settling)
 float4 _Params4; // x dark key (log2): meters between it and the key are left alone; darker ones are brightened towards it
+// Volumetric haze (docs/volumetrics.md), last frame's low-res in-scattering, added to the metered luminance the way the
+// volumetric composite adds it to the picture (linear, times the exposure), so a hazy scene is not lifted as if it were dark.
+Texture2D<float4> _VolHaze;
+float4 _VolHazeParams;           // x low-res width, y height, z scale (in-scatter strength x meter weight), w 1 = on
 
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
@@ -50,6 +54,15 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
         float4 sp = _HasSpecular != 0 ? _Specular[p] : float4(0, 0, 0, 1);
         float3 lit = _UltraRTLinear > 0.5 ? pow(max(_Filtered[p].rgb, 0.0), 1.0 / 2.2) : _Filtered[p].rgb;
         float lum = Luma(_Albedo[p].rgb * lit * sp.a + sp.rgb);
+        if (_VolHazeParams.w > 0.5)
+        {
+            // displayed = ((e lum)^2.2 + e S)^(1/2.2); metered = displayed / e = (lum^2.2 + S e^-1.2)^(1/2.2)
+            uint2 q = min((uint2)(((float2)p + 0.5) / _Dim.xy * _VolHazeParams.xy), (uint2)_VolHazeParams.xy - 1u);
+            float e = _Exposure[0].x;
+            e = (e > 0.0 && !isinf(e)) ? e : 1.0;
+            float haze = Luma(max(_VolHaze[q].rgb, 0.0)) * _VolHazeParams.z * pow(e, -1.2);
+            lum = pow(pow(max(lum, 0.0), 2.2) + haze, 1.0 / 2.2);
+        }
         float bin = (log2(max(lum, 1e-8)) - _Range.x) * _Range.y;
         InterlockedAdd(gsBins[(uint)clamp(bin, 0.0, BINS - 1.0)], 1u);
     }
