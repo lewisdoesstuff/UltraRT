@@ -181,7 +181,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
     r.TMax = 1.0e4;
     RayPayload h = (RayPayload)0;
     h.t = -1.0;
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, r, h);
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, r, h);
     float3 c;
     if (h.t < 0.0)
     {
@@ -203,6 +203,41 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
         if (l > _ReflMaxRadiance) c *= _ReflMaxRadiance / l;
     }
     return c;
+}
+
+// ---------------------------------------------------------------- water and glass (docs/reflections.md, "Water and glass")
+
+// Transparent surfaces (instance mask 0x10) are invisible to every other ray. In hybrid and denoised modes
+// (_TransParams.y = 1, only while a water/glass instance is active) the end of RayGen finds the nearest water or glass
+// surface in front of the opaque hit and traces its mirror reflection (procedural ripples on water), writing
+// _Output = (reflected radiance, distance to the transparent surface; < 0 = none) instead of the composited colour,
+// which those modes never read. No ninth UAV and no second DispatchRays (a second dispatch rebuilds the shader table:
+// measured +0.2-0.3 ms of frame time). TransparentOverlay.shader applies it with Fresnel right after the game draws
+// the surface, so particles in front still cover it.
+#include "UltraRTWater.hlsl"
+
+// x: lobe spread used for the reflection hit's cache footprint test (large = always shade from the radiance cache:
+// smooth, no shadow-ray noise; there is no temporal filter on this pass). y: 1 = trace transparents into _Output.
+float4 _TransParams;
+
+float4 TraceTransparent(RayDesc ray, float opaqueT, inout uint rng)
+{
+    ray.TMin = 0.0;
+    ray.TMax = opaqueT > 0.0 ? opaqueT + 0.05 : 1.0e5;
+    RayPayload p = (RayPayload)0;
+    p.t = -1.0;
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_TRANSPARENT, 0, 1, 0, ray, p);
+    if (p.t < 0.0) return float4(0, 0, 0, -1);
+
+    float3 pos = ray.Origin + ray.Direction * p.t;
+    float3 ng = p.normal; // faces the ray
+    SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
+    float3 n = mat.cls == 13u ? WaterNormal(ng, pos, p.t) : ng; // 13 = Wet: water
+    float3 L = reflect(ray.Direction, n);
+    if (dot(L, ng) < 0.02) L = reflect(ray.Direction, ng);
+    float dist;
+    float3 lr = TraceReflection(pos, ng, L, false, _TransParams.x, 0.0, p.t, rng, dist);
+    return float4(lr, p.t);
 }
 
 // ---------------------------------------------------------------- ray generation
@@ -233,7 +268,7 @@ void RayGen()
     bool wantGameCube = _Mode == 3 && _ReflParams.x > 0.5 && _ReflCache.z > 0.5;
     p.flags = ULTRART_PAYLOAD_WANT_MOTION; // the hit returns its world-space motion in p.motion
     if (wantGameCube) p.flags |= ULTRART_FLAG_GAMECUBE;
-    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, ray, p);
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, ray, p);
 
     float3 c, lighting, albedo, emission;
     if (p.t < 0.0)
@@ -278,7 +313,7 @@ void RayGen()
             b.TMax = 1.0e4;
             RayPayload h = (RayPayload)0;
             h.t = -1.0;
-            TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xFF, 0, 1, 0, b, h);
+            TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, b, h);
             if (h.t < 0.0)
             {
                 indirect = SkyRadiance(b.Direction);
@@ -364,7 +399,7 @@ void RayGen()
         c = lerp(prev.rgb, c, 1.0 / (float)(_AccumFrames + 1));
     }
 
-    _Output[id] = float4(c, 1.0);
+    _Output[id] = _TransParams.y > 0.5 ? TraceTransparent(ray, p.t, rng) : float4(c, 1.0);
 }
 
 [shader("miss")]

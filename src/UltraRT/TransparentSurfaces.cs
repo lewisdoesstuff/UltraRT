@@ -1,0 +1,155 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using BepInEx.Logging;
+using UnityEngine;
+using Object = UnityEngine.Object;
+
+namespace UltraRT
+{
+    /// <summary>Ray-traced water and glass (docs/reflections.md, "Water and glass").</summary>
+    internal enum TransparentKind { None = 0, Glass = 1, Water = 2 }
+
+    internal sealed class TransparentSettings
+    {
+        /// <summary>-ultrart-notransparent; F4 (reflections) also switches this pass.</summary>
+        public bool enabled = true;
+        /// <summary>-ultrart-transparent-strength: multiplies the Fresnel weight.</summary>
+        public float strength = 1f;
+        /// <summary>Cap on the reflection weight, so a surface never becomes a full mirror over what is drawn on it.</summary>
+        public float maxWeight = 0.85f;
+        /// <summary>-ultrart-water-waves: ripple slope scale (0 = flat mirror water).</summary>
+        public float waves = 1f;
+        /// <summary>Ripples fade out over this view distance (m).</summary>
+        public float waveFade = 60f;
+        /// <summary>-ultrart-water-refraction: screen-space refraction strength (0 = off, saves the colour copy).</summary>
+        public float refraction = 1f;
+        /// <summary>Lobe spread passed to the reflection-hit cache test: large = always shade from the radiance cache.</summary>
+        public float cacheSpread = 1000f;
+        /// <summary>Fresnel F0. Above the physical 0.02/0.04: the game's water and glass textures are bright and fairly
+        /// opaque, which hides a physical-strength reflection everywhere but at grazing angles.</summary>
+        public float waterF0 = 0.12f, glassF0 = 0.08f;
+    }
+
+    /// <summary>
+    /// Which transparent ULTRAKILL/Master materials are water or glass. The game draws them in the transparent queue
+    /// (alpha blended, mostly without depth writes), so they are not part of the opaque RT scene: they get their own
+    /// instance mask (SceneProxies.TransparentMask) that only the transparent pass traces.
+    /// </summary>
+    internal static class TransparentClassifier
+    {
+        private static readonly Regex WaterName = new Regex(@"(^|[\s_])(Water|Sea)(?![A-Z])", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        // Not surfaces: force fields, ghost curtains, plants and enemies tagged Wet, lamp shades tagged Glass.
+        private static readonly Regex Excluded = new Regex(@"ForceField|Ghost|Succulent|Splash|Metal Light", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+        private static readonly Dictionary<Material, TransparentKind> Cache = new Dictionary<Material, TransparentKind>();
+
+        public static TransparentKind Of(Material m)
+        {
+            if (m == null) return TransparentKind.None;
+            if (Cache.TryGetValue(m, out var k)) return k;
+            if (Cache.Count > 20000) Cache.Clear(); // materials of unloaded scenes
+            return Cache[m] = Classify(m);
+        }
+
+        private static TransparentKind Classify(Material m)
+        {
+            if (m.shader == null || m.shader.name != "ULTRAKILL/Master") return TransparentKind.None;
+            if (!m.IsKeywordEnabled("TRANSPARENCY")) return TransparentKind.None;
+            // 2 = alpha blend. 3 (additive) is lava, acid and light shafts: glows, not surfaces.
+            if (m.HasProperty("_BlendMode") && Mathf.RoundToInt(m.GetFloat("_BlendMode")) != 2) return TransparentKind.None;
+            // Distance-faded waterfalls and stained-glass light shafts, sky walls, enemies.
+            if (m.IsKeywordEnabled("DISTANCE_FADE") || m.IsKeywordEnabled("LIMBO_WALLS") || m.IsKeywordEnabled("ENEMY")) return TransparentKind.None;
+            string n = MaterialClassifier.CleanName(m);
+            if (Excluded.IsMatch(n)) return TransparentKind.None;
+            int st = m.HasProperty("_SurfaceType") ? Mathf.RoundToInt(m.GetFloat("_SurfaceType")) : -1;
+            if (WaterName.IsMatch(n) && (st == (int)SurfaceClass.Wet || n.Equals("Water", StringComparison.OrdinalIgnoreCase))) return TransparentKind.Water;
+            if (n.IndexOf("Glass", StringComparison.OrdinalIgnoreCase) >= 0) return TransparentKind.Glass;
+            if (st == (int)SurfaceClass.Glass && n.StartsWith("Ice", StringComparison.OrdinalIgnoreCase)) return TransparentKind.Glass;
+            return TransparentKind.None;
+        }
+
+        /// <summary>Reflection parameters of the transparent proxy (the hit shader packs them into the payload).</summary>
+        public static MaterialParams Params(TransparentKind kind, TransparentSettings s) => kind == TransparentKind.Water
+            ? MaterialParams.Spec(SurfaceClass.Wet, 0f, 0f, s.waterF0, 1f, "transparent water")
+            : MaterialParams.Spec(SurfaceClass.Glass, 0f, 0f, s.glassF0, 1f, "transparent glass");
+    }
+
+    /// <summary>
+    /// The overlay material (TransparentOverlay.shader) appended to each traced water/glass renderer, so Unity draws its
+    /// last submesh once more right after the game's own material. The original material lists are restored on Dispose.
+    /// </summary>
+    internal sealed class TransparentOverlays : IDisposable
+    {
+        private readonly Shader _shader;
+        private readonly TransparentSettings _settings;
+        private readonly Dictionary<Material, Material> _materials = new Dictionary<Material, Material>();
+        private readonly List<(Renderer r, Material[] original, Material overlay)> _attached = new List<(Renderer, Material[], Material)>();
+
+        public TransparentOverlays(Shader shader, TransparentSettings settings)
+        {
+            _shader = shader;
+            _settings = settings;
+        }
+
+        public int Count => _attached.Count;
+        public bool Available => _shader != null && _shader.isSupported;
+
+        /// <summary>Appends the overlay for the renderer's last material slot (the submesh Unity repeats). False if that
+        /// slot is not a water/glass material.</summary>
+        public bool Attach(Renderer r)
+        {
+            if (!Available || r == null) return false;
+            var mats = r.sharedMaterials;
+            if (mats.Length == 0) return false;
+            var src = mats[mats.Length - 1];
+            var kind = TransparentClassifier.Of(src);
+            if (kind == TransparentKind.None) return false;
+            if (r is MeshRenderer && r.GetComponent<MeshFilter>()?.sharedMesh is Mesh mesh && mesh.subMeshCount > mats.Length) return false;
+            if (!_materials.TryGetValue(src, out var overlay))
+            {
+                overlay = new Material(_shader) { name = src.name + " [UltraRT overlay]", renderQueue = src.renderQueue };
+                if (src.HasProperty("_MainTex"))
+                {
+                    var tex = src.GetTexture("_MainTex");
+                    if (tex != null && tex.dimension == UnityEngine.Rendering.TextureDimension.Tex2D) overlay.SetTexture("_MainTex", tex);
+                    overlay.SetTextureScale("_MainTex", src.GetTextureScale("_MainTex"));
+                    overlay.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
+                }
+                if (src.HasProperty("_Color")) overlay.SetColor("_Color", src.GetColor("_Color"));
+                overlay.SetFloat("_Opacity", src.HasProperty("_Opacity") ? src.GetFloat("_Opacity") : 1f);
+                overlay.SetFloat("_Kind", kind == TransparentKind.Water ? 1f : 0f);
+                overlay.SetFloat("_F0", kind == TransparentKind.Water ? _settings.waterF0 : _settings.glassF0);
+                overlay.SetFloat("_Weight", 1f);
+                overlay.SetFloat("_CullMode", src.HasProperty("_CullMode") ? src.GetFloat("_CullMode") : 2f);
+                _materials[src] = overlay;
+            }
+            var withOverlay = new Material[mats.Length + 1];
+            Array.Copy(mats, withOverlay, mats.Length);
+            withOverlay[mats.Length] = overlay;
+            r.sharedMaterials = withOverlay;
+            _attached.Add((r, mats, overlay));
+            return true;
+        }
+
+        /// <summary>True for our overlay materials (never traced, never classified).</summary>
+        public static bool IsOverlay(Material m) => m != null && m.shader != null && m.shader.name == "UltraRT/TransparentOverlay";
+
+        public void Dispose()
+        {
+            foreach (var (r, original, overlay) in _attached)
+            {
+                if (r == null) continue;
+                // Put the original list back, unless a game script replaced the materials since: then keep its choice minus
+                // ours (also instanced copies of ours, from scripts that touched renderer.materials).
+                var now = r.sharedMaterials;
+                if (now.Length == original.Length + 1 && now[now.Length - 1] == overlay) r.sharedMaterials = original;
+                else if (now.Any(IsOverlay)) r.sharedMaterials = now.Where(m => !IsOverlay(m)).ToArray();
+            }
+            _attached.Clear();
+            foreach (var m in _materials.Values) if (m != null) Object.Destroy(m);
+            _materials.Clear();
+        }
+    }
+}

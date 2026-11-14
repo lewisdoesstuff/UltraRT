@@ -41,6 +41,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/PathTrace.raytrace",
                     "Assets/UltraRT/Shaders/Proxy.shader",
                     "Assets/UltraRT/Shaders/Reflections.compute",
+                    "Assets/UltraRT/Shaders/TransparentOverlay.shader",
                     "Assets/UltraRT/Shaders/UnpackHybrid.compute",
                 },
             };

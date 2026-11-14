@@ -171,6 +171,8 @@ namespace UltraRT
         {
             if (m == null || m.shader == null) return false;
             if (m.renderQueue >= 3000) return false;
+            // Water and glass (some glass sits at queue 2999) are traced separately, under TransparentMask.
+            if (TransparentSource(m) || TransparentOverlays.IsOverlay(m)) return false;
             string s = m.shader.name;
             // LIMBO_WALLS: the "TV sky" walls (ScreenSky/ScreenField) draw the panoramic sky by view direction through a
             // scanline mask. For RT they are sky, not surfaces: rays pass through to the sky lookup and the sun isn't blocked.
@@ -220,6 +222,7 @@ namespace UltraRT
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}), light fixtures {FixtureCount}");
             LogMaterialClasses();
+            LogTransparents();
         }
 
         private void LogMaterialClasses()
@@ -316,7 +319,8 @@ namespace UltraRT
                 if (IsBackdrop(r)) { stats.SkippedBackdrop++; continue; }
                 var mesh = r.GetComponent<MeshFilter>()?.sharedMesh;
                 if (mesh == null) { stats.SkippedMesh++; continue; }
-                if (!r.sharedMaterials.Any(Traceable)) { stats.SkippedMaterial++; continue; }
+                bool transparent = TryAddTransparent(r, mesh); // water/glass submeshes: a separate proxy (SceneProxies.Transparent.cs)
+                if (!r.sharedMaterials.Any(Traceable)) { if (!transparent) stats.SkippedMaterial++; continue; }
 
                 if (r.isPartOfStaticBatch)
                 {
@@ -367,7 +371,7 @@ namespace UltraRT
             return flags;
         }
 
-        private void AddDynamic(Renderer source, Renderer proxy, RayTracingSubMeshFlags[] flags)
+        private void AddDynamic(Renderer source, Renderer proxy, RayTracingSubMeshFlags[] flags, uint? mask = null, bool? twoSided = null)
         {
             var ss = source as SkinnedMeshRenderer;
             int slot = Motion.AllocSlot();
@@ -385,8 +389,8 @@ namespace UltraRT
                 Slot = slot,
                 Root = ss != null ? (ss.rootBone != null ? ss.rootBone : ss.transform) : null,
                 SkinVerts = ss != null && ss.sharedMesh != null ? ss.sharedMesh.vertexCount : 0,
-                TwoSided = source.sharedMaterials.Any(m => Traceable(m) && SourceTwoSided(m)),
-                Mask = source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask,
+                TwoSided = twoSided ?? source.sharedMaterials.Any(m => Traceable(m) && SourceTwoSided(m)),
+                Mask = mask ?? (source.sharedMaterials.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask),
             };
             _dynamic.Add(entry);
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
@@ -559,6 +563,7 @@ namespace UltraRT
                 // Newly in the RTAS: no motion history (it appears where it is).
                 d.CurM = d.PrevM = MotionMatrix(d);
                 if (d.Root != null) d.AddedRootPos = d.Root.position;
+                CountTransparent(d, true);
                 d.Moved = false;
                 d.SkinPrevValid = false;
                 if (d.SkinnedProxy != null && d.SkinBase < 0) d.SkinBase = Motion.AllocSkin(d.SkinVerts);
@@ -568,6 +573,7 @@ namespace UltraRT
             {
                 if (d.Proxy != null) Rtas.RemoveInstance(d.Proxy);
                 _active.Remove(d);
+                CountTransparent(d, false);
                 Motion.FreeSkin(d.SkinBase, d.SkinVerts);
                 d.SkinBase = -1;
                 d.SkinPrevValid = false;
@@ -896,6 +902,7 @@ namespace UltraRT
             foreach (var go in _proxyObjects) if (go != null) Object.Destroy(go);
             _proxyObjects.Clear();
             Motion.Dispose();
+            DisposeTransparents();
             _dynamic.Clear();
             _active.Clear();
             _dirty.Clear();
