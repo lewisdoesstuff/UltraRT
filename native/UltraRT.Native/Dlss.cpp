@@ -83,7 +83,7 @@ namespace
     SRWLOCK s_Lock = SRWLOCK_INIT;
     char s_Status[1024] = "not initialized";
     char s_StatusOut[1024];
-    char s_Log[16384];
+    char s_Log[65536];
     int s_LogLen = 0;
     volatile LONG s_State = 0; // 0 idle, 1 NGX ready, 2 feature ready, -1 failed (see status)
     volatile LONG64 s_Evals = 0;
@@ -120,6 +120,9 @@ namespace
 
     void NVSDK_CONV NgxLog(const char* message, NVSDK_NGX_Logging_Level, NVSDK_NGX_Feature)
     {
+        // NGX's start-up is chatty (config tables, model cache probes); keep the rest (its full log is in the data dir).
+        static const char* const noise[] = { "NGXLoadConfig", "failed to load (cmsid", "IsFeatureDenied", "LoadMappingFileData", "NGXReportStatusFeedback" };
+        for (const char* n : noise) if (message && strstr(message, n)) return;
         char buf[1024];
         snprintf(buf, sizeof buf, "NGX: %s", message ? message : "");
         size_t n = strlen(buf);

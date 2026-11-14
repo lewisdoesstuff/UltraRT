@@ -21,9 +21,12 @@ namespace UltraRT
         private bool _rrEnabled, _rrInitTried, _rrWasActive;
         private int _rrPreset;
         private bool _rrOwnList = true, _rrSpecHit = true, _rrLinear = true;
-        private float _rrJitterSign = -1f;
+        private float _rrJitterSign = 1f;
+        /// <summary>Bench cost probe (docs/dlss.md): RR output at this x the screen, e.g. 1.3333 with plugin._scale=0.6667 = 720p -> 1440p on a 1080p screen.</summary>
+        private float _rrOutScale = 1f;
         private int _rrGen = -1;
         private float _rrLastUsed;
+        private string _rrStatusLogged;
         private uint _rrFrame = uint.MaxValue - 1;
         private ComputeShader _rrShader;
         private const int SlotRR = 17, SlotRREval = 18;
@@ -75,6 +78,11 @@ namespace UltraRT
             catch (InvalidOperationException) { /* legacy input disabled */ }
             var log = _rr?.TakeLog();
             if (log != null) foreach (var line in log.Split('\n')) Logger.LogInfo($"[RR] {line}");
+            if (_rr != null && Time.frameCount % 60 == 0)
+            {
+                string st = _rr.Status;
+                if (st != _rrStatusLogged) { _rrStatusLogged = st; Logger.LogInfo($"[RR] status: {st} (state {_rr.State}, {_rr.Evaluations} evaluations)"); }
+            }
         }
 
         /// <summary>Main thread, lazily on first use: load the native side and point NGX at nvngx_dlssd.dll.</summary>
@@ -123,6 +131,7 @@ namespace UltraRT
                 _rr.JitterSign = _rrJitterSign;
                 _rr.SpecularHitDistance = _rrSpecHit;
                 _rr.Linearize = _rrLinear;
+                _rr.OutScale = _rrOutScale;
             }
             return want;
         }

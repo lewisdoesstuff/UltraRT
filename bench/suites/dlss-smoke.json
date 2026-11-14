@@ -1,18 +1,25 @@
 {
-  "Name": "dlss-smoke",
-  "Scenarios": [
-    {
-      "Name": "3-1 noisy room",
-      "Scene": "Level 3-1",
-      "Path": { "Type": "static", "Approach": "../recordings/3-1-noisy-room.json", "Duration": 10 },
-      "Modes": [
-        "off",
-        "relight",
-        "relight+plugin._rrEnabled=1",
-        "relight+plugin._rrEnabled=1+plugin._rrJitterSign=1",
-        "relight+plugin._rrEnabled=1+plugin._rrOwnList=0"
-      ],
-      "Screenshots": [5]
-    }
-  ]
+ "Name": "dlss-smoke",
+ "Scenarios": [
+  {
+   "Name": "3-1 noisy room",
+   "Scene": "Level 3-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/3-1-noisy-room.json",
+    "Duration": 10,
+    "Load": "checkpoint"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+plugin._rrEnabled=1",
+    "relight+plugin._rrEnabled=1+plugin._rrJitterSign=1",
+    "relight+plugin._rrEnabled=1+plugin._rrOwnList=0"
+   ],
+   "Screenshots": [
+    5
+   ]
+  }
+ ]
 }

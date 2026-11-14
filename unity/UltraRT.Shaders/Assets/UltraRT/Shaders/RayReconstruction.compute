@@ -8,11 +8,12 @@
 //                  depth (the composite keeps the game's pixel elsewhere, as with the temporal upsampler).
 //   ExposureInput  trace res: what relight's auto exposure meters (the lit part of the RR result, unexposed).
 //
-// Colour space. Relight's linear transport makes the lighting linear; the composite then converts it to the game's
-// gamma units and multiplies by gamma albedo. RR wants linear HDR radiance, so each term of the composite is converted
-// to linear on its own: (albedo keep e)^2.2 * L + (spec e)^2.2 + emission^2.2. The diffuse term is exactly linear in
-// the noisy L, so RR's averaging matches our denoiser's. Finish takes the result back with ^(1/2.2). Gamma transport
-// (pt-dn) feeds the composite's gamma terms directly (_Linear = 0), as our denoiser averages them.
+// Colour space. Relight's linear transport makes the lighting L linear; the composite then converts it to the game's
+// gamma units: c = (albedo L^(1/2.2) keep + spec) e + emission. RR wants linear HDR radiance, so it gets c^2.2 per
+// noisy sample. Where only the diffuse term is present that is (albedo keep e)^2.2 * L, exactly linear in the noisy L, so
+// RR averages what our denoiser averages; Finish takes the result back with ^(1/2.2), exact for noise-free input.
+// (Linearising each term on its own was wrong: (a^2.2 + b^2.2)^(1/2.2) < a + b darkened reflective and emissive
+// surfaces.) Gamma transport (pt-dn) feeds c directly, as our denoiser averages gamma lighting there.
 
 #pragma kernel Prepare
 #pragma kernel Finish
@@ -81,8 +82,8 @@ void Prepare(uint3 id : SV_DispatchThreadID)
     SurfaceMaterial m = SurfaceMat(sf);
 
     // The composite: (albedo * Disp(L) * keep + spec) * e + emission, Disp = ^(1/2.2) with linear transport.
-    float3 diffAlb = Lin(albedo * sp.a * e);
-    float3 color = diffAlb * L + Lin(sp.rgb * e) + Lin(emission);
+    float3 disp = Linearize() ? pow(L, 1.0 / 2.2) : L;
+    float3 color = Lin((albedo * disp * sp.a + sp.rgb) * e + emission);
     float3 specAlb = 0;
     if (!sky && (sp.a < 1.0 || any(sp.rgb > 0.0)))
     {
@@ -129,6 +130,9 @@ float4 _TraceMap; // xy trace px per screen px, zw guard band (trace px)
 float4 _TraceRay; // xy trace ndc -> view ray slope
 float4 _ZParams;  // eye depth = 1 / (z * raw + w)
 float4 _Match;    // x depth tolerance (relative), y (absolute, m)
+float4 _RRMap;    // xy RR output px per screen px (1 unless the bench's 1440p cost probe renders RR larger), zw RR size
+
+float3 RRAt(int2 p) { return _RRColor[min((int2)(((float2)p + 0.5) * _RRMap.xy), (int2)_RRMap.zw - 1)].rgb; }
 
 float3 Display(float3 c) { return Linearize() ? pow(max(c, 0.0), 1.0 / 2.2) : max(c, 0.0); }
 
@@ -137,7 +141,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
 {
     int2 p = (int2)id.xy;
     if (any(p >= (int2)_OutDim.xy)) return;
-    float3 c = Display(_RRColor[p].rgb);
+    float3 c = Display(RRAt(p));
     c = saturate(UltraRTToneMap(c));
 
     float zg = 1.0 / (_ZParams.z * _GameDepth[p] + _ZParams.w);
@@ -170,7 +174,7 @@ void ExposureInput(uint3 id : SV_DispatchThreadID)
     if (any(s >= (int2)_Dim.xy)) return;
     float2 screen = ((float2)s + 0.5 + _Jitter.xy - _TraceMap.zw) / _TraceMap.xy;
     int2 p = clamp((int2)floor(screen), 0, (int2)_OutDim.xy - 1);
-    float3 g = Display(_RRColor[p].rgb);
+    float3 g = Display(RRAt(p));
     float e = UltraRTPixelExposure((uint2)s);
     float3 v = max(g - max(_Emission[s].rgb, 0.0), 0.0) / max(e, 1e-4); // the unexposed lit part, in display units
     // Exposure.compute meters albedo * Disp(filtered) * keep + spec: give it albedo 1, no spec, filtered = Disp^-1(v).

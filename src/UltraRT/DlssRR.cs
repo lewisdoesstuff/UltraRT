@@ -61,8 +61,9 @@ namespace UltraRT
 
         /// <summary>Halton(2,3) phases (DLSS-RR guide: at least 32).</summary>
         public int JitterPhases = 64;
-        /// <summary>Sign of the jitter handed to DLSS (our offset is the sample position relative to the texel centre).</summary>
-        public float JitterSign = -1f;
+        /// <summary>Sign of the jitter handed to DLSS. Our offset is the sample position relative to the texel centre, in texel index
+        /// space; +1 measured right (bursts: half the block sigma and drift of -1, docs/dlss.md).</summary>
+        public float JitterSign = 1f;
         /// <summary>0 = default (recommended), 4 = D, 5 = E, 6 = F (NVSDK_NGX_RayReconstruction_Hint_Render_Preset).</summary>
         public int Preset;
         /// <summary>true = record into our own command list submitted through Unity (ExecuteCommandList); false = Unity's list.</summary>
@@ -72,6 +73,8 @@ namespace UltraRT
         public bool Linearize = true;
         /// <summary>Log Unity's tracked resource states for the first evaluates (needs the obsolete IUnityGraphicsD3D12).</summary>
         public bool LogStates = true;
+        /// <summary>Bench cost probe: RR output = this x the screen (Finish point-samples it back). 1 = normal.</summary>
+        public float OutScale = 1f;
 
         public RenderTexture Final => _final;
         public int State => _disposed ? -1 : _getState();
@@ -181,8 +184,10 @@ namespace UltraRT
             if (_disposed || _cs == null || _getState() < 0) return false;
             int tw = i.radiance.width, th = i.radiance.height;
             int rw = tw - 2 * i.guardPx.x, rh = th - 2 * i.guardPx.y;
-            int W = i.gameDepth.width, H = i.gameDepth.height;
-            EnsureTargets(rw, rh, W, H, tw, th);
+            int Ws = i.gameDepth.width, Hs = i.gameDepth.height;
+            float os = Mathf.Clamp(OutScale, 0.25f, 4f);
+            int W = Mathf.RoundToInt(Ws * os), H = Mathf.RoundToInt(Hs * os);
+            EnsureTargets(rw, rh, W, H, tw, th, Ws, Hs);
             var cs = _cs;
             var cam = i.camera;
             var jitter = Jitter;
@@ -250,8 +255,9 @@ namespace UltraRT
             Vector4 z = SystemInfo.usesReversedZBuffer
                 ? new Vector4(-1f + far / near, 1f, (-1f + far / near) / far, 1f / far)
                 : new Vector4(1f - far / near, far / near, (1f - far / near) / far, far / near / far);
-            cmd.SetComputeVectorParam(cs, "_OutDim", new Vector4(W, H, 1f / W, 1f / H));
-            cmd.SetComputeVectorParam(cs, "_TraceMap", new Vector4((float)rw / W, (float)rh / H, i.guardPx.x, i.guardPx.y));
+            cmd.SetComputeVectorParam(cs, "_OutDim", new Vector4(Ws, Hs, 1f / Ws, 1f / Hs));
+            cmd.SetComputeVectorParam(cs, "_RRMap", new Vector4((float)W / Ws, (float)H / Hs, W, H));
+            cmd.SetComputeVectorParam(cs, "_TraceMap", new Vector4((float)rw / Ws, (float)rh / Hs, i.guardPx.x, i.guardPx.y));
             cmd.SetComputeVectorParam(cs, "_TraceRay", new Vector4(i.guardScale.x / proj.m00, i.guardScale.y / proj.m11, 0f, 0f));
             cmd.SetComputeVectorParam(cs, "_ZParams", z);
             cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, 0f, 0f));
@@ -261,7 +267,7 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, k, "_InstanceId", i.instanceId);
             cmd.SetComputeTextureParam(cs, k, "_Final", _final);
             BindExposure(cmd, k, i);
-            cmd.DispatchCompute(cs, k, Mathf.CeilToInt(W / 8f), Mathf.CeilToInt(H / 8f), 1);
+            cmd.DispatchCompute(cs, k, Mathf.CeilToInt(Ws / 8f), Mathf.CeilToInt(Hs / 8f), 1);
 
             _prevViewProj = i.viewProj;
             _prevJitter = jitter;
@@ -313,7 +319,7 @@ namespace UltraRT
             return 3;
         }
 
-        private void EnsureTargets(int rw, int rh, int W, int H, int tw, int th)
+        private void EnsureTargets(int rw, int rh, int W, int H, int tw, int th, int Ws, int Hs)
         {
             bool render = _color == null || _color.width != rw || _color.height != rh || !_color.IsCreated();
             bool screen = _out == null || _out.width != W || _out.height != H || !_out.IsCreated();
@@ -335,11 +341,15 @@ namespace UltraRT
             }
             if (screen)
             {
-                Release(ref _out); Release(ref _final);
+                Release(ref _out);
                 _out = Create(W, H, RenderTextureFormat.ARGBHalf, "UltraRT RR Output");
-                _final = Create(W, H, RenderTextureFormat.ARGBHalf, "UltraRT RR Final");
                 _pOut = _out.GetNativeTexturePtr();
                 _historyValid = false;
+            }
+            if (_final == null || _final.width != Ws || _final.height != Hs || !_final.IsCreated())
+            {
+                Release(ref _final);
+                _final = Create(Ws, Hs, RenderTextureFormat.ARGBHalf, "UltraRT RR Final");
             }
             if (trace)
             {
