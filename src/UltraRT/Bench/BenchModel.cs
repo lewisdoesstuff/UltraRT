@@ -47,6 +47,8 @@ namespace UltraRT.Bench
         public int BurstBlock = 8;
         /// <summary>Burst: frames to hold the pose in each mode before capturing (history convergence).</summary>
         public int BurstSettle = 120;
+        /// <summary>Extra seconds to hold each mode before its screenshot (lets the radiance cache converge after a variant).</summary>
+        public float ShotSettle;
         /// <summary>Burst modes ("off" first gives the mask); default Modes. "mode+key=value" applies runtime variants.</summary>
         public List<string> BurstModes;
     }

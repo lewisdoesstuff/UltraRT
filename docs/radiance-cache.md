@@ -59,6 +59,10 @@ back-propagate, for i = 1, 0:
 - **Infinite bounce with damping**: the tail reads the cache from previous frames, so every frame adds one more bounce of propagation. The cached tail is multiplied by `feedback` (0.8), and update paths clamp albedo to `albedoMax` (0.95). That keeps the loop contracting even in a closed room with white (albedo 1) walls. ULTRAKILL's light model isn't energy-conserving, so the damping is a safety margin, not a physical term.
 - Samples are clamped to `maxSample` (64) per channel before the fixed-point add, which handles both fireflies and the fixed-point range: 32k max-valued samples per cell per frame before a uint overflows.
 - The tail vertex doesn't write its own cell, because it has no fresh estimate.
+- Relight (docs/relight.md, "Sky and GI"): with linear transport the cache stores linear lighting (albedo and emission
+  are linearised at each vertex) and is cleared when the lighting space changes. Update paths take no direct sky samples
+  (`ULTRART_SKY_NO_NEE`); a miss gets the full sky. Measured: 2 bounces + 0.8 feedback match 4 bounces without feedback
+  within 1-3%.
 
 ## Resolve (`CacheResolve.compute`, `Resolve`, 1 thread per slot)
 

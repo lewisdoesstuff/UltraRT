@@ -1,0 +1,43 @@
+{
+  "Name": "sky-regress-check",
+  "Scenarios": [
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "pt-dn",
+        "relight",
+        "pt-dn+plugin._skyGI=1"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "ShotSettle": 2.0
+    },
+    {
+      "Name": "cerberus",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-cerberus.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "hybrid",
+        "relight",
+        "hybrid+plugin._skyGI=1"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "ShotSettle": 2.0
+    }
+  ]
+}

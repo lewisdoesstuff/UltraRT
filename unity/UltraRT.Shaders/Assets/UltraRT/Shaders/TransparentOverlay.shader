@@ -50,6 +50,7 @@ Shader "UltraRT/TransparentOverlay"
         Texture2D _UltraRTTransRefl;     // rgb reflected radiance, a = distance to the transparent hit (< 0 none)
         float4 _UltraRTTransParams;      // x global strength, y max weight, z tone map white point (0 = off)
         StructuredBuffer<float4> _UltraRTExposureGlobal; // relight auto exposure ([0].x), bound globally when in use
+        float _UltraRTLinear;            // global, relight: 1 = RT lighting is linear (docs/relight.md "Sky and GI")
         float _UltraRTAutoExposure;      // 1: apply _UltraRTExposureGlobal (as the denoiser's composite does for the lit part)
         float4 _UltraRTFog;              // x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
         Texture2D _UltraRTPreAlpha;      // colour target after the RT composite, before transparents
@@ -215,6 +216,9 @@ Shader "UltraRT/TransparentOverlay"
                 }
                 if (ws < 1e-4) discard;
                 float3 refl = sum / ws;
+                // Relight's linear transport shades the reflection (radiance cache) in linear light: back to the game's
+                // gamma first, then exposure, as the denoiser's composite does (UltraRTExposure.hlsl).
+                if (_UltraRTLinear > 0.5) refl = pow(max(refl, 0.0), 1.0 / 2.2);
                 if (_UltraRTAutoExposure > 0.5) refl *= _UltraRTExposureGlobal[0].x;
                 refl = Tonemap(refl);
 

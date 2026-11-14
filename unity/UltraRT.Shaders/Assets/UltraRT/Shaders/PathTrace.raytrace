@@ -28,20 +28,7 @@ uint     _AccumFrames;   // frames already accumulated (0 = reset)
 
 // Light buffers (_Lights, _LightMasks, _LightCount) and light sampling state: UltraRTLights.hlsl.
 
-float4   _SkyColor;       // radiance for rays escaping the level (when there is no sky texture)
-Texture2D _SkyTex;        // the level's panoramic sky (lat-long), e.g. LimboSkybox/SkySphere
-SamplerState sampler_linear_repeat_SkyTex;
-float4   _SkyTint;        // tint * exposure * colour-space double, rgb
-float4   _SkyParams;      // x: has texture, y: rotation (radians)
-
-float3 SkyRadiance(float3 d)
-{
-    if (_SkyParams.x < 0.5) return _SkyColor.rgb;
-    float s = sin(_SkyParams.y), c = cos(_SkyParams.y);
-    d = float3(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
-    float2 uv = float2(atan2(d.x, d.z) * (0.5 / 3.14159265) + 0.5, asin(clamp(d.y, -1.0, 1.0)) * (1.0 / 3.14159265) + 0.5);
-    return _SkyTex.SampleLevel(sampler_linear_repeat_SkyTex, uv, 0).rgb * _SkyTint.rgb;
-}
+// Sky (_SkyColor, _SkyTex, SkyRadiance, sky light sampling): UltraRTSky.hlsl.
 float4   _Ambient;        // the game's ambient term (2 * RenderSettings.ambientLight)
 float    _PrimaryAmbient; // how much of _Ambient to add at the primary hit (art knob)
 float    _BounceAmbient;  // how much of _Ambient to add at the bounce hit (stand-in for further bounces)
@@ -113,6 +100,7 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 
 #include "UltraRTLights.hlsl"
 #include "UltraRTCache.hlsl" // radiance cache lookups (read-only: no UAVs)
+#include "UltraRTSky.hlsl"   // sky radiance and sky light sampling (SRVs only)
 
 // The game's lighting at a point: same lights and falloff, but no shadows (the game has none) and its full ambient.
 // Used as the denominator of the ratio composite: game colour * (RT lighting / game lighting).
@@ -165,11 +153,12 @@ float3 ReflectionHitLight(float3 hp, RayPayload h, float footprint, inout uint r
         light = total - indirect * (1.0 - giW);
     else
         light = DirectOne(hp, h.normal, PayloadLayer(h), rng) + (cached ? indirect * giW : 0.0);
-    return light + _Ambient.rgb * _BounceAmbient * RelightAmbientScale();
+    return light + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
 }
 
 // Radiance arriving along one reflection ray: the hit's albedo x lighting (ReflectionHitLight) + its emission (in
-// full: emissive light sampling only covers the diffuse lobe), or the sky. Sky walls report a miss, so they reflect as
+// full: emissive light sampling only covers the diffuse lobe), or the sky. In display (gamma) units: with linear
+// transport the hit's lighting is converted per sample. Sky walls report a miss, so they reflect as
 // sky too. dist: hit distance, or 1000 for the sky (the virtual image point). spread: lobe spread (radians, roughly
 // alpha); pixelAngle: one trace pixel's angle; t: primary hit distance (for the footprint).
 float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread, float pixelAngle, float t, inout uint rng, out float dist)
@@ -194,7 +183,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
         float3 hp = r.Origin + L * h.t;
         float footprint = h.t * spread + (t + h.t) * pixelAngle;
         float3 hitLight = ReflectionHitLight(hp, h, footprint, rng);
-        c = PayloadEmission(h) * _EmissionScale + h.albedo * lerp(1.0, hitLight, h.alpha);
+        c = PayloadEmission(h) * _EmissionScale + h.albedo * lerp(1.0, LightToDisplay(hitLight), h.alpha);
     }
     c = max(c, 0.0); // also drops NaN
     if (glossy)
@@ -273,10 +262,10 @@ void RayGen()
     float3 c, lighting, albedo, emission;
     if (p.t < 0.0)
     {
-        lighting = SkyRadiance(ray.Direction);
+        c = SkyRadiance(ray.Direction);
+        lighting = ToLight(c); // lighting space; the composites convert back
         albedo = 1;
         emission = 0;
-        c = lighting;
         _NormalDepth[id] = float4(0, 0, 0, -1);
         _HybridLight[id] = uint4(0, 0, 0, 0);
         _InstanceId[id] = int2(-1, 0);
@@ -316,20 +305,23 @@ void RayGen()
             TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, b, h);
             if (h.t < 0.0)
             {
-                indirect = SkyRadiance(b.Direction);
+                indirect = SkyLightRadiance(b.Direction) * SkyMissWeight(n, b.Direction); // MIS with SkyDirect below
             }
             else
             {
                 float3 hp = b.Origin + b.Direction * h.t;
                 float3 cached;
                 float3 hitLight = (CacheQueryTotal(hp, h.normal, cached) ? cached : DirectOne(hp, h.normal, PayloadLayer(h), rng))
-                                + _Ambient.rgb * _BounceAmbient * RelightAmbientScale();
+                                + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
                 // Emitters that are sampled directly (EmissiveLights) must not also count when a bounce hits them.
-                indirect = PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight) + h.albedo * lerp(1.0, hitLight, h.alpha);
+                indirect = ToLight(PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight)) + ToLight(h.albedo) * lerp(1.0, hitLight, h.alpha);
             }
         }
+        // Sky light sampled directly (relight; one visibility ray). Counted with the indirect light: it is what the
+        // bounce ray's sky misses estimate too, and the cache's indirect term (primary mode) leaves it out.
+        indirect += SkyDirect(pos, n, rng);
 
-        float3 ambient = _Ambient.rgb * _PrimaryAmbient * RelightAmbientScale();
+        float3 ambient = ToLight(_Ambient.rgb) * _PrimaryAmbient * RelightAmbientScale();
         switch (_Mode)
         {
             default:
@@ -344,7 +336,8 @@ void RayGen()
         lighting = lerp(1.0, lighting, p.alpha); // fullbright surfaces ignore lighting, like the game
         albedo = p.albedo;
         emission = PayloadEmission(p) * _EmissionScale;
-        c = albedo * lighting + emission;
+        float3 shown = LightToDisplay(lighting); // = lighting unless linear transport (_Radiance keeps lighting space)
+        c = albedo * shown + emission;
 
         // One reflection ray where the specular term is worth it (the same weights the composites use).
         SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
@@ -366,7 +359,7 @@ void RayGen()
                 refl = float4(lr, dist);
                 // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered
                 // reflection in Reflections.compute instead.
-                if (_Mode <= 1) c = albedo * lighting * keep + emission + specW * lr;
+                if (_Mode <= 1) c = albedo * shown * keep + emission + specW * lr;
             }
         }
         _Reflection[id] = refl;

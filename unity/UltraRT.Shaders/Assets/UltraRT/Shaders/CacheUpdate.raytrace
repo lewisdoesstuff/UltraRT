@@ -14,12 +14,6 @@ uint     _FrameIndex;
 float    _LightScale;
 float    _EmissionScale;
 
-float4   _SkyColor;
-Texture2D _SkyTex;
-SamplerState sampler_linear_repeat_SkyTex;
-float4   _SkyTint;
-float4   _SkyParams;
-
 // Update parameters.
 float4   _CacheTrace;     // xy trace resolution (pixels), z pixels per update path along each axis (stride), w bounces
 float4   _CacheUpdate;    // x feedback (damping of the cached tail), y max albedo, z max sample value, w unused
@@ -48,27 +42,21 @@ float3 CosineHemisphere(float3 n, float u1, float u2)
     return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(0.0, 1.0 - u1)));
 }
 
-float3 SkyRadiance(float3 d)
-{
-    if (_SkyParams.x < 0.5) return _SkyColor.rgb;
-    float s = sin(_SkyParams.y), c = cos(_SkyParams.y);
-    d = float3(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
-    float2 uv = float2(atan2(d.x, d.z) * (0.5 / 3.14159265) + 0.5, asin(clamp(d.y, -1.0, 1.0)) * (1.0 / 3.14159265) + 0.5);
-    return _SkyTex.SampleLevel(sampler_linear_repeat_SkyTex, uv, 0).rgb * _SkyTint.rgb;
-}
-
 #include "UltraRTLights.hlsl"
 #include "UltraRTCache.hlsl"
+#define ULTRART_SKY_NO_NEE // sky light comes from cosine-sampled misses only (UltraRTSky.hlsl)
+#include "UltraRTSky.hlsl"
 
 // Direct light at a path vertex: fill lights plus RIS over _CacheCandidates (lights and emissive triangles), one shadow ray.
-// Like DirectOne, with more candidates: these paths are sparse, so candidates are cheap.
+// (SkyDirect is compiled out here, see ULTRART_SKY_NO_NEE.) Like DirectOne, with more candidates: these paths are sparse,
+// so candidates are cheap.
 float3 CacheDirect(float3 p, float3 n, uint layer, inout uint rng)
 {
     float3 sum = FillLighting(p, n, layer);
     Reservoir r = RisCandidates(p, n, layer, _CacheCandidates, rng);
     float W = ReservoirW(r);
     if (W > 0.0 && SampleVisible(r, p, n)) sum += r.c * W;
-    return sum * _LightScale;
+    return sum * _LightScale + SkyDirect(p, n, rng);
 }
 
 bool TracePrimary(float2 pixel, float2 dim, out RayDesc ray, out RayPayload p)
@@ -151,14 +139,14 @@ void UpdateRayGen()
         TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, 0, 1, 0, br, h);
         if (h.t < 0.0)
         {
-            a[v] = SkyRadiance(br.Direction);
+            a[v] = SkyLightRadiance(br.Direction) * SkyMissWeight(n, br.Direction);
             break;
         }
 
         float3 hp = br.Origin + br.Direction * h.t;
-        float3 alb = min(h.albedo, albedoMax);
+        float3 alb = min(ToLight(h.albedo), albedoMax);
         // Emitters sampled as lights (EmissiveLights) are not counted again when hit (_EmissiveBounceWeight = 0).
-        a[v] = PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight) + alb * (1.0 - h.alpha);
+        a[v] = ToLight(PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight)) + alb * (1.0 - h.alpha);
         b[v] = alb * h.alpha;
 
         if (v + 1 >= bounces)
@@ -222,9 +210,9 @@ void DebugRayGen()
     switch (_CacheDebug)
     {
         default:
-        case 1: c = found ? p.albedo * lerp(1.0, total, p.alpha) + PayloadEmission(p) * _EmissionScale : missColor; break;
-        case 2: c = found ? total : missColor; break;
-        case 3: c = found ? indirect : missColor; break;
+        case 1: c = found ? p.albedo * lerp(1.0, LightToDisplay(total), p.alpha) + PayloadEmission(p) * _EmissionScale : missColor; break;
+        case 2: c = found ? LightToDisplay(total) : missColor; break;
+        case 3: c = found ? LightToDisplay(indirect) : missColor; break;
         case 4:
         {
             // Hash colour per cell, darker on odd levels so LOD rings show; misses (not in the table) are grey.

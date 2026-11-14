@@ -27,6 +27,7 @@ float4                    _Range;       // x min log2 luminance, y bins per EV
 RWStructuredBuffer<uint>  _Hist;        // BINS counters
 RWStructuredBuffer<float4> _Exposure;   // see above
 float4 _Params0; // x key (log2), y min EV, z max EV, w dt (s)
+float  _UltraRTLinear; // global: 1 = _Filtered is linear lighting (relight's linear transport); measured in gamma units
 float4 _Params1; // x speed up (1/s, exposure rising: into the dark), y speed down (1/s, into the light), z low fraction, w high fraction
 float4 _Params2; // x snap (1 = jump to the target), y min pixels for a valid measurement, z exposure compensation (EV)
 
@@ -44,7 +45,8 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
     if (all(p < (uint2)_Dim.xy) && _NormalDepth[p].w >= 0.0 && (_LitWeight[p].w & 0xFFu) >= 128u)
     {
         float4 sp = _HasSpecular != 0 ? _Specular[p] : float4(0, 0, 0, 1);
-        float lum = Luma(_Albedo[p].rgb * _Filtered[p].rgb * sp.a + sp.rgb);
+        float3 lit = _UltraRTLinear > 0.5 ? pow(max(_Filtered[p].rgb, 0.0), 1.0 / 2.2) : _Filtered[p].rgb;
+        float lum = Luma(_Albedo[p].rgb * lit * sp.a + sp.rgb);
         float bin = (log2(max(lum, 1e-8)) - _Range.x) * _Range.y;
         InterlockedAdd(gsBins[(uint)clamp(bin, 0.0, BINS - 1.0)], 1u);
     }

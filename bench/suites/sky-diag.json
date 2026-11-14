@@ -1,0 +1,133 @@
+{
+  "Name": "sky-diag",
+  "Scenarios": [
+    {
+      "Name": "1-1 cerberus",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-cerberus.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "pt-direct",
+        "relight+plugin._skyGI=0",
+        "pt-direct+relight+plugin._skyGI=0+plugin._relightFillCut=1",
+        "pt-direct+relight+plugin._skyGI=0",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1+cache=off",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1+cache.bounces=4+cache.feedback=0",
+        "relight",
+        "relight+plugin._relightFillCut=1",
+        "pt-direct+relight+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._relightFillCut=1+plugin._skyScale=0.0001",
+        "pt-indirect+relight+plugin._relightFillCut=1+plugin._skySampling=0",
+        "pt-indirect+relight+plugin._relightFillCut=1+cache.bounces=4+cache.feedback=0",
+        "pt-indirect+relight+plugin._relightFillCut=1+cache.feedback=1",
+        "relight+plugin._relightFillCut=1+plugin._skyScale=2"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1.0
+    },
+    {
+      "Name": "1-1 user d",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-user-d.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "pt-direct",
+        "relight+plugin._skyGI=0",
+        "pt-direct+relight+plugin._skyGI=0+plugin._relightFillCut=1",
+        "pt-direct+relight+plugin._skyGI=0",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1+cache=off",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1+cache.bounces=4+cache.feedback=0",
+        "relight",
+        "relight+plugin._relightFillCut=1",
+        "pt-direct+relight+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._relightFillCut=1+plugin._skyScale=0.0001",
+        "pt-indirect+relight+plugin._relightFillCut=1+plugin._skySampling=0",
+        "pt-indirect+relight+plugin._relightFillCut=1+cache.bounces=4+cache.feedback=0",
+        "pt-indirect+relight+plugin._relightFillCut=1+cache.feedback=1",
+        "relight+plugin._relightFillCut=1+plugin._skyScale=2"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1.0
+    },
+    {
+      "Name": "1-1 start",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-approach.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "pt-direct",
+        "relight+plugin._skyGI=0",
+        "pt-direct+relight+plugin._skyGI=0+plugin._relightFillCut=1",
+        "pt-direct+relight+plugin._skyGI=0",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1+cache=off",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1+cache.bounces=4+cache.feedback=0",
+        "relight",
+        "relight+plugin._relightFillCut=1",
+        "pt-direct+relight+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._relightFillCut=1+plugin._skyScale=0.0001",
+        "pt-indirect+relight+plugin._relightFillCut=1+plugin._skySampling=0",
+        "pt-indirect+relight+plugin._relightFillCut=1+cache.bounces=4+cache.feedback=0",
+        "pt-indirect+relight+plugin._relightFillCut=1+cache.feedback=1",
+        "relight+plugin._relightFillCut=1+plugin._skyScale=2"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1.0
+    },
+    {
+      "Name": "1-1 torch hall",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-torch-hall.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "pt-direct",
+        "relight+plugin._skyGI=0",
+        "pt-direct+relight+plugin._skyGI=0+plugin._relightFillCut=1",
+        "pt-direct+relight+plugin._skyGI=0",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1+cache=off",
+        "pt-indirect+relight+plugin._skyGI=0+plugin._relightFillCut=1+cache.bounces=4+cache.feedback=0",
+        "relight",
+        "relight+plugin._relightFillCut=1",
+        "pt-direct+relight+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._relightFillCut=1",
+        "pt-indirect+relight+plugin._relightFillCut=1+plugin._skyScale=0.0001",
+        "pt-indirect+relight+plugin._relightFillCut=1+plugin._skySampling=0",
+        "pt-indirect+relight+plugin._relightFillCut=1+cache.bounces=4+cache.feedback=0",
+        "pt-indirect+relight+plugin._relightFillCut=1+cache.feedback=1",
+        "relight+plugin._relightFillCut=1+plugin._skyScale=2"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1.0
+    }
+  ]
+}
