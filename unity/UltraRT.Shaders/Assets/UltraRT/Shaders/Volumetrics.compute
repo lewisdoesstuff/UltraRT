@@ -1,0 +1,137 @@
+// Volumetric lighting, compute side (docs/volumetrics.md).
+//   Depth     low-res ray lengths from the game's depth buffer (one screen pixel per low-res pixel: the block centre).
+//   Temporal  depth-aware 3x3 spatial filter of this frame's in-scattering, reprojected history (by the ray's end point),
+//             clipped to the neighbourhood's mean +- k sigma, exponential blend.
+#pragma kernel Depth
+#pragma kernel Temporal
+
+// ---------------------------------------------------------------- Depth
+
+Texture2D<float>   _GameDepth;      // raw device depth (screen resolution)
+RWTexture2D<float> _DepthOut;       // radial distance from the camera (m); sky / far plane: _VolSky.x
+float4 _VolScreen;                  // screen width, height, block size (screen px per low-res px), unused
+float4 _VolLowDim;                  // low-res width, height, 1 / width, 1 / height
+float4 _ZParams;                    // Unity's _ZBufferParams for the main camera
+float4 _ViewRay;                    // x 1 / P00, y 1 / P11 (view-space ray of an NDC position)
+float4 _VolSky;                     // x distance used for the sky (m), y far-plane eye depth threshold
+
+uint2 ScreenPixel(uint2 id)
+{
+    uint f = (uint)_VolScreen.z;
+    return min(id * f + f / 2u, (uint2)_VolScreen.xy - 1u);
+}
+
+[numthreads(8, 8, 1)]
+void Depth(uint3 tid : SV_DispatchThreadID)
+{
+    uint2 id = tid.xy;
+    if (any(id >= (uint2)_VolLowDim.xy)) return;
+    uint2 p = ScreenPixel(id);
+    float raw = _GameDepth.Load(int3(p, 0));
+    float z = 1.0 / (_ZParams.z * raw + _ZParams.w);
+    float2 ndc = ((float2)p + 0.5) / _VolScreen.xy * 2.0 - 1.0;
+    float radial = z * length(float3(ndc.x * _ViewRay.x, ndc.y * _ViewRay.y, 1.0));
+    _DepthOut[id] = z >= _VolSky.y ? _VolSky.x : radial;
+}
+
+// ---------------------------------------------------------------- Temporal
+
+Texture2D<float4>   _VolIn;         // this frame's in-scattering (Volumetrics.raytrace)
+Texture2D<float>    _VolDepth;      // this frame's ray lengths (Depth)
+Texture2D<float4>   _HistIn;        // rgb accumulated in-scattering, a history length (frames)
+Texture2D<float>    _HistDepthIn;   // ray lengths the history was accumulated at
+RWTexture2D<float4> _HistOut;
+RWTexture2D<float>  _HistDepthOut;
+SamplerState sampler_linear_clamp;
+
+float4x4 _InvViewProj;              // this frame (unjittered screen viewProj)
+float4x4 _PrevViewProj;             // last frame's
+float4   _CamPos;
+float4   _PrevCamPos;
+float4   _TemporalParams;           // x alpha min, y max history (frames), z clip k (sigmas), w 1 = history valid
+float4   _TemporalParams2;          // x depth tolerance (relative), y spatial depth sigma (relative), z 1 / (2 sigma^2) of the spatial Gaussian (px)
+
+float3 RayDir(float2 uv)
+{
+    float4 farPt = mul(_InvViewProj, float4(uv * 2.0 - 1.0, 1.0, 1.0));
+    return normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+}
+
+[numthreads(8, 8, 1)]
+void Temporal(uint3 tid : SV_DispatchThreadID)
+{
+    int2 id = (int2)tid.xy;
+    int2 dim = (int2)_VolLowDim.xy;
+    if (any(id >= dim)) return;
+    float d = _VolDepth[id];
+
+    // Depth-aware 5x5: a Gaussian (sigma _TemporalParams2.z) for this frame's value, a box for the statistics of the history
+    // clip (one-sample estimates are noisy; a small clip box would throw the accumulated history away every frame).
+    float relSigma = max(_TemporalParams2.y, 1e-3) * d + 0.05;
+    float3 sum = 0, m1 = 0, m2 = 0;
+    float wSum = 0, sSum = 0;
+    [unroll] for (int dy = -2; dy <= 2; dy++)
+    [unroll] for (int dx = -2; dx <= 2; dx++)
+    {
+        int2 q = clamp(id + int2(dx, dy), 0, dim - 1);
+        float dq = _VolDepth[q];
+        float3 v = _VolIn[q].rgb;
+        if (any(!(v >= 0.0)) || any(isinf(v))) v = 0;
+        float e = (dq - d) / relSigma;
+        float w = exp(-e * e);
+        m1 += v * w; m2 += v * v * w; sSum += w;
+        float wc = w * exp(-(float)(dx * dx + dy * dy) * _TemporalParams2.z);
+        sum += v * wc; wSum += wc;
+    }
+    float3 cur = sum / wSum;
+    float3 mean = m1 / sSum;
+    float3 sigma = sqrt(max(m2 / sSum - mean * mean, 0.0));
+
+    float len = 0;
+    float3 hist = cur;
+    if (_TemporalParams.w > 0.5 && d > 0.0)
+    {
+        // Reproject the ray's end point (the visible surface, or a far point for the sky).
+        float2 uv = ((float2)id + 0.5) * _VolLowDim.zw;
+        float3 x = _CamPos.xyz + RayDir(uv) * d;
+        float4 c = mul(_PrevViewProj, float4(x, 1.0));
+        if (c.w > 1e-4)
+        {
+            float2 puv = c.xy / c.w * 0.5 + 0.5;
+            if (all(puv > 0.0) && all(puv < 1.0))
+            {
+                float expect = distance(x, _PrevCamPos.xyz);
+                float2 pos = puv * _VolLowDim.xy - 0.5;
+                int2 b = (int2)floor(pos);
+                float2 f = pos - b;
+                float4 acc = 0;
+                float aw = 0;
+                [unroll] for (int k = 0; k < 4; k++)
+                {
+                    int2 o = int2(k & 1, k >> 1);
+                    int2 q = clamp(b + o, 0, dim - 1);
+                    float bw = (o.x ? f.x : 1.0 - f.x) * (o.y ? f.y : 1.0 - f.y);
+                    float hd = _HistDepthIn[q];
+                    if (abs(hd - expect) <= _TemporalParams2.x * expect + 0.1 && bw > 0.0)
+                    {
+                        acc += _HistIn[q] * bw;
+                        aw += bw;
+                    }
+                }
+                if (aw > 0.05 && all(acc >= 0.0))
+                {
+                    acc /= aw;
+                    float k = max(_TemporalParams.z, 0.5);
+                    hist = clamp(acc.rgb, mean - k * sigma - 1e-4, mean + k * sigma + 1e-4);
+                    len = acc.a;
+                }
+            }
+        }
+    }
+    len = min(len + 1.0, max(_TemporalParams.y, 1.0));
+    float alpha = max(1.0 / len, _TemporalParams.x);
+    float3 outV = lerp(hist, cur, alpha);
+    if (_TemporalParams2.w > 0.5) outV = _VolIn[id].rgb; // debug: this frame's raw samples
+    _HistOut[id] = float4(max(outV, 0.0), len);
+    _HistDepthOut[id] = d;
+}

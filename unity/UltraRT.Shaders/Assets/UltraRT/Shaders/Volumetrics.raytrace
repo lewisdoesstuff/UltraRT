@@ -1,0 +1,390 @@
+// Volumetric lighting (docs/volumetrics.md): single scattering along camera rays at low resolution.
+// One ray per low-res pixel, ending at the game's depth (Volumetrics.compute, Depth). Along it:
+//   sun      _VolSteps stratified points (one blue-noise offset per pixel and frame), one shadow ray each toward a point
+//            on the sun disk: god rays through windows, arches and trees.
+//   lights   one point/spot light per pixel, picked by RIS over _VolLightCandidates candidates, one equiangular point
+//            on the ray (Kulla & Fajardo 2012) and one shadow ray: halos and shafts of torches, lamps, explosions.
+// Output: linear in-scattered radiance (unexposed, the game's light units ^2.2), already multiplied by the medium.
+// A separate .raytrace because PathTrace is at Unity's 8-UAV limit. One UAV here: _VolOut.
+#pragma max_recursion_depth 1
+
+#include "UltraRTCommon.hlsl"
+
+RaytracingAccelerationStructure _Scene;
+RWTexture2D<float4> _VolOut;      // rgb in-scattered radiance (linear), a = 1
+Texture2D<float>    _VolDepth;    // radial distance of each low-res pixel's ray (Volumetrics.compute Depth); <= 0: none
+
+float4x4 _VolInvViewProj;         // unjittered screen viewProj, inverted (OpenGL-style clip space)
+float4   _VolCamPos;
+float4   _VolDim;                 // low-res size, 1 / size
+float4   _VolMedium;              // rgb scattering coefficient per metre (sigma_s: density x albedo tint), w extinction per metre
+float4   _VolParams;              // x steps, y max distance (m), z HG anisotropy g, w frame index
+float4   _VolSunDir;              // xyz towards the sun, w cos(sun angular radius) (1 = hard)
+float4   _VolSunColor;            // rgb sun irradiance (linear), w 1 = sun active
+float4   _VolLightParams;         // x local light count, y candidates, z local light scale, w min distance^2 to a light
+float4   _VolFalloff;              // x relight falloff blend, y light exposure (relight), z 1 = linear transport (ToLight ^2.2)
+
+// The plugin's light list (UltraRTLights.hlsl layout, 4 x float4 per light). Directional lights are skipped here: the
+// sun comes in through _VolSun*, fill lights are fakes.
+StructuredBuffer<float4> _Lights;
+
+// Emissive triangles (EmissiveLights.cs; layout in UltraRTLights.hlsl), bound by EmissiveLights.Bind.
+StructuredBuffer<uint4>  _EmissiveTris;
+StructuredBuffer<float4> _EmissiveOwners;
+StructuredBuffer<uint4>  _EmissiveAlias;
+StructuredBuffer<uint>   _EmissiveActive;
+int      _EmissiveCount;
+int      _EmissiveTriCount;
+float4   _EmissiveParams;   // y: EmissiveLightScale / pi, z: min squared distance
+float    _VolEmissive;      // emissive scattering multiplier (0 = off)
+float    _VolClamp;         // max luminance of the one-sample light + emissive estimate per pixel (linear, 0 = none)
+
+static const float kPi = 3.14159265;
+
+// ---------------------------------------------------------------- noise
+
+uint Pcg(inout uint s)
+{
+    s = s * 747796405u + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+float Rand(inout uint s) { return Pcg(s) * (1.0 / 4294967296.0); }
+
+// Interleaved gradient noise (Jimenez 2014), shifted by the golden ratio each frame: a blue-ish offset per pixel whose
+// temporal average over a few frames covers [0, 1) evenly, so the step pattern does not boil.
+float BlueOffset(uint2 id, uint frame)
+{
+    float2 p = (float2)id + 5.588238 * (float)(frame & 63u);
+    return frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715))));
+}
+
+// ---------------------------------------------------------------- medium
+
+float PhaseHG(float cosT, float g)
+{
+    float d = 1.0 + g * g - 2.0 * g * cosT;
+    return (1.0 - g * g) / (4.0 * kPi * d * sqrt(max(d, 1e-6)));
+}
+
+bool Unoccluded(float3 p, float3 dir, float dist)
+{
+    RayDesc r;
+    r.Origin = p;
+    r.Direction = dir;
+    r.TMin = 0.0;
+    r.TMax = max(0.0, dist);
+    RayPayload sp = (RayPayload)0;
+    sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
+    // No back-face culling: a point in the air must be shadowed by thin one-sided geometry (leaf cards, roofs) from
+    // either side. Geometry and light fixtures (0x05); sky walls never block light.
+    TraceRay(_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0x05u, 0, 1, 0, r, sp);
+    return sp.t < 0.0;
+}
+
+float3 ToLightV(float3 g) { return _VolFalloff.z > 0.5 ? pow(max(g, 0.0), 2.2) : g; }
+
+// A point/spot light's (unshadowed) radiance arriving at x, as the relight light model computes it at a surface but
+// without the cosine (UltraRTLights.hlsl, LightEval). Lights are evaluated with linear transport's curves when that is
+// on, else the game's gamma curves: either way the result is used as linear light here.
+float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
+{
+    float4 l0 = _Lights[i * 4];
+    float4 l1 = _Lights[i * 4 + 1];
+    float4 l2 = _Lights[i * 4 + 2];
+    float4 l3 = _Lights[i * 4 + 3];
+    float3 toL = l0.xyz - x;
+    float d2 = max(dot(toL, toL), _VolLightParams.w);
+    float d = sqrt(d2);
+    L = toL / max(sqrt(dot(toL, toL)), 1e-4);
+    dist = sqrt(dot(toL, toL));
+    float r = max(l0.w, 1e-6);
+    float game = (1.0 / (1.0 + d2 * 25.0 / (r * r))) * saturate(2.0 - d / r);
+    float rRef = 0.5 * r;
+    float xr = d / (2.0 * r);
+    float window = saturate(1.0 - xr * xr * xr * xr);
+    float spot = saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
+    float atten;
+    if (_VolFalloff.z > 0.5)
+    {
+        float gameL = pow(game, 2.2);
+        float phys = 0.012820 * (rRef * rRef) / max(d2, 0.01) * window * window;
+        phys = min(phys, pow(3.0 * game + 0.05, 2.2));
+        atten = lerp(gameL, phys, saturate(_VolFalloff.x)) * pow(spot, 2.2);
+    }
+    else
+    {
+        float phys = (1.0 / 7.25) * (rRef * rRef) / max(d2, 0.01) * window * window;
+        phys = min(phys, 3.0 * game + 0.05);
+        atten = lerp(game, phys, saturate(_VolFalloff.x)) * spot;
+    }
+    return ToLightV(l1.rgb * _VolFalloff.y) * atten;
+}
+
+// Rough importance of light i for the ray segment [0, tMax]: intensity times the integral of 1/d^2 along the segment
+// (exact for an inverse-square light), limited to the light's reach (2 x range).
+// The part [tA, tB] of the ray segment [0, tMax] inside a light's reach (2 x range: its falloff window ends there).
+bool LightSegment(uint i, float3 o, float3 dir, float tMax, out float tA, out float tB)
+{
+    float4 l0 = _Lights[i * 4];
+    float reach = 2.0 * l0.w;
+    float delta = dot(l0.xyz - o, dir);
+    float3 perp = l0.xyz - (o + dir * delta);
+    float h2 = dot(perp, perp);
+    float k2 = reach * reach - h2;
+    tA = 0; tB = 0;
+    if (k2 <= 0.0) return false;
+    float k = sqrt(k2);
+    tA = max(delta - k, 0.0);
+    tB = min(delta + k, tMax);
+    return tB > tA;
+}
+
+float LightTarget(uint i, float3 o, float3 dir, float tMax)
+{
+    float4 l0 = _Lights[i * 4];
+    if (l0.w == 0.0 || _Lights[i * 4 + 3].z > 0.5) return 0.0; // directional / fill
+    float3 c = _Lights[i * 4 + 1].rgb;
+    float lum = dot(c, float3(0.2126, 0.7152, 0.0722));
+    if (lum <= 0.0) return 0.0;
+    float tA, tB;
+    if (!LightSegment(i, o, dir, tMax, tA, tB)) return 0.0;
+    float delta = dot(l0.xyz - o, dir);
+    float h = max(length(l0.xyz - (o + dir * delta)), 0.05);
+    float angle = atan((tB - delta) / h) - atan((tA - delta) / h);
+    float rRef = 0.5 * l0.w;
+    return lum * rRef * rRef * angle / h;
+}
+
+// One point on an emissive triangle, drawn from the alias table (power and distance to the camera), uniform in area.
+// Returns false if the table is empty or the triangle is inactive. le: emitted value in lighting units (linear, x the
+// emissive light scale / pi, as UltraRTLights.hlsl's EmissiveEval); pdfA: pdf of the point per unit area.
+bool SampleEmissivePoint(inout uint rng, out float3 x, out float3 nl, out bool twoSided, out float3 le, out float pdfA)
+{
+    x = 0; nl = 0; twoSided = false; le = 0; pdfA = 0;
+    if (_EmissiveCount <= 0) return false;
+    float u = Rand(rng) * (float)_EmissiveCount;
+    uint slot = min((uint)u, (uint)_EmissiveCount - 1u);
+    uint4 e = _EmissiveAlias[slot];
+    bool keep = (u - (float)slot) < asfloat(e.x);
+    uint tri = keep ? (e.y & 0xFFFFu) : (e.y >> 16);
+    float pdf = asfloat(keep ? e.z : e.w);
+    if (tri >= (uint)_EmissiveTriCount || ((_EmissiveActive[tri >> 5] >> (tri & 31u)) & 1u) == 0u || !(pdf > 0.0)) return false;
+    uint4 t0 = _EmissiveTris[tri * 3];
+    uint4 t1 = _EmissiveTris[tri * 3 + 1];
+    uint4 t2 = _EmissiveTris[tri * 3 + 2];
+    uint owner = t0.w & 0xFFFFu;
+    uint flags = t0.w >> 16;
+    float4 r0 = _EmissiveOwners[owner * 3];
+    float4 r1 = _EmissiveOwners[owner * 3 + 1];
+    float4 r2 = _EmissiveOwners[owner * 3 + 2];
+    float3x3 m = float3x3(r0.xyz, r1.xyz, r2.xyz);
+    float3 p0 = mul(m, asfloat(t0.xyz)) + float3(r0.w, r1.w, r2.w);
+    float3 e1 = mul(m, asfloat(t1.xyz));
+    float3 e2 = mul(m, asfloat(t2.xyz));
+    float3 nc = cross(e1, e2);
+    float len = length(nc);
+    if (len < 1e-10) return false;
+    nl = nc / len;
+    if ((determinant(m) < 0.0) != ((flags & 2u) != 0u)) nl = -nl;
+    twoSided = (flags & 1u) != 0u;
+    float b1 = Rand(rng), b2 = Rand(rng);
+    if (b1 + b2 > 1.0) { b1 = 1.0 - b1; b2 = 1.0 - b2; }
+    x = p0 + e1 * b1 + e2 * b2;
+    le = ToLightV(float3(f16tof32(t1.w), f16tof32(t1.w >> 16), f16tof32(t2.w))) * _EmissiveParams.y;
+    pdfA = pdf / (0.5 * len);
+    return true;
+}
+
+// Equiangular distance along the ray [tStart, tEnd] for a point source at lp (Kulla & Fajardo 2012). Returns t and its pdf.
+float Equiangular(float3 o, float3 dir, float tStart, float tEnd, float3 lp, float u, out float pdf)
+{
+    float delta = dot(lp - o, dir);
+    float h = max(length(lp - (o + dir * delta)), 0.05);
+    float thA = atan((tStart - delta) / h), thB = atan((tEnd - delta) / h);
+    float t = clamp(delta + h * tan(lerp(thA, thB, u)), tStart, tEnd);
+    pdf = h / (max(thB - thA, 1e-6) * (h * h + (t - delta) * (t - delta)));
+    return t;
+}
+
+// ---------------------------------------------------------------- ray generation
+
+[shader("raygeneration")]
+void VolumeRayGen()
+{
+    uint2 id = DispatchRaysIndex().xy;
+    uint frame = (uint)_VolParams.w;
+    float tEnd = _VolDepth[id];
+    if (tEnd <= 0.0) { _VolOut[id] = 0; return; }
+    tEnd = min(tEnd, _VolParams.y);
+
+    float2 ndc = ((float2)id + 0.5) * _VolDim.zw * 2.0 - 1.0;
+    float4 farPt = mul(_VolInvViewProj, float4(ndc, 1.0, 1.0));
+    farPt.xyz /= farPt.w;
+    float3 o = _VolCamPos.xyz;
+    float3 dir = normalize(farPt.xyz - o);
+
+    uint rng = (id.x * 1973u + id.y * 9277u + frame * 26699u) | 1u;
+    float3 sigmaS = _VolMedium.rgb;
+    float sigmaT = _VolMedium.w;
+    float3 sum = 0;
+
+    // ---- sun: stratified steps, analytic transmittance per segment
+    if (_VolSunColor.w > 0.5)
+    {
+        int steps = max((int)_VolParams.x, 1);
+        float u = BlueOffset(id, frame);
+        float phase = PhaseHG(dot(dir, _VolSunDir.xyz), _VolParams.z);
+        float dt = tEnd / steps;
+        float segLen = sigmaT * dt < 1e-3 ? dt * (1.0 - 0.5 * sigmaT * dt) : (1.0 - exp(-sigmaT * dt)) / sigmaT;
+        float3 sunT = _VolSunDir.xyz;
+        float3 tt = abs(sunT.y) < 0.999 ? normalize(cross(sunT, float3(0, 1, 0))) : float3(1, 0, 0);
+        float3 bb = cross(sunT, tt);
+        float lit = 0.0;
+        for (int s = 0; s < steps; s++)
+        {
+            float t0 = s * dt;
+            float t = t0 + u * dt;
+            float3 x = o + dir * t;
+            // A point on the sun disk (soft shadow edges, matching PathTrace's sun).
+            float cosT = 1.0 - Rand(rng) * (1.0 - _VolSunDir.w);
+            float sinT = sqrt(max(0.0, 1.0 - cosT * cosT));
+            float phi = Rand(rng) * 6.28318530718;
+            float3 L = normalize(tt * (sinT * cos(phi)) + bb * (sinT * sin(phi)) + sunT * cosT);
+            // Segment weight: the integral of exp(-sigma_t t) over [t0, t0 + dt] (series form when the medium is thin).
+            float w = exp(-sigmaT * t0) * segLen;
+            if (Unoccluded(x, L, 1.0e4)) lit += w;
+        }
+        sum += _VolSunColor.rgb * (phase * lit) * sigmaS;
+    }
+
+    // ---- local lights: one light picked in proportion to LightTarget (all lights enumerated up to 128, else RIS over
+    // _VolLightParams.y uniform candidates), equiangular distance, one shadow ray
+    float3 local = 0;
+    int count = (int)_VolLightParams.x;
+    if (count > 0 && _VolLightParams.z > 0.0)
+    {
+        uint pick = 0xFFFFFFFFu;
+        float pickW = 0.0; // 1 / selection probability (estimated with RIS)
+        if (count <= 128)
+        {
+            float total = 0.0;
+            for (int i = 0; i < count; i++) total += LightTarget(i, o, dir, tEnd);
+            if (total > 0.0)
+            {
+                float u = BlueOffset(id, frame + 29u) * total, run = 0.0;
+                for (int j = 0; j < count && pick == 0xFFFFFFFFu; j++)
+                {
+                    float tj = LightTarget(j, o, dir, tEnd);
+                    run += tj;
+                    if (u < run && tj > 0.0) { pick = j; pickW = total / tj; }
+                }
+            }
+        }
+        else
+        {
+            int cands = max((int)_VolLightParams.y, 1);
+            float wSum = 0.0, pickTarget = 0.0;
+            for (int c = 0; c < cands; c++)
+            {
+                uint i = min((uint)(Rand(rng) * count), (uint)count - 1u);
+                float target = LightTarget(i, o, dir, tEnd);
+                if (target <= 0.0) continue;
+                wSum += target;
+                if (Rand(rng) * wSum < target) { pick = i; pickTarget = target; }
+            }
+            // RIS weight: (1 / target) * (1 / M) * sum(target / p) with the uniform source pdf p = 1 / count.
+            if (pick != 0xFFFFFFFFu) pickW = count * wSum / (cands * pickTarget);
+        }
+        if (pick != 0xFFFFFFFFu)
+        {
+            float pdf, tA, tB;
+            LightSegment(pick, o, dir, tEnd, tA, tB);
+            float t = Equiangular(o, dir, tA, tB, _Lights[pick * 4].xyz, BlueOffset(id.yx, frame + 17u), pdf);
+            float3 x = o + dir * t;
+            float3 L;
+            float dist;
+            float3 Li = LocalLight(pick, x, L, dist);
+            if (any(Li > 0.0) && pdf > 0.0)
+            {
+                float trans = exp(-sigmaT * (t + dist));
+                float phase = PhaseHG(dot(dir, L), _VolParams.z);
+                // Stop short of the light like surface shadow rays do (lights sit inside their fixtures).
+                float clear = min(0.35, 0.5 * dist);
+                if (Unoccluded(x, L, dist - clear))
+                    local += Li * sigmaS * (trans * phase / pdf) * pickW * _VolLightParams.z;
+            }
+        }
+    }
+
+    // ---- emissive surfaces (lava, glowing panels, screens): RIS over points from the emissive table, the target being
+    // the point's emitted luminance times the integral of 1/d^2 along the ray; equiangular distance, one shadow ray
+    if (_VolEmissive > 0.0 && _EmissiveCount > 0)
+    {
+        float3 bx = 0, bn = 0, ble = 0;
+        bool b2 = false;
+        float wSum = 0.0, bTarget = 0.0;
+        const int M = 6;
+        for (int c = 0; c < M; c++)
+        {
+            float3 xe, nl, le;
+            bool twoSided;
+            float pdfA;
+            if (!SampleEmissivePoint(rng, xe, nl, twoSided, le, pdfA)) continue;
+            float delta = dot(xe - o, dir);
+            float3 closest = o + dir * clamp(delta, 0.0, tEnd);
+            float h = max(length(xe - (o + dir * delta)), 0.05);
+            float angle = atan((tEnd - delta) / h) - atan((0.0 - delta) / h);
+            // Facing: the sign of dot(nl, x - xe) is linear along the ray, so a one-sided emitter that faces away from both
+            // ends of the segment faces away from all of it (exact rejection). The cosine itself is taken at the closest point.
+            float s0 = dot(nl, o - xe), s1 = dot(nl, o + dir * tEnd - xe);
+            if (!twoSided && s0 <= 0.0 && s1 <= 0.0) continue;
+            float cosL = abs(dot(nl, normalize(closest - xe + 1e-5)));
+            float target = dot(le, float3(0.2126, 0.7152, 0.0722)) * max(cosL, 0.05) * angle / h;
+            if (!(target > 0.0)) continue;
+            float w = target / pdfA;
+            wSum += w;
+            if (Rand(rng) * wSum < w) { bx = xe; bn = nl; ble = le; b2 = twoSided; bTarget = target; }
+        }
+        if (bTarget > 0.0)
+        {
+            float W = wSum / (M * bTarget);
+            float pdfT;
+            float t = Equiangular(o, dir, 0.0, tEnd, bx, BlueOffset(id.yx, frame + 41u), pdfT);
+            float3 x = o + dir * t;
+            float3 toE = bx - x;
+            float d2 = dot(toE, toE);
+            float dist = sqrt(d2);
+            float3 L = toE / max(dist, 1e-4);
+            float cosL = -dot(bn, L);
+            if (b2) cosL = abs(cosL);
+            if (cosL > 1e-4 && pdfT > 0.0 && Unoccluded(x, L, dist * 0.999 - 0.02))
+            {
+                float3 li = ble * (cosL / max(d2, _EmissiveParams.z));
+                float trans = exp(-sigmaT * (t + dist));
+                float3 em = li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdfT) * W * _VolEmissive;
+                // Small hot emitters (lamp bulbs) behind their housings make rare, very bright samples: clamp this part
+                // tighter (a quarter of the light clamp). Large emitters (lava, panels) give dense, moderate samples.
+                float lumE = dot(em, float3(0.2126, 0.7152, 0.0722)) * kPi;
+                if (_VolClamp > 0.0 && lumE > 0.25 * _VolClamp) em *= 0.25 * _VolClamp / lumE;
+                local += em;
+            }
+        }
+    }
+    // Firefly clamp on the one-sample estimates (the sun's stratified march does not need it).
+    float lumLocal = dot(local, float3(0.2126, 0.7152, 0.0722)) * kPi;
+    if (lumLocal > _VolClamp && _VolClamp > 0.0) local *= _VolClamp / lumLocal;
+    sum += local;
+
+    // Lighting units: a surface's lighting is irradiance / pi (displayed = albedo x lighting), so the medium's radiance
+    // sigma_s x phase x irradiance is pi x (sigma_s x phase x lighting).
+    sum *= kPi;
+    if (any(!(sum >= 0.0)) || any(isinf(sum))) sum = 0; // NaN / Inf guard: one bad sample would blank the history
+    _VolOut[id] = float4(min(sum, 64.0), 1.0);
+}
+
+[shader("miss")]
+void Miss(inout RayPayload p : SV_RayPayload)
+{
+    p.t = -1.0;
+}

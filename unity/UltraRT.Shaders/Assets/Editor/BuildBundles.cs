@@ -46,6 +46,9 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/TransparentOverlay.shader",
                     "Assets/UltraRT/Shaders/UnpackHybrid.compute",
                     "Assets/UltraRT/Shaders/Upsample.compute",
+                    "Assets/UltraRT/Shaders/Volumetrics.compute",
+                    "Assets/UltraRT/Shaders/Volumetrics.raytrace",
+                    "Assets/UltraRT/Shaders/VolumetricsComposite.shader",
                 },
             };
 
