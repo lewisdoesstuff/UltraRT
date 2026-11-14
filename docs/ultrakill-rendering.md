@@ -4,7 +4,7 @@ Observed in the Steam build running Unity 2022.3.29f1 (Mono, built-in render pip
 
 ## Pipeline
 - Forward rendering, no HDR, no MSAA, no depth texture. Everything is point-filtered.
-- Cameras: `Main Camera` (world), `HUD Camera` (viewmodel/HUD, layer 13), `Virtual Camera`.
+- Cameras: `Main Camera` (world), `HUD Camera` (viewmodel/HUD, layer 13, FOV 90, clears depth, same colour/depth buffers; see [viewmodel.md](viewmodel.md)), `Virtual Camera`.
 - Command buffers on `Main Camera`: `Reset Clip Plane` @BeforeDepthTexture, `Blood and Oil` @BeforeForwardAlpha, `Outlines` @AfterEverything.
 - Final composite: `ULTRAKILL/PostProcessV2` reads a `Main` render texture at screen resolution.
 - Lighting: a handful of realtime point lights (toggled per room), no shadows, no lightmaps, vertex lighting.

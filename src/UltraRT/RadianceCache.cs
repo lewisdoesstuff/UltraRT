@@ -232,6 +232,10 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(shader, IdQuery, new Vector4(Mathf.Max(1f, s.minSamples), Mathf.Max(0f, s.queryJitter), 0, 0));
         }
 
+        /// <summary>Bind the read-only lookup inputs on another ray tracing shader that includes UltraRTCache.hlsl (the viewmodel pass,
+        /// docs/viewmodel.md). Call after <see cref="Execute"/> in the same frame.</summary>
+        public void BindLookupOn(CommandBuffer cmd, RayTracingShader shader) => BindLookup(cmd, shader, Active && _keys != null);
+
         /// <summary>
         /// Bind the read-only lookup inputs (UltraRTCache.hlsl) on a compute kernel: the denoiser's disocclusion seed
         /// (docs/denoiser.md). Binds nothing and returns false when the cache did not run this frame.

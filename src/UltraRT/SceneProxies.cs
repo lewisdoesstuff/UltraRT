@@ -820,7 +820,10 @@ namespace UltraRT
             return SourceAlphaTested(m);
         }
 
-        private static bool SourceAlphaTested(Material m)
+        /// <summary>Reflection parameters of a source material (the viewmodel G-buffer, docs/viewmodel.md).</summary>
+        internal MaterialParams ClassifyMaterial(Material m) => _classifier.Classify(m, out _);
+
+        internal static bool SourceAlphaTested(Material m)
         {
             if (m == null) return false;
             if (m.IsKeywordEnabled("ALPHA_TEST") || m.IsKeywordEnabled("_ALPHATEST_ON") || m.IsKeywordEnabled("_ALPHA_TEST")) return true;

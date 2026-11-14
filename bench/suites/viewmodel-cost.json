@@ -1,0 +1,13 @@
+{
+  "Name": "viewmodel-cost",
+  "Scenarios": [
+    { "Name": "1-1 start", "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 8 },
+      "Modes": ["relight+plugin._vmEnabled=0", "relight", "relight+plugin._vmCheckerboard=0", "hybrid", "relight+plugin._vmDebug=4"],
+      "Screenshots": [6] },
+    { "Name": "0-1 metal", "Scene": "Level 0-1",
+      "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 6 },
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight", "relight+plugin._vmCheckerboard=0", "hybrid"],
+      "Screenshots": [4] }
+  ]
+}

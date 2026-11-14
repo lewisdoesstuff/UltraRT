@@ -24,6 +24,11 @@
 StructuredBuffer<float4> _Lights;
 StructuredBuffer<uint>   _LightMasks; // per-light culling mask (separate: masks like ~0 are NaN bit patterns as floats)
 int      _LightCount;
+// Does a light with culling mask m reach a surface on `layer`? An includer may define its own test before including this
+// file (Viewmodel.raytrace lights the first-person gun with the lights of several layers; docs/viewmodel.md).
+#ifndef ULTRART_LIGHT_LAYER_TEST
+#define ULTRART_LIGHT_LAYER_TEST(m, layer) ((((m) >> (layer)) & 1u) != 0u)
+#endif
 
 int      _LightSampling;     // 0 reference, 1 RIS, 2 RIS + temporal reuse
 int      _RisCandidates;     // candidates per pixel at the primary hit
@@ -184,7 +189,7 @@ float RelightAmbientScale() { return 1.0 - saturate(_Relight.w); }
 bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float dist, out float3 c)
 {
     L = 0; dist = 0; c = 0;
-    if (((_LightMasks[i] >> layer) & 1u) == 0u) return false;
+    if (!ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer)) return false;
 
     float4 l0 = _Lights[i * 4];
     bool local = l0.w != 0.0;

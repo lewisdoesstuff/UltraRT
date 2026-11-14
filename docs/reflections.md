@@ -399,7 +399,7 @@ So about +0.02–0.1 ms where water or glass is on screen, plus 0.01 ms for the 
 
 ## 13. The player in reflections, and fake mirrors
 
-ULTRAKILL's player prefab carries a full third-person V1: `Player/GroundCheck/v1_combined` (`PlayerAnimations`, an `Animator`), with the skinned body `v1_mdl` and one third-person copy of every weapon on the right forearm (`StandardRevolver_NewArm/Revolver_Body`, `ShotgunNewAnims/Shotgun_New`, ...; `PlayerAnimations.UpdateWeapon` activates the current one). All of it is on layer 30, which only portal views draw: that is how V1 shows in 8-x's portal mirrors. The first-person viewmodel (arms and guns under `Main Camera`, layer 13) is a separate set of renderers and is never traced.
+ULTRAKILL's player prefab carries a full third-person V1: `Player/GroundCheck/v1_combined` (`PlayerAnimations`, an `Animator`), with the skinned body `v1_mdl` and one third-person copy of every weapon on the right forearm (`StandardRevolver_NewArm/Revolver_Body`, `ShotgunNewAnims/Shotgun_New`, ...; `PlayerAnimations.UpdateWeapon` activates the current one). All of it is on layer 30, which only portal views draw: that is how V1 shows in 8-x's portal mirrors. The first-person viewmodel (arms and guns under `Main Camera`, layer 13) is a separate set of renderers and is not in the RTAS; it is lit by its own pass ([viewmodel.md](viewmodel.md)).
 
 Files: `src/UltraRT/SceneProxies.Player.cs` (finding the model, mask, animator, shadow box), `SceneProxies.cs` (registration), `Plugin.cs` (settings and globals), `UltraRTCommon.hlsl`, `UltraRTPortals.hlsl` (`PlayerRayMask`, `TraceScene`), `UltraRTLights.hlsl` (`VisibleMasked`), `PathTrace.raytrace`, `CacheUpdate.raytrace`.
 

@@ -1,0 +1,227 @@
+// Denoiser for the viewmodel's ray-traced lighting (docs/viewmodel.md), at half resolution over the viewmodel's screen
+// rectangle. The gun moves with the camera, so its history is kept in screen space: a pixel's history is wherever the
+// same surface point was on screen last frame (the G-buffer's rigid motion: bob, sway, recoil of the whole weapon), which
+// for a gun held still is the same pixel even while the camera turns.
+//   Temporal  reprojects and validates (view depth) the history of lighting, shadow ratio and reflection, clamps it to
+//             the current 3x3 neighbourhood, blends (1 / n, n capped per channel) and writes the next history.
+//   Atrous    one 3x3 a-trous iteration (step 1, 2, ...) on all three, edge-stopping on depth and normal; reflections
+//             only on rough materials (sharp ones stay sharp).
+#pragma kernel Temporal
+#pragma kernel Atrous
+#pragma kernel Bounds
+
+#define GROUP 8
+
+static const uint2 kOrder[4] = { uint2(0, 0), uint2(1, 1), uint2(1, 0), uint2(0, 1) };
+
+// Raw (this frame's) samples, Viewmodel.raytrace.
+Texture2D<float4> _RawLight, _RawDirect, _RawRefl, _RawGeo; // geo: world pos - camera xyz, w = 1 + full-res pick (0 = none)
+// History (last frame).
+Texture2D<float4> _HistLight, _HistDirect, _HistRefl; // a = history length
+Texture2D<float4> _HistGeo;                           // x view depth, y frame stamp (RGHalf): only last frame's entries are history
+// G-buffer, full resolution.
+Texture2D<float4> _VMGB1; // world normal, w material index
+Texture2D<float4> _VMGB4; // motion: xy previous - current screen uv, z previous - current view depth
+StructuredBuffer<float4> _VMMaterials;
+
+RWTexture2D<float4> _OutLight, _OutDirect, _OutRefl, _OutGeo;
+Texture2D<float4> _InLight, _InDirect, _InRefl;
+
+float4 _Rect;      // xy first half-res pixel, zw size of the dispatch (half-res pixels)
+float4 _HalfDim;   // half-res size, full-res size
+float4 _CamFwd;    // xyz camera forward (world)
+float4 _Params;    // x max history (lighting), y max history (reflection), z clamp sigma (k), w history valid (0/1)
+float4 _Atrous;    // x step (half-res pixels), y reflection roughness above which reflections are filtered
+float4 _Stamps;    // x this frame's stamp (written to _OutGeo.y), y last frame's (history entries must carry it)
+float4 _Params2;   // x history cap this frame (lights appeared or disappeared: a few frames; else large)
+
+float ViewDepth(float4 geo) { return dot(geo.xyz, _CamFwd.xyz); }
+uint2 PickPixel(uint2 h, float4 geo) { return h * 2u + kOrder[min((uint)geo.w - 1u, 3u)]; }
+float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
+
+bool InHalf(int2 p) { return all(p >= 0) && all(p < (int2)_HalfDim.xy); }
+
+[numthreads(GROUP, GROUP, 1)]
+void Temporal(uint3 tid : SV_DispatchThreadID)
+{
+    if (any(tid.xy >= (uint2)_Rect.zw)) return;
+    uint2 id = tid.xy + (uint2)_Rect.xy;
+    float4 geo = _RawGeo[id];
+    if (geo.w < 0.5)
+    {
+        _OutLight[id] = 0; _OutDirect[id] = 0; _OutRefl[id] = 0; _OutGeo[id] = 0;
+        return;
+    }
+    float d = ViewDepth(geo);
+    float4 cLraw = _RawLight[id];
+    bool sampled = cLraw.a > 0.5; // checkerboard: half the pixels are traced each frame
+    float3 cL = cLraw.rgb;
+    float2 cD = _RawDirect[id].xy;
+    float4 cRraw = _RawRefl[id];
+    float3 cR = cRraw.rgb;
+
+    // 3x3 neighbourhood statistics of this frame's samples on the same surface (depth within a few cm).
+    float3 mL = 0, sL = 0, mR = 0, sR = 0;
+    float2 mD = 0, sD = 0;
+    float cnt = 0, cntR = 0;
+    [unroll] for (int y = -1; y <= 1; y++)
+    [unroll] for (int x = -1; x <= 1; x++)
+    {
+        int2 q = (int2)id + int2(x, y);
+        if (!InHalf(q)) continue;
+        float4 g = _RawGeo[q];
+        if (g.w < 0.5 || abs(ViewDepth(g) - d) > 0.03 + 0.05 * d) continue;
+        float4 l = _RawLight[q];
+        if (l.a < 0.5) continue;
+        float2 dd = _RawDirect[q].xy;
+        mL += l.rgb; sL += l.rgb * l.rgb; mD += dd; sD += dd * dd; cnt += 1.0;
+        float4 r = _RawRefl[q];
+        if (r.a > 0.5) { mR += r.rgb; sR += r.rgb * r.rgb; cntR += 1.0; }
+    }
+    if (cnt > 0.0)
+    {
+        mL /= cnt; sL = sqrt(max(sL / cnt - mL * mL, 0.0));
+        mD /= cnt; sD = sqrt(max(sD / cnt - mD * mD, 0.0));
+    }
+    if (cntR > 0.0) { mR /= cntR; sR = sqrt(max(sR / cntR - mR * mR, 0.0)); }
+    bool reflective = cRraw.a > 0.5 || (cRraw.a < -0.5 && cntR > 0.0);
+
+    // History: where this surface point was last frame (rigid motion from the G-buffer), bilinear over valid taps.
+    uint2 q = PickPixel(id, geo);
+    float4 mv = _VMGB4[q];
+    float2 prevFull = (float2)q + 0.5 + mv.xy * _HalfDim.zw; // full-res pixel position last frame
+    float2 f = prevFull * 0.5 - 0.5;                         // half-res texel coordinates
+    int2 b = (int2)floor(f);
+    float2 w = f - (float2)b;
+    float expectD = d + mv.z;
+    float tol = 0.02 + 0.03 * d;
+    float4 hL = 0, hD = 0, hR = 0;
+    float wsum = 0;
+    if (_Params.w > 0.5)
+    {
+        [unroll] for (int k = 0; k < 4; k++)
+        {
+            int2 o = int2(k & 1, k >> 1);
+            int2 p = b + o;
+            if (!InHalf(p)) continue;
+            float4 hg = _HistGeo[p];
+            if (hg.y != _Stamps.y || abs(hg.x - expectD) > tol) continue;
+            float bw = (o.x ? w.x : 1.0 - w.x) * (o.y ? w.y : 1.0 - w.y);
+            if (bw <= 1e-4) continue;
+            hL += _HistLight[p] * bw; hD += _HistDirect[p] * bw; hR += _HistRefl[p] * bw;
+            wsum += bw;
+        }
+    }
+
+    float k = _Params.z;
+    // No sample of its own this frame: start from the neighbourhood mean.
+    float3 oL = sampled ? cL : mL;
+    float2 oD = sampled ? cD : mD;
+    float3 oR = cRraw.a > 0.5 ? cR : mR;
+    float nL = sampled || cnt > 0.0 ? 1 : 0, nR = reflective ? 1 : 0;
+    if (wsum > 1e-3)
+    {
+        hL /= wsum; hD /= wsum; hR /= wsum;
+        float3 histL = cnt > 0.0 ? clamp(hL.rgb, mL - k * sL, mL + k * sL) : hL.rgb;
+        float2 histD = cnt > 0.0 ? clamp(hD.xy, mD - k * sD, mD + k * sD) : hD.xy;
+        // Fast response: the neighbourhood's mean moved far from the history (a muzzle flash, an explosion, walking into
+        // shade), or the light set changed (_Params2.x): keep only a few frames of history.
+        float cap = _Params2.x;
+        float rr = (Luma(mL) + 0.02) / (Luma(hL.rgb) + 0.02);
+        if (cnt > 0.0 && (rr > 1.8 || rr < 0.55)) cap = min(cap, 2.0);
+        float hn = min(hL.a, cap);
+        if (sampled)
+        {
+            nL = min(hn + 1.0, _Params.x);
+            oL = lerp(histL, cL, 1.0 / nL);
+            oD = lerp(histD, cD, 1.0 / nL);
+        }
+        else
+        {
+            // Keep the (clamped) history; with a short history, lean on this frame's neighbours.
+            nL = max(hn, 1.0);
+            float a = cnt > 0.0 ? 1.0 / (hn + 1.0) : 0.0;
+            oL = lerp(histL, mL, a);
+            oD = lerp(histD, mD, a);
+        }
+        if (reflective && hR.a > 0.0)
+        {
+            float3 histR = cntR > 0.0 ? clamp(hR.rgb, mR - k * sR, mR + k * sR) : hR.rgb;
+            float hr = min(hR.a, cap);
+            if (cRraw.a > 0.5) { nR = min(hr + 1.0, _Params.y); oR = lerp(histR, cR, 1.0 / nR); }
+            else { nR = max(hr, 1.0); oR = cntR > 0.0 ? lerp(histR, mR, 1.0 / (hr + 1.0)) : histR; }
+        }
+    }
+    _OutLight[id] = float4(oL, nL);
+    _OutDirect[id] = float4(oD, 0.0, nL);
+    _OutRefl[id] = float4(oR, nR);
+    _OutGeo[id] = float4(d, _Stamps.x, 0.0, 0.0);
+}
+
+// Bounding rectangle (half-res pixels) of this frame's viewmodel pixels inside the dispatch, for the next frames'
+// rectangle (read back asynchronously by Plugin.Viewmodel.cs). _Bounds: min x, min y, max x, max y.
+RWStructuredBuffer<uint> _Bounds;
+groupshared uint gsB[4];
+
+[numthreads(GROUP, GROUP, 1)]
+void Bounds(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
+{
+    if (gi == 0u) { gsB[0] = 0xFFFFu; gsB[1] = 0xFFFFu; gsB[2] = 0u; gsB[3] = 0u; }
+    GroupMemoryBarrierWithGroupSync();
+    uint2 id = tid.xy + (uint2)_Rect.xy;
+    if (all(tid.xy < (uint2)_Rect.zw) && _RawGeo[id].w > 0.5)
+    {
+        uint o;
+        InterlockedMin(gsB[0], id.x, o); InterlockedMin(gsB[1], id.y, o);
+        InterlockedMax(gsB[2], id.x + 1u, o); InterlockedMax(gsB[3], id.y + 1u, o);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    if (gi == 0u && gsB[2] > 0u)
+    {
+        uint o;
+        InterlockedMin(_Bounds[0], gsB[0], o); InterlockedMin(_Bounds[1], gsB[1], o);
+        InterlockedMax(_Bounds[2], gsB[2], o); InterlockedMax(_Bounds[3], gsB[3], o);
+    }
+}
+
+
+[numthreads(GROUP, GROUP, 1)]
+void Atrous(uint3 tid : SV_DispatchThreadID)
+{
+    if (any(tid.xy >= (uint2)_Rect.zw)) return;
+    uint2 id = tid.xy + (uint2)_Rect.xy;
+    float4 geo = _RawGeo[id];
+    float4 cL = _InLight[id], cD = _InDirect[id], cR = _InRefl[id];
+    if (geo.w < 0.5) { _OutLight[id] = cL; _OutDirect[id] = cD; _OutRefl[id] = cR; return; }
+    float d = ViewDepth(geo);
+    float4 g1 = _VMGB1[PickPixel(id, geo)];
+    float3 n = normalize(g1.xyz);
+    uint mi = (uint)round(g1.w);
+    bool filterRefl = cR.a > 0.0 && _VMMaterials[mi * 2u].x >= _Atrous.y;
+    // Shorter histories get the full blur, long ones only a light touch (keeps texture-scale shadow detail).
+    float strength = max(0.5, saturate(4.0 / max(cL.a, 1.0)));
+    int step = (int)_Atrous.x;
+    const float kern[3] = { 0.25, 0.5, 0.25 };
+    float4 sL = 0, sD = 0, sR = 0;
+    float wL = 0, wR = 0;
+    [unroll] for (int y = -1; y <= 1; y++)
+    [unroll] for (int x = -1; x <= 1; x++)
+    {
+        int2 q = (int2)id + int2(x, y) * step;
+        if (!InHalf(q)) continue;
+        float4 g = _RawGeo[q];
+        if (g.w < 0.5) continue;
+        float4 gq = _VMGB1[PickPixel((uint2)q, g)];
+        float wd = exp(-abs(ViewDepth(g) - d) / (0.01 + 0.02 * d));
+        float wn = pow(saturate(dot(normalize(gq.xyz), n)), 16.0);
+        float wk = kern[x + 1] * kern[y + 1];
+        float wc = (x == 0 && y == 0) ? 1.0 : strength;
+        float wt = wk * wd * wn * wc;
+        sL += _InLight[q] * wt; sD += _InDirect[q] * wt; wL += wt;
+        float4 r = _InRefl[q];
+        if (filterRefl && r.a > 0.0) { sR += r * wt; wR += wt; }
+    }
+    _OutLight[id] = wL > 0.0 ? sL / wL : cL;
+    _OutDirect[id] = wL > 0.0 ? sD / wL : cD;
+    _OutRefl[id] = filterRefl && wR > 0.0 ? sR / wR : cR;
+}

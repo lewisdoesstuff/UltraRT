@@ -1,0 +1,697 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text;
+using UnityEngine;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
+
+namespace UltraRT
+{
+    /// <summary>
+    /// Ray-traced lighting for the first-person viewmodel (docs/viewmodel.md). ULTRAKILL draws the arms and guns (layer 13,
+    /// under Main Camera) with the HUD Camera (FOV 90) into the same colour and depth buffers, after the world. A command
+    /// buffer on that camera, right after its opaques:
+    ///   1. G-buffer: draws the viewmodel renderers again with ViewmodelGBuffer.shader (albedo, normal, position, emission,
+    ///      motion) at full resolution, with the HUD camera's projection, so the pixels line up with the game's.
+    ///   2. Viewmodel.raytrace at half resolution over the viewmodel's screen rectangle: direct light with shadow rays into
+    ///      the world RTAS, one bounce lit from the radiance cache, one reflection ray on glossy/metal parts.
+    ///   3. ViewmodelFilter.compute: screen-space temporal accumulation (rigid motion of each renderer) and a-trous.
+    ///   4. ViewmodelComposite.shader: replaces the game's viewmodel pixels where the depths match (relight / pt-dn: albedo
+    ///      x RT lighting, exposure and tone curve as the world; hybrid: the game's colour x RT shadow ratio + bounce).
+    /// Hooks in Plugin.cs: ParseViewmodelArgs (Awake), LoadViewmodelShaders (LoadShaders), ViewmodelPreRender
+    /// (OnCameraPreRender, non-main cameras), ViewmodelTraced (end of Trace), ViewmodelReset (ResetScene), ViewmodelHotkeys.
+    ///   -ultrart-viewmodel on|off (config [Viewmodel] Enabled), -ultrart-vm-hybrid on|off, -ultrart-vm-debug N,
+    ///   -ultrart-vm-samples N, -ultrart-vm-history N, -ultrart-vm-lightmask HEX
+    /// Ctrl+F7 toggles in game.
+    /// </summary>
+    public partial class Plugin
+    {
+        // Settings (Plugin fields, so bench variants can set them: plugin._vmEnabled=0, plugin._vmDebug=1, ...).
+        private bool _vmEnabled = true;
+        private bool _vmHybrid = true;     // also in hybrid (shadow ratio + bounce on the game's own viewmodel colour)
+        private int _vmDebug;              // composite debug view: 1 coverage, 2 lighting, 3 albedo, 4 reflection, 5 history
+        private int _vmSamples = 1;        // direct light samples (shadow rays) per half-res pixel
+        private float _vmMaxHistory = 32f, _vmMaxHistoryRefl = 12f, _vmClampK = 3f;
+        private int _vmAtrous = 3;         // a-trous iterations (0-3: steps 1, 2, 4)
+        private float _vmDepthTol = 0.03f; // composite: |game depth - ours| tolerance, fraction of the depth (+ 5 mm)
+        private int _vmLightMask;          // 0 = auto (layer 13 | the layer under the player)
+        private bool _vmFullScreen;        // dispatch over the whole screen instead of the viewmodel's rectangle
+        private bool _vmCheckerboard = true; // trace half the half-res pixels per frame (alternating); the filter fills the rest
+        private int _vmRayTest = 0;            // measurement only: 1 = dispatch a single ray-gen thread (fixed cost of the dispatch)
+        private bool _vmStableRefl = true;   // mirror-direction reflection rays (stable); false = GGX samples like the world
+        private int _vmKBounds;
+        private ComputeBuffer _vmBoundsBuf;
+        private static readonly uint[] VmBoundsInit = { 0xFFFFu, 0xFFFFu, 0u, 0u };
+        // GPU-measured bounds of the viewmodel (half-res pixels; xMax/yMax exclusive), read back a few frames late, with the
+        // dispatch rectangle they were measured in.
+        private RectInt _vmGpuBounds, _vmGpuDispatch;
+        private uint _vmGpuBoundsFrame;
+        private bool _vmGpuBoundsValid;
+
+        private RayTracingShader _vmRt;
+        private ComputeShader _vmFilter;
+        private Shader _vmGbShader;
+        private Material _vmCompositeMat, _vmClearMat;
+        private int _vmKTemporal, _vmKAtrous;
+        private CommandBuffer _vmCmd;
+        private Camera _vmCam;
+        private int _vmTraceFrame = -1;
+        private Kind _vmTraceKind;
+        private string _vmTraceMode;
+        private uint _vmFrame;
+        private bool _vmNeedsClear = true, _vmHistValid;
+        private int _vmHist; // which history set is "current"
+        private float _vmPrevStamp;
+        private float _vmNextRefresh, _vmNextLog;
+        private int _vmLogs, _vmGroundLayer = 24;
+        private Rect _vmLastRect;
+        private const int SlotViewmodel = 11, SlotVmGBuffer = 12, SlotVmRays = 13, SlotVmFilter = 14, SlotVmComposite = 15;
+
+        private struct VmDraw { public Renderer r; public int sub; public Material mat, src; public Transform t; public bool custom; }
+        private MaterialPropertyBlock _vmMpb;
+        private int _vmDrawKey, _vmDrawLogs;
+        private static readonly int[] VmCustomIds = { Shader.PropertyToID("_CustomColor1"), Shader.PropertyToID("_CustomColor2"), Shader.PropertyToID("_CustomColor3") };
+        private readonly List<Renderer> _vmRenderers = new List<Renderer>();
+        private readonly List<VmDraw> _vmDraws = new List<VmDraw>();
+        private readonly Dictionary<Renderer, Matrix4x4> _vmPrevMV = new Dictionary<Renderer, Matrix4x4>();
+        private readonly Dictionary<Material, Material> _vmMaterials = new Dictionary<Material, Material>();
+        private readonly List<Vector4> _vmMatTable = new List<Vector4>();
+        private ComputeBuffer _vmMatBuffer, _vmDummyExposure;
+        private bool _vmMatDirty = true;
+
+        // Targets: full-res G-buffer + depth, game depth/colour copies; half-res raw samples and two history sets.
+        private RenderTexture _vmGB0, _vmGB1, _vmGB2, _vmGB3, _vmGB4, _vmDepth;
+        private RenderTexture _vmRawLight, _vmRawDirect, _vmRawRefl, _vmRawGeo;
+        private readonly RenderTexture[] _vmHLight = new RenderTexture[2], _vmHDirect = new RenderTexture[2], _vmHRefl = new RenderTexture[2], _vmHGeo = new RenderTexture[2];
+        private readonly RenderTargetIdentifier[] _vmMrt = new RenderTargetIdentifier[5];
+
+        private static readonly int
+            VmStampId = Shader.PropertyToID("_VMStamp"), VmPrevDeltaId = Shader.PropertyToID("_VMPrevDelta"),
+            VmGB0Id = Shader.PropertyToID("_VMGB0"), VmGB1Id = Shader.PropertyToID("_VMGB1"), VmGB2Id = Shader.PropertyToID("_VMGB2"),
+            VmGB3Id = Shader.PropertyToID("_VMGB3"), VmGB4Id = Shader.PropertyToID("_VMGB4"),
+            VmLightId = Shader.PropertyToID("_VMLight"), VmDirectId = Shader.PropertyToID("_VMDirect"), VmReflId = Shader.PropertyToID("_VMRefl"),
+            VmGeoId = Shader.PropertyToID("_VMGeo"), VmGameDepthId = Shader.PropertyToID("_VMGameDepth"),
+            VmMaterialsId = Shader.PropertyToID("_VMMaterials"), VmModeId = Shader.PropertyToID("_VMMode"), VmDebugId = Shader.PropertyToID("_VMDebug"),
+            VmCamFwdId = Shader.PropertyToID("_VMCamFwd"), VmParamsId = Shader.PropertyToID("_VMParams"), VmRefl2Id = Shader.PropertyToID("_VMRefl2"),
+            VmExposureId = Shader.PropertyToID("_UltraRTExposureGlobal");
+
+        private void ParseViewmodelArgs()
+        {
+            _vmEnabled = Config.Bind("Viewmodel", "Enabled", true,
+                "Ray-traced lighting for the first-person arms and guns in relight, pt-dn and hybrid (docs/viewmodel.md). " +
+                "Overridden by -ultrart-viewmodel on|off; Ctrl+F7 toggles in game.").Value;
+            _vmHybrid = Config.Bind("Viewmodel", "Hybrid", true,
+                "Also apply RT shadows, bounce and reflections to the viewmodel in hybrid mode.").Value;
+            var a = Environment.GetCommandLineArgs();
+            for (int i = 0; i < a.Length; i++)
+            {
+                string Next() => i + 1 < a.Length ? a[++i] : "";
+                switch (a[i].ToLowerInvariant())
+                {
+                    case "-ultrart-viewmodel": _vmEnabled = Next() != "off"; break;
+                    case "-ultrart-vm-hybrid": _vmHybrid = Next() != "off"; break;
+                    case "-ultrart-vm-debug": int.TryParse(Next(), out _vmDebug); break;
+                    case "-ultrart-vm-samples": int.TryParse(Next(), out _vmSamples); break;
+                    case "-ultrart-vm-history": float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out _vmMaxHistory); break;
+                    case "-ultrart-vm-lightmask": int.TryParse(Next(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _vmLightMask); break;
+                    case "-ultrart-vm-fullscreen": _vmFullScreen = true; break;
+                }
+            }
+            Logger.LogInfo($"Viewmodel RT: {(_vmEnabled ? "on" : "off")} (hybrid {(_vmHybrid ? "on" : "off")})");
+        }
+
+        private void LoadViewmodelShaders(AssetBundle bundle)
+        {
+            _vmRt = bundle.LoadAllAssets<RayTracingShader>().FirstOrDefault(s => s.name == "Viewmodel");
+            _vmFilter = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "ViewmodelFilter");
+            var shaders = bundle.LoadAllAssets<Shader>();
+            _vmGbShader = shaders.FirstOrDefault(s => s.name == "UltraRT/ViewmodelGBuffer");
+            var comp = shaders.FirstOrDefault(s => s.name == "UltraRT/ViewmodelComposite");
+            ViewmodelReset();
+            if (_vmCompositeMat != null) Destroy(_vmCompositeMat);
+            if (_vmClearMat != null) Destroy(_vmClearMat);
+            _vmCompositeMat = _vmClearMat = null;
+            if (_vmRt == null || _vmFilter == null || _vmGbShader == null || comp == null)
+            {
+                Logger.LogWarning($"Viewmodel shaders missing (raytrace={(_vmRt ? "ok" : "MISSING")} filter={(_vmFilter ? "ok" : "MISSING")} " +
+                                  $"gbuffer={(_vmGbShader ? "ok" : "MISSING")} composite={(comp ? "ok" : "MISSING")}): viewmodel RT off");
+                _vmRt = null;
+                return;
+            }
+            _vmCompositeMat = new Material(comp) { name = "UltraRT Viewmodel Composite" };
+            _vmClearMat = new Material(_vmGbShader) { name = "UltraRT Viewmodel Clear" };
+            _vmKTemporal = _vmFilter.FindKernel("Temporal");
+            _vmKAtrous = _vmFilter.FindKernel("Atrous");
+            _vmKBounds = _vmFilter.FindKernel("Bounds");
+        }
+
+        private void ViewmodelHotkeys()
+        {
+            if (!Input.GetKeyDown(KeyCode.F7) || !CtrlHeld()) return;
+            _vmEnabled = !_vmEnabled;
+            _vmHistValid = false;
+            Logger.LogInfo($"Viewmodel RT: {(_vmEnabled ? "on" : "off")}");
+            Toast($"Viewmodel ray tracing {(_vmEnabled ? "on" : "off")} (Ctrl+F7)");
+        }
+
+        /// <summary>End of Trace: the world was traced this frame in this mode.</summary>
+        private void ViewmodelTraced(Kind kind)
+        {
+            _vmTraceFrame = Time.frameCount;
+            _vmTraceKind = kind;
+            _vmTraceMode = Modes[_mode].name;
+        }
+
+        /// <summary>Scene change / shader reload: materials and renderers belong to the old scene or bundle.</summary>
+        private void ViewmodelReset()
+        {
+            foreach (var m in _vmMaterials.Values) if (m != null) Destroy(m);
+            _vmMaterials.Clear();
+            _vmMatTable.Clear();
+            _vmMatDirty = true;
+            _vmRenderers.Clear();
+            _vmDraws.Clear();
+            _vmPrevMV.Clear();
+            _vmNextRefresh = 0f;
+            _vmHistValid = false;
+            _vmNeedsClear = true;
+            _vmLogs = 0;
+        }
+
+        private bool ViewmodelWanted() =>
+            _vmEnabled && _vmRt != null && _vmTraceFrame == Time.frameCount && _proxies?.Rtas != null && _radianceCache != null &&
+            (_vmTraceMode == "relight" || _vmTraceMode == "pt-dn" || (_vmTraceKind == Kind.Hybrid && _vmHybrid));
+
+        /// <summary>Camera.onPreRender for every camera other than Main Camera: record the pass on the HUD camera.</summary>
+        private void ViewmodelPreRender(Camera cam)
+        {
+            var pp = MonoSingleton<PostProcessV2_Handler>.Instance;
+            if (pp == null || cam != pp.hudCam) return;
+            if (_vmCmd == null) _vmCmd = new CommandBuffer { name = "UltraRT Viewmodel" };
+            if (_vmCam != cam)
+            {
+                if (_vmCam != null) _vmCam.RemoveCommandBuffer(CameraEvent.AfterForwardOpaque, _vmCmd);
+                cam.AddCommandBuffer(CameraEvent.AfterForwardOpaque, _vmCmd);
+                _vmCam = cam;
+                _vmHistValid = false;
+                Logger.LogInfo($"Viewmodel RT attached to {Bench.GameControl.PathOf(cam.transform)}: depth {cam.depth} (main {(_camera != null ? _camera.depth : float.NaN)}), " +
+                               $"clear {cam.clearFlags}, fov {cam.fieldOfView:F1} (main {(_camera != null ? _camera.fieldOfView : 0f):F1}), near {cam.nearClipPlane} far {cam.farClipPlane}, " +
+                               $"mask 0x{cam.cullingMask:X8} (main 0x{(_camera != null ? _camera.cullingMask : 0):X8}), local pos {cam.transform.localPosition} rot {cam.transform.localEulerAngles} scale {cam.transform.localScale}, " +
+                               $"target {(cam.targetTexture != null ? cam.targetTexture.name : "buffers")}, {cam.pixelWidth}x{cam.pixelHeight}, rendering path {cam.actualRenderingPath}");
+            }
+            _vmCmd.Clear();
+            if (!ViewmodelWanted()) { _vmHistValid = false; return; }
+            try { RecordViewmodel(cam, pp); }
+            catch (Exception e)
+            {
+                _vmCmd.Clear();
+                Logger.LogError($"Viewmodel RT failed, disabling it: {e}");
+                _vmEnabled = false;
+            }
+        }
+
+        // ---------------------------------------------------------------- renderers and materials
+
+        private void RefreshViewmodelRenderers(Camera hud)
+        {
+            _vmRenderers.Clear();
+            var main = _camera != null ? _camera : hud.transform.parent?.GetComponent<Camera>();
+            var root = main != null ? main.transform : hud.transform.parent;
+            if (root == null) return;
+            int mainMask = main != null ? main.cullingMask : 0;
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!(r is MeshRenderer) && !(r is SkinnedMeshRenderer)) continue;
+                int layer = r.gameObject.layer;
+                if (((hud.cullingMask >> layer) & 1) == 0 || ((mainMask >> layer) & 1) != 0) continue; // drawn by the HUD camera only
+                _vmRenderers.Add(r);
+            }
+            if (_vmLogs < 3)
+            {
+                _vmLogs++;
+                var sb = new StringBuilder($"Viewmodel renderers under {root.name}: {_vmRenderers.Count}");
+                foreach (var r in _vmRenderers.Take(80))
+                {
+                    sb.Append($"\n  {Bench.GameControl.PathOf(r.transform)} [{r.GetType().Name}, layer {r.gameObject.layer}, {(r.enabled && r.gameObject.activeInHierarchy ? "on" : "off")}]");
+                    foreach (var m in r.sharedMaterials)
+                    {
+                        if (m == null) continue;
+                        var p = _proxies?.ClassifyMaterial(m);
+                        sb.Append($"\n     '{m.name}' {(m.shader != null ? m.shader.name : "?")} q{m.renderQueue} [{string.Join(" ", m.shaderKeywords)}] " +
+                                  $"tex {(m.HasProperty("_MainTex") && m.mainTexture ? m.mainTexture.name : "-")} id {(m.HasProperty("_IDTex") && m.GetTexture("_IDTex") ? m.GetTexture("_IDTex").name : "-")} -> {p}");
+                    }
+                }
+                Logger.LogInfo(sb.ToString());
+            }
+        }
+
+        private static bool VmSkipShader(Material m)
+        {
+            if (m == null || m.shader == null) return true;
+            if (m.renderQueue >= 3000) return true; // transparents: the game draws them after our composite
+            string n = m.shader.name;
+            return n.IndexOf("Particle", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Additive", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   n.IndexOf("Sprite", StringComparison.OrdinalIgnoreCase) >= 0 || n.StartsWith("UI/", StringComparison.Ordinal);
+        }
+
+        private Material ViewmodelMaterial(Material src)
+        {
+            if (_vmMaterials.TryGetValue(src, out var m)) return m;
+            m = new Material(_vmGbShader) { name = src.name + " [UltraRT VM]" };
+            var t = src.HasProperty("_MainTex") ? src.GetTexture("_MainTex") : null;
+            if (t != null && t.dimension == TextureDimension.Tex2D)
+            {
+                m.SetTexture("_MainTex", t);
+                m.SetTextureScale("_MainTex", src.GetTextureScale("_MainTex"));
+                m.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
+            }
+            if (src.HasProperty("_Color")) m.SetColor("_Color", src.GetColor("_Color"));
+            m.SetFloat("_VMVertexColors", src.IsKeywordEnabled("_VERTEXCOLORS_ON") ? 1f : 0f); // ULTRAKILL/Master tints the albedo by the vertex colour
+            // Alternate / custom gun colours (GunColorGetter swaps in materials with CUSTOM_COLORS and sets _CustomColor1-3 in a
+            // property block): the albedo comes from _IDTex (ViewmodelGBuffer.shader).
+            var idTex = src.HasProperty("_IDTex") ? src.GetTexture("_IDTex") : null;
+            if (src.IsKeywordEnabled("CUSTOM_COLORS") && idTex != null && idTex.dimension == TextureDimension.Tex2D)
+            {
+                m.SetTexture("_IDTex", idTex);
+                m.SetFloat("_VMCustom", 1f);
+            }
+            if (SceneProxies.SourceAlphaTested(src))
+            {
+                m.SetFloat("_AlphaTest", 1f);
+                m.SetFloat("_Cutoff", src.HasProperty("_Cutoff") ? src.GetFloat("_Cutoff") : 0.5f);
+            }
+            if (src.IsKeywordEnabled("EMISSIVE"))
+            {
+                var e = src.HasProperty("_EmissiveTex") ? src.GetTexture("_EmissiveTex") : null;
+                if (e != null && e.dimension == TextureDimension.Tex2D) m.SetTexture("_EmissiveTex", e);
+                if (src.HasProperty("_EmissiveColor")) m.SetColor("_EmissiveColor", src.GetColor("_EmissiveColor"));
+                m.SetFloat("_EmissiveIntensity", src.HasProperty("_EmissiveIntensity") ? Mathf.Max(src.GetFloat("_EmissiveIntensity"), 0.0001f) : 1f);
+                bool albedoAsEmissive = src.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") || src.HasProperty("_UseAlbedoAsEmissive") && src.GetFloat("_UseAlbedoAsEmissive") > 0.5f;
+                m.SetFloat("_UseAlbedoAsEmissive", albedoAsEmissive ? 1 : 0);
+            }
+            else if (src.IsKeywordEnabled("_EMISSION") && src.HasProperty("_EmissionColor"))
+            {
+                var e = src.HasProperty("_EmissionMap") ? src.GetTexture("_EmissionMap") : null;
+                if (e != null && e.dimension == TextureDimension.Tex2D) m.SetTexture("_EmissiveTex", e);
+                m.SetColor("_EmissiveColor", src.GetColor("_EmissionColor"));
+                m.SetFloat("_EmissiveIntensity", 1f);
+            }
+            // ULTRAKILL/Master without VERTEX_LIGHTING is fullbright: the game never lights it, neither do we.
+            bool fullbright = src.shader != null && src.shader.name == "ULTRAKILL/Master" && !src.IsKeywordEnabled("VERTEX_LIGHTING");
+            m.SetFloat("_VMLit", fullbright ? 0f : 1f);
+            var p = _proxies != null ? _proxies.ClassifyMaterial(src) : MaterialParams.None(SurfaceClass.Other, "none");
+            if (_vmMatTable.Count == 0) { _vmMatTable.Add(new Vector4(1, 0, 0.02f, 0)); _vmMatTable.Add(Vector4.zero); } // index 0: none
+            int index = _vmMatTable.Count / 2;
+            _vmMatTable.Add(new Vector4(p.Roughness, p.Metalness, p.F0, p.Weight));
+            _vmMatTable.Add(new Vector4((float)p.Mode, p.ReflStrength, (float)p.Class, 0f));
+            _vmMatDirty = true;
+            m.SetFloat("_VMMatIndex", index);
+            _vmMaterials[src] = m;
+            return m;
+        }
+
+        private void UploadViewmodelMaterials()
+        {
+            if (_vmMatTable.Count == 0) { _vmMatTable.Add(new Vector4(1, 0, 0.02f, 0)); _vmMatTable.Add(Vector4.zero); }
+            if (_vmMatBuffer == null || _vmMatBuffer.count < _vmMatTable.Count)
+            {
+                _vmMatBuffer?.Release();
+                _vmMatBuffer = new ComputeBuffer(Mathf.Max(64, Mathf.NextPowerOfTwo(_vmMatTable.Count)), 16) { name = "UltraRT Viewmodel materials" };
+                _vmMatDirty = true;
+            }
+            if (!_vmMatDirty) return;
+            _vmMatBuffer.SetData(_vmMatTable);
+            _vmMatDirty = false;
+        }
+
+        /// <summary>This frame's draws: active renderers, opaque submeshes, and each one's rigid motion since last frame.</summary>
+        private void CollectViewmodelDraws(Camera hud)
+        {
+            _vmDraws.Clear();
+            foreach (var r in _vmRenderers)
+            {
+                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy || r.forceRenderingOff) continue;
+                Mesh mesh = r is SkinnedMeshRenderer smr ? smr.sharedMesh : r.GetComponent<MeshFilter>()?.sharedMesh;
+                if (mesh == null) continue;
+                var mats = r.sharedMaterials;
+                Transform t = r is SkinnedMeshRenderer sk && sk.rootBone != null ? sk.rootBone : r.transform;
+                int n = Mathf.Min(mats.Length, mesh.subMeshCount);
+                for (int i = 0; i < n; i++)
+                {
+                    if (VmSkipShader(mats[i])) continue;
+                    var gm = ViewmodelMaterial(mats[i]);
+                    _vmDraws.Add(new VmDraw { r = r, sub = i, mat = gm, src = mats[i], t = t, custom = gm.GetFloat("_VMCustom") > 0.5f });
+                }
+            }
+        }
+
+        private Rect ViewmodelRect(Camera hud, int w, int h)
+        {
+            if (_vmFullScreen) return new Rect(0, 0, w, h);
+            // Corners are projected in view space; one behind the near plane is pulled onto it (conservative: it moves
+            // outwards on screen), since skinned arm bounds often contain the camera.
+            var v = hud.worldToCameraMatrix;
+            var proj = hud.projectionMatrix;
+            float near = hud.nearClipPlane;
+            float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+            Renderer last = null;
+            foreach (var d in _vmDraws)
+            {
+                if (d.r == last) continue;
+                last = d.r;
+                var b = d.r.bounds;
+                for (int c = 0; c < 8; c++)
+                {
+                    var p = new Vector3((c & 1) != 0 ? b.max.x : b.min.x, (c & 2) != 0 ? b.max.y : b.min.y, (c & 4) != 0 ? b.max.z : b.min.z);
+                    var vp = v.MultiplyPoint3x4(p);
+                    if (-vp.z < near) vp.z = -near;
+                    var c4 = proj * new Vector4(vp.x, vp.y, vp.z, 1f);
+                    float sxp = (c4.x / c4.w * 0.5f + 0.5f) * w, syp = (c4.y / c4.w * 0.5f + 0.5f) * h;
+                    x0 = Mathf.Min(x0, sxp); x1 = Mathf.Max(x1, sxp);
+                    y0 = Mathf.Min(y0, syp); y1 = Mathf.Max(y1, syp);
+                }
+            }
+            const float pad = 8f;
+            x0 = Mathf.Clamp(Mathf.Floor(x0 - pad), 0, w); x1 = Mathf.Clamp(Mathf.Ceil(x1 + pad), 0, w);
+            y0 = Mathf.Clamp(Mathf.Floor(y0 - pad), 0, h); y1 = Mathf.Clamp(Mathf.Ceil(y1 + pad), 0, h);
+            // The renderer bounds are loose (skinned arms reach behind the camera, so this is often the whole screen).
+            // Narrow them with the GPU-measured bounds of the last frames, padded for motion, unless the viewmodel touched
+            // the edge of the rectangle it was measured in (it may extend beyond: measure the bounds' rectangle next frame).
+            if (_vmGpuBoundsValid && _vmFrame - _vmGpuBoundsFrame <= 8u && _vmGpuBounds.width > 0)
+            {
+                var g = _vmGpuBounds;
+                var dr = _vmGpuDispatch;
+                int hw = (w + 1) / 2, hh = (h + 1) / 2;
+                bool touches = (g.xMin <= dr.xMin + 1 && dr.xMin > 0) || (g.yMin <= dr.yMin + 1 && dr.yMin > 0) ||
+                               (g.xMax >= dr.xMax - 1 && dr.xMax < hw) || (g.yMax >= dr.yMax - 1 && dr.yMax < hh);
+                if (!touches)
+                {
+                    const float motionPad = 64f; // full-res pixels: weapon bob and animation during the readback latency
+                    x0 = Mathf.Max(x0, g.xMin * 2f - motionPad); x1 = Mathf.Min(x1, g.xMax * 2f + motionPad);
+                    y0 = Mathf.Max(y0, g.yMin * 2f - motionPad); y1 = Mathf.Min(y1, g.yMax * 2f + motionPad);
+                    x0 = Mathf.Clamp(Mathf.Floor(x0), 0, w); x1 = Mathf.Clamp(Mathf.Ceil(x1), 0, w);
+                    y0 = Mathf.Clamp(Mathf.Floor(y0), 0, h); y1 = Mathf.Clamp(Mathf.Ceil(y1), 0, h);
+                }
+            }
+            // Even origin: the half-res grid starts on a 2x2 block.
+            x0 -= x0 % 2; y0 -= y0 % 2;
+            return x1 > x0 && y1 > y0 ? new Rect(x0, y0, x1 - x0, y1 - y0) : new Rect(0, 0, 0, 0);
+        }
+
+        /// <summary>Lights reaching the viewmodel: layer 13 (the game's own choice) plus the layer under the player, so the
+        /// sun (Outdoors-only mask) lights the gun outdoors; indoors the RT shadow keeps it out.</summary>
+        private int ViewmodelLightMask(Camera hud)
+        {
+            if (_vmLightMask != 0) return _vmLightMask;
+            if (Physics.Raycast(hud.transform.position, Vector3.down, out var hit, 6f, ~((1 << 13) | (1 << 2)), QueryTriggerInteraction.Ignore))
+            {
+                int l = hit.collider.gameObject.layer;
+                _vmGroundLayer = l == 6 ? 24 : l == 7 ? 8 : l; // baked layers map back to their originals
+            }
+            return (1 << 13) | (1 << _vmGroundLayer);
+        }
+
+        // ---------------------------------------------------------------- targets
+
+        private static void VmTex(ref RenderTexture rt, int w, int h, RenderTextureFormat f, string name, bool uav)
+        {
+            if (rt != null && rt.width == w && rt.height == h && rt.format == f) return;
+            if (rt != null) rt.Release();
+            rt = new RenderTexture(w, h, 0, f, RenderTextureReadWrite.Linear) { enableRandomWrite = uav, filterMode = FilterMode.Point, name = name };
+            rt.Create();
+        }
+
+        private void EnsureViewmodelTargets(RenderTexture gameDepth)
+        {
+            int w = gameDepth.width, h = gameDepth.height;
+            bool resized = _vmGB0 == null || _vmGB0.width != w || _vmGB0.height != h;
+            VmTex(ref _vmGB0, w, h, RenderTextureFormat.ARGB32, "UltraRT VM albedo", false);
+            VmTex(ref _vmGB1, w, h, RenderTextureFormat.ARGBHalf, "UltraRT VM normal", false);
+            VmTex(ref _vmGB2, w, h, RenderTextureFormat.ARGBHalf, "UltraRT VM position", false);
+            VmTex(ref _vmGB3, w, h, RenderTextureFormat.RGB111110Float, "UltraRT VM emission", false);
+            VmTex(ref _vmGB4, w, h, RenderTextureFormat.ARGBHalf, "UltraRT VM motion", false);
+            if (_vmDepth == null || _vmDepth.width != w || _vmDepth.height != h)
+            {
+                if (_vmDepth != null) _vmDepth.Release();
+                _vmDepth = new RenderTexture(w, h, 24, RenderTextureFormat.Depth) { name = "UltraRT VM depth" };
+                _vmDepth.Create();
+            }
+            int hw = (w + 1) / 2, hh = (h + 1) / 2;
+            VmTex(ref _vmRawLight, hw, hh, RenderTextureFormat.ARGBHalf, "UltraRT VM light", true);
+            VmTex(ref _vmRawDirect, hw, hh, RenderTextureFormat.RGHalf, "UltraRT VM direct", true);
+            VmTex(ref _vmRawRefl, hw, hh, RenderTextureFormat.ARGBHalf, "UltraRT VM reflection", true);
+            VmTex(ref _vmRawGeo, hw, hh, RenderTextureFormat.ARGBHalf, "UltraRT VM geo", true);
+            for (int i = 0; i < 2; i++)
+            {
+                VmTex(ref _vmHLight[i], hw, hh, RenderTextureFormat.ARGBHalf, "UltraRT VM light history", true);
+                VmTex(ref _vmHDirect[i], hw, hh, RenderTextureFormat.ARGBHalf, "UltraRT VM direct history", true);
+                VmTex(ref _vmHRefl[i], hw, hh, RenderTextureFormat.ARGBHalf, "UltraRT VM reflection history", true);
+                VmTex(ref _vmHGeo[i], hw, hh, RenderTextureFormat.RGHalf, "UltraRT VM geo history", true);
+            }
+            if (resized) { _vmNeedsClear = true; _vmHistValid = false; }
+            _vmMrt[0] = _vmGB0; _vmMrt[1] = _vmGB1; _vmMrt[2] = _vmGB2; _vmMrt[3] = _vmGB3; _vmMrt[4] = _vmGB4;
+        }
+
+        // ---------------------------------------------------------------- the pass
+
+        private void RecordViewmodel(Camera hud, PostProcessV2_Handler pp)
+        {
+            var color = pp.mainTex;
+            var depth = pp.depthBuffer;
+            if (color == null || depth == null) return;
+            if (Time.realtimeSinceStartup >= _vmNextRefresh)
+            {
+                _vmNextRefresh = Time.realtimeSinceStartup + 1f; // weapons are switched on and off, rarely created
+                RefreshViewmodelRenderers(hud);
+            }
+            CollectViewmodelDraws(hud);
+            int drawKey = 17;
+            foreach (var d in _vmDraws) drawKey = drawKey * 31 + (d.src != null ? d.src.GetInstanceID() : 0);
+            if (drawKey != _vmDrawKey && _vmDrawLogs < 30)
+            {
+                _vmDrawKey = drawKey;
+                _vmDrawLogs++;
+                Logger.LogInfo("Viewmodel draws: " + string.Join(", ", _vmDraws.Select(d => $"{d.r.name}[{d.sub}] '{d.src.name}'{(d.custom ? " custom colours" : "")} {_proxies?.ClassifyMaterial(d.src)}")));
+            }
+            if (_vmDraws.Count == 0) { _vmHistValid = false; return; }
+            bool hybrid = _vmTraceKind == Kind.Hybrid;
+            EnsureViewmodelTargets(depth);
+            UploadViewmodelMaterials();
+            int w = depth.width, h = depth.height, hw = (w + 1) / 2, hh = (h + 1) / 2;
+            var rect = ViewmodelRect(hud, w, h);
+            if (rect.width <= 0 || rect.height <= 0) { _vmHistValid = false; return; }
+            _vmLastRect = rect;
+            int hx = (int)rect.x / 2, hy = (int)rect.y / 2;
+            int hrw = Mathf.Min(hw - hx, Mathf.CeilToInt(rect.width / 2f) + 1), hrh = Mathf.Min(hh - hy, Mathf.CeilToInt(rect.height / 2f) + 1);
+
+            _vmFrame++;
+            float stamp = _vmFrame % 2000u + 1u;
+            var cmd = _vmCmd;
+            _gpu?.Begin(cmd, SlotViewmodel);
+
+            // 1. G-buffer with the HUD camera's matrices. Never cleared (stamps), except every 1000 frames.
+            _gpu?.Begin(cmd, SlotVmGBuffer);
+            cmd.SetRenderTarget(_vmMrt, _vmDepth.depthBuffer);
+            cmd.ClearRenderTarget(true, false, Color.clear);
+            if (_vmNeedsClear || _vmFrame % 1000u == 0u)
+            {
+                cmd.DrawProcedural(Matrix4x4.identity, _vmClearMat, 1, MeshTopology.Triangles, 3);
+                _vmNeedsClear = false;
+            }
+            cmd.SetGlobalFloat(VmStampId, stamp);
+            var w2c = hud.worldToCameraMatrix;
+            Renderer lastR = null;
+            Matrix4x4 delta = Matrix4x4.identity;
+            foreach (var d in _vmDraws)
+            {
+                if (d.r != lastR)
+                {
+                    lastR = d.r;
+                    var mv = w2c * d.t.localToWorldMatrix;
+                    delta = _vmHistValid && _vmPrevMV.TryGetValue(d.r, out var prev) ? prev * mv.inverse : Matrix4x4.identity;
+                    _vmPrevMV[d.r] = mv;
+                    cmd.SetGlobalMatrix(VmPrevDeltaId, delta);
+                }
+                if (d.custom)
+                {
+                    // The colours live in the renderer's property block (falling back to the material's own values).
+                    _vmMpb ??= new MaterialPropertyBlock();
+                    d.r.GetPropertyBlock(_vmMpb);
+                    foreach (int id in VmCustomIds)
+                        cmd.SetGlobalColor(id, !_vmMpb.isEmpty && _vmMpb.HasColor(id) ? _vmMpb.GetColor(id) : d.src.HasProperty(id) ? d.src.GetColor(id) : Color.white);
+                }
+                cmd.DrawRenderer(d.r, d.mat, d.sub, 0);
+            }
+
+
+            _gpu?.End(cmd, SlotVmGBuffer);
+            // 3. Rays.
+            _gpu?.Begin(cmd, SlotVmRays);
+            var rt = _vmRt;
+            rt.SetShaderPass("UltraRTHit");
+            cmd.SetRayTracingAccelerationStructure(rt, "_Scene", _proxies.Rtas);
+            cmd.SetRayTracingTextureParam(rt, "_VMLightOut", _vmRawLight);
+            cmd.SetRayTracingTextureParam(rt, "_VMDirectOut", _vmRawDirect);
+            cmd.SetRayTracingTextureParam(rt, "_VMReflOut", _vmRawRefl);
+            cmd.SetRayTracingTextureParam(rt, "_VMGeoOut", _vmRawGeo);
+            cmd.SetRayTracingTextureParam(rt, "_VMGB0", _vmGB0);
+            cmd.SetRayTracingTextureParam(rt, "_VMGB1", _vmGB1);
+            cmd.SetRayTracingTextureParam(rt, "_VMGB2", _vmGB2);
+            cmd.SetRayTracingBufferParam(rt, "_VMMaterials", _vmMatBuffer);
+            cmd.SetRayTracingVectorParam(rt, "_VMCamPos", hud.transform.position);
+            cmd.SetRayTracingVectorParam(rt, "_CamPos", _camera != null ? _camera.transform.position : hud.transform.position);
+            cmd.SetRayTracingVectorParam(rt, "_VMRect", new Vector4(hx, hy, w, h));
+            cmd.SetRayTracingFloatParam(rt, "_VMStamp", stamp);
+            cmd.SetRayTracingIntParam(rt, "_VMMode", hybrid ? 3 : 0);
+            cmd.SetRayTracingIntParam(rt, "_VMLightMask", ViewmodelLightMask(hud));
+            cmd.SetRayTracingIntParam(rt, "_VMDirectSamples", Mathf.Clamp(_vmSamples, 1, 4));
+            cmd.SetRayTracingIntParam(rt, "_VMCheckerboard", _vmCheckerboard ? 1 : 0);
+            cmd.SetRayTracingIntParam(rt, "_VMStableRefl", _vmStableRefl ? 1 : 0);
+            cmd.SetRayTracingIntParam(rt, "_FrameIndex", (int)_frameIndex);
+            cmd.SetRayTracingBufferParam(rt, "_Lights", _lightBuffer);
+            cmd.SetRayTracingBufferParam(rt, "_LightMasks", _lightMaskBuffer);
+            cmd.SetRayTracingIntParam(rt, "_LightCount", _lightCount);
+            cmd.SetRayTracingFloatParam(rt, "_LightRadius", _lightRadius);
+            cmd.SetRayTracingVectorParam(rt, "_Relight", RelightParams);
+            cmd.SetRayTracingFloatParam(rt, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
+            _lightSampling.BindTables(cmd, rt);
+            _emissive.Bind(cmd, rt, _lightSamplingSettings.mode);
+            _radianceCache.BindLookupOn(cmd, rt);
+            var ambient = RenderSettings.ambientLight;
+            cmd.SetRayTracingVectorParam(rt, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
+            var mainCmd = _cmd;
+            _cmd = cmd; // BindSky records into _cmd
+            try { BindSky(rt); }
+            finally { _cmd = mainCmd; }
+            cmd.SetRayTracingVectorParam(rt, "_Ambient", new Vector4(ambient.r, ambient.g, ambient.b, 1) * 2f);
+            cmd.SetRayTracingFloatParam(rt, "_PrimaryAmbient", _primaryAmbient);
+            cmd.SetRayTracingFloatParam(rt, "_BounceAmbient", 1f);
+            cmd.SetRayTracingFloatParam(rt, "_LightScale", 1f);
+            cmd.SetRayTracingFloatParam(rt, "_EmissionScale", 1f);
+            cmd.SetRayTracingFloatParam(rt, "_GIStrength", _giStrength);
+            cmd.SetRayTracingVectorParam(rt, "_ReflParams", _reflSettings.ShaderParams);
+            cmd.SetRayTracingFloatParam(rt, "_ReflMaxRadiance", Mathf.Max(0.01f, _reflSettings.maxRadiance));
+            cmd.SetRayTracingVectorParam(rt, "_ReflCache", _reflSettings.CacheParams);
+            cmd.DispatchRays(rt, "RayGen", _vmRayTest == 1 ? 1u : (uint)hrw, _vmRayTest == 1 ? 1u : (uint)hrh, 1);
+            _gpu?.End(cmd, SlotVmRays);
+            _gpu?.Begin(cmd, SlotVmFilter);
+
+            // 4. Filter: temporal (raw + previous history -> current history), then a-trous ping-pong through the raw
+            // textures and the previous history set, which are free by then.
+            int cur = _vmHist ^ 1, prv = _vmHist;
+            var cs = _vmFilter;
+            var fwd = hud.transform.forward;
+            cmd.SetComputeVectorParam(cs, "_Rect", new Vector4(hx, hy, hrw, hrh));
+            cmd.SetComputeVectorParam(cs, "_HalfDim", new Vector4(hw, hh, w, h));
+            cmd.SetComputeVectorParam(cs, "_CamFwd", fwd);
+            cmd.SetComputeVectorParam(cs, "_Stamps", new Vector4(stamp, _vmPrevStamp, 0, 0));
+            // Lights appeared or disappeared (muzzle flashes, explosions): keep only a few frames of history.
+            cmd.SetComputeVectorParam(cs, "_Params2", new Vector4(_lightSampling.LightSetChanged ? 2f : 1000f, 0, 0, 0));
+            cmd.SetComputeVectorParam(cs, "_Params", new Vector4(Mathf.Max(1f, _vmMaxHistory), Mathf.Max(1f, _vmMaxHistoryRefl), Mathf.Max(0.5f, _vmClampK), _vmHistValid ? 1f : 0f));
+            int k = _vmKTemporal;
+            cmd.SetComputeTextureParam(cs, k, "_RawLight", _vmRawLight);
+            cmd.SetComputeTextureParam(cs, k, "_RawDirect", _vmRawDirect);
+            cmd.SetComputeTextureParam(cs, k, "_RawRefl", _vmRawRefl);
+            cmd.SetComputeTextureParam(cs, k, "_RawGeo", _vmRawGeo);
+            cmd.SetComputeTextureParam(cs, k, "_HistLight", _vmHLight[prv]);
+            cmd.SetComputeTextureParam(cs, k, "_HistDirect", _vmHDirect[prv]);
+            cmd.SetComputeTextureParam(cs, k, "_HistRefl", _vmHRefl[prv]);
+            cmd.SetComputeTextureParam(cs, k, "_HistGeo", _vmHGeo[prv]);
+            cmd.SetComputeTextureParam(cs, k, "_VMGB4", _vmGB4);
+            cmd.SetComputeTextureParam(cs, k, "_OutLight", _vmHLight[cur]);
+            cmd.SetComputeTextureParam(cs, k, "_OutDirect", _vmHDirect[cur]);
+            cmd.SetComputeTextureParam(cs, k, "_OutRefl", _vmHRefl[cur]);
+            cmd.SetComputeTextureParam(cs, k, "_OutGeo", _vmHGeo[cur]);
+            int gx = (hrw + 7) / 8, gy = (hrh + 7) / 8;
+            cmd.DispatchCompute(cs, k, gx, gy, 1);
+            RenderTexture fl = _vmHLight[cur], fd = _vmHDirect[cur], fr = _vmHRefl[cur];
+            int iters = Mathf.Clamp(_vmAtrous, 0, 3);
+            for (int it = 0; it < iters; it++)
+            {
+                // Even iterations write the previous history set, odd ones the raw samples (raw geo stays: the composite reads it).
+                bool even = (it & 1) == 0;
+                var outL = even ? _vmHLight[prv] : _vmRawLight;
+                var outD = even ? _vmHDirect[prv] : _vmRawDirect;
+                var outR = even ? _vmHRefl[prv] : _vmRawRefl;
+                k = _vmKAtrous;
+                cmd.SetComputeVectorParam(cs, "_Atrous", new Vector4(1 << it, 0.1f, 0, 0));
+                cmd.SetComputeTextureParam(cs, k, "_RawGeo", _vmRawGeo);
+                cmd.SetComputeTextureParam(cs, k, "_VMGB1", _vmGB1);
+                cmd.SetComputeBufferParam(cs, k, "_VMMaterials", _vmMatBuffer);
+                cmd.SetComputeTextureParam(cs, k, "_InLight", fl);
+                cmd.SetComputeTextureParam(cs, k, "_InDirect", fd);
+                cmd.SetComputeTextureParam(cs, k, "_InRefl", fr);
+                cmd.SetComputeTextureParam(cs, k, "_OutLight", outL);
+                cmd.SetComputeTextureParam(cs, k, "_OutDirect", outD);
+                cmd.SetComputeTextureParam(cs, k, "_OutRefl", outR);
+                cmd.DispatchCompute(cs, k, gx, gy, 1);
+                fl = outL; fd = outD; fr = outR;
+            }
+            // Bounds of this frame's viewmodel pixels, read back for the next frames' rectangle.
+            _vmBoundsBuf ??= new ComputeBuffer(4, 4) { name = "UltraRT VM bounds" };
+            cmd.SetBufferData(_vmBoundsBuf, VmBoundsInit);
+            cmd.SetComputeTextureParam(cs, _vmKBounds, "_RawGeo", _vmRawGeo);
+            cmd.SetComputeBufferParam(cs, _vmKBounds, "_Bounds", _vmBoundsBuf);
+            cmd.DispatchCompute(cs, _vmKBounds, gx, gy, 1);
+            uint issued = _vmFrame;
+            var dispatched = new RectInt(hx, hy, hrw, hrh);
+            cmd.RequestAsyncReadback(_vmBoundsBuf, r =>
+            {
+                if (r.hasError || issued < _vmGpuBoundsFrame) return;
+                var b = r.GetData<uint>();
+                _vmGpuBoundsFrame = issued;
+                _vmGpuDispatch = dispatched;
+                _vmGpuBounds = b[2] > 0 ? new RectInt((int)b[0], (int)b[1], (int)(b[2] - b[0]), (int)(b[3] - b[1])) : new RectInt(0, 0, 0, 0);
+                _vmGpuBoundsValid = true;
+            });
+            _gpu?.End(cmd, SlotVmFilter);
+            _vmHist = cur;
+            _vmPrevStamp = stamp;
+            _vmHistValid = true;
+
+            // 5. Composite into the game's colour buffer (the HUD camera's target), under the viewmodel's rectangle.
+            cmd.SetGlobalTexture(VmGB0Id, _vmGB0);
+            cmd.SetGlobalTexture(VmGB1Id, _vmGB1);
+            cmd.SetGlobalTexture(VmGB2Id, _vmGB2);
+            cmd.SetGlobalTexture(VmGB3Id, _vmGB3);
+            cmd.SetGlobalTexture(VmLightId, fl);
+            cmd.SetGlobalTexture(VmDirectId, fd);
+            cmd.SetGlobalTexture(VmReflId, fr);
+            cmd.SetGlobalTexture(VmGeoId, _vmRawGeo);
+            // The game's depth (its viewmodel drawn) is read directly: the composite binds only the colour target.
+            cmd.SetGlobalTexture(VmGameDepthId, depth, RenderTextureSubElement.Depth);
+            var mat = _vmCompositeMat;
+            mat.SetBuffer(VmMaterialsId, _vmMatBuffer);
+            var exposure = _autoExposure?.ExposureBuffer;
+            if (exposure == null)
+            {
+                _vmDummyExposure ??= new ComputeBuffer(1, 16) { name = "UltraRT VM dummy exposure" };
+                exposure = _vmDummyExposure;
+            }
+            mat.SetBuffer(VmExposureId, exposure);
+            mat.SetInt(VmModeId, hybrid ? 3 : 0);
+            mat.SetInt(VmDebugId, _vmDebug);
+            mat.SetFloat(VmStampId, stamp);
+            mat.SetVector(VmCamFwdId, fwd);
+            mat.SetVector(VmParamsId, new Vector4(_shadowBias, _giStrength, Mathf.Max(0.001f, _vmDepthTol), 1f));
+            mat.SetVector(VmRefl2Id, new Vector4(_reflSettings.specWeight, _reflSettings.reflStrength, _reflSettings.enabled ? 1f : 0f, 0f));
+            _gpu?.Begin(cmd, SlotVmComposite);
+            cmd.SetRenderTarget(color.colorBuffer);
+            cmd.EnableScissorRect(rect);
+            cmd.DrawProcedural(Matrix4x4.identity, mat, hybrid ? 1 : 0, MeshTopology.Triangles, 3);
+            cmd.DisableScissorRect();
+            cmd.SetRenderTarget(color.colorBuffer, depth.depthBuffer); // the HUD camera's own targets, for its transparents
+            _gpu?.End(cmd, SlotVmComposite);
+            _gpu?.End(cmd, SlotViewmodel);
+
+            if (Time.realtimeSinceStartup >= _vmNextLog)
+            {
+                _vmNextLog = Time.realtimeSinceStartup + 20f;
+                Logger.LogInfo($"Viewmodel RT: {_vmDraws.Count} draws ({_vmRenderers.Count} renderers, {_vmMaterials.Count} materials), rect {rect.x}x{rect.y} {rect.width}x{rect.height} of {w}x{h} " +
+                               $"({100f * rect.width * rect.height / (w * h):F0}%), light mask 0x{ViewmodelLightMask(hud):X8} (ground layer {_vmGroundLayer}), mode {_vmTraceMode}");
+            }
+        }
+    }
+}

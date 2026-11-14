@@ -1,0 +1,312 @@
+// Ray-traced lighting for the first-person viewmodel (arms and guns, layer 13; docs/viewmodel.md).
+//
+// ULTRAKILL draws the viewmodel with its own camera (HUD Camera, FOV 90) after the world. ViewmodelGBuffer.shader
+// re-draws those renderers on that camera into a small G-buffer (albedo, normal, position relative to the camera, ...).
+// This shader lights each G-buffer pixel at half resolution against the world RTAS, like a primary hit in PathTrace:
+//   direct    fill lights + RIS over the light / emissive tables, _VMDirectSamples shadow rays
+//   indirect  one cosine bounce ray, its hit lit from the radiance cache (or one light sample), misses see the sky
+//   specular  one reflection ray on glossy / metal materials (MaterialClasses), shaded like PathTrace's reflections
+// The viewmodel itself is not in the RTAS, so it never shadows the world or itself, and V1's third-person model (0x80)
+// is left out of every ray: it sits exactly where the first-person gun is.
+// Separate .raytrace: PathTrace is at Unity's 8-UAV limit. UAVs here: the four outputs below (_ReservoirCur in
+// UltraRTLights.hlsl is never referenced, so the compiler drops it).
+#pragma max_recursion_depth 1
+
+#include "UltraRTCommon.hlsl"
+#include "UltraRTMaterial.hlsl"
+
+RaytracingAccelerationStructure _Scene;
+#include "UltraRTPortals.hlsl" // TraceScene: bounce and reflection rays follow portals
+
+// Outputs, at half the G-buffer's resolution (full-screen sized; only the dispatched rectangle is written).
+RWTexture2D<float4> _VMLightOut;  // rgb lighting (lighting space; hybrid: the bounce channel), a = 1 traced this frame
+RWTexture2D<float4> _VMDirectOut; // hybrid: x shadowed, y unshadowed direct luminance (the shadow ratio); a = 1 valid
+RWTexture2D<float4> _VMReflOut;   // rgb reflected radiance (display units), a = 1 traced, 0 not reflective, -1 skipped (checkerboard)
+RWTexture2D<float4> _VMGeoOut;    // xyz world position - camera, w = 1 + index of the full-res pixel used (0 = none)
+
+// G-buffer (ViewmodelGBuffer.shader), full resolution.
+Texture2D<float4> _VMGB0; // albedo rgb, a lit weight
+Texture2D<float4> _VMGB1; // world normal xyz, w material index
+Texture2D<float4> _VMGB2; // world position - camera xyz, w frame stamp
+StructuredBuffer<float4> _VMMaterials; // 2 per index: (roughness, metalness, f0, spec weight), (mode, refl strength, class, 0)
+
+float4 _VMCamPos;      // xyz world position of the viewmodel camera
+float4 _CamPos;        // the main camera (radiance cache LOD, UltraRTCache.hlsl)
+float4 _VMRect;        // xy first half-res pixel of the dispatch, zw full-res G-buffer size
+float  _VMStamp;       // this frame's stamp in _VMGB2.w
+int    _VMMode;        // 0 full lighting (relight, pt-dn), 3 hybrid (bounce channel + shadow ratio)
+uint   _VMLightMask;   // lights reaching the viewmodel: union of these layers' culling-mask bits
+int    _VMDirectSamples; // RIS samples (one shadow ray each) per pixel
+int    _VMCheckerboard;  // 1: trace half the pixels per frame (alternating checkerboard); the filter fills the others
+int    _VMStableRefl;     // 1: reflection rays along the mirror direction (no GGX sample): noise-free, roughness comes from the
+                         // filter's spatial blur (ViewmodelFilter.compute, rough materials only)
+uint   _FrameIndex;
+
+float4 _Ambient;        // the game's ambient term (2 * RenderSettings.ambientLight)
+float  _PrimaryAmbient;
+float  _BounceAmbient;
+float  _LightScale;
+float  _EmissionScale;
+float  _GIStrength;
+float4 _ReflParams;      // as PathTrace: x enabled, y global specular weight, z global reflection strength, w min weight
+float  _ReflMaxRadiance;
+float4 _ReflCache;
+
+// ---------------------------------------------------------------- rng / sampling (as PathTrace)
+
+uint Pcg(inout uint s)
+{
+    s = s * 747796405u + 2891336453u;
+    uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
+}
+float Rand(inout uint s) { return Pcg(s) * (1.0 / 4294967296.0); }
+
+float3 CosineHemisphere(float3 n, float u1, float u2)
+{
+    float r = sqrt(u1);
+    float phi = 6.28318530718 * u2;
+    float3 t = abs(n.y) < 0.999 ? normalize(cross(n, float3(0, 1, 0))) : float3(1, 0, 0);
+    float3 b = cross(n, t);
+    return normalize(t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(0.0, 1.0 - u1)));
+}
+
+float3 SampleGgxVndf(float3 Ve, float alpha, float u1, float u2)
+{
+    float3 Vh = normalize(float3(alpha * Ve.x, alpha * Ve.y, Ve.z));
+    float lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+    float3 T1 = lensq > 0.0 ? float3(-Vh.y, Vh.x, 0.0) * rsqrt(lensq) : float3(1.0, 0.0, 0.0);
+    float3 T2 = cross(Vh, T1);
+    float r = sqrt(u1);
+    float phi = 6.28318530718 * u2;
+    float t1 = r * cos(phi);
+    float t2 = r * sin(phi);
+    float s = 0.5 * (1.0 + Vh.z);
+    t2 = (1.0 - s) * sqrt(max(0.0, 1.0 - t1 * t1)) + s * t2;
+    float3 Nh = t1 * T1 + t2 * T2 + sqrt(max(0.0, 1.0 - t1 * t1 - t2 * t2)) * Vh;
+    return normalize(float3(alpha * Nh.x, alpha * Nh.y, max(1e-6, Nh.z)));
+}
+
+float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng)
+{
+    float3 mirror = reflect(dir, n);
+    if (roughness < 0.03) return mirror;
+    float3 t = abs(n.y) < 0.999 ? normalize(cross(n, float3(0, 1, 0))) : float3(1, 0, 0);
+    float3 b = cross(n, t);
+    float3 V = -dir;
+    float3 Ve = float3(dot(V, t), dot(V, b), max(dot(V, n), 1e-4));
+    float3 h = SampleGgxVndf(Ve, max(roughness * roughness, 1e-3), Rand(rng), Rand(rng));
+    float3 H = normalize(t * h.x + b * h.y + n * h.z);
+    float3 L = reflect(dir, H);
+    return dot(L, n) > 1e-3 ? L : mirror;
+}
+
+// ---------------------------------------------------------------- lights
+
+// The gun is lit by every light that reaches layer 13 (what the game lights it with) or the layer the player stands on
+// (so the sun reaches it outdoors; RT shadows keep it out indoors). Plugin.Viewmodel.cs builds the mask.
+#define ULTRART_VM_LAYER 32u // "layer" of viewmodel surfaces; bounce and reflection hits keep their own layer
+#define ULTRART_LIGHT_LAYER_TEST(m, layer) ((layer) >= ULTRART_VM_LAYER ? (((m) & _VMLightMask) != 0u) : ((((m) >> (layer)) & 1u) != 0u))
+#include "UltraRTLights.hlsl"
+#include "UltraRTCache.hlsl"
+// No direct sky samples: the bounce ray's sky misses carry the full sky (weight 1), as in the cache update.
+#define ULTRART_SKY_NO_NEE
+#include "UltraRTSky.hlsl"
+
+// As PathTrace's ReflectionHitLight / TraceReflection (docs/reflections.md, section 5), without the water pass.
+// Lighting at a secondary (bounce or reflection) hit: the radiance cache, or with shadows=false and no cached cell only
+// the unshadowed fill lights (no extra shadow ray: the pass is latency-bound).
+float3 SecondaryHitLight(float3 hp, RayPayload h, bool shadows, inout uint rng)
+{
+    float3 cached;
+    if (CacheQueryTotal(hp, h.normal, cached)) return cached;
+    return shadows ? DirectOne(hp, h.normal, PayloadLayer(h), rng) : FillLighting(hp, h.normal, PayloadLayer(h)) * _LightScale;
+}
+
+float3 ReflectionHitLight(float3 hp, RayPayload h, float footprint, bool shadows, inout uint rng)
+{
+    float3 total, indirect;
+    bool cached = _ReflCache.x > 0.5 && CacheLookup(hp, h.normal, total, indirect);
+    float giW = _VMMode == 3 ? _GIStrength : 1.0;
+    float3 light;
+    if (cached && (_ReflCache.x > 1.5 || footprint >= CacheCellSize(CacheLevel(hp)) * _ReflCache.y))
+        light = total - indirect * (1.0 - giW);
+    else
+        light = (shadows ? DirectOne(hp, h.normal, PayloadLayer(h), rng) : cached ? total - indirect : FillLighting(hp, h.normal, PayloadLayer(h)) * _LightScale)
+              + (cached ? indirect * giW : 0.0);
+    return light + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
+}
+
+float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread, float t, bool shadows, inout uint rng)
+{
+    RayDesc r;
+    r.Origin = pos + n * 0.02;
+    r.Direction = L;
+    r.TMin = 0.0;
+    r.TMax = 1.0e4;
+    RayPayload h;
+    float travelled;
+    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, r, h, travelled);
+    float3 c;
+    if (h.t < 0.0)
+    {
+        c = SkyRadiance(r.Direction);
+    }
+    else
+    {
+        float ht = travelled + h.t;
+        float3 hp = r.Origin + r.Direction * h.t;
+        float footprint = ht * spread + (t + ht) * 0.002;
+        float3 hitLight = ReflectionHitLight(hp, h, footprint, shadows, rng);
+        c = PayloadEmission(h) * _EmissionScale + h.albedo * lerp(1.0, LightToDisplay(hitLight), h.alpha);
+    }
+    c = max(c, 0.0);
+    if (glossy)
+    {
+        float l = dot(c, float3(0.2126, 0.7152, 0.0722));
+        if (l > _ReflMaxRadiance) c *= _ReflMaxRadiance / l;
+    }
+    return c;
+}
+
+// ---------------------------------------------------------------- ray generation
+
+[shader("raygeneration")]
+void RayGen()
+{
+    uint2 id = DispatchRaysIndex().xy + (uint2)_VMRect.xy; // half-res pixel
+    uint2 full = (uint2)_VMRect.zw;
+    uint rng = (id.x * 1973u + id.y * 9277u + _FrameIndex * 26699u) | 1u;
+    g_ShadowRng = HashU32(rng ^ 0x5bd1e995u);
+    g_ShadowPlayerMask = 0u; // V1's third-person arm and gun overlap the viewmodel: never in these rays
+
+    // The full-res pixel this half-res pixel stands for: the first covered one of its 2x2 block (fixed order, so the
+    // choice is stable while the gun holds still).
+    const uint2 order[4] = { uint2(0, 0), uint2(1, 1), uint2(1, 0), uint2(0, 1) };
+    int pick = -1;
+    float4 g2 = 0;
+    uint2 px = 0;
+    [unroll] for (int k = 0; k < 4; k++)
+    {
+        uint2 q = id * 2u + order[k];
+        if (pick < 0 && all(q < full))
+        {
+            float4 g = _VMGB2[q];
+            if (g.w == _VMStamp) { pick = k; g2 = g; px = q; }
+        }
+    }
+    if (pick < 0)
+    {
+        _VMLightOut[id] = 0;
+        _VMDirectOut[id] = 0;
+        _VMReflOut[id] = 0;
+        _VMGeoOut[id] = 0;
+        return;
+    }
+
+    _VMGeoOut[id] = float4(g2.xyz, 1.0 + (float)pick);
+
+    float4 g0 = _VMGB0[px];
+    float4 g1 = _VMGB1[px];
+    float3 albedo = g0.rgb;
+    float3 pos = _VMCamPos.xyz + g2.xyz;
+    float t = length(g2.xyz);
+    float3 viewDir = g2.xyz / max(t, 1e-5);
+    float3 n = normalize(g1.xyz);
+    if (dot(n, viewDir) > 0.0) n = -n;
+    uint layer = ULTRART_VM_LAYER; // ULTRART_LIGHT_LAYER_TEST tests _VMLightMask
+
+    // Does this pixel want a reflection ray (the same weights the composite uses)?
+    uint mi = (uint)round(g1.w);
+    float4 m0 = _VMMaterials[mi * 2u], m1 = _VMMaterials[mi * 2u + 1u];
+    SurfaceMaterial mat;
+    mat.roughness = m0.x; mat.metalness = m0.y; mat.f0 = m0.z; mat.weight = m0.w;
+    mat.mode = (uint)m1.x; mat.reflStrength = m1.y; mat.cls = (uint)m1.z;
+    bool reflective = false;
+    if (_ReflParams.x > 0.5 && mat.mode != ULTRART_REFL_NONE)
+    {
+        float3 specW;
+        float keep;
+        SpecularTerms(mat, albedo, saturate(dot(n, -viewDir)), _ReflParams.yz, _VMMode == 3, specW, keep);
+        reflective = dot(specW, float3(0.2126, 0.7152, 0.0722)) >= _ReflParams.w;
+    }
+
+    // The pass is latency-bound (few threads, each a chain of dependent rays), so work is split over pixels rather than
+    // frames: with _VMCheckerboard, glossy pixels alternate between the diffuse rays and the reflection ray (checkerboard,
+    // swapping every frame), and secondary hits are lit from the radiance cache only (no extra shadow ray). The filter
+    // fills each pixel's missing half from its neighbours and history. a = 0 (light) / -1 (reflection): not traced.
+    bool split = _VMCheckerboard != 0 && reflective;
+    bool secondaryShadows = _VMCheckerboard == 0;
+    if (split && ((id.x + id.y + _FrameIndex) & 1u) != 0u)
+    {
+        float3 L = _VMStableRefl != 0 ? reflect(viewDir, n) : ReflectionDirection(n, viewDir, mat.roughness, rng);
+        _VMLightOut[id] = 0;
+        _VMDirectOut[id] = 0;
+        _VMReflOut[id] = float4(TraceReflection(pos, n, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, t, secondaryShadows, rng), 1.0);
+        return;
+    }
+
+    // Direct light: fill lights plus RIS samples, each with one shadow ray. Unshadowed sum for the hybrid shadow ratio.
+    float3 fill = FillLighting(pos, n, layer);
+    float3 sh = fill, un = fill, additive = 0;
+    int samples = clamp(_VMDirectSamples, 1, 4);
+    for (int s = 0; s < samples; s++)
+    {
+        Reservoir r = RisCandidates(pos, n, layer, _RisCandidates, rng);
+        float W = ReservoirW(r) / (float)samples;
+        if (W <= 0.0) continue;
+        un += r.c * W;
+        if (SampleVisible(r, pos, n))
+        {
+            sh += r.c * W;
+            if ((r.light & ULTRART_EMISSIVE) != 0u) additive += r.c * (W * _EmissiveHybridAdd);
+            else additive += r.c * (W * LightHybridWeight(r.light));
+        }
+    }
+    sh *= _LightScale; un *= _LightScale; additive *= _LightScale;
+
+    // One cosine bounce, its hit lit from the radiance cache (all further bounces).
+    float3 indirect = 0;
+    {
+        RayDesc b;
+        b.Origin = pos + n * 0.02;
+        b.Direction = CosineHemisphere(n, Rand(rng), Rand(rng));
+        b.TMin = 0.0;
+        b.TMax = 1.0e4;
+        RayPayload h;
+        float travelled;
+        TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, b, h, travelled);
+        if (h.t < 0.0)
+        {
+            indirect = SkyLightRadiance(b.Direction); // SkyMissWeight is 1 without sky samples
+        }
+        else
+        {
+            float3 hp = b.Origin + b.Direction * h.t;
+            float3 hitLight = SecondaryHitLight(hp, h, secondaryShadows, rng) + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
+            indirect = ToLight(PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight)) + ToLight(h.albedo) * lerp(1.0, hitLight, h.alpha);
+        }
+    }
+
+    float3 ambient = ToLight(_Ambient.rgb) * _PrimaryAmbient * RelightAmbientScale();
+    float3 lighting = _VMMode == 3 ? indirect + additive / max(_GIStrength, 1e-3) : sh + indirect + ambient;
+    lighting = max(lighting, 0.0); // also drops NaN
+
+    float4 refl = float4(0, 0, 0, split ? -1.0 : 0.0);
+    if (reflective && !split)
+    {
+        float3 L = _VMStableRefl != 0 ? reflect(viewDir, n) : ReflectionDirection(n, viewDir, mat.roughness, rng);
+        refl = float4(TraceReflection(pos, n, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, t, secondaryShadows, rng), 1.0);
+    }
+
+    _VMLightOut[id] = float4(lighting, 1.0);
+    _VMDirectOut[id] = float4(dot(sh, float3(0.2126, 0.7152, 0.0722)), dot(un, float3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+    _VMReflOut[id] = refl;
+}
+
+
+[shader("miss")]
+void Miss(inout RayPayload p : SV_RayPayload)
+{
+    p.t = -1.0;
+}

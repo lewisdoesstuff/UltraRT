@@ -111,6 +111,7 @@ namespace UltraRT
             ParseVolumetricsArgs();
             ParseMaterialArgs();
             ParseLavaArgs();
+            ParseViewmodelArgs();
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);
 
@@ -306,6 +307,7 @@ namespace UltraRT
             LoadTransparentShaders(bundle);
             LoadLavaShader(bundle);
             LoadVolumetricsShaders(bundle);
+            LoadViewmodelShaders(bundle);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -333,12 +335,13 @@ namespace UltraRT
             MaterialsUpdate(); // Ctrl+F1, _UltraRTDetail global
             try
             {
-                if (Input.GetKeyDown(KeyCode.F7)) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F7) && !CtrlHeld()) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
                 ExposureHotkeys(); // Ctrl+F4
                 if (Input.GetKeyDown(KeyCode.F4) && !CtrlHeld()) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
                 SkyHotkeys(); // Ctrl+F5
                 if (Input.GetKeyDown(KeyCode.F5) && !CtrlHeld()) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
                 VolumetricsHotkeys(); // Ctrl+F6
+                ViewmodelHotkeys(); // Ctrl+F7
                 if (Input.GetKeyDown(KeyCode.F6) && !CtrlHeld()) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
                 // Page Up / Page Down cycle view modes (F8 opens ULTRAKILL's console).
                 if (Input.GetKeyDown(KeyCode.PageDown)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
@@ -393,6 +396,7 @@ namespace UltraRT
             _radianceCache?.Reset();
             _autoExposure?.Reset();
             _volumetrics?.Reset();
+            ViewmodelReset();
         }
 
         private Denoiser _denoiser;
@@ -677,7 +681,8 @@ namespace UltraRT
 
         private void OnCameraPreRender(Camera cam)
         {
-            if (cam == null || cam.name != "Main Camera" || _cmd == null) return;
+            if (cam == null || _cmd == null) return;
+            if (cam.name != "Main Camera") { ViewmodelPreRender(cam); return; } // the HUD camera: viewmodel pass (Plugin.Viewmodel.cs)
             if (_recordedFrame == Time.frameCount && cam == _attachedCam) return; // rendered twice in a frame: keep the recording
             _recordedFrame = Time.frameCount;
             _camera = cam;
@@ -1168,6 +1173,7 @@ namespace UltraRT
                 SampleGpuTimings();
             }
 
+            ViewmodelTraced(kind); // the HUD camera lights the viewmodel against this frame (Plugin.Viewmodel.cs)
             _frameIndex++;
             Perf.Add(Perf.Sec.Trace, traceStart);
             if (pt && _accumulate) _accumFrames++;
@@ -1181,8 +1187,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 11;
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 16; // 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;
