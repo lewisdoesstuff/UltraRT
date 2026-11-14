@@ -59,6 +59,23 @@
     { "material": "Office*", "class": "Generic" },
     { "material": "WaterControl*", "class": "Generic" },
     { "material": "WaterProcessing*", "class": "Generic" },
-    { "material": "Maze*", "class": "Generic" }
+    { "material": "Maze*", "class": "Generic" },
+
+    { "material": "Pistol New*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6, "note": "weapons (first-person viewmodel and V1 third-person; docs/viewmodel.md): painted metal" },
+    { "material": "MinosRevolver*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "Shotgun New*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "HeatSinkTest_New*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "Nailgun New*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "M_Railcannon*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "RocketLauncher*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "ImpactHammer*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "SawbladeLauncher*", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "Sawblade", "class": "MetalHigh", "roughness": 0.3, "specWeight": 0.7 },
+    { "material": "ChainsawLit", "class": "MetalLow", "roughness": 0.4, "specWeight": 0.6 },
+    { "material": "MainArmLit*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4, "note": "V1 arms" },
+    { "material": "Arm", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
+    { "material": "FeedbackerLit*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
+    { "material": "RedArmLit*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
+    { "material": "GreenArm*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 }
   ]
 }
