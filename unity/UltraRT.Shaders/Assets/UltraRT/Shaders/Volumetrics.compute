@@ -1,9 +1,13 @@
 // Volumetric lighting, compute side (docs/volumetrics.md).
 //   Depth     low-res ray lengths from the game's depth buffer (one screen pixel per low-res pixel: the block centre).
-//   Temporal  depth-aware 3x3 spatial filter of this frame's in-scattering, reprojected history (by the ray's end point),
-//             clipped to the neighbourhood's mean +- k sigma, exponential blend.
+//   Temporal  depth-aware 5x5 spatial filter of this frame's in-scattering, reprojected history (by the ray's end point),
+//             clipped to the neighbourhood's mean +- k sigma, exponential blend; temporal luminance moments of the raw
+//             samples (their variance guides the a-trous filter).
+//   Atrous    variance-guided, depth-aware a-trous wavelet passes (5x5 B-spline, step 1, 2, 4, ...) over the accumulated
+//             in-scattering: wide where the estimate is still noisy, stopping at shaft edges once it has converged.
 #pragma kernel Depth
 #pragma kernel Temporal
+#pragma kernel Atrous
 
 // ---------------------------------------------------------------- Depth
 
@@ -42,7 +46,8 @@ Texture2D<float4>   _HistIn;        // rgb accumulated in-scattering, a history 
 Texture2D<float>    _HistDepthIn;   // ray lengths the history was accumulated at
 RWTexture2D<float4> _HistOut;
 RWTexture2D<float>  _HistDepthOut;
-SamplerState sampler_linear_clamp;
+Texture2D<float2>   _MomIn;         // temporal moments of the raw luminance (mean, mean of squares)
+RWTexture2D<float2> _MomOut;
 
 float4x4 _InvViewProj;              // this frame (unjittered screen viewProj)
 float4x4 _PrevViewProj;             // last frame's
@@ -50,6 +55,9 @@ float4   _CamPos;
 float4   _PrevCamPos;
 float4   _TemporalParams;           // x alpha min, y max history (frames), z clip k (sigmas), w 1 = history valid
 float4   _TemporalParams2;          // x depth tolerance (relative), y spatial depth sigma (relative), z 1 / (2 sigma^2) of the spatial Gaussian (px)
+float4   _TemporalParams3;          // x moments alpha min
+
+float Lum(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
 float3 RayDir(float2 uv)
 {
@@ -89,6 +97,10 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
 
     float len = 0;
     float3 hist = cur;
+    float3 raw = _VolIn[id].rgb;
+    if (any(!(raw >= 0.0)) || any(isinf(raw))) raw = 0;
+    float rl = Lum(raw);
+    float2 mom = float2(rl, rl * rl);
     if (_TemporalParams.w > 0.5 && d > 0.0)
     {
         // Reproject the ray's end point (the visible surface, or a far point for the sky).
@@ -105,6 +117,7 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
                 int2 b = (int2)floor(pos);
                 float2 f = pos - b;
                 float4 acc = 0;
+                float2 macc = 0;
                 float aw = 0;
                 [unroll] for (int k = 0; k < 4; k++)
                 {
@@ -115,6 +128,7 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
                     if (abs(hd - expect) <= _TemporalParams2.x * expect + 0.1 && bw > 0.0)
                     {
                         acc += _HistIn[q] * bw;
+                        macc += _MomIn[q] * bw;
                         aw += bw;
                     }
                 }
@@ -124,6 +138,7 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
                     float k = max(_TemporalParams.z, 0.5);
                     hist = clamp(acc.rgb, mean - k * sigma - 1e-4, mean + k * sigma + 1e-4);
                     len = acc.a;
+                    mom = macc / aw;
                 }
             }
         }
@@ -131,7 +146,77 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
     len = min(len + 1.0, max(_TemporalParams.y, 1.0));
     float alpha = max(1.0 / len, _TemporalParams.x);
     float3 outV = lerp(hist, cur, alpha);
-    if (_TemporalParams2.w > 0.5) outV = _VolIn[id].rgb; // debug: this frame's raw samples
+    if (_TemporalParams2.w > 0.5) outV = raw; // debug: this frame's raw samples
     _HistOut[id] = float4(max(outV, 0.0), len);
     _HistDepthOut[id] = d;
+    // Moments: a faster blend than the colour (the variance must follow changes), started from this sample.
+    float am = len <= 1.0 ? 1.0 : max(1.0 / len, _TemporalParams3.x);
+    _MomOut[id] = lerp(mom, float2(rl, rl * rl), am);
+}
+
+// ---------------------------------------------------------------- Atrous
+
+Texture2D<float4>   _AtrousIn;      // rgb in-scattering; a: (first pass) history length, (later) variance of the estimate
+Texture2D<float2>   _AtrousMom;     // moments (first pass only)
+RWTexture2D<float4> _AtrousOut;     // rgb filtered; a variance of the filtered estimate
+float4 _AtrousParams;               // x step (px), y 1 = first pass, z luminance edge k (sigmas), w depth sigma (relative)
+float4 _AtrousParams2;              // x effective samples of the temporal pass's spatial prefilter, y 1 = last pass (a = 1)
+
+// Variance of the accumulated estimate at q: the raw samples' temporal variance, divided by the number of samples the
+// history averages (its length, and the spatial prefilter's footprint).
+float EstimateVar(int2 q, float4 v)
+{
+    if (_AtrousParams.y < 0.5) return v.a;
+    float2 m = _AtrousMom[q];
+    float var = max(m.y - m.x * m.x, 0.0);
+    return var / (max(v.a, 1.0) * max(_AtrousParams2.x, 1.0));
+}
+
+[numthreads(8, 8, 1)]
+void Atrous(uint3 tid : SV_DispatchThreadID)
+{
+    int2 id = (int2)tid.xy;
+    int2 dim = (int2)_VolLowDim.xy;
+    if (any(id >= dim)) return;
+    int step = (int)_AtrousParams.x;
+    float d = _VolDepth[id];
+    float4 c = _AtrousIn[id];
+    float varC = EstimateVar(id, c);
+    // Edge stopping on luminance, in units of the estimate's standard deviation (a 3x3 blur of it, as SVGF does).
+    float varBlur = 0, vbw = 0;
+    [unroll] for (int y = -1; y <= 1; y++)
+    [unroll] for (int x = -1; x <= 1; x++)
+    {
+        int2 q = clamp(id + int2(x, y), 0, dim - 1);
+        float w = (x == 0 ? 2.0 : 1.0) * (y == 0 ? 2.0 : 1.0);
+        varBlur += EstimateVar(q, _AtrousIn[q]) * w;
+        vbw += w;
+    }
+    varBlur /= vbw;
+    float lc = Lum(c.rgb);
+    float lumDen = _AtrousParams.z * sqrt(varBlur) + 1e-5 + 0.002 * lc;
+    float depthDen = _AtrousParams.w * d + 0.1;
+    const float kh[3] = { 0.375, 0.25, 0.0625 };
+    float3 sum = 0;
+    float wSum = 0, varSum = 0;
+    [unroll] for (int dy = -2; dy <= 2; dy++)
+    [unroll] for (int dx = -2; dx <= 2; dx++)
+    {
+        int2 q = id + int2(dx, dy) * step;
+        if (any(q < 0) || any(q >= dim)) continue;
+        float dq = _VolDepth[q];
+        float4 v = _AtrousIn[q];
+        // A farther neighbour's ray is longer: scale it to this pixel's length (in-scattering grows about linearly).
+        float3 vq = v.rgb * saturate(d / max(dq, 1e-3));
+        float e = (dq - d) / depthDen;
+        float wl = abs(Lum(vq) - lc) / lumDen;
+        float w = kh[abs(dx)] * kh[abs(dy)] * exp(-e * e - wl);
+        sum += vq * w;
+        varSum += EstimateVar(q, v) * w * w;
+        wSum += w;
+    }
+    float3 outC = sum / max(wSum, 1e-6);
+    float outVar = varSum / max(wSum * wSum, 1e-12);
+    if (any(!(outC >= 0.0)) || any(isinf(outC))) outC = 0;
+    _AtrousOut[id] = float4(outC, _AtrousParams2.y > 0.5 ? 1.0 : outVar);
 }

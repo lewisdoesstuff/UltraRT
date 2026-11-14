@@ -1,0 +1,149 @@
+{
+  "Name": "vol-noise-diag",
+  "Scenarios": [
+    {
+      "Name": "0-1 dark",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-dark.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol.strength=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.maxDensity=0.004",
+        "relight+vol.anisotropy=0.1",
+        "relight+vol.sun=0"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol.strength=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.debugView=1+vol.sun=0",
+        "relight+vol.debugView=1+vol.lights=0",
+        "relight+vol.debugView=1+vol.emissive=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0+vol.debugView=1"
+      ]
+    },
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol.strength=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.maxDensity=0.004",
+        "relight+vol.anisotropy=0.1",
+        "relight+vol.sun=0"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol.strength=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.debugView=1+vol.sun=0",
+        "relight+vol.debugView=1+vol.lights=0",
+        "relight+vol.debugView=1+vol.emissive=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0+vol.debugView=1"
+      ]
+    },
+    {
+      "Name": "6-2 b",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-b.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol.strength=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.maxDensity=0.004",
+        "relight+vol.anisotropy=0.1",
+        "relight+vol.sun=0"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol.strength=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.debugView=1+vol.sun=0",
+        "relight+vol.debugView=1+vol.lights=0",
+        "relight+vol.debugView=1+vol.emissive=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0+vol.debugView=1"
+      ]
+    },
+    {
+      "Name": "7-2 door",
+      "Scene": "Level 7-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-2-door.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol.strength=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.maxDensity=0.004",
+        "relight+vol.anisotropy=0.1",
+        "relight+vol.sun=0"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol.strength=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0",
+        "relight",
+        "relight+vol.debugView=1",
+        "relight+vol.debugView=1+vol.sun=0",
+        "relight+vol.debugView=1+vol.lights=0",
+        "relight+vol.debugView=1+vol.emissive=0",
+        "relight+vol.lightSamples=1+vol.emissiveSamples=1+vol.atrous=0+vol.debugView=1"
+      ]
+    }
+  ]
+}

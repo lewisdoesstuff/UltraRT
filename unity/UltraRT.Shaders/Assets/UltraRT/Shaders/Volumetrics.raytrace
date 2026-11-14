@@ -38,6 +38,7 @@ int      _EmissiveTriCount;
 float4   _EmissiveParams;   // y: EmissiveLightScale / pi, z: min squared distance
 float    _VolEmissive;      // emissive scattering multiplier (0 = off)
 float    _VolClamp;         // max luminance of the one-sample light + emissive estimate per pixel (linear, 0 = none)
+float4   _VolSamples;       // x light samples per pixel, y emissive samples per pixel
 
 static const float kPi = 3.14159265;
 
@@ -207,6 +208,74 @@ float Equiangular(float3 o, float3 dir, float tStart, float tEnd, float3 lp, flo
     return t;
 }
 
+// One light sample: light i (1 / selection probability w), equiangular distance from uT, one shadow ray.
+float3 LightSample(uint i, float w, float uT, float3 o, float3 dir, float tEnd, float3 sigmaS, float sigmaT)
+{
+    float pdf, tA, tB;
+    LightSegment(i, o, dir, tEnd, tA, tB);
+    float t = Equiangular(o, dir, tA, tB, _Lights[i * 4].xyz, uT, pdf);
+    float3 x = o + dir * t;
+    float3 L;
+    float dist;
+    float3 Li = LocalLight(i, x, L, dist);
+    if (!any(Li > 0.0) || !(pdf > 0.0)) return 0;
+    // Stop short of the light like surface shadow rays do (lights sit inside their fixtures).
+    float clear = min(0.35, 0.5 * dist);
+    if (!Unoccluded(x, L, dist - clear)) return 0;
+    float trans = exp(-sigmaT * (t + dist));
+    return Li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdf) * w;
+}
+
+// One emissive sample: RIS over 6 points from the emissive table, equiangular distance from uT, one shadow ray.
+float3 EmissiveSample(inout uint rng, float uT, float3 o, float3 dir, float tEnd, float3 sigmaS, float sigmaT)
+{
+    float3 bx = 0, bn = 0, ble = 0;
+    bool b2 = false;
+    float wSum = 0.0, bTarget = 0.0;
+    const int M = 6;
+    for (int c = 0; c < M; c++)
+    {
+        float3 xe, nl, le;
+        bool twoSided;
+        float pdfA;
+        if (!SampleEmissivePoint(rng, xe, nl, twoSided, le, pdfA)) continue;
+        float delta = dot(xe - o, dir);
+        float3 closest = o + dir * clamp(delta, 0.0, tEnd);
+        float h = max(length(xe - (o + dir * delta)), 0.05);
+        float angle = atan((tEnd - delta) / h) - atan((0.0 - delta) / h);
+        // Facing: the sign of dot(nl, x - xe) is linear along the ray, so a one-sided emitter that faces away from both
+        // ends of the segment faces away from all of it (exact rejection). The cosine itself is taken at the closest point.
+        float s0 = dot(nl, o - xe), s1 = dot(nl, o + dir * tEnd - xe);
+        if (!twoSided && s0 <= 0.0 && s1 <= 0.0) continue;
+        float cosL = abs(dot(nl, normalize(closest - xe + 1e-5)));
+        float target = dot(le, float3(0.2126, 0.7152, 0.0722)) * max(cosL, 0.05) * angle / h;
+        if (!(target > 0.0)) continue;
+        float w = target / pdfA;
+        wSum += w;
+        if (Rand(rng) * wSum < w) { bx = xe; bn = nl; ble = le; b2 = twoSided; bTarget = target; }
+    }
+    if (!(bTarget > 0.0)) return 0;
+    float W = wSum / (M * bTarget);
+    float pdfT;
+    float t = Equiangular(o, dir, 0.0, tEnd, bx, uT, pdfT);
+    float3 x = o + dir * t;
+    float3 toE = bx - x;
+    float d2 = dot(toE, toE);
+    float dist = sqrt(d2);
+    float3 L = toE / max(dist, 1e-4);
+    float cosL = -dot(bn, L);
+    if (b2) cosL = abs(cosL);
+    if (!(cosL > 1e-4) || !(pdfT > 0.0) || !Unoccluded(x, L, dist * 0.999 - 0.02)) return 0;
+    float3 li = ble * (cosL / max(d2, _EmissiveParams.z));
+    float trans = exp(-sigmaT * (t + dist));
+    float3 em = li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdfT) * W * _VolEmissive;
+    // Small hot emitters (lamp bulbs) behind their housings make rare, very bright samples: clamp this part tighter
+    // (a quarter of the light clamp). Large emitters (lava, panels) give dense, moderate samples.
+    float lumE = dot(em, float3(0.2126, 0.7152, 0.0722)) * kPi;
+    if (_VolClamp > 0.0 && lumE > 0.25 * _VolClamp) em *= 0.25 * _VolClamp / lumE;
+    return em;
+}
+
 // ---------------------------------------------------------------- ray generation
 
 [shader("raygeneration")]
@@ -258,118 +327,71 @@ void VolumeRayGen()
         sum += _VolSunColor.rgb * (phase * lit) * sigmaS;
     }
 
-    // ---- local lights: one light picked in proportion to LightTarget (all lights enumerated up to 128, else RIS over
-    // _VolLightParams.y uniform candidates), equiangular distance, one shadow ray
+    // ---- local lights: _VolSamples.x lights per pixel, picked in proportion to LightTarget (all lights enumerated up to
+    // 128, one walk over the CDF with stratified numbers; else RIS over _VolLightParams.y uniform candidates per sample),
+    // equiangular distance, one shadow ray each
     float3 local = 0;
     int count = (int)_VolLightParams.x;
+    int nL = clamp((int)_VolSamples.x, 1, 8);
     if (count > 0 && _VolLightParams.z > 0.0)
     {
-        uint pick = 0xFFFFFFFFu;
-        float pickW = 0.0; // 1 / selection probability (estimated with RIS)
+        float uT0 = BlueOffset(id.yx, frame + 17u);
         if (count <= 128)
         {
             float total = 0.0;
             for (int i = 0; i < count; i++) total += LightTarget(i, o, dir, tEnd);
             if (total > 0.0)
             {
-                float u = BlueOffset(id, frame + 29u) * total, run = 0.0;
-                for (int j = 0; j < count && pick == 0xFFFFFFFFu; j++)
+                float u0 = BlueOffset(id, frame + 29u);
+                float run = 0.0;
+                int k = 0;
+                for (int j = 0; j < count && k < nL; j++)
                 {
                     float tj = LightTarget(j, o, dir, tEnd);
+                    if (!(tj > 0.0)) continue;
                     run += tj;
-                    if (u < run && tj > 0.0) { pick = j; pickW = total / tj; }
+                    while (k < nL && ((float)k + u0) * total < run * (float)nL)
+                    {
+                        local += LightSample(j, total / tj, frac(uT0 + 0.618034 * k), o, dir, tEnd, sigmaS, sigmaT);
+                        k++;
+                    }
                 }
             }
         }
         else
         {
             int cands = max((int)_VolLightParams.y, 1);
-            float wSum = 0.0, pickTarget = 0.0;
-            for (int c = 0; c < cands; c++)
+            for (int k = 0; k < nL; k++)
             {
-                uint i = min((uint)(Rand(rng) * count), (uint)count - 1u);
-                float target = LightTarget(i, o, dir, tEnd);
-                if (target <= 0.0) continue;
-                wSum += target;
-                if (Rand(rng) * wSum < target) { pick = i; pickTarget = target; }
-            }
-            // RIS weight: (1 / target) * (1 / M) * sum(target / p) with the uniform source pdf p = 1 / count.
-            if (pick != 0xFFFFFFFFu) pickW = count * wSum / (cands * pickTarget);
-        }
-        if (pick != 0xFFFFFFFFu)
-        {
-            float pdf, tA, tB;
-            LightSegment(pick, o, dir, tEnd, tA, tB);
-            float t = Equiangular(o, dir, tA, tB, _Lights[pick * 4].xyz, BlueOffset(id.yx, frame + 17u), pdf);
-            float3 x = o + dir * t;
-            float3 L;
-            float dist;
-            float3 Li = LocalLight(pick, x, L, dist);
-            if (any(Li > 0.0) && pdf > 0.0)
-            {
-                float trans = exp(-sigmaT * (t + dist));
-                float phase = PhaseHG(dot(dir, L), _VolParams.z);
-                // Stop short of the light like surface shadow rays do (lights sit inside their fixtures).
-                float clear = min(0.35, 0.5 * dist);
-                if (Unoccluded(x, L, dist - clear))
-                    local += Li * sigmaS * (trans * phase / pdf) * pickW * _VolLightParams.z;
+                uint pick = 0xFFFFFFFFu;
+                float wSum = 0.0, pickTarget = 0.0;
+                for (int c = 0; c < cands; c++)
+                {
+                    uint i = min((uint)(Rand(rng) * count), (uint)count - 1u);
+                    float target = LightTarget(i, o, dir, tEnd);
+                    if (target <= 0.0) continue;
+                    wSum += target;
+                    if (Rand(rng) * wSum < target) { pick = i; pickTarget = target; }
+                }
+                // RIS weight: (1 / target) * (1 / M) * sum(target / p) with the uniform source pdf p = 1 / count.
+                if (pick != 0xFFFFFFFFu)
+                    local += LightSample(pick, count * wSum / (cands * pickTarget), frac(uT0 + 0.618034 * k), o, dir, tEnd, sigmaS, sigmaT);
             }
         }
+        local *= _VolLightParams.z / (float)nL;
     }
 
-    // ---- emissive surfaces (lava, glowing panels, screens): RIS over points from the emissive table, the target being
-    // the point's emitted luminance times the integral of 1/d^2 along the ray; equiangular distance, one shadow ray
+    // ---- emissive surfaces (lava, glowing panels, screens): _VolSamples.y samples, each RIS over 6 points from the
+    // emissive table, the target being the point's emitted luminance times the integral of 1/d^2 along the ray;
+    // equiangular distance, one shadow ray
     if (_VolEmissive > 0.0 && _EmissiveCount > 0)
     {
-        float3 bx = 0, bn = 0, ble = 0;
-        bool b2 = false;
-        float wSum = 0.0, bTarget = 0.0;
-        const int M = 6;
-        for (int c = 0; c < M; c++)
-        {
-            float3 xe, nl, le;
-            bool twoSided;
-            float pdfA;
-            if (!SampleEmissivePoint(rng, xe, nl, twoSided, le, pdfA)) continue;
-            float delta = dot(xe - o, dir);
-            float3 closest = o + dir * clamp(delta, 0.0, tEnd);
-            float h = max(length(xe - (o + dir * delta)), 0.05);
-            float angle = atan((tEnd - delta) / h) - atan((0.0 - delta) / h);
-            // Facing: the sign of dot(nl, x - xe) is linear along the ray, so a one-sided emitter that faces away from both
-            // ends of the segment faces away from all of it (exact rejection). The cosine itself is taken at the closest point.
-            float s0 = dot(nl, o - xe), s1 = dot(nl, o + dir * tEnd - xe);
-            if (!twoSided && s0 <= 0.0 && s1 <= 0.0) continue;
-            float cosL = abs(dot(nl, normalize(closest - xe + 1e-5)));
-            float target = dot(le, float3(0.2126, 0.7152, 0.0722)) * max(cosL, 0.05) * angle / h;
-            if (!(target > 0.0)) continue;
-            float w = target / pdfA;
-            wSum += w;
-            if (Rand(rng) * wSum < w) { bx = xe; bn = nl; ble = le; b2 = twoSided; bTarget = target; }
-        }
-        if (bTarget > 0.0)
-        {
-            float W = wSum / (M * bTarget);
-            float pdfT;
-            float t = Equiangular(o, dir, 0.0, tEnd, bx, BlueOffset(id.yx, frame + 41u), pdfT);
-            float3 x = o + dir * t;
-            float3 toE = bx - x;
-            float d2 = dot(toE, toE);
-            float dist = sqrt(d2);
-            float3 L = toE / max(dist, 1e-4);
-            float cosL = -dot(bn, L);
-            if (b2) cosL = abs(cosL);
-            if (cosL > 1e-4 && pdfT > 0.0 && Unoccluded(x, L, dist * 0.999 - 0.02))
-            {
-                float3 li = ble * (cosL / max(d2, _EmissiveParams.z));
-                float trans = exp(-sigmaT * (t + dist));
-                float3 em = li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdfT) * W * _VolEmissive;
-                // Small hot emitters (lamp bulbs) behind their housings make rare, very bright samples: clamp this part
-                // tighter (a quarter of the light clamp). Large emitters (lava, panels) give dense, moderate samples.
-                float lumE = dot(em, float3(0.2126, 0.7152, 0.0722)) * kPi;
-                if (_VolClamp > 0.0 && lumE > 0.25 * _VolClamp) em *= 0.25 * _VolClamp / lumE;
-                local += em;
-            }
-        }
+        int nE = clamp((int)_VolSamples.y, 1, 8);
+        float uE0 = BlueOffset(id.yx, frame + 41u);
+        float3 emSum = 0;
+        for (int k = 0; k < nE; k++)
+            emSum += EmissiveSample(rng, frac(uE0 + 0.618034 * k), o, dir, tEnd, sigmaS, sigmaT);
+        local += emSum / (float)nE;
     }
     // Firefly clamp on the one-sample estimates (the sun's stratified march does not need it).
     float lumLocal = dot(local, float3(0.2126, 0.7152, 0.0722)) * kPi;
