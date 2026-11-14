@@ -94,26 +94,42 @@ namespace UltraRT
             if (_denoiserDirect != null) _denoiserDirect.CacheChannel = DenoiserCacheChannel.None;
         }
 
-        /// <summary>Ctrl+F3: cycle the denoiser presets (DenoiserPreset): Full -> Previous (the build before the static-noise
-        /// work, also without the guard band and hybrid's ReSTIR spatial reuse) -> Legacy (plain SVGF) -> Full.</summary>
+        /// <summary>Ctrl+F3: cycle the denoiser presets (DenoiserPreset): Full -> Static (the build before the motion-noise work)
+        /// -> Previous (the build before the static-noise work, also without the guard band and hybrid's ReSTIR spatial reuse)
+        /// -> Legacy (plain SVGF) -> Full.</summary>
         private bool DenoiserStabilityHotkey()
         {
             if (!Input.GetKeyDown(KeyCode.F3) || !(Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))) return false;
             if (_denoiser == null) return true;
             var next = _denoiser.Settings.CurrentPreset() switch
             {
-                DenoiserPreset.Full => DenoiserPreset.Previous,
+                DenoiserPreset.Full => DenoiserPreset.Static,
+                DenoiserPreset.Static => DenoiserPreset.Previous,
                 DenoiserPreset.Previous => DenoiserPreset.Legacy,
                 _ => DenoiserPreset.Full,
             };
-            _denoiser.Settings.ApplyPreset(next);
-            _denoiserDirect?.Settings.ApplyPreset(next);
-            _guardActive = next == DenoiserPreset.Full;
-            _lightSamplingSettings.spatialSamplesHybrid = next == DenoiserPreset.Full ? new LightSamplingSettings().spatialSamplesHybrid : 0;
-            string name = next == DenoiserPreset.Full ? "full" : next == DenoiserPreset.Previous ? "previous build" : "off (legacy SVGF)";
+            ApplyStabilityPreset(next);
+            string name = next == DenoiserPreset.Full ? "full" : next == DenoiserPreset.Static ? "before the motion work"
+                : next == DenoiserPreset.Previous ? "previous build" : "off (legacy SVGF)";
             Logger.LogInfo($"Denoiser stability: {name}");
             Toast($"Denoiser stability: {name} (Ctrl+F3)");
             return true;
+        }
+
+        /// <summary>A DenoiserPreset on both denoisers plus the parts that live elsewhere: the guard band, hybrid's ReSTIR
+        /// spatial reuse (static-noise work) and LightSampling's motion features (per-pixel light-change history, extra
+        /// candidates for fresh pixels).</summary>
+        private void ApplyStabilityPreset(DenoiserPreset p)
+        {
+            _denoiser?.Settings.ApplyPreset(p);
+            _denoiserDirect?.Settings.ApplyPreset(p);
+            bool staticWork = p == DenoiserPreset.Full || p == DenoiserPreset.Static;
+            bool motion = p == DenoiserPreset.Full;
+            var d = new LightSamplingSettings();
+            _guardActive = staticWork;
+            _lightSamplingSettings.spatialSamplesHybrid = staticWork ? d.spatialSamplesHybrid : 0;
+            _lightSamplingSettings.perPixelLightChange = motion && d.perPixelLightChange;
+            _lightSamplingSettings.freshCandidates = motion ? d.freshCandidates : 0;
         }
 
         private void CacheHotkeys()

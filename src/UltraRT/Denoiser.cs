@@ -33,11 +33,13 @@ namespace UltraRT
     }
 
     /// <summary>
-    /// Ctrl+F3 cycles these. Full: the defaults (docs/denoiser.md, "Temporal stability" and "Static noise").
+    /// Ctrl+F3 cycles these. Full: the defaults (docs/denoiser.md, "Temporal stability", "Static noise" and "Motion noise").
+    /// Static: the build before the motion-noise work (no anti-lag, cache seed 1, normal a-trous footprint for young pixels,
+    /// and in LightSampling no per-pixel light-change history or extra candidates for fresh pixels).
     /// Previous: the build before the static-noise work (alphaMin 0.1, 32 frames, no spatial variance floor, no output
     /// stabilisation, no guard band). Legacy: Previous without the four stability features (plain SVGF).
     /// </summary>
-    public enum DenoiserPreset { Full, Previous, Legacy, Custom }
+    public enum DenoiserPreset { Full, Static, Previous, Legacy, Custom }
 
     /// <summary>Tunables, read every <see cref="Denoiser.Execute"/>. Safe to change at any time.</summary>
     public sealed class DenoiserSettings
@@ -124,24 +126,29 @@ namespace UltraRT
         public void ApplyPreset(DenoiserPreset p)
         {
             var d = new DenoiserSettings();
-            bool full = p == DenoiserPreset.Full;
+            bool full = p == DenoiserPreset.Full || p == DenoiserPreset.Static;
+            bool motion = p == DenoiserPreset.Full;
             alphaMin = full ? d.alphaMin : 0.1f;
             maxHistory = full ? d.maxHistory : 32;
             referenceHz = full ? d.referenceHz : 0f;
             spatialVarianceFloor = full ? d.spatialVarianceFloor : 0f;
             stabilize = full;
             stability = p != DenoiserPreset.Legacy;
+            cacheSeed = motion ? d.cacheSeed : 1f;
+            antilag = motion ? d.antilag : 0f;
+            freshSpread = motion ? d.freshSpread : 1f;
         }
 
         /// <summary>Which preset these settings match (Custom when they match none).</summary>
         public DenoiserPreset CurrentPreset()
         {
-            foreach (DenoiserPreset p in new[] { DenoiserPreset.Full, DenoiserPreset.Previous, DenoiserPreset.Legacy })
+            foreach (DenoiserPreset p in new[] { DenoiserPreset.Full, DenoiserPreset.Static, DenoiserPreset.Previous, DenoiserPreset.Legacy })
             {
                 var t = Clone();
                 t.ApplyPreset(p);
                 if (t.alphaMin == alphaMin && t.maxHistory == maxHistory && t.referenceHz == referenceHz &&
-                    t.spatialVarianceFloor == spatialVarianceFloor && t.stabilize == stabilize && t.stability == stability) return p;
+                    t.spatialVarianceFloor == spatialVarianceFloor && t.stabilize == stabilize && t.stability == stability &&
+                    t.cacheSeed == cacheSeed && t.antilag == antilag && t.freshSpread == freshSpread) return p;
             }
             return DenoiserPreset.Custom;
         }
@@ -158,6 +165,9 @@ namespace UltraRT
                 {
                     case "-ultrart-dn-legacy": s.ApplyPreset(DenoiserPreset.Legacy); break;
                     case "-ultrart-dn-previous": s.ApplyPreset(DenoiserPreset.Previous); break;
+                    case "-ultrart-dn-static": s.ApplyPreset(DenoiserPreset.Static); break;
+                    case "-ultrart-dn-antilag": s.antilag = F(s.antilag); break;
+                    case "-ultrart-dn-fresh-spread": s.freshSpread = F(s.freshSpread); break;
                     case "-ultrart-dn-alpha": s.alphaMin = F(s.alphaMin); break;
                     case "-ultrart-dn-spatialvar": s.spatialVarianceFloor = F(s.spatialVarianceFloor); break;
                     case "-ultrart-dn-nostabilize": s.stabilize = false; break;

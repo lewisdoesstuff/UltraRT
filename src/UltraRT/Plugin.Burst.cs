@@ -104,14 +104,11 @@ namespace UltraRT
                     case "vol": _volSettings.enabled = on; break;
                     case "preset":
                     {
-                        // Ctrl+F3's presets: full | previous | legacy (also switches the guard band like the hotkey).
+                        // Ctrl+F3's presets: full | static | previous | legacy (also the guard band and LightSampling, like the hotkey).
                         var preset = (DenoiserPreset)Enum.Parse(typeof(DenoiserPreset), v, true);
-                        _denoiser?.Settings.ApplyPreset(preset);
-                        _denoiserDirect?.Settings.ApplyPreset(preset);
                         var g = typeof(Plugin).GetField(nameof(_guardActive), BindingFlags.NonPublic | BindingFlags.Instance);
                         if (!_variantPluginRestore.ContainsKey(g)) _variantPluginRestore[g] = _guardActive;
-                        _guardActive = preset == DenoiserPreset.Full;
-                        _lightSamplingSettings.spatialSamplesHybrid = preset == DenoiserPreset.Full ? new LightSamplingSettings().spatialSamplesHybrid : 0;
+                        ApplyStabilityPreset(preset);
                         break;
                     }
                     default:
