@@ -28,7 +28,7 @@
     <Reference Include="UnityEngine.ScreenCaptureModule" HintPath="$(ManagedDir)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
   </ItemGroup>
 
-  <Target Name="DeployToGame" AfterTargets="Build" Condition="Exists('$(BepInExDir)')">
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="Exists('$(BepInExDir)') and '$(Deploy)' != 'false'">
     <MakeDir Directories="$(BepInExDir)\plugins\UltraRT" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\plugins\UltraRT" />
     <Message Importance="high" Text="Deployed $(TargetFileName) -> $(BepInExDir)\plugins\UltraRT" />

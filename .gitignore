@@ -21,3 +21,6 @@ tools/materials/.venv/
 tools/materials/models/
 tools/materials/work/
 __pycache__/
+
+# Staged build (scripts/build.ps1 -NoDeploy)
+/stage/

@@ -14,11 +14,27 @@ namespace UltraRT
 {
     /// <summary>
     /// Benchmark runner: -ultrart-bench &lt;suite.json&gt; [-ultrart-bench-out dir] [-ultrart-bench-tag text] [-ultrart-quit].
+    /// -ultrart-bench / -ultrart-bench-out may repeat: the suites run one after the other in this launch.
+    /// -ultrart-bench-noshots / -ultrart-bench-noburst skip screenshots / noise bursts (perf runs),
+    /// -ultrart-bench-settle S overrides every scenario's Settle, -ultrart-bench-server &lt;dir&gt; keeps the game open at the
+    /// main menu and runs the suites that bench.ps1 -KeepOpen drops there as cmd-*.json files (see "ServeBenchCommands").
     /// See bench/README.md. Saves, prefs and Steam stats are blocked for the whole run (BenchSafety).
     /// </summary>
     public partial class Plugin
     {
-        private string _benchSuitePath, _benchOut, _benchTag;
+        /// <summary>One suite of a launch (or of a server command).</summary>
+        private sealed class BenchRun { public string Suite, Out; }
+        private readonly List<BenchRun> _benchRuns = new List<BenchRun>();
+        /// <summary>The suite being run now.</summary>
+        private string _benchSuitePath, _benchOut;
+        private string _benchTag;
+        /// <summary>-ultrart-bench-noshots / -noburst: skip screenshots (and what is taken with them) / temporal noise bursts.</summary>
+        private bool _benchNoShots, _benchNoBursts;
+        /// <summary>-ultrart-bench-settle: seconds to settle after every level load, instead of each scenario's Settle (negative = not set).</summary>
+        private float _benchSettle = -1f;
+        /// <summary>-ultrart-bench-server: command folder of a resident game; -ultrart-bench-idle: minutes without a command before it quits.</summary>
+        private string _benchServerDir;
+        private float _benchIdleMin = 20f;
         /// <summary>-ultrart-bench-load: force one PathSpec.Load for every scenario.</summary>
         private string _benchLoad;
         /// <summary>-ultrart-bench-validate: compare the pose-load methods instead of measuring.</summary>
@@ -36,15 +52,20 @@ namespace UltraRT
             var a = Environment.GetCommandLineArgs();
             _benchValidate = a.Any(x => x.Equals("-ultrart-bench-validate", StringComparison.OrdinalIgnoreCase));
             _benchNoChain = a.Any(x => x.Equals("-ultrart-bench-nochain", StringComparison.OrdinalIgnoreCase));
+            _benchNoShots = a.Any(x => x.Equals("-ultrart-bench-noshots", StringComparison.OrdinalIgnoreCase));
+            _benchNoBursts = a.Any(x => x.Equals("-ultrart-bench-noburst", StringComparison.OrdinalIgnoreCase));
             for (int i = 0; i < a.Length - 1; i++)
             {
                 switch (a[i].ToLowerInvariant())
                 {
-                    case "-ultrart-bench": _benchSuitePath = a[i + 1]; break;
-                    case "-ultrart-bench-out": _benchOut = a[i + 1]; break;
+                    case "-ultrart-bench": _benchRuns.Add(new BenchRun { Suite = a[i + 1] }); break;
+                    case "-ultrart-bench-out": if (_benchRuns.Count > 0) _benchRuns[_benchRuns.Count - 1].Out = a[i + 1]; break;
                     case "-ultrart-bench-tag": _benchTag = a[i + 1]; break;
                     case "-ultrart-bench-load": _benchLoad = a[i + 1]; break;
                     case "-ultrart-bench-validate-methods": _benchValidateMethods = a[i + 1].Split(','); break;
+                    case "-ultrart-bench-settle": float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _benchSettle); break;
+                    case "-ultrart-bench-server": _benchServerDir = a[i + 1]; break;
+                    case "-ultrart-bench-idle": float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _benchIdleMin); break;
                 }
             }
         }
@@ -54,7 +75,7 @@ namespace UltraRT
         {
             ParseBenchArgs();
             _recorder = new Recorder(Path.Combine(_outDir, "recordings"), Logger);
-            if (string.IsNullOrEmpty(_benchSuitePath)) return false;
+            if (_benchRuns.Count == 0 && string.IsNullOrEmpty(_benchServerDir)) return false;
 
             var harmony = new Harmony(Info.Metadata.GUID + ".bench");
             int patched = BenchSafety.Install(harmony, Logger);
@@ -146,8 +167,113 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- suite
 
+        /// <summary>Boot to the main menu, run this launch's suites in order, then quit (-ultrart-quit) or serve commands (-ultrart-bench-server).</summary>
         private IEnumerator RunSuite()
         {
+            float t0 = Time.realtimeSinceStartup;
+            bool skippedIntro = false;
+            while (SafeCurrentScene() != "Main Menu" || SceneHelper.PendingScene != null)
+            {
+                // Skip the intro sequence: jump straight to the main menu once the intro scene is up.
+                if (!skippedIntro && SafeCurrentScene() == "Intro" && SceneHelper.PendingScene == null) { skippedIntro = true; SceneHelper.LoadScene("Main Menu"); }
+                if (Time.realtimeSinceStartup - t0 > 120f) { Logger.LogError("Benchmark: timed out waiting for main menu"); yield break; }
+                yield return null;
+            }
+            yield return new WaitForSecondsRealtime(2f);
+
+            foreach (var run in _benchRuns.ToArray())
+            {
+                yield return RunOneSuite(run, t0);
+                t0 = Time.realtimeSinceStartup;
+            }
+            if (!string.IsNullOrEmpty(_benchServerDir)) { yield return ServeBenchCommands(); yield break; }
+            if (_quit)
+            {
+                yield return new WaitForSecondsRealtime(1f);
+                Application.Quit();
+            }
+        }
+
+        /// <summary>A command for the resident game: bench.ps1 writes it as cmd-*.json into the server folder.</summary>
+        private sealed class ServerCommand
+        {
+            public string Id;
+            public bool Quit;
+            public List<BenchRun> Runs = new List<BenchRun>();
+            public string Tag, Load;
+            public bool NoChain, Validate, NoShots, NoBursts;
+            public string ValidateMethods;
+            public float Settle = -1f;
+        }
+
+        /// <summary>
+        /// -ultrart-bench-server &lt;dir&gt;: stay at the main menu and run what bench.ps1 -KeepOpen drops into the folder
+        /// (cmd-*.json, oldest first; each run's options come from the command, none carry over). ready.json says the game is
+        /// up; done-&lt;id&gt;.json says a command finished. Quits on {"Quit":true}, or after -ultrart-bench-idle minutes
+        /// (default 20) without a command. Shader bundles hot-reload while it waits; a changed UltraRT.dll needs a relaunch.
+        /// </summary>
+        private IEnumerator ServeBenchCommands()
+        {
+            string dir = _benchServerDir;
+            Directory.CreateDirectory(dir);
+            void State(string state) => File.WriteAllText(Path.Combine(dir, "ready.json"), JsonConvert.SerializeObject(new
+            {
+                pid = System.Diagnostics.Process.GetCurrentProcess().Id, state, updated = DateTime.Now.ToString("s"),
+                dll = File.GetLastWriteTimeUtc(Info.Location).Ticks,
+            }));
+            State("idle");
+            Logger.LogInfo($"Benchmark server: waiting for commands in {dir}");
+            float lastCommand = Time.realtimeSinceStartup;
+            while (true)
+            {
+                string file = Directory.GetFiles(dir, "cmd-*.json").OrderBy(f => f, StringComparer.Ordinal).FirstOrDefault();
+                if (file != null)
+                {
+                    ServerCommand cmd = null;
+                    for (int tries = 0; cmd == null && tries < 5; tries++)
+                    {
+                        cmd = TryReadCommand(file);   // the writer may still hold the file
+                        if (cmd == null) yield return new WaitForSecondsRealtime(0.1f);
+                    }
+                    try { File.Delete(file); } catch { }
+                    if (cmd == null) { Logger.LogError($"Benchmark server: unreadable command {file}, dropped"); continue; }
+                    if (cmd.Quit) { State("quit"); Logger.LogInfo("Benchmark server: quit requested"); yield return new WaitForSecondsRealtime(0.5f); Application.Quit(); yield break; }
+
+                    State("busy");
+                    _benchTag = cmd.Tag; _benchLoad = string.IsNullOrEmpty(cmd.Load) ? null : cmd.Load;
+                    _benchNoChain = cmd.NoChain; _benchValidate = cmd.Validate;
+                    _benchValidateMethods = string.IsNullOrEmpty(cmd.ValidateMethods) ? null : cmd.ValidateMethods.Split(',');
+                    _benchNoShots = cmd.NoShots; _benchNoBursts = cmd.NoBursts; _benchSettle = cmd.Settle;
+                    Logger.LogInfo($"Benchmark server: command {cmd.Id}: {string.Join(", ", cmd.Runs.Select(r => Path.GetFileNameWithoutExtension(r.Suite)))}");
+                    foreach (var run in cmd.Runs) yield return RunOneSuite(run, Time.realtimeSinceStartup);
+                    File.WriteAllText(Path.Combine(dir, $"done-{cmd.Id}.json"), JsonConvert.SerializeObject(new { cmd.Id, finished = DateTime.Now.ToString("s") }));
+                    // Idle again: do not spin the GPU at an uncapped frame rate while waiting.
+                    QualitySettings.vSyncCount = 0;
+                    Application.targetFrameRate = 30;
+                    State("idle");
+                    lastCommand = Time.realtimeSinceStartup;
+                    continue;
+                }
+                if (Time.realtimeSinceStartup - lastCommand > _benchIdleMin * 60f)
+                {
+                    Logger.LogInfo($"Benchmark server: idle for {_benchIdleMin:F0} min, quitting");
+                    State("quit");
+                    Application.Quit();
+                    yield break;
+                }
+                yield return new WaitForSecondsRealtime(0.25f);
+            }
+        }
+
+        private static ServerCommand TryReadCommand(string file)
+        {
+            try { return JsonConvert.DeserializeObject<ServerCommand>(File.ReadAllText(file)); }
+            catch (Exception) { return null; }
+        }
+
+        private IEnumerator RunOneSuite(BenchRun run, float t0)
+        {
+            _benchSuitePath = run.Suite; _benchOut = run.Out;
             Suite suite;
             try { suite = JsonConvert.DeserializeObject<Suite>(File.ReadAllText(_benchSuitePath), new JsonSerializerSettings { ObjectCreationHandling = ObjectCreationHandling.Replace }); }
             catch (Exception e) { Logger.LogError($"Benchmark: cannot read suite {_benchSuitePath}: {e.Message}"); yield break; }
@@ -165,18 +291,8 @@ namespace UltraRT
                 Suite = suite.Name, Tag = _benchTag, Started = DateTime.Now.ToString("s"),
                 Gpu = SystemInfo.graphicsDeviceName, Api = SystemInfo.graphicsDeviceVersion,
                 TraceScale = _scale, GpuTimer = _gpu != null,
+                Options = string.Join(", ", new[] { _benchNoShots ? "no screenshots" : null, _benchNoBursts ? "no bursts" : null, _benchSettle >= 0f ? $"settle {_benchSettle:0.##}s" : null }.Where(x => x != null)),
             };
-
-            float t0 = Time.realtimeSinceStartup;
-            bool skippedIntro = false;
-            while (SafeCurrentScene() != "Main Menu" || SceneHelper.PendingScene != null)
-            {
-                // Skip the intro sequence: jump straight to the main menu once the intro scene is up.
-                if (!skippedIntro && SafeCurrentScene() == "Intro" && SceneHelper.PendingScene == null) { skippedIntro = true; SceneHelper.LoadScene("Main Menu"); }
-                if (Time.realtimeSinceStartup - t0 > 120f) { Logger.LogError("Benchmark: timed out waiting for main menu"); yield break; }
-                yield return null;
-            }
-            yield return new WaitForSecondsRealtime(2f);
 
             var checks = new List<LoadCheck>();
             var jobs = new List<(string name, Func<IEnumerator> run, Action<string> fail)>();
@@ -280,10 +396,11 @@ namespace UltraRT
             File.WriteAllText(Path.Combine(outDir, "summary.md"), summary);
             Logger.LogInfo($"Benchmark done: {outDir}\n{summary}");
 
-            if (_quit)
+            // Another suite may follow in this game: leave no variant, mode or camera takeover behind.
+            if (_proxies != null && (_benchRuns.Count > 1 || !string.IsNullOrEmpty(_benchServerDir)))
             {
-                yield return new WaitForSecondsRealtime(1f);
-                Application.Quit();
+                try { ApplyBenchMode("off"); RestoreVariantState(variantDefaults); Denoiser.FrameTimeOverride = 0f; }
+                catch (Exception e) { Logger.LogWarning($"Benchmark: could not reset the view after the suite: {e.Message}"); }
             }
         }
 
@@ -379,7 +496,7 @@ namespace UltraRT
                 if (Time.realtimeSinceStartup - t0 > 120f) throw new TimeoutException($"loading {sc.Scene}");
                 yield return null;
             }
-            yield return new WaitForSecondsRealtime(sc.Settle);
+            yield return new WaitForSecondsRealtime(_benchSettle >= 0f ? _benchSettle : sc.Settle);
 
             GameControl.EnableCheats(blindEnemies: sc.Enemies == "blind", disableSpawns: sc.Enemies == "none");
             yield return null;
@@ -729,7 +846,9 @@ namespace UltraRT
             var frames = sc.Modes.ToDictionary(m => m, _ => new List<float>(8192));
             var gpuSum = sc.Modes.ToDictionary(m => m, _ => new double[SlotCount]);
             var gpuN = sc.Modes.ToDictionary(m => m, _ => new int[SlotCount]);
-            var shots = new Queue<float>(sc.Screenshots.OrderBy(x => x));
+            // Screenshot times also trigger the burst. -noshots + -noburst (perf runs): nothing is captured, the pose just plays.
+            bool wantBurst = sc.Burst > 0 && !_benchNoBursts;
+            var shots = new Queue<float>(_benchNoShots && !wantBurst ? new List<float>() : sc.Screenshots.OrderBy(x => x).ToList());
             // Per-frame CPU breakdown (Perf.cs): plugin sections, main-thread scripts/render, GC.
             int nSec = (int)Perf.Sec.Count;
             var secMs = new float[nSec];
@@ -759,6 +878,8 @@ namespace UltraRT
                     if (round == 0 && shots.Count > 0 && pathT >= shots.Peek())
                     {
                         float at = shots.Dequeue();
+                        if (!_benchNoShots)
+                        {
                         var activeLights = FindObjectsOfType<Light>().Where(l => l.isActiveAndEnabled && l.intensity > 0).ToList();
                         Logger.LogInfo($"Benchmark: '{sc.Name}' @ {at:F1}s ambient={RenderSettings.ambientLight} lights: " +
                                        string.Join(", ", activeLights.GroupBy(l => l.type).Select(g => $"{g.Key}={g.Count()}")) +
@@ -816,7 +937,8 @@ namespace UltraRT
                             }
                             yield return null; // CaptureScreenshot completes at the end of this frame
                         }
-                        if (sc.Burst > 0 && sr.Bursts.Count == 0) yield return RunBurst(sc, sr, outDir, path, pathT);
+                        }
+                        if (wantBurst && sr.Bursts.Count == 0) yield return RunBurst(sc, sr, outDir, path, pathT);
                         current = null; // force a fresh switch below
                     }
 
@@ -974,6 +1096,7 @@ namespace UltraRT
             sb.AppendLine($"# UltraRT benchmark: {r.Suite}{(string.IsNullOrEmpty(r.Tag) ? "" : $" ({r.Tag})")}");
             sb.AppendLine($"{r.Started} | {r.Gpu} | {r.Resolution} | trace scale {r.TraceScale}{(r.GpuTimer ? " | GPU timer" : "")}");
             sb.AppendLine($"{r.TotalSeconds:F0} s, {r.LevelLoads} level loads for {r.Scenarios.Count} scenarios ({(r.Chaining ? "chaining" : "no chaining")})");
+            if (!string.IsNullOrEmpty(r.Options)) sb.AppendLine($"Options: {r.Options}");
             sb.AppendLine();
             sb.AppendLine("| Scenario | Mode | Avg ms | fps | 1% low | p99 ms | worst ms | >16.7 ms | delta vs off | GPU ms (total/dispatch/denoise) | main ms (scripts/render) | plugin ms (avg/worst) |");
             sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|");

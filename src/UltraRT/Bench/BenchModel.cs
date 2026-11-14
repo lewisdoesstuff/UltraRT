@@ -123,6 +123,8 @@ namespace UltraRT.Bench
         /// <summary>Levels loaded once and reused by later scenarios (off with -ultrart-bench-nochain).</summary>
         public bool Chaining;
         public int LevelLoads;
+        /// <summary>Run options that change what is measured or captured (no screenshots, no bursts, settle override); empty = defaults.</summary>
+        public string Options;
         /// <summary>Wall-clock seconds from the plugin starting the suite to the summary.</summary>
         public float TotalSeconds;
         public List<ScenarioResult> Scenarios = new List<ScenarioResult>();
