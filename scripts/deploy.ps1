@@ -2,7 +2,7 @@
 # Usage (after .\scripts\game-lock.ps1 acquire <owner>):
 #   .\scripts\deploy.ps1                    stage -> main install
 #   .\scripts\deploy.ps1 -Slot alt          stage -> the alt install (visual/diagnostic runs)
-#   .\scripts\deploy.ps1 -Owner me          also refuse if the slot is not locked by 'me'
+#   .\scripts\deploy.ps1 -Owner me          required when the slot is locked: refuses unless the lock is 'me''s
 # A changed shader bundle gets a fresh timestamp, so a running game hot-reloads it. A running game keeps its
 # UltraRT.dll / UltraRT.Native.dll loaded: those need a relaunch (a warning says so).
 param(
@@ -25,6 +25,7 @@ if (-not $LockDir) { $LockDir = Join-Path (Get-SlotDir 'main') 'BepInEx\ultrart'
 $lockFile = Join-Path $LockDir $(if ($Slot -eq 'alt') { 'game-alt.lock' } else { 'game.lock' })
 $held = Read-JsonFile $lockFile
 if ($Owner -and (-not $held -or $held.owner -ne $Owner)) { throw "The $Slot slot is not locked by $Owner (lock: $(if ($held) { $held.owner } else { 'none' })); run game-lock.ps1 acquire first" }
+if ($held -and -not $Owner) { throw "The $Slot slot is held by $($held.owner): pass -Owner <you> (deploy.ps1 -Slot $Slot -Owner <you>) so a deploy can't land in another agent's slot. Your slot: game-lock.ps1 slot <you>" }
 if (-not $held) { Write-Warning "The $Slot slot is not locked: run game-lock.ps1 acquire first (other agents may be using it)" }
 else { (Get-Item $lockFile).LastWriteTime = Get-Date }   # activity: keeps the hold from looking stale
 
