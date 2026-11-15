@@ -30,12 +30,15 @@ namespace UltraRT
         /// <summary>Source clamp per channel (linear), against fireflies.</summary>
         public float bloomClamp = 6f;
         /// <summary>The most the glow may add to a pixel (display units, soft). 0 = up to white.</summary>
-        public float bloomMaxAdd = 0.3f;
+        public float bloomMaxAdd = 0.25f;
         /// <summary>How much less of the glow lands on pixels that are already bright (0 = none of it is held back): the glow
         /// belongs around a light, not on top of the art that draws it.</summary>
         public float bloomProtect = 0.8f;
         /// <summary>Mip levels of the blur chain (half resolution down).</summary>
         public int bloomMips = 6;
+        /// <summary>Weight of each wider blur level relative to the one before (1 = every level counts the same: a wide veil
+        /// around large emitters; lower keeps the glow close to its source).</summary>
+        public float bloomSpread = 0.55f;
 
         // ---- distortion
         public bool heatHaze = true;
@@ -385,7 +388,7 @@ namespace UltraRT
                 for (int i = _mips.Count - 2; i >= 0; i--)
                 {
                     cmd.SetGlobalTexture(IdSrc, _mips[i + 1]);
-                    cmd.SetGlobalVector(IdSrcTexel, new Vector4(1f / _mips[i + 1].width, 1f / _mips[i + 1].height, 0, 0));
+                    cmd.SetGlobalVector(IdSrcTexel, new Vector4(1f / _mips[i + 1].width, 1f / _mips[i + 1].height, Mathf.Clamp(s.bloomSpread, 0f, 1f), 0));
                     cmd.SetRenderTarget(_mips[i]);
                     cmd.DrawProcedural(Matrix4x4.identity, m, 2, MeshTopology.Triangles, 3);
                 }

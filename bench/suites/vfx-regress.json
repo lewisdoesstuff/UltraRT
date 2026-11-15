@@ -1,0 +1,89 @@
+{
+    "Name": "vfx-regress",
+    "Scenarios": [
+        {
+            "Name": "warm-up",
+            "Scene": "Level 0-1",
+            "Path": {
+                "Type": "spawn",
+                "Duration": 8
+            },
+            "Modes": [
+                "off",
+                "pathtrace"
+            ],
+            "Segment": 2
+        },
+        {
+            "Name": "0-1 metal",
+            "Scene": "Level 0-1",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/0-1-metal.json",
+                "Duration": 4
+            },
+            "Modes": [
+                "pathtrace+vfx.enabled=0",
+                "pathtrace",
+                "relight+vfx.enabled=0",
+                "relight"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        },
+        {
+            "Name": "6-2 start",
+            "Scene": "Level 6-2",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/6-2-start.json",
+                "Duration": 4
+            },
+            "Modes": [
+                "pathtrace+vfx.enabled=0",
+                "pathtrace",
+                "relight+vfx.enabled=0",
+                "relight"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        },
+        {
+            "Name": "0-5 lava",
+            "Scene": "Level 0-5",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/0-5-approach.json",
+                "Duration": 4
+            },
+            "Modes": [
+                "pathtrace+vfx.enabled=0",
+                "pathtrace",
+                "relight+vfx.enabled=0",
+                "relight"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        },
+        {
+            "Name": "1-1 start",
+            "Scene": "Level 1-1",
+            "Path": {
+                "Type": "spawn",
+                "Duration": 4
+            },
+            "Modes": [
+                "pathtrace+vfx.enabled=0",
+                "pathtrace",
+                "relight+vfx.enabled=0",
+                "relight"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        }
+    ]
+}

@@ -29,7 +29,7 @@ Shader "UltraRT/Vfx"
             SamplerState my_point_clamp_sampler;
             SamplerState my_linear_clamp_sampler;
             SamplerState my_linear_repeat_sampler;
-            float4 _VfxSrcTexel;               // xy 1 / size of _VfxSrc
+            float4 _VfxSrcTexel;               // xy 1 / size of _VfxSrc, z upsample weight
             float4 _VfxBloomParams;            // x strength, y late-delta weight, z delta threshold lo, w delta threshold hi
             float4 _VfxBloomParams2;           // x 1 = HDR source valid, y clamp, z soft maximum the bloom adds (display), w how much bright pixels are spared
             float4 _VfxHdrScale;               // xy visible size / traced size of the HDR source (guard band)
@@ -122,7 +122,7 @@ Shader "UltraRT/Vfx"
                          + _VfxSrc.SampleLevel(my_linear_clamp_sampler, i.uv + t * float2( 0.5, -0.5), 0).rgb
                          + _VfxSrc.SampleLevel(my_linear_clamp_sampler, i.uv + t * float2(-0.5,  0.5), 0).rgb
                          + _VfxSrc.SampleLevel(my_linear_clamp_sampler, i.uv + t * float2( 0.5,  0.5), 0).rgb;
-                return float4(c * 0.25, 1.0);
+                return float4(c * (0.25 * _VfxSrcTexel.z), 1.0); // z: weight of the wider level being added
             }
 
             // ---------------------------------------------------------------- distortion
@@ -262,7 +262,8 @@ Shader "UltraRT/Vfx"
                 // Caustics on what the camera looks at (below the surface only), fading with depth.
                 float below = _VfxWater.y - hit.y;
                 if (below > 0.0 && dist < 60.0)
-                    c *= 1.0 + _VfxWaterParams.x * (Caustic(SurfacePoint(hit)) * 2.0 - 0.1) * exp(-below * 0.12) * exp(-dist * sigma);
+                    // (less on surfaces that are already bright: the lines must not clip to white)
+                    c *= 1.0 + _VfxWaterParams.x * (Caustic(SurfacePoint(hit)) * 2.0 - 0.1) * exp(-below * 0.12) * exp(-dist * sigma) * (1.0 - 0.8 * saturate(MaxC(c)));
                 // Shafts: the same pattern extruded along the light direction, marched through the water in front of the surface.
                 float shaft = 0;
                 float range = min(dist, _VfxWaterParams.y);
