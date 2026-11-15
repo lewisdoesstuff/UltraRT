@@ -757,7 +757,7 @@ namespace UltraRT
                 Logger.LogInfo($"Viewmodel RT: {_vmDraws.Count} draws ({_vmRenderers.Count} renderers, {_vmMaterials.Count} materials), rect {rect.x}x{rect.y} {rect.width}x{rect.height} of {w}x{h} " +
                                $"({100f * rect.width * rect.height / (w * h):F0}%), light mask 0x{ViewmodelLightMask(hud):X8} (ground layer {_vmGroundLayer}), mode {_vmTraceMode}");
             }
-            if (Time.realtimeSinceStartup >= _vmNextLightLog && _vmLightLogs < 80)
+            if (Time.realtimeSinceStartup >= _vmNextLightLog && _vmLightLogs < 10)
             {
                 _vmNextLightLog = Time.realtimeSinceStartup + 2f;
                 LogViewmodelLights(hud);

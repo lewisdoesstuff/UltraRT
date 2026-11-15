@@ -78,6 +78,8 @@ Each run launches the game on DX12 and plays every scenario in `bench/suites/<su
 | `whiplash` | presses the whiplash (R) for `EffectSpawner.WhiplashHold` (0.25 s) of game time through the game's `InputActionState`: with a held item (the torch) it flies out on the hook and back |
 | `lightbrazier` | burns the nearest `Flammable` within 6 m (not the held item), once, as the held torch does when it hits it (`Flammable.Burn(4)`): 4-3's brazier opens the door ahead |
 
+`"Weapon": N` (scenario) holds weapon slot N (1 = revolver) from the take-over on (`GunControl.SwitchWeapon`, then 1 s for the draw animation). Both installs' saves hold the rocket launcher, so `revolver` effects need `"Weapon": 1` to fire the revolver itself. `"GunBob": 1` swings the gun as walking does (see "Motion noise").
+
 `"PeriodicKinds"` (optional) are spawned on the `Every` timer instead of `Kinds`; `Kinds` still spawn at the screenshots. `bench/suites/lights-pm-throw.json` holds the torch along the user's 4-3 route and throws it on the whiplash only `ShotDelay` before each capture (one mode per scenario, so every capture gets a fresh throw). `melee` and `lightbrazier` were meant to light the brazier that opens the door ahead; neither lit it from the recorded pose, so the hook still lands on the closed door ~10 m away. Effects stay in the level: a pooled fire keeps burning in later scenarios, so put long-lived effects last. `bench/suites/effects.json` uses them (docs/emissive-lights.md, "Effect lights").
 
 ## Recording a path
