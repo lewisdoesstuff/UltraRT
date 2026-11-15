@@ -199,8 +199,8 @@ namespace UltraRT
             // + 6 colour-match sums + 6 light-fit sums (linear RT and game colour; docs/lighting-overrides.md, "Fit").
             _hist = new ComputeBuffer(3 * Bins + 12, 4) { name = "UltraRT Exposure Histogram" };
             _hist.SetData(new uint[3 * Bins + 12]);
-            _exposure = new ComputeBuffer(6, 16) { name = "UltraRT Exposure" };
-            _exposure.SetData(new[] { new Vector4(1f, 0f, 0f, 0f), Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero });
+            _exposure = new ComputeBuffer(8, 16) { name = "UltraRT Exposure" };
+            _exposure.SetData(new[] { new Vector4(1f, 0f, 0f, 0f), Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero });
         }
 
         /// <summary>Jump straight to the measured exposure next frame (scene load, teleport, mode switch).</summary>
@@ -211,7 +211,7 @@ namespace UltraRT
 
         /// <summary>Light fit (Plugin.LightFit.cs): when non-null, the linear mean colour of RT and game at the near pixels
         /// is measured and every frame's pair is read back and appended here (rgb, w = near pixels).</summary>
-        public List<(Vector4 rt, Vector4 game)> FitTrace;
+        public List<Vector4[]> FitTrace; // per frame: linear RT, linear game, display RT, display game (rgb, w = near pixels)
 
         /// <summary>
         /// Binds the exposure buffer and the lit-weight texture on the denoiser's Composite kernel. Needed every frame the
@@ -288,7 +288,7 @@ namespace UltraRT
                 {
                     if (r.hasError) return;
                     var d = r.GetData<Vector4>();
-                    if (d.Length > 5 && d[4].w > 0f) fit.Add((d[4], d[5]));
+                    if (d.Length > 7 && d[4].w > 0f) fit.Add(new[] { d[4], d[5], d[6], d[7] });
                 });
             }
             if (!_readbackPending && Time.realtimeSinceStartup >= _nextReadback)

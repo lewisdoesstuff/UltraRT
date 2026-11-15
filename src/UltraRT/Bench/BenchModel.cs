@@ -52,6 +52,11 @@ namespace UltraRT.Bench
         public int BurstStride = 1;
         /// <summary>Extra seconds to hold each mode before its screenshot (lets the radiance cache converge after a variant).</summary>
         public float ShotSettle;
+        /// <summary>Light fit at the first screenshot time (Plugin.LightFit.cs, docs/lighting-overrides.md "Fit"): measure each
+        /// significant light's share of the relight image against the game's, and re-solve the level's per-light scales.</summary>
+        public bool LightFit;
+        /// <summary>Light fit: most lights measured at this pose (the rest are left as they are).</summary>
+        public int LightFitLights = 12;
         /// <summary>Burst modes ("off" first gives the mask); default Modes. "mode+key=value" applies runtime variants.</summary>
         public List<string> BurstModes;
         /// <summary>Burst: screen rectangles [x0, y0, x1, y1] (fractions from the top left) also reported on their own, unmasked

@@ -152,7 +152,7 @@ namespace UltraRT
 
         private void DrawHud()
         {
-            if (BenchSafety.Active) return;
+            if (BenchSafety.Active) { if (_editorBenchShow) DrawLightEditor(); return; } // the editor only when a bench variant asks (its screenshot)
             if (_hudStyle == null)
                 _hudStyle = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
             if (_recorder != null && _recorder.IsRecording)
@@ -966,6 +966,7 @@ namespace UltraRT
                         }
                         }
                         if (wantBurst && sr.Bursts.Count == 0) yield return RunBurst(sc, sr, outDir, path, pathT);
+                        if (sc.LightFit && !_benchNoShots) yield return RunLightFit(sc, outDir); // Plugin.LightFit.cs
                         if (sc.Motion > 0) yield return RunMotionNoise(sc, sr, outDir, path, at); // every screenshot time
                         current = null; // force a fresh switch below
                     }

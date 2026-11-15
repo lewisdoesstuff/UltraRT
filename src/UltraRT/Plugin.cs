@@ -534,7 +534,7 @@ namespace UltraRT
                 if (_lightCount >= MaxLights) break;
                 if (l == null || !l.isActiveAndEnabled || l.intensity <= 0f) continue;
                 var ov = LightOverrideFor(l);
-                if ((ov != null && ov.Disabled == true) || SoloHides(l)) continue;
+                if ((ov != null && ov.Disabled == true) || SoloHides(l) || ReferenceEquals(l, _fitSkip)) continue;
                 var t = l.transform;
                 var fwd = t.forward;
                 var c = l.color * l.intensity;

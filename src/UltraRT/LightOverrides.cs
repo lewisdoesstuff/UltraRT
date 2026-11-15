@@ -185,6 +185,9 @@ namespace UltraRT
             return best != null && bestD <= NameTolerance * NameTolerance ? best : null;
         }
 
+        /// <summary>Every effective entry (user entries over shipped ones).</summary>
+        public IEnumerable<LightOverrideEntry> AllEffective() => _byPath.Values.SelectMany(l => l);
+
         public LightOverrideEntry UserEntry(string key) => _user.TryGetValue(key, out var e) ? e : null;
         public LightOverrideEntry ShippedEntry(string key) => _shipped.TryGetValue(key, out var e) ? e : null;
         public bool HasUserAdded(string id) => _userAdded.ContainsKey(id);

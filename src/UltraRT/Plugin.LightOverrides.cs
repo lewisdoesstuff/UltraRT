@@ -249,6 +249,7 @@ namespace UltraRT
         }
 
         private bool _editorOn, _editSolo, _editShowAll = true;
+        private bool _editorBenchShow; // bench variant plugin._editorBenchShow=1 (with plugin._editorOn=1): draw the editor in a screenshot
         private EditTarget _editSel;
         private int _editParam;
         private float _editSaveAt = -1f, _editRepeatAt;
@@ -608,7 +609,8 @@ namespace UltraRT
 
         private void DrawLightEditor()
         {
-            if (!_editorOn || _camera == null || BenchSafety.Active) return;
+            if (!_editorOn || _camera == null || (BenchSafety.Active && !_editorBenchShow)) return;
+            if (_editSel == null && _editorBenchShow && Event.current.type == EventType.Layout) CycleLight(+1); // bench: the nearest light
             if (_editStyle == null)
             {
                 _editStyle = new GUIStyle(GUI.skin.label) { fontSize = 17, richText = true, normal = { textColor = Color.white } };

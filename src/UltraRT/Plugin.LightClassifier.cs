@@ -155,6 +155,7 @@ namespace UltraRT
                     HasWord(info.Path, new[] { "spawneffect", "/enemies/", "projectile wave" }))
                 {
                     info.Class = "enemy/item";
+                    info.Note = "on an enemy, a pickup or a spawn effect: moves with it";
                     continue;
                 }
                 // Scripted: a game script on the light that drives it (flicker, fades, switches, 8-2's day/night), or an
@@ -263,7 +264,13 @@ namespace UltraRT
                         info.Fix = $"dedupe: intensity x{s:F2} (the emissive surface emits {emI / lightI:F1}x the light)";
                     }
                 }
-                else if (l.range >= 12f && lum <= 1.2f && minHit >= 1f)
+                else if (kind != null)
+                {
+                    info.Class = "fixture:" + kind + "/named";
+                    info.Note = "named like a fixture but no fixture geometry found around it: left as is";
+                    info.Confidence = 0.4f;
+                }
+                else if (l.range >= 12f && lum <= 1.2f && minHit >= 1f && !info.Tags.Any(t => t.StartsWith("scripted")))
                 {
                     info.Class = "fill";
                     float conf = Mathf.Clamp01(0.4f + (l.range - 12f) / 40f + (1.2f - lum) * 0.2f + (hits == 0 ? 0.1f : 0f));

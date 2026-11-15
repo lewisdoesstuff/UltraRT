@@ -110,7 +110,7 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
                 float3 colGame = _GameColor[(uint2)(uv * float2(gw, gh))].rgb;
                 float lumRT = Luma(colRT);
                 float lumGame = Luma(colGame);
-                if (_Params6.x > 0.0)
+                if (_Params6.x > 0.0 || _Params6.w > 0.5) // colour match, or the light fit's display means
                 {
                     uint3 qr = (uint3)(clamp(colRT, 0.0, COLOR_MAX) * COLOR_FIXED + 0.5);
                     uint3 qg = (uint3)(clamp(colGame, 0.0, COLOR_MAX) * COLOR_FIXED + 0.5);
@@ -188,6 +188,10 @@ void Adapt(uint gi : SV_GroupIndex)
         float inv = n > 0.0 ? 1.0 / (LIN_FIXED * n) : 0.0;
         _Exposure[4] = float4(float3(gsLin[0], gsLin[1], gsLin[2]) * inv, n);
         _Exposure[5] = float4(float3(gsLin[3], gsLin[4], gsLin[5]) * inv, n);
+        // ... and the display-unit means (the colour match's sums): the fit's target is the game's look, not its energy.
+        float invD = n > 0.0 ? 1.0 / (COLOR_FIXED * n) : 0.0;
+        _Exposure[6] = float4(float3(gsCol[0], gsCol[1], gsCol[2]) * invD, n);
+        _Exposure[7] = float4(float3(gsCol[3], gsCol[4], gsCol[5]) * invD, n);
     }
 
     float total = 0.0;
