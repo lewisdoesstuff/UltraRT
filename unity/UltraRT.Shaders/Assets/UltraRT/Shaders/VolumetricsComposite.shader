@@ -29,6 +29,7 @@ Shader "UltraRT/VolumetricsComposite"
             float4 _VolFogColor;               // rgb the game's fog colour, w 1 = apply fog to RT pixels
             float4 _VolComposite;              // x in-scatter strength, y 1 = auto exposure, z fixed exposure, w debug (1 = S only)
             float  _VolMaxAdd;                 // the most the haze may add to a pixel (display units; soft); 0 = up to white
+            float  _VolToe;                    // black-level toe (linear display units): s -> s * L / (L + toe); 0 = off
             float  _UltraRTFlipY;
 
             struct v2f
@@ -123,6 +124,13 @@ Shader "UltraRT/VolumetricsComposite"
                     if (ae > 0.0 && !isinf(ae)) e *= ae;
                 }
                 s *= _VolComposite.x * e;
+                // Toe (docs/volumetrics.md, "Dark rooms"): a faint, even veil adds little light but, over near-black pixels,
+                // a lot of display brightness (gamma): fade it out; halos and shafts well above the toe keep their level.
+                if (_VolToe > 0.0)
+                {
+                    float L = dot(s, float3(0.2126, 0.7152, 0.0722));
+                    s *= L / (L + _VolToe);
+                }
                 if (_VolComposite.w > 0.5) return float4(pow(saturate(s), 1.0 / 2.2), 1.0);
                 float3 lin = pow(saturate(c), 2.2) + s;
                 float3 o = pow(lin, 1.0 / 2.2);

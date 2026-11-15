@@ -56,10 +56,11 @@ Homogeneous, read from the level's current fog every frame (`Volumetrics.MediumF
 
 - density (extinction per metre): linear fog -> `ln 2 / ((start + end) / 2)`, the exponential medium whose
   transmittance is 50% where the game's fog is half way (1-1 0.0035/m, 0-5 0.0079/m, 1-4 0.0185/m). Exponential fog
-  uses its density. Times `densityScale`, clamped to `[minDensity, maxDensity]` = [0.002, 0.008] per metre. Where the
-  fog is off or thin (4-1, 8-3, any area that turns it off), `minDensity` gives clear-air shafts and light halos with
-  no haze colour. The cap only bites in thick-fog levels: at 1-4's 0.0185 the lamps lit the fog into a grey veil that
-  lifted the whole night scene (mean luma 43 -> 71); capped, it stays a halo.
+  uses its density. Times `densityScale`, clamped to `[minDensity, maxDensity]` = [0.002, 0.005] per metre (0.008
+  before 2026-11-15, see "Dark rooms"). Where the fog is off or thin (4-1, 8-3, any area that turns it off),
+  `minDensity` gives faint clear-air shafts and light halos with no haze colour; where it is off the scattering is
+  also scaled by `clearAir` (0.25). The cap only bites in thick-fog levels: at 1-4's 0.0185 the lamps lit the fog into
+  a grey veil that lifted the whole night scene (mean luma 43 -> 71); capped, it stays a halo.
 - scattering colour: the fog colour's hue (normalised to its largest channel), half way to white (`tint` 0.5): 1-1's
   shafts are warm, 1-4's bluish, 0-5's orange. Black or no fog -> white. Albedo 1: sigma_s = sigma_t x tint.
 - phase: Henyey-Greenstein g = 0.4 (forward scattering: shafts brighten looking toward the sun or a lamp).
@@ -156,7 +157,9 @@ The game's fog still applies to transparents as the game draws them.
 | `-ultrart-vol-steps N` | `steps` | 8 | sun shadow rays per low-res px |
 | `-ultrart-vol-distance M` | `maxDistance` | 100 | |
 | `-ultrart-vol-density F` | `densityScale` | 1 | x the fog-derived density |
-| `-ultrart-vol-min-density F` | `minDensity` / `maxDensity` | 0.002 / 0.008 per m | |
+| `-ultrart-vol-min-density F` | `minDensity` / `maxDensity` | 0.002 / 0.005 per m | max 0.008 before 2026-11-15 |
+| | `clearAir` | 0.25 | scattering albedo where the game's fog is off (1 = as before 2026-11-15) |
+| | `toe` | 0.002 | black-level toe on the in-scattering (linear display units): `s * L / (L + toe)`; 0 = off |
 | `-ultrart-vol-strength F` | `strength` | 0.65 | 1 before the evening balance pass |
 | | `maxAdd` | 0.25 | the most the haze adds to a pixel (soft, display units); 0 = up to white |
 | | `darkFog` | 0.25 | fog colour brightness for full scattering; darker fog scatters less, black none; 0 = off |
@@ -289,6 +292,102 @@ User report: "overall still a touch too bright", probably the fog volumetrics in
 Changes: `strength` 1 → **0.65**, and a cap on what the haze may add to a pixel: the composite's soft shoulder now saturates at `maxAdd` (0.25, display units) instead of at white, so shafts and halos keep their shape but can't fill the screen. **Dark fog is an absorbing medium** (`darkFog` 0.25): the medium's scattering colour used to fall back to white when the level's fog colour was black, so 7-3's garden, whose game view fades into pitch black, got a bright grey sky from a large white spot light (reported with "7-3 tree a"). The scattering albedo now follows the fog colour's brightest channel, full from 0.25 up: black fog (7-3, 2-1, 2-2, 4-1, 2-3) scatters nothing, 1-4's night blue (0.10) 40%, coloured fogs (1-1, 0-5, 3-1, 6-x, 8-2) as before. Old behaviour: `vol.darkFog=0`. Mean screen luma, game / before (`vol.darkFog=0`) / after, same run (`bench/suites/noise-pm-look.json`): 7-3 tree a 7.1 / 47.2 / **11.5**, 7-3 tree b 16.2 / 44.7 / 31.9, 1-4 drift 34.0 / 48.3 / 43.8, 1-4 lamps 23.4 / 30.9 / 27.9.
 
 The menu entry was renamed (`[Volumetrics] ShaftStrength`): config files keep the default they were first written with, so the old `Strength` key would have pinned 1. Old look: `vol.strength=1+vol.maxAdd=0`.
+
+### Dark rooms: 3-2 and 6-1 (2026-11-15, branch `t3/057903a8`)
+Report (lighting-overrides review sheet `20261115-032006_lights-verify`): mean screen luma (HUD and viewmodel masked)
+against the game, relight on master ee52438: **3-2 eye x4.40** (an orange haze filled the flesh cave, the eye's
+underside clipped to flat yellow), **3-2 wall edges x2.25** (a flat haze where the game is black, slab edges standing
+out), **6-1 coffins x1.42**. The user's earlier playtest shot of the eye was far less hazy.
+
+**Bisect.** Earlier bench screenshots of the same pose: 45-49 luma on every run up to 23:28 (11-14; ab44f1e,
+b08dbb4), 80-101 from 03:01 (11-15; de95ed3, 33c2399, 6343ee7). 6-1 coffins (~25) and 3-2 wall edges (~10.5) did
+not change over the night, and merge-regress's 6-2 start stayed at 24.5-26.2 across every merge. Scratch builds of
+the two sides of the suspect merge, same pose and run (`haze-bisect`, `20261115-035146` / `-035215`):
+
+| Build | game | relight | relight, lit particles off |
+|---|---|---|---|
+| 08c3cd9 (master before the vfx merge) | 22.8 | 47.2 | 44.1 |
+| 35ca87d (vfx merge) | 23.7 | **101.6** | 45.5 |
+
+**The vfx merge (35ca87d) made 3-2 twice as bright, through the lit-particle swap, not bloom.** The merge's
+`LitParticles.Swap` re-applies the `_PL*` configuration after the shader change (values set while a material had the
+game's shader were not always kept). After it, 3-2's `HeatWaves (2)` - one Master additive `Smoke` emitter (a 50 m
+rectangle) that fills the whole eye cave - is drawn as intended: additive smoke multiplied by the RT lighting (up to
+0.6 of its art, docs/particles.md). The game lights that material with its flat ambient only, which is black in 3-2,
+so the game barely shows it; dozens of overlapping relit sprites around the eye's bright light became the orange veil.
+The block pattern in it is the particle lighting volume's froxels.
+
+**Split by term** (`haze-diag`, `haze-diag2`, `haze-test`; master's defaults):
+
+| Pose (game) | relight | lit particles off | vol=0 | particles off + vol=0 + bloom off |
+|---|---|---|---|---|
+| 3-2 eye (23.8) | 96.8 | 39.8 | 66.8 (bloom off 66.1) | 28.8 |
+| 3-2 wall edges (4.9) | 9.5 | 9.7 | 5.2 | - |
+| 6-1 coffins (18.3) | 25.4 | 25.7 | 20.5 | - |
+
+With the particles on, bloom and haze were each worth about the same in 3-2, and switching off either removed both:
+**bloom was blooming the haze**. Its "what the transparents added" source (docs/vfx.md) is the target after the
+transparents minus the copy before them, and the target it read already had the in-scattering added (the scatter pass
+runs first in the same `AfterForwardAlpha` slot), so lit air near a bright light counted as a bright transparent.
+
+In 3-2 wall edges and 6-1 the haze was the rest. 3-2 has the game's fog **off**: the medium falls back to
+`minDensity` with full white scattering, so the cave's room lights (range 20-60 m) lit 0.002/m of air. In linear light
+that is little (the exposed in-scattering alone averages about luma 7), but added to pixels at 5/255 it doubles their
+display value (gamma): the flat veil over black. 6-1 has dense red fog (0.0087/m, capped to 0.008) and red room
+lights of range 20-30; per term `vol.lights=0` takes 25.7 to 22.7, emissive surfaces nothing, `vol=0` 20.6 (which also
+drops the game's own fog from RT pixels, so it is not the target).
+
+**Fixes.**
+1. *Atmosphere particles keep the game's look* (docs/particles.md, "Atmosphere"): particle systems whose emitter and
+   particles both span 30 m or more are not relit. The volumetric pass already lights the air; a room-filling emitter
+   relit as smoke counted it twice, in art the game draws at ambient. 3-2: `HeatWaves (2)` and a 44 m cone of dust
+   `Dot`s; 8-2 `Rain/Mist`; P-2's street and idol arena `Mist`s; `1 - Opener/Mist`. Vent gas, debris trails and gore
+   mist stay lit.
+2. *Bloom from before the haze*: the bloom prefilter reads the volumetric pass's pre-haze copy (the target after the
+   transparents, `Volumetrics.PreHazeCopy`) for its transparents term. No extra copy; the haze itself never blooms.
+3. *Clear air where the game's fog is off* (`clearAir` 0.25): as with black fog ("Balance"), the game's frame has no
+   glowing air there; a quarter of the scattering keeps faint halos and shafts (`clearAir=0` took 3-2 wall edges to the
+   game exactly, 5.1, `0.3` to 7.6).
+4. *Toe* (`toe` 0.002, composite): `s *= L / (L + toe)` on the exposed in-scattering, so a faint even veil (luma
+   under ~10) fades out while halos and shafts well above it keep their level.
+5. *Max density 0.005* (was 0.008): dense-fog levels (6-1 0.0087, 0-5 0.0079, 1-4 0.0185, 0-1 0.0055) scatter less
+   from their room lights; the game's own fog colour, applied exactly by pass 0, is unchanged.
+
+Candidates (`haze-cand`, `20261115-042341_haze-cand_alt`): A = 3 + 4, B = A + 5. B kept every regression pose within
+1-2 luma (0-1 metal 60.6 -> 59.8, game 63.9; 1-1 start 189.9 -> 189.6, game 187.7; 6-2 start 23.9 -> 22.8, game 13.8;
+0-5 lava 73.1 -> 70.9, game 62.0, the lava glow keeps its look; 8-2 intro day 64.4 -> 64.9, game 69.8) and is the
+default.
+
+**Results** (`haze-verify`, `bench/results/20261115-043444_haze-verify_alt/sheet.png`; "master-like" = this build
+with `pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008`, the bloom fix can't be switched off; masked
+mean luma, x the game; pathtrace with DLSS RR):
+
+| Pose | game | relight master-like -> branch | pathtrace master-like -> branch |
+|---|---|---|---|
+| 3-2 eye | 20.2 | 95.9 (x4.75) -> **29.8 (x1.48)** | 65.1 (x3.23) -> **32.1 (x1.59)** |
+| 3-2 wall edges | 4.6 | 9.5 (x2.05) -> **6.2 (x1.34)** | 9.7 (x2.10) -> **6.1 (x1.32)** |
+| 6-1 coffins | 18.3 | 25.4 (x1.39) -> **24.1 (x1.32)** | 25.5 (x1.39) -> **23.6 (x1.29)** |
+| 6-1 candles | 10.0 | 15.6 (x1.56) -> 15.3 (x1.54) | 14.6 (x1.46) -> 14.7 (x1.47) |
+| 1-4 lamps | 21.2 | 25.4 (x1.20) -> 20.7 (x0.97) | 24.9 (x1.17) -> 20.4 (x0.96) |
+| 8-2 b (lamp cones, rain) | 28.2 | 51.4 -> 51.4 | 51.1 -> 51.0 |
+| P-2 vent smoke | 9.5 | 16.2 (x1.70) -> 15.0 (x1.57) | 18.1 (x1.91) -> 16.8 (x1.76) |
+
+Colour: 3-2 eye's tint error (sum of |normalised rgb - game's| x 100) 29.7 -> 10.5, wall edges 15.9 -> 8.3. The eye's
+texture and its lit underside's gradient show again; P-2's vent gas is still lit red, 8-2's streetlight cones and rain
+are unchanged.
+
+**What is left.** 3-2 eye x1.48: `vol=0` alone gives 26.7, so the remaining haze is the cave's lights at a quarter
+strength; the rest is relight's lighting, the eye's top lit where the game leaves it dark (light overrides, not
+haze). 6-1 coffins x1.32: relight's lighting is x1.12 without any haze (docs/lighting-overrides.md); the red room
+lights' haze adds the rest (`vol.hazeRange=10` 23.7, `vol.lights=0` 22.7). 1-4's lamp halo is softer than before (the
+toe and the density cap; the frame now matches the game's brightness, it was x1.20). 6-1 candles and P-2 are relight's
+lighting (x1.5), not haze.
+
+Cost (exclusive perf run `bench/results/20261115-044813_haze-perf`, 2560x1440, branch vs master-like in the same
+pass): GPU totals equal within noise (3-2 eye relight 3.976 vs 3.969 ms, 6-1 coffins 6.085 vs 6.085, 8-2 b 6.412 vs
+6.405, pathtrace likewise; 0-5 lava +0.08 relight / -0.18 pathtrace, run noise in opposite directions). The toe is a
+few ALU ops in the composite, the bloom reads an existing copy, and the atmosphere check runs with the particle scan
+every 5 s (one `FindObjectsOfType<ParticleSystemRenderer>`; renderers are decided once).
 
 ### Development notes (for whoever tunes this next)
 - The first version (uniform 4-candidate light picks, area-uniform emissive points, 3x3 clip box, alpha 0.06) boiled

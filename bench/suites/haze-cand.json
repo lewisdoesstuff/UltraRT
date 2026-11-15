@@ -1,0 +1,168 @@
+{
+ "Name": "haze-cand",
+ "Note": "haze candidates A (clear air 0.25, toe 0.002) and B (A + max density 0.005) on the problem poses and the regression poses",
+ "Scenarios": [
+  {
+   "Name": "3-2 eye",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-eye.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-eye-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol.clearAir=0.25+vol.toe=0.002",
+    "relight+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005",
+    "pathtrace",
+    "pathtrace+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "3-2 wall edges",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-wall-edges.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-wall-edges-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol.clearAir=0.25+vol.toe=0.002",
+    "relight+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005",
+    "pathtrace",
+    "pathtrace+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "6-1 coffins",
+   "Scene": "Level 6-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-6-1-coffins.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-6-1-coffins-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol.clearAir=0.25+vol.toe=0.002",
+    "relight+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005",
+    "pathtrace",
+    "pathtrace+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol.clearAir=0.25+vol.toe=0.002",
+    "relight+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "1-1 start",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-approach.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol.clearAir=0.25+vol.toe=0.002",
+    "relight+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "6-2 start",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/6-2-start.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol.clearAir=0.25+vol.toe=0.002",
+    "relight+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "0-5 lava",
+   "Scene": "Level 0-5",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-5-approach.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol.clearAir=0.25+vol.toe=0.002",
+    "relight+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "8-2 intro day",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-8-2-intro-day.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-8-2-intro-day-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol.clearAir=0.25+vol.toe=0.002",
+    "relight+vol.clearAir=0.25+vol.toe=0.002+vol.maxDensity=0.005"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  }
+ ]
+}

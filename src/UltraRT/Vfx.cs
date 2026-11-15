@@ -111,6 +111,7 @@ namespace UltraRT
         public Camera camera;
         public Texture target;        // the camera's colour target (PostProcessV2_Handler.mainTex)
         public RenderTexture pre;     // copy of the target right after the RT composite (before the transparents)
+        public Texture preHaze;       // the target after the transparents, before the volumetric haze (null: no haze this frame)
         public RenderTexture hdr;     // HDR bloom source written this frame (null: none)
         public Vector2 hdrScale;      // visible / traced size of the HDR source
         public float time;            // seconds, the game's clock (pauses with it)
@@ -149,7 +150,7 @@ namespace UltraRT
         public bool WarpActive { get; private set; }
 
         private static readonly int
-            IdScene = Shader.PropertyToID("_VfxScene"), IdPre = Shader.PropertyToID("_VfxPre"), IdHdr = Shader.PropertyToID("_VfxHdr"),
+            IdScene = Shader.PropertyToID("_VfxScene"), IdPre = Shader.PropertyToID("_VfxPre"), IdLate = Shader.PropertyToID("_VfxLate"), IdHdr = Shader.PropertyToID("_VfxHdr"),
             IdSrc = Shader.PropertyToID("_VfxSrc"), IdBloom = Shader.PropertyToID("_VfxBloom"), IdNoise = Shader.PropertyToID("_VfxNoise"),
             IdSrcTexel = Shader.PropertyToID("_VfxSrcTexel"), IdBloomParams = Shader.PropertyToID("_VfxBloomParams"),
             IdBloomParams2 = Shader.PropertyToID("_VfxBloomParams2"), IdHdrScale = Shader.PropertyToID("_VfxHdrScale"),
@@ -375,6 +376,7 @@ namespace UltraRT
             {
                 EnsureMips(target.width, target.height, s.bloomMips);
                 cmd.SetGlobalTexture(IdPre, f.pre);
+                cmd.SetGlobalTexture(IdLate, f.preHaze != null ? f.preHaze : _scene);
                 cmd.SetGlobalTexture(IdHdr, f.hdr != null ? (Texture)f.hdr : Texture2D.blackTexture);
                 cmd.SetRenderTarget(_mips[0]);
                 cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);

@@ -126,6 +126,9 @@ From linear light, before the tone curve, output SDR. Three sources, added in th
    `bloomEffectsLo` 0.6 and `Hi` 0.95): fire, muzzle flashes, explosions, beams, the lava overlay. The colour is the
    pixel's, not the difference's: a channel that was already saturated has no difference left, which turned the glow
    of lava green.
+   "After the transparents" is the volumetric pass's copy taken before it adds the haze (`Volumetrics.PreHazeCopy`),
+   when it ran this frame: the in-scattering is no transparent, and blooming it veiled 3-2's eye cave (2026-11-15,
+   docs/volumetrics.md "Dark rooms").
 
 Without an HDR source (hybrid) the brightest part of the displayed RT image stands in for 1 and 2.
 

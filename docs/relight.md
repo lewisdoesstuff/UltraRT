@@ -113,6 +113,8 @@ Mean screen luma, game / relight before / relight now (game match and the haze r
 
 "Before" is the same build with `ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0` (and, for 7-3 and 1-4, `vol.darkFog=0`), measured in the same run. Torch rooms, 6-2's start and 1-4's lamps keep their RT look and stay brighter than the game (1.2x to 2x), just less so; 8-2's alley comes up from 0.55x to 0.73-0.76x; 4-1's green corridor (light reference, docs "Light reference distance") is still the brightest departure.
 
+The game match meters relight's image *before* the haze and before the game's transparents, so it can't see brightness that those add. 3-2's eye cave (x4.4 the game on 2026-11-15) and 3-2's dark rooms / 6-1 (x2.2 / x1.4) were exactly that: relit room-filling particle clouds, bloom picking up the haze, and haze in fog-off or dense-fog rooms (docs/volumetrics.md, "Dark rooms"; now x1.5 / x1.3 / x1.3). Metering the haze in auto exposure (`vol.meterHaze`) would only darken the lit surfaces under it.
+
 ### Area colour
 User reports (2026-11-14 late): relight lost the per-area colour of several levels. 2-2 (all of layer 2) had no purple
 tint; 7-3's tree room was brighter than the game, with white walls instead of red; 6-1's candles were pure white and its

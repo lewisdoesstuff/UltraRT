@@ -1,0 +1,150 @@
+{
+ "Name": "haze-verify",
+ "Note": "Branch haze/particle/bloom defaults vs the master-like variant (atmosphere off, clear air 1, no toe, max density 0.008; the bloom fix is not switchable), relight and pathtrace",
+ "Scenarios": [
+  {
+   "Name": "3-2 eye",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-eye.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-eye-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "3-2 wall edges",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-wall-edges.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-wall-edges-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "6-1 coffins",
+   "Scene": "Level 6-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-6-1-coffins.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-6-1-coffins-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "6-1 candles",
+   "Scene": "Level 6-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-6-1-candles.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-6-1-candles-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "1-4 lamps",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-4-lamps.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "8-2 b",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-2-b.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "P-2 vent smoke",
+   "Scene": "Level P-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/p-2-vent-smoke.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  }
+ ]
+}

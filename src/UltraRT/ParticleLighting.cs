@@ -35,6 +35,11 @@ namespace UltraRT
         public bool soft = true;         // -ultrart-particles-soft on|off (config [ScreenEffects] SoftParticles)
         public int softKinds = 7;         // which glow / smoke materials are swapped for the fade: 1 explosion spheres, 2 fire sprites, 4 multiply smoke
         public float softDistance = 0.6f; // m in front of the surface over which a particle fades in (-ultrart-particles-soft-distance)
+        // Room-filling particle systems (3-2's HeatWaves: one 'Smoke' emitter over the whole eye cave) are atmosphere, not
+        // smoke: the volumetric pass lights the air, and relit as additive smoke their dozens of overlapping sprites became an
+        // orange veil the game never shows (black ambient). Emitters whose shape spans this many metres keep the game's
+        // shader (a private copy of the original material); 0 = relight them like any smoke (docs/particles.md, "Atmosphere").
+        public float atmosphereSize = 30f; // -ultrart-particles-atmosphere M
 
         public void ParseArgs()
         {
@@ -63,12 +68,13 @@ namespace UltraRT
                     case "-ultrart-particles-noindirect": indirect = false; break;
                     case "-ultrart-particles-soft": soft = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
                     case "-ultrart-particles-soft-distance": softDistance = F(softDistance); break;
+                    case "-ultrart-particles-atmosphere": atmosphereSize = F(atmosphereSize); break;
                 }
             }
         }
 
         public override string ToString() => FormattableString.Invariant(
-            $"{(enabled ? "on" : "off")}, strength {strength} (hybrid {(hybrid ? hybridStrength : 0f)}, pt-dn {(ptDn ? "on" : "off")}), additive smoke {(additiveSmoke ? "on" : "off")} (x{additiveScale}, max {additiveMax}), grid {gridX}x{gridY}x{gridZ} {near}-{far} m, {candidates} candidates, alpha {alpha}, indirect {(indirect ? "on" : "off")}");
+            $"{(enabled ? "on" : "off")}, strength {strength} (hybrid {(hybrid ? hybridStrength : 0f)}, pt-dn {(ptDn ? "on" : "off")}), additive smoke {(additiveSmoke ? "on" : "off")} (x{additiveScale}, max {additiveMax}), grid {gridX}x{gridY}x{gridZ} {near}-{far} m, {candidates} candidates, alpha {alpha}, indirect {(indirect ? "on" : "off")}, atmosphere from {atmosphereSize} m");
     }
 
     /// <summary>What <see cref="ParticleLighting.Execute"/> needs from the plugin each frame.</summary>

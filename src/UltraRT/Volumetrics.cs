@@ -24,7 +24,7 @@ namespace UltraRT
         public float densityScale = 1f;
         /// <summary>Density where the game's fog is off or thinner (per metre): sun shafts and light halos without haze.</summary>
         public float minDensity = 0.002f;
-        public float maxDensity = 0.008f;
+        public float maxDensity = 0.005f;
         /// <summary>In-scattering multiplier.</summary>
         public float strength = 0.65f;
         /// <summary>The most the in-scattering may add to a pixel, in display units (a soft shoulder, not a clip); 0 = up to
@@ -33,6 +33,12 @@ namespace UltraRT
         /// <summary>Fog colour brightness (largest channel) at and above which the medium scatters fully; darker fog scatters
         /// proportionally less, black fog not at all. 0 = off (black fog scattered white, as before).</summary>
         public float darkFog = 0.25f;
+        /// <summary>Scattering albedo where the game's fog is off (its air is clear: nothing in the game's frame glows there).
+        /// 1 = full white scattering at minDensity (before 2026-11-15).</summary>
+        public float clearAir = 0.25f;
+        /// <summary>Black-level toe on the in-scattering (linear display units): s -> s * s / (s + toe), so a faint, even veil
+        /// that would lift near-black pixels fades out while halos and shafts keep their brightness. 0 = off.</summary>
+        public float toe = 0.002f;
         /// <summary>Henyey-Greenstein anisotropy: forward scattering makes shafts brighter looking toward the sun.</summary>
         public float anisotropy = 0.4f;
         /// <summary>How much of the fog colour's hue the medium takes (0 = white scattering, 1 = the fog colour's hue).</summary>
@@ -192,7 +198,7 @@ namespace UltraRT
             IdVolDepthTex = Shader.PropertyToID("_VolDepthTex"), IdVolExposure = Shader.PropertyToID("_VolExposure"),
             IdVolViewRay = Shader.PropertyToID("_VolViewRay"), IdVolFog = Shader.PropertyToID("_VolFog"),
             IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
-            IdVolMaxAdd = Shader.PropertyToID("_VolMaxAdd"),
+            IdVolMaxAdd = Shader.PropertyToID("_VolMaxAdd"), IdVolToe = Shader.PropertyToID("_VolToe"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
             IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
             IdVolSkip = Shader.PropertyToID("_VolSkip"), IdVolLightCone = Shader.PropertyToID("_VolLightCone"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
@@ -255,6 +261,8 @@ namespace UltraRT
             // the air must not glow. Scattering albedo = the fog colour's brightest channel / darkFog (1 from there up).
             // Black fog (7-3, 2-x, 4-1) scatters nothing; 1-4's night blue (0.10) about 40%.
             if (RenderSettings.fog && s.darkFog > 0f) tint *= Mathf.Clamp01(m / s.darkFog);
+            // No fog: the game's air is clear (docs/volumetrics.md, "Dark rooms").
+            if (!RenderSettings.fog) tint *= Mathf.Clamp01(s.clearAir);
             return new Vector4(sigma, tint.x, tint.y, tint.z);
         }
 
@@ -379,12 +387,20 @@ namespace UltraRT
             m.SetVector(IdVolFogColor, new Vector4(fc.r, fc.g, fc.b, f.applyGameFog && s.gameFog && fogMode > 0f ? 1f : 0f));
             m.SetVector(IdVolComposite, new Vector4(Mathf.Max(0f, s.strength), f.autoExposure && f.exposure != null ? 1f : 0f, 1f, s.debugView));
             m.SetFloat(IdVolMaxAdd, Mathf.Max(0f, s.maxAdd));
+            m.SetFloat(IdVolToe, Mathf.Max(0f, s.toe));
             if (f.applyGameFog && s.gameFog && fogMode > 0f && s.debugView == 0)
                 cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
             var late = lateCmd ?? cmd;
             late.CopyTexture(f.target, _sceneCopy);
             late.DrawProcedural(Matrix4x4.identity, m, 1, MeshTopology.Triangles, 3);
+            if (lateCmd != null) PreHazeFrame = Time.frameCount;
         }
+
+        /// <summary>The camera target after the game's transparents and before the in-scattering (the scatter pass's copy),
+        /// valid in the frame <see cref="PreHazeFrame"/> once the late command buffer has run. The bloom's "what the
+        /// transparents added" term reads it, so the haze itself never blooms (docs/vfx.md).</summary>
+        public RenderTexture PreHazeCopy => _sceneCopy;
+        public int PreHazeFrame { get; private set; } = -1;
 
         /// <summary>Maps a low-res NDC position to the screen NDC of the pixel it was traced through (i * blk + blk / 2).</summary>
         private static Matrix4x4 LowResToScreen(int W, int H, int w, int h, int blk)

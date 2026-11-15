@@ -1,0 +1,72 @@
+{
+ "Name": "haze-perf",
+ "Note": "GPU cost of the haze/particle changes: branch defaults vs master-like variant (-Perf)",
+ "Scenarios": [
+  {
+   "Name": "3-2 eye",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-eye.json",
+    "Duration": 8,
+    "Areas": "../recordings/late-3-2-eye-areas.json"
+   },
+   "Modes": [
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "6-1 coffins",
+   "Scene": "Level 6-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-6-1-coffins.json",
+    "Duration": 8,
+    "Areas": "../recordings/late-6-1-coffins-areas.json"
+   },
+   "Modes": [
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "0-5 lava",
+   "Scene": "Level 0-5",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-5-approach.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "8-2 b",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-2-b.json",
+    "Duration": 8
+   },
+   "Modes": [
+    "relight",
+    "relight+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008",
+    "pathtrace",
+    "pathtrace+pl.atmosphereSize=0+vol.clearAir=1+vol.toe=0+vol.maxDensity=0.008"
+   ],
+   "Segment": 2
+  }
+ ]
+}

@@ -1,0 +1,75 @@
+{
+ "Name": "haze-diag2",
+ "Note": "3-2 / 6-1: lit particle swap terms (HeatWaves smoke)",
+ "Scenarios": [
+  {
+   "Name": "3-2 eye",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-eye.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-eye-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+plugin._particlesOff=1",
+    "relight+pl.additiveSmoke=0",
+    "relight+pl.soft=0",
+    "relight+pl.debugView=1",
+    "relight+plugin._particlesOff=1+vol=0+vfx.bloom=0",
+    "pathtrace",
+    "pathtrace+plugin._particlesOff=1"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "3-2 wall edges",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-wall-edges.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-wall-edges-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+plugin._particlesOff=1",
+    "relight+pl.additiveSmoke=0",
+    "relight+plugin._particlesOff=1+vol=0+vfx.bloom=0",
+    "pathtrace+plugin._particlesOff=1"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "6-1 coffins",
+   "Scene": "Level 6-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-6-1-coffins.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-6-1-coffins-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+plugin._particlesOff=1",
+    "relight+pl.additiveSmoke=0",
+    "relight+plugin._particlesOff=1+vol=0+vfx.bloom=0",
+    "pathtrace+plugin._particlesOff=1"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  }
+ ]
+}
