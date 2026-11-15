@@ -827,6 +827,19 @@ namespace UltraRT
             var (path, arenas) = BuildPath(sc.Path, spawn, suiteDir);
             sr.Duration = path.Duration;
             GameControl.TakeControl(path.Start);
+            GameControl.GunBob = sc.GunBob;
+            GameControl.BobTime = 0f;
+            if (sc.Weapon > 0)
+            {
+                var gc = MonoSingleton<GunControl>.Instance;
+                if (gc != null && gc.slots.Count >= sc.Weapon && gc.slots[sc.Weapon - 1].Count > 0)
+                {
+                    if (gc.currentSlotIndex != sc.Weapon) gc.SwitchWeapon(sc.Weapon);
+                    Logger.LogInfo($"Benchmark: holding weapon slot {sc.Weapon}: {(gc.currentWeapon != null ? gc.currentWeapon.name : "none")}");
+                    yield return new WaitForSecondsRealtime(1.0f); // the draw animation
+                }
+                else Logger.LogWarning($"Benchmark: no weapon in slot {sc.Weapon}");
+            }
             yield return new WaitForSecondsRealtime(0.5f);
             // The route was fast-forwarded with RT off, so the RT scene hasn't seen what it switched on yet (8-3's
             // checkpoint clones ~3,000 renderers). Trace until that is registered, so it doesn't land in the measurement.
@@ -950,6 +963,7 @@ namespace UltraRT
                                 probed = true;
                                 foreach (var line in _proxies.DescribeView(GameControl.Cam != null ? GameControl.Cam.cam : null)) Logger.LogInfo("  view probe: " + line);
                             }
+                            if (m != "off" && _vmCam != null && sc.Effects != null) LogViewmodelLights(_vmCam); // the lights on the gun at the capture
                             yield return new WaitForEndOfFrame();
                             // What the player sees (RT composited under transparents/post/HUD), plus the raw RT image.
                             string file = $"{Sanitize(sc.Name)}_{at:F1}s_{Sanitize(m)}.png";
@@ -979,6 +993,7 @@ namespace UltraRT
                     QualitySettings.vSyncCount = 0;
                     Application.targetFrameRate = -1;
                     GameControl.SetPose(path.Sample(pathT));
+                    GameControl.BobTime = pathT;
                     GameControl.HideCheatPanels();
                     if (sc.KillEnemies && Time.time >= nextKill)
                     {

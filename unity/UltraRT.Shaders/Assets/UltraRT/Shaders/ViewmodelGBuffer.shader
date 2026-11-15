@@ -7,8 +7,10 @@
 //   2 ARGBHalf world position - camera position xyz, w frame stamp (_VMStamp): the targets are never cleared, a pixel
 //              belongs to this frame only if its stamp matches
 //   3 ARGBHalf emission rgb
-//   4 ARGBHalf motion: xy previous - current screen uv, z previous - current view depth (rigid motion of the renderer
-//              relative to the camera: weapon bob and sway; not bone animation)
+//   4 ARGBHalf motion: xy previous - current screen uv, z previous - current view depth. Rigid motion of the renderer
+//              relative to the camera (weapon bob and sway) plus, for skinned renderers, each vertex's own motion: last
+//              frame's skinned position comes from a copy of the skinned vertex buffer (_VMPrevVerts, Plugin.Viewmodel.cs),
+//              so bone animation (recoil, reload, idle, punch) is in the motion vectors too.
 // Pass 1 "Clear" writes stamp 0 everywhere (Plugin.Viewmodel.cs runs it every 1000 frames so stamps never repeat).
 Shader "UltraRT/ViewmodelGBuffer"
 {
@@ -46,7 +48,6 @@ Shader "UltraRT/ViewmodelGBuffer"
             sampler2D _MainTex;
             float4 _MainTex_ST;
             sampler2D _EmissiveTex;
-            float4 _EmissiveTex_ST;
             float4 _Color;
             float4 _EmissiveColor;
             float _EmissiveIntensity;
@@ -62,6 +63,11 @@ Shader "UltraRT/ViewmodelGBuffer"
             float4 _CustomColor1, _CustomColor2, _CustomColor3;
             float _VMStamp;            // global: this frame's stamp
             float4x4 _VMPrevDelta;     // global, set before each draw: view space now -> view space last frame (rigid)
+            // Skinned renderers: last frame's skinned vertex buffer (a copy Plugin.Viewmodel.cs makes after the draws), in
+            // the same object space as this frame's POSITION. x 1 = use it, y bytes per vertex, z first vertex of the
+            // submesh's index range (base vertex), w byte offset of the position in a vertex.
+            ByteAddressBuffer _VMPrevVerts;
+            float4 _VMPrevSkin;
 
             struct appdata
             {
@@ -82,11 +88,16 @@ Shader "UltraRT/ViewmodelGBuffer"
                 float4 color : COLOR;
             };
 
-            v2f vert(appdata v)
+            v2f vert(appdata v, uint vid : SV_VertexID)
             {
                 v2f o;
                 float3 view = UnityObjectToViewPos(v.vertex.xyz);
-                float3 prevView = mul(_VMPrevDelta, float4(view, 1.0)).xyz;
+                // Last frame's position in this frame's view space: the skinned vertex as it was (bone animation), else
+                // this one; then the renderer's rigid motion relative to the camera.
+                float3 prevObj = v.vertex.xyz;
+                if (_VMPrevSkin.x > 0.5)
+                    prevObj = asfloat(_VMPrevVerts.Load3((vid + (uint)_VMPrevSkin.z) * (uint)_VMPrevSkin.y + (uint)_VMPrevSkin.w));
+                float3 prevView = mul(_VMPrevDelta, float4(UnityObjectToViewPos(prevObj), 1.0)).xyz;
                 o.pos = mul(UNITY_MATRIX_P, float4(view, 1.0));
                 o.cur = o.pos;
                 o.prev = mul(UNITY_MATRIX_P, float4(prevView, 1.0));
@@ -129,7 +140,9 @@ Shader "UltraRT/ViewmodelGBuffer"
                 float3 e = 0;
                 if (_EmissiveIntensity > 0.0)
                 {
-                    float3 et = _UseAlbedoAsEmissive > 0.5 ? albedo.rgb : tex2D(_EmissiveTex, i.uv * _EmissiveTex_ST.xy + _EmissiveTex_ST.zw).rgb;
+                    // ULTRAKILL/Master samples the emission map at the main texture's uv (uv0 * _MainTex_ST, i.uv here),
+                    // not with _EmissiveTex_ST (docs/scene-proxies.md, "Runtime material changes").
+                    float3 et = _UseAlbedoAsEmissive > 0.5 ? albedo.rgb : tex2D(_EmissiveTex, i.uv).rgb;
                     e = et * _EmissiveColor.rgb * _EmissiveIntensity;
                 }
                 // Screen uv in the same convention as SV_Position / _ScreenParams (ComputeScreenPos handles the D3D flip).

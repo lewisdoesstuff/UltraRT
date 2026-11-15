@@ -77,6 +77,33 @@ namespace UltraRT.Bench
 
         public static void SetPose(CamPose pose) => _pose = pose;
 
+        /// <summary>Weapon bob (Scenario.GunBob): amplitude scale (0 = off) and the time it follows (path time).</summary>
+        public static float GunBob, BobTime;
+        private static readonly System.Reflection.FieldInfo BobOriginal =
+            typeof(WalkingBob).GetField("originalPos", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        private static WalkingBob[] _bobs = Array.Empty<WalkingBob>();
+        private static float _nextBobScan;
+
+        /// <summary>The bench takes the player over (NewMovement off), so WalkingBob never sees the player walk. This moves
+        /// the gun as WalkingBob does at full walking speed (it goes centre, right, centre, left at about 0.5 m/s), as a
+        /// function of the path time so replays are identical.</summary>
+        private static void ApplyGunBob()
+        {
+            if (GunBob <= 0f || BobOriginal == null) return;
+            if (Time.realtimeSinceStartup >= _nextBobScan || _bobs.Any(b => b == null))
+            {
+                _nextBobScan = Time.realtimeSinceStartup + 1f;
+                _bobs = UnityEngine.Object.FindObjectsOfType<WalkingBob>();
+            }
+            float ph = Mathf.Sin(BobTime * (2f * Mathf.PI / 0.68f));
+            foreach (var b in _bobs)
+            {
+                if (b == null || !b.isActiveAndEnabled) continue;
+                var o = (Vector3)BobOriginal.GetValue(b);
+                b.transform.localPosition = o + new Vector3(0.08f * ph, -0.025f * Mathf.Abs(ph), 0f) * GunBob;
+            }
+        }
+
         /// <summary>Move the player right now (from FixedUpdate), so every physics step sees the new position.</summary>
         public static void SetPoseNow(CamPose pose)
         {
@@ -89,6 +116,7 @@ namespace UltraRT.Bench
 
         public static void ReleaseControl()
         {
+            GunBob = 0f;
             if (!_controlled) return;
             Application.onBeforeRender -= ApplyPose;
             foreach (var b in _disabled) if (b != null) b.enabled = true;
@@ -111,6 +139,7 @@ namespace UltraRT.Bench
             cc.ApplyRotations();
             cc.transform.localPosition = cc.defaultPos;
             cc.StopShake();
+            ApplyGunBob();
         }
 
         /// <summary>Hierarchy path, used to find the same ActivateArena again on replay.</summary>
