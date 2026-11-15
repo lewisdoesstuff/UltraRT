@@ -15,8 +15,13 @@ Files:
 | Mode | Primary hit | Bounce hit | Shadow rays per pixel (primary + bounce) |
 |---|---|---|---|
 | `Reference` (0) | `DirectAll`: every light, one ray each | one uniformly picked light, ×N | lights in range + 1 |
-| `Ris` (1) | RIS over M candidates, 1 ray | RIS over `bounceCandidates`, 1 ray | 1 + 1 |
-| `ReSTIR` (2, default) | RIS, then merged with the previous frame's reservoir, 1 ray | as `Ris` | 1 + 1 |
+| `Ris` (1, default since 2026-11-15) | RIS over `risCandidates` (16), 1 ray | RIS over `bounceCandidates`, 1 ray | 1 + 1 |
+| `ReSTIR` (2) | RIS over `candidates` (8), then merged with the previous frame's reservoir, 1 ray | as `Ris` | 1 + 1 |
+
+Hybrid has its own `hybridMode` (ReSTIR, with the old visibility reuse and spatial reuse: its composite takes the
+shadowed / unshadowed ratio, docs/denoiser.md "Static noise"). `mode` (F6, the settings menu, `-ultrart-lights`, bench
+`lights=`) is every other view. Why RIS is the default: [Bias and noise](#bias-and-noise-2026-11-15).
+The menu's config key is `Quality.LightSampler` (renamed from `LightSampling`, which pinned ReSTIR in existing configs).
 
 `Reference` is the old code path: the same math and the same random sequence. Use it for A/B comparisons and as ground truth with `-ultrart-accumulate`. ReSTIR's temporal reuse is correlated across frames, so accumulating it converges to a slightly different (biased) image.
 
@@ -70,9 +75,11 @@ The plane is stored against the quantised normal, so the test is exact for a sta
 
 **Merge.** The history's M is clamped to `historyLimit × candidates` (20 × 8 = 160). Its light is remapped to this frame's index and re-evaluated at the current pixel, then added to the reservoir with weight `p̂_current(y) · W_prev · M_prev`.
 
-**Bias: biased 1/M combine.** There is no MIS or 1/Z over the history domain, so no extra target evaluations or rays are needed. The bias is limited to pixels where the history's domain differs from the current pixel's: a light whose p̂ is 0 there but not here, which can only happen at validation-passing geometric edges or when a light moves. Validation keeps this small.
+**The 1/M combine.** There is no MIS or 1/Z over the history domain, so no extra target evaluations or rays are needed. The bias is limited to pixels where the history's domain differs from the current pixel's: a light whose p̂ is 0 there but not here, which can only happen at validation-passing geometric edges or when a light moves. Validation keeps this small.
 
-**Visibility reuse with the one ray.** If the final shadow ray is blocked, the stored W is 0, but the light and M are kept. Here is why the static case stays unbiased. The history then contributes `V·p̂·W·M`, and the shading applies V again. Since V² = V, the combined estimate is still `∫ p̂·V` / (pixel's total M) per unit of M, the same expectation as fresh RIS with visibility. An occluded sample therefore stops propagating instead of being re-picked every frame, which cuts noise in shadowed areas. The cost is lag when an occluder moves away: at most `historyLimit` frames' worth of M.
+**Visibility reuse (`visibilityReuse`, off since 2026-11-15; hybrid keeps it).** The history now stores the sample's unshadowed W and every frame traces its own shadow ray, which is plain temporal RIS reuse: unbiased. The old scheme, below, is biased with soft shadows; see [Bias and noise](#bias-and-noise-2026-11-15).
+
+The old scheme: if the final shadow ray is blocked, the stored W is 0, but the light and M are kept. The argument for the static case: The history then contributes `V·p̂·W·M`, and the shading applies V again. Since V² = V, the combined estimate is still `∫ p̂·V` / (pixel's total M) per unit of M, the same expectation as fresh RIS with visibility. That holds only for a deterministic V. With soft shadows (every light has a radius, the sun a disk) V is a fresh random draw each frame, and a history kept because its last draw was clear is shaded with a new draw: its expected contribution is multiplied by the visibility probability again, so penumbrae read dark (2-2's floor -22 %, 1-4's lamps -38 % without the cap below). An occluded sample therefore stops propagating instead of being re-picked every frame, which cuts noise in shadowed areas. The cost is lag when an occluder moves away: at most `historyLimit` frames' worth of M.
 
 **Light identity: remap, not stable slots.** `_Lights` stays a compact per-frame list in GatherLights order, which changes as rooms toggle lights. Each frame `LightSampling` records the `Light.GetInstanceID()` of every packed index and builds `_LightRemap[prevIndex] → currentIndex`, with `0xFFFF` for a light that is gone. Stable sparse slots would have left holes in the list. A remap keeps the alias table, `_LightCount`, `DirectAll` and the reference path exactly as they are, at the cost of one 256-entry upload and a dictionary lookup per light per frame.
 - If a reservoir's light is gone, that history is **dropped** (M not counted). Counting its M with zero weight would darken the pixel, since the history also stood for the other lights it did not pick.
@@ -96,9 +103,13 @@ Burst (64 frames after 240 settle frames, interleaved A/B/A/B, `bench/suites/noi
 Tried for 3-1 and not kept: more candidates (16: no change), a shorter history (`historyLimit` 8: 2.35 instead of 3.1), no emissive lights (no change).
 
 ### Occluded history (penumbrae)
+Only with `visibilityReuse` (hybrid since 2026-11-15; relight no longer stores occluded history, see [Bias and noise](#bias-and-noise-2026-11-15)).
+
 With soft shadows each frame's shadow ray is one random visibility draw, and a blocked draw was stored with W = 0 and the full history M (up to `historyLimit` x `candidates` = 160): a pixel in a penumbra stayed dark for about 20 frames, then lit for as long, independently of its neighbours. `occludedHistory` (2) caps the M an occluded history carries at that many x `candidates`. Interleaved bursts (`noise-pm-final.json`, masked sigma / block sigma / mean luma): 1-4 drift (moonlit bridge) **0.36 / 0.28 / 56.8** with the cap against 1.02 / 0.95 / 54.4 without (twice each, identical), p95 1.2 against 5.3; 3-1 with eye lights unshadowed unchanged (0.07 on the walkway either way). It biases penumbrae slightly bright (+4% mean luma in 1-4 drift): occluded draws count less than lit ones. Before the eye-light change it made 3-1's walkway 25% brighter and noisier (the player light's samples were being blocked there). Bench: `ls.occludedHistory=0` (no cap).
 
 #### Umbrae: re-testing occluded history (opt-in)
+Superseded: the bias fix (RIS by default) removed the 8-2 boil without this trade-off ([Bias and noise](#bias-and-noise-2026-11-15)).
+
 User report (2026-11-14, pose "8-2 building boil" in `bench/suites/user-1114-late.json`): the white room with a skylight in
 8-2 boiled on every wall in relight, finer at trace scale 1.0; `lights=ref` was calm. The sun shines through the skylight
 but is blocked on every wall, and RIS keeps picking it because its unshadowed weight is large. With the `occludedHistory`
@@ -141,6 +152,106 @@ A reservoir that was occluded last frame keeps its M with W = 0 (visibility reus
 A pixel whose temporal reservoir failed validation (a disocclusion, the screen edge while turning, the first frame) used to show an 8-candidate RIS sample. `freshCandidates` (24) adds that many candidates to it (`RestirReuse` returns whether the temporal reservoir merged; `ReservoirCombine` adds the second RIS stream). Light evaluations only, no rays, and only on those pixels. In the motion-noise measurements this alone cut the 180°/s sweep's noise by a fifth (docs/denoiser.md, "Motion noise"). Flag: `-ultrart-restir-fresh N` (0 = off).
 
 **Spatial reuse (optional, `spatialSamples`, default 0).** A true spatial pass needs a second dispatch after all temporal reservoirs are written. Instead, k extra reservoirs are taken from the **previous** frame inside a disk of `spatialRadius` pixels (default 12) around the reprojected pixel. Each uses the same validation and merge. This fits in the single RayGen with no extra rays. It is biased at shadow boundaries, because a neighbour's W reflects its own visibility, so it is off by default in relight and pt-dn: there it made 1-1's sun shadow edges boil more. Hybrid uses `spatialSamplesHybrid` (2, radius `spatialRadiusHybrid` 6 px), because it only takes ReSTIR's shadowed/unshadowed ratio, where it cuts the slow boiling by about a third (docs/denoiser.md, "Static noise"). Flags: `-ultrart-restir-spatial N`, `-ultrart-restir-spatial-hybrid N`.
+
+## Bias and noise (2026-11-15)
+
+Against the reference sampler (`lights=ref`: every light, one ray each), relight's ReSTIR read 8-16 % bright in some
+rooms and 15 % dark in others, and 2-2's floor 47 % too blue (docs/path-tracing.md, "Energy"). Plain RIS matched the
+reference. Measured on the raw lighting buffer (the radiance statistics of each screenshot: mean linear lighting before
+exposure, game match and the tone curve; `bench/suites/sampling-base.json`, `sampling-fix.json`, `sampling-fix2.json`),
+RTX 5070 Ti, 2560x1440, trace scale 0.5:
+
+| Pose | old ReSTIR | old, `occludedHistory=0` | **RIS 16 (new default)** | fixed ReSTIR | reference |
+|---|---|---|---|---|---|
+| 0-5 lava | 0.934 (+13 %) | 0.808 (-2 %) | 0.815 / 0.812 | 0.815 / 0.814 | 0.826 / 0.812 / 0.816 |
+| 2-2 floor (blue) | 0.511 (+9 %; 1.74, +47 %) | 0.363 (-22 %) | 0.465 / 0.478 (1.19) | 0.471 / 0.464 (1.19) | 0.468 / 0.467 / 0.466 (1.18) |
+| 0-1 metal | 2.906 (-2 %) | 2.753 (-7 %) | 2.933 | 2.985 | 2.954 / 2.950 |
+| 6-2 start | 0.660 (+4 %) | 0.624 | 0.634 | 0.634 | 0.633 / 0.633 |
+| 1-4 lamps | 0.498 (-15 %) | 0.364 (-38 %) | 0.594 | 0.587 | 0.587 / 0.588 |
+| 1-4 drift | | | 1.114 | 1.139 | 1.115 |
+| 8-2 building boil | 2.552 (+9 %) | 2.339 | 2.350 / 2.334 | 2.339 | 2.343 / 2.339 / 2.341 |
+
+(Several values: separate runs. Each is the single-frame mean of a noisy buffer, so about +-1 % run to run.)
+
+**Sources.** Two biases in the old visibility reuse, in opposite directions:
+1. *Reused visibility draws* (dark). With soft shadows a shadow ray is a random draw. The history kept the samples
+   whose draw was clear (W) and zeroed the others, and the shading then applied a fresh draw on top: the history's
+   expected contribution was multiplied by the visibility probability twice. `occludedHistory=0` shows it alone: 2-2
+   -22 %, 1-4's lamps -38 %.
+2. *The occluded-history cap* (bright). `occludedHistory` (2) counted an occluded history as at most 16 samples while a
+   lit one kept up to 160: the zero evidence counted less than the lit evidence. In rooms where bright lights are
+   blocked (0-5's lava lights, 8-2's lamps in neighbouring rooms) that over-corrects: 0-5 +13 %, 8-2 +9 %. 2-2's
+   colour: the blue lamps are the ones whose samples survive, so they took the weight.
+
+M caps, the target function (luminance of the unshadowed contribution), spatial reuse (off in relight) and the radiance
+cache (identical in every variant) were not the cause: without visibility reuse every variant lands on the reference.
+
+**Fix.** `visibilityReuse` off: the history keeps the sample's unshadowed W (as the old `occludedRetest` did) and every
+frame traces its own visibility, which is plain temporal RIS reuse, unbiased up to the 1/M combine's edge cases. The
+occluded cap, the re-test and the mover drop then have nothing to do (they only touch histories flagged occluded,
+which no longer happens). Hybrid keeps the old scheme (`hybridMode`, unchanged look).
+
+**Noise at a held pose** (masked burst sigma, `vol=0`, 64 frames; a range = repeats, interleaved or separate runs):
+
+| Pose | old ReSTIR | fixed ReSTIR | **RIS 16** | RIS 32 | reference |
+|---|---|---|---|---|---|
+| 8-2 building boil | 0.62-0.63 | 0.38-0.40 | **0.32-0.33** | 0.29 | 0.23 |
+| 2-2 floor noise purple | 0.44-0.46 | 0.40-0.65 | **0.28-0.32** | 0.28 | 0.25-0.26 |
+| 0-1 metal | 0.57-0.74 | 0.52 | **0.48-0.49** | | 0.48 |
+| 6-2 start | 0.52-0.54 | 0.54 | **0.50-0.53** | | 0.45-0.46 |
+| 1-4 lamps | 0.37-0.40 | 0.39 | **0.36-0.37** | | 0.33 |
+| 1-4 drift (penumbrae) | 0.33 | 0.33 | **0.25** | | 0.22 |
+| 0-5 lava | 1.08-1.11 | 1.10 | **0.93-0.94** | 1.01 | 1.01-1.08 |
+
+**In motion** (replay sigma / 4x4 block, `vol=0`, `bench/suites/sampling-motion.json`; spread about 0.2; the RIS
+columns ran with the visibility memory on, which measured neutral at rest):
+
+| Path | old ReSTIR | fixed ReSTIR | RIS 16 | RIS 32 |
+|---|---|---|---|---|
+| 0-2 v1 shadow walk | 1.73 / 1.60 | 1.67 / 1.51 | 1.87 / 1.71 | 1.79 / 1.62 |
+| 1-1 spawn sweep (60 deg/s) | 2.01 / 1.57 | 1.83 / 1.40 | 1.84 / 1.49 | 1.72 / 1.35 |
+| 4-1 indoor A sweep (180 deg/s) | 1.30 / 1.08 | 1.38 / 1.13 | 1.23 / 0.96 | 1.53 / 1.21 |
+
+**Default: RIS, 16 candidates.** Unbiased, quieter than either ReSTIR at every held pose (at the reference's level on
+0-1 metal and 1-4's penumbrae), the same in motion within the metric's spread. ReSTIR's samples persist for up to 20
+frames, which relight's temporal filter can't average away (slow boiling: high block sigma); RIS samples are
+independent from frame to frame and the filter averages them (docs/pt-plan.md 6.1 found the same for DLSS RR). 32
+candidates helped 8-2 a little and nothing else. ReSTIR stays available (F6, the menu, `lights=restir`) and may still
+win where many lights compete per pixel (8-3's 100+ lights were not re-measured here).
+
+**8-2's umbra boil** ("8-2 building boil", the skylight room) is fixed by the same change, without the old trade-off:
+0.62 -> 0.33 masked (block 0.53 -> 0.23), while the soft-shadow poses got quieter too (1-4 drift 0.33 -> 0.25, 0-1
+metal 0.57 -> 0.48, 6-2 0.54 -> 0.50). The old `occludedRetest` got the room to 0.43-0.46 at the cost of 15-25 % more
+noise on those. The boil came from the occluded cap cutting the history to 16 every time a blocked light won; RIS has
+no history to cut.
+
+**GPU cost** (`bench/suites/sampling-perf.json`, exclusive, modes interleaved every 0.75 s; GPU total / `dispatch` ms):
+
+| | old ReSTIR | **RIS 16** | RIS 32 | fixed ReSTIR | RIS 16 + visibility memory |
+|---|---|---|---|---|---|
+| 0-1 metal | 6.26 / 4.27 | **5.59 / 3.61** | 5.80 / 3.82 | 5.82 / 3.84 | 6.02 / 4.03 |
+| 0-5 lava | 6.20 / 4.12 | **5.88 / 3.80** | 6.38 / 4.31 | 6.00 / 3.94 | 5.91 / 3.83 |
+| 8-2 building boil | 5.22 / 3.16 | **5.22 / 3.16** | 5.69 / 3.63 | 5.11 / 3.05 | 5.38 / 3.30 |
+
+RIS 16 is 0-0.67 ms cheaper than the old default (no reservoir read and write, no merge, no 24 fresh candidates on
+disocclusions); in RIS mode the reservoir buffers (2 x 14.7 MB at 1280x720) are not allocated.
+
+`pathtrace`: under DLSS RR it already used RIS (`ptx.lightsRR`), unchanged. With its UltraRT-denoiser fallback it
+follows `mode`, so it gets RIS 16 too (unbiased instead of the old ReSTIR's bias).
+
+### Visibility memory (opt-in, `visibilityMemory`)
+An attempt at a visibility-aware target for umbrae: per pixel, up to 3 lights with counts of their shadow-ray outcomes
+(4-bit visible / tested, halved at 16; Vbar = (visible + 1) / (tests + 2)), stored next to the reservoir (element 2i + 1
+of the reservoir buffers, still one UAV), reprojected and validated like a reservoir, light indices remapped. RIS and
+ReSTIR use p̂ x Vbar as the target at the primary hit; a blocked light without a slot takes the slot with the highest
+Vbar; a light whose segment crosses a mover box gets at least 1/2 and isn't counted. Unbiased (Vbar > 0, the shading
+traces visibility). `ls.visibilityDebug=1` with `pt-direct` shows it: red = the lowest remembered Vbar, green = slots in
+use / 3.
+
+It works as designed (8-2's walls fill all three slots with blocked lights; mean lowest Vbar 0.24), but bought no
+noise: 8-2 RIS 0.33 / 0.33 with and without (twice, interleaved), fixed ReSTIR 0.38-0.39 against 0.40; 0-5 lava RIS
+0.97-1.05 against 0.94 (worse); 2-2 0.28 against 0.29. After the bias fix the remaining selection noise isn't dominated
+by blocked lights. Off by default (in RIS mode it costs a reservoir buffer pair and a 16-byte read and write per pixel).
 
 ## Cost (estimated, not measured)
 

@@ -105,7 +105,7 @@ namespace UltraRT
 
         // Light sampling as the path tracing mode wants it under RR; restored after the binds (the settings are shared).
         private LightSamplingMode _ptSavedLights;
-        private int _ptSavedCandidates;
+        private int _ptSavedCandidates, _ptSavedRisCandidates;
         private bool _ptLightsOverridden;
 
         private void PathTraceLightsBegin(bool full, bool rr)
@@ -115,8 +115,9 @@ namespace UltraRT
             var ls = _lightSamplingSettings;
             _ptSavedLights = ls.mode;
             _ptSavedCandidates = ls.candidates;
+            _ptSavedRisCandidates = ls.risCandidates;
             ls.mode = (LightSamplingMode)Mathf.Clamp(_ptSettings.lightsRR, 0, 2);
-            if (ls.mode == LightSamplingMode.Ris) ls.candidates = Mathf.Clamp(_ptSettings.candidatesRR, 1, 64);
+            if (ls.mode == LightSamplingMode.Ris) ls.candidates = ls.risCandidates = Mathf.Clamp(_ptSettings.candidatesRR, 1, 64);
         }
 
         private void PathTraceLightsEnd()
@@ -124,6 +125,7 @@ namespace UltraRT
             if (!_ptLightsOverridden) return;
             _lightSamplingSettings.mode = _ptSavedLights;
             _lightSamplingSettings.candidates = _ptSavedCandidates;
+            _lightSamplingSettings.risCandidates = _ptSavedRisCandidates;
             _ptLightsOverridden = false;
         }
 

@@ -19,9 +19,31 @@ namespace UltraRT
     /// <summary>Tunables, read every <see cref="LightSampling.Bind"/>. Safe to change at any time.</summary>
     public sealed class LightSamplingSettings
     {
-        public LightSamplingMode mode = LightSamplingMode.ReSTIR;
-        /// <summary>RIS candidates per pixel at the primary hit (M). Costs one light evaluation each, no rays.</summary>
+        /// <summary>RIS since 2026-11-15: unbiased like the fixed ReSTIR, and quieter under relight's denoiser at rest (its
+        /// samples are independent from frame to frame), the same in motion (docs/light-sampling.md, "Bias and noise").</summary>
+        public LightSamplingMode mode = LightSamplingMode.Ris;
+        /// <summary>The mode hybrid uses (its composite takes ReSTIR's shadowed / unshadowed ratio, with spatial reuse and the
+        /// old visibility reuse; docs/denoiser.md, "Static noise"). <see cref="mode"/> (F6, the menu) is every other view.</summary>
+        public LightSamplingMode hybridMode = LightSamplingMode.ReSTIR;
+        /// <summary>RIS candidates per pixel at the primary hit (M) in ReSTIR mode. Costs one light evaluation each, no rays.</summary>
         public int candidates = 8;
+        /// <summary>RIS candidates per pixel at the primary hit in RIS mode (no history, so every pixel draws this many).</summary>
+        public int risCandidates = 16;
+        /// <summary>Per-pixel visibility memory at the primary hit (docs/light-sampling.md, "Visibility memory"): the RIS target is
+        /// the unshadowed contribution times a running estimate of each remembered light's visibility at the pixel, so lights
+        /// that are blocked there (8-2's sun on the walls of the skylight room) stop taking the samples. Unbiased (the estimate
+        /// is never 0 and the shading still traces visibility). Not in hybrid. Off by default: it learns (8-2's skylight room
+        /// fills all three slots with blocked lights) but measured no noise gain with RIS and 5 % with ReSTIR, for one more
+        /// 16-byte read and write per pixel and a reservoir buffer pair in RIS mode. Bench: ls.visibilityMemory=1.</summary>
+        public bool visibilityMemory = false;
+        /// <summary>The old ReSTIR history: an occluded final sample is stored with W = 0 (and capped by
+        /// <see cref="occludedHistory"/>), so the history carries visibility. Biased bright where lights compete with shadowed
+        /// ones (+16 % in 0-5's lava room; docs/light-sampling.md, "Bias"). Off: the history keeps the unshadowed W and each
+        /// frame traces its own visibility. Hybrid always uses it. Bench: ls.visibilityReuse=1.</summary>
+        public bool visibilityReuse = false;
+        /// <summary>Debug: the primary hit's direct light shows the visibility memory (red: lowest remembered visibility,
+        /// green: remembered lights / 3). Bench: ls.visibilityDebug=1 with pt-direct.</summary>
+        public bool visibilityDebug = false;
         /// <summary>RIS candidates at the bounce hit (no reuse there).</summary>
         public int bounceCandidates = 4;
         /// <summary>Source pdf from light power and distance to the camera; false = uniform over shadowed lights.</summary>
@@ -102,6 +124,8 @@ namespace UltraRT
 
         /// <summary>Lights in the table this frame that are shadowed (go through RIS) and unshadowed (evaluated directly).</summary>
         public int RisLightCount { get; private set; }
+        /// <summary>The mode the last <see cref="Bind"/> used (<see cref="LightSamplingSettings.hybridMode"/> in hybrid).</summary>
+        public LightSamplingMode ActiveMode { get; private set; } = LightSamplingMode.ReSTIR;
         public int FillLightCount { get; private set; }
         /// <summary>True when lights were added or removed relative to the previous <see cref="Bind"/>.</summary>
         public bool LightSetChanged { get; private set; }
@@ -145,8 +169,8 @@ namespace UltraRT
         private readonly Dictionary<int, int> _indexById = new Dictionary<int, int>();
 
         private readonly ComputeBuffer[] _reservoirs = new ComputeBuffer[2];
-        private int _width, _height, _cur;
-        private bool _historyValid;
+        private int _width, _height, _cur, _stride = 1;
+        private bool _historyValid, _prevRestir;
         private Matrix4x4 _prevViewProj;
 
         private static readonly int
@@ -172,7 +196,11 @@ namespace UltraRT
             IdRestirOccludedCap = Shader.PropertyToID("_RestirOccludedCap"),
             IdRestirOccludedRetest = Shader.PropertyToID("_RestirOccludedRetest"),
             IdRestirRetestCap = Shader.PropertyToID("_RestirRetestCap"),
-            IdRestirRetestUmbra = Shader.PropertyToID("_RestirRetestUmbra");
+            IdRestirRetestUmbra = Shader.PropertyToID("_RestirRetestUmbra"),
+            IdRestirVisReuse = Shader.PropertyToID("_RestirVisReuse"),
+            IdVisMemory = Shader.PropertyToID("_VisMemory"),
+            IdVisMemoryValid = Shader.PropertyToID("_VisMemoryValid"),
+            IdReservoirStride = Shader.PropertyToID("_ReservoirStride");
 
         public LightSampling(int maxLights)
         {
@@ -227,11 +255,15 @@ namespace UltraRT
             lightCount = Mathf.Clamp(lightCount, 0, _maxLights);
             BuildTables(lights, lightData, lightCount, camPos);
 
-            bool restir = s.mode == LightSamplingMode.ReSTIR;
+            var mode = hybrid ? s.hybridMode : s.mode;
+            ActiveMode = mode;
+            bool restir = mode == LightSamplingMode.ReSTIR;
+            bool vis = !hybrid && s.visibilityMemory && mode != LightSamplingMode.Reference;
+            bool visReuse = hybrid || s.visibilityReuse;
             ComputeBuffer prev = _dummyPrev, cur = _dummyCur;
-            if (restir)
+            if (restir || vis)
             {
-                EnsureReservoirs(width, height);
+                EnsureReservoirs(width, height, vis ? 2 : 1);
                 cur = _reservoirs[_cur];
                 prev = _reservoirs[_cur ^ 1];
             }
@@ -240,14 +272,14 @@ namespace UltraRT
                 ReleaseReservoirs();
             }
 
-            int candidates = Mathf.Clamp(s.candidates, 1, 64);
+            int candidates = Mathf.Clamp(mode == LightSamplingMode.Ris ? s.risCandidates : s.candidates, 1, 64);
             float cap = Mathf.Max(1f, s.historyLimit) * candidates;
             bool perPixel = s.perPixelLightChange && !ChangeOverflow;
             if (s.shortenHistoryOnLightChange && ((LightSetChanged && !perPixel) || emissiveSetChanged)) cap = candidates;
             int changes = s.shortenHistoryOnLightChange && perPixel ? ChangeCount : 0;
             if (changes > 0) _changes.SetData(_changeData, 0, 0, changes * 8);
 
-            cmd.SetRayTracingIntParam(shader, IdLightSampling, (int)s.mode);
+            cmd.SetRayTracingIntParam(shader, IdLightSampling, (int)mode);
             cmd.SetRayTracingIntParam(shader, IdRisCandidates, candidates);
             cmd.SetRayTracingIntParam(shader, IdBounceCandidates, Mathf.Clamp(s.bounceCandidates, 1, 64));
             cmd.SetRayTracingIntParam(shader, IdRisLightCount, RisLightCount);
@@ -259,21 +291,28 @@ namespace UltraRT
             cmd.SetRayTracingBufferParam(shader, IdReservoirPrev, prev);
             cmd.SetRayTracingBufferParam(shader, IdReservoirCur, cur);
             cmd.SetRayTracingMatrixParam(shader, IdPrevViewProj, _historyValid ? _prevViewProj : viewProj);
-            cmd.SetRayTracingIntParam(shader, IdRestirHistoryValid, restir && _historyValid ? 1 : 0);
+            // Reservoirs are only in the buffers when the previous frame ran ReSTIR (RIS writes only the visibility memory).
+            bool restirValid = restir && _historyValid && _prevRestir;
+            cmd.SetRayTracingIntParam(shader, IdRestirHistoryValid, restirValid ? 1 : 0);
             cmd.SetRayTracingVectorParam(shader, IdRestirParams,
                 // M is stored as a 12-bit integer in the reservoir (docs/emissive-lights.md).
                 new Vector4(Mathf.Min(cap, 4000f), Mathf.Clamp(s.normalTolerance, -1f, 1f), Mathf.Max(0f, s.planeTolerance), Mathf.Max(0f, hybrid ? s.spatialRadiusHybrid : s.spatialRadius)));
             cmd.SetRayTracingIntParam(shader, IdRestirSpatial, Mathf.Clamp(hybrid ? s.spatialSamplesHybrid : s.spatialSamples, 0, 8));
             cmd.SetRayTracingBufferParam(shader, IdLightChanges, _changes);
-            cmd.SetRayTracingIntParam(shader, IdLightChangeCount, restir && _historyValid ? changes : 0);
+            cmd.SetRayTracingIntParam(shader, IdLightChangeCount, restirValid ? changes : 0);
             cmd.SetRayTracingFloatParam(shader, IdLightChangeTolerance, Mathf.Max(1e-3f, s.lightChangeTolerance));
             cmd.SetRayTracingIntParam(shader, IdRestirFreshCandidates, restir ? Mathf.Clamp(s.freshCandidates, 0, 64) : 0);
             cmd.SetRayTracingFloatParam(shader, IdRestirOccludedCap, s.occludedHistory > 0f ? s.occludedHistory * candidates : 1e9f);
             cmd.SetRayTracingIntParam(shader, IdRestirOccludedRetest, restir && s.occludedRetest ? 1 : 0);
             cmd.SetRayTracingFloatParam(shader, IdRestirRetestCap, s.retestCap > 0f ? s.retestCap * candidates : 1e9f);
             cmd.SetRayTracingIntParam(shader, IdRestirRetestUmbra, s.retestUmbra ? 1 : 0);
+            cmd.SetRayTracingIntParam(shader, IdRestirVisReuse, visReuse ? 1 : 0);
+            cmd.SetRayTracingIntParam(shader, IdVisMemory, vis ? (s.visibilityDebug ? 2 : 1) : 0);
+            cmd.SetRayTracingIntParam(shader, IdVisMemoryValid, vis && _historyValid ? 1 : 0);
+            cmd.SetRayTracingIntParam(shader, IdReservoirStride, _stride);
 
-            if (restir)
+            _prevRestir = restir;
+            if (restir || vis)
             {
                 _cur ^= 1;
                 _historyValid = true;
@@ -312,6 +351,10 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(shader, IdRestirOccludedRetest, 0);
             cmd.SetRayTracingFloatParam(shader, IdRestirRetestCap, 1e9f);
             cmd.SetRayTracingIntParam(shader, IdRestirRetestUmbra, 0);
+            cmd.SetRayTracingIntParam(shader, IdRestirVisReuse, 1);
+            cmd.SetRayTracingIntParam(shader, IdVisMemory, 0);
+            cmd.SetRayTracingIntParam(shader, IdVisMemoryValid, 0);
+            cmd.SetRayTracingIntParam(shader, IdReservoirStride, 1);
         }
 
         private int _prevCountForShader;
@@ -470,14 +513,16 @@ namespace UltraRT
 
         private static uint AsUInt(float f) => unchecked((uint)BitConverter.SingleToInt32Bits(f));
 
-        private void EnsureReservoirs(int w, int h)
+        /// <param name="stride">Elements per pixel: 1 (reservoir), 2 (reservoir + visibility memory).</param>
+        private void EnsureReservoirs(int w, int h, int stride)
         {
-            if (_reservoirs[0] != null && w == _width && h == _height) return;
+            if (_reservoirs[0] != null && w == _width && h == _height && stride == _stride) return;
             ReleaseReservoirs();
             _width = w;
             _height = h;
+            _stride = stride;
             for (int i = 0; i < 2; i++)
-                _reservoirs[i] = new ComputeBuffer(Math.Max(1, w * h), 16, ComputeBufferType.Structured) { name = $"UltraRT Reservoirs {i}" };
+                _reservoirs[i] = new ComputeBuffer(Math.Max(1, w * h * stride), 16, ComputeBufferType.Structured) { name = $"UltraRT Reservoirs {i}" };
             _cur = 0;
             _historyValid = false;
         }
