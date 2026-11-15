@@ -280,7 +280,7 @@ Shader "UltraRT/Proxy"
             // W = M_prev * M_cur^-1 of the transform that drives the instance; row 3 x = first vertex of the instance's
             // previous-frame skinned positions in _UltraRTPrevSkin, or -1 (rigid).
             StructuredBuffer<float4> _UltraRTMotion;
-            StructuredBuffer<float3> _UltraRTPrevSkin; // object space, copied from the skinned vertex buffer after each trace
+            StructuredBuffer<float3> _UltraRTPrevSkin; // object space: skinned poses copied after each trace, displaced poses (Displace.compute) before the build
 
             // Previous-frame world position of this hit minus the current one, packed (PackMotion). The current position is
             // the BLAS hit point itself: for skinned instances the vertex fetch does not necessarily read the skinned pose
