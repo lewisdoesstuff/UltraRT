@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "1-1-start-descent",
+  "Scene": "Level 1-1",
+  "Note": "Sample path (docs/cinematics.md): down the slope at the start of 1-1, along the route of bench/recordings/1-1-approach.json, ending on a slow turn. Keys give the player's feet (Player) and look angles; the camera goes to the eye.",
+  "Keys": [
+    { "Player": [0.0, 0.0, 254.0], "Yaw": -2, "Pitch": -4, "Fov": 0, "Duration": 2.0, "Ease": "in" },
+    { "Player": [-0.6, -2.0, 281.0], "Yaw": 2, "Pitch": -8, "Fov": 0, "Duration": 1.6, "Ease": "linear" },
+    { "Player": [-0.6, -7.6, 297.0], "Yaw": -4, "Pitch": -6, "Fov": 0, "Duration": 1.6, "Ease": "out" },
+    { "Player": [-1.0, -9.0, 305.0], "Yaw": -14, "Pitch": 2, "Fov": 0, "Duration": 2.0, "Ease": "linear" }
+  ]
+}

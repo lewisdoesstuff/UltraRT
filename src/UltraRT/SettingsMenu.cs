@@ -193,6 +193,7 @@ namespace UltraRT
             m.Float("Wet", "Puddles", "Puddles", 0f, 1f, 2, () => _wetSettings.puddles, v => _wetSettings.puddles = v, "-ultrart-wet-puddles");
 
             LightEditorSettings(m); // per-level light overrides and the light editor (Plugin.LightOverrides.cs)
+            CineSettingsMenu(m); // cinematic camera and offline render (Plugin.Cinematics.cs)
 
             m.Action("Reload shaders  [F9]", ReloadShaders);
             m.Keybinds = new[]
@@ -202,7 +203,7 @@ namespace UltraRT
                 "F5|glowing surfaces as lights", "Ctrl+F5|sky light and linear transport", "F6|light sampling", "Ctrl+F6|volumetrics",
                 "Ctrl+F1|surface detail maps", "Ctrl+F2|screen effects (bloom, heat haze, shockwaves, underwater)", "Shift+F2|bloom", "Ctrl+F8|DLSS Ray Reconstruction (relight)", "F9|reload shaders", "F10|record", "F11|save pose",
                 "Insert|light editor (then numpad: 5 aim-select, 4/6 cycle, 8/2 parameter, +/- change, Enter save; docs/lighting-overrides.md)",
-            };
+            }.Concat(CineKeybinds).ToArray();
             m.Capture();
         }
 
