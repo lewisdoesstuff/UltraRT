@@ -191,6 +191,7 @@ namespace UltraRT
             _gpu?.Begin(_cmd, SlotRR);
             bool ok = _rr.Execute(_cmd, inputs, _gpu, SlotRREval);
             _gpu?.End(_cmd, SlotRR);
+            if (!ok || !_rr.BloomWritten) _vfxHdr = null; // screen effects: no HDR bloom source this frame (Plugin.Vfx.cs)
             if (!ok) return false;
             _cmd.SetGlobalTexture(UltraRTUpsampledId, _rr.Final);
             _displayed = _rr.Final;

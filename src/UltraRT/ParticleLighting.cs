@@ -31,6 +31,10 @@ namespace UltraRT
         public float maxSample = 24f;    // firefly clamp (luminance, lighting units)
         public bool indirect = true;     // bounce / sky ray per froxel
         public int debugView;            // 1: draw lit particles with their texture as white (lighting only)
+        // Soft particles (docs/vfx.md): the swapped effect materials fade out where they meet the opaque scene.
+        public bool soft = true;         // -ultrart-particles-soft on|off (config [ScreenEffects] SoftParticles)
+        public int softKinds = 7;         // which glow / smoke materials are swapped for the fade: 1 explosion spheres, 2 fire sprites, 4 multiply smoke
+        public float softDistance = 0.6f; // m in front of the surface over which a particle fades in (-ultrart-particles-soft-distance)
 
         public void ParseArgs()
         {
@@ -57,6 +61,8 @@ namespace UltraRT
                     case "-ultrart-particles-additive-scale": additiveScale = F(additiveScale); break;
                     case "-ultrart-particles-alpha": alpha = F(alpha); break;
                     case "-ultrart-particles-noindirect": indirect = false; break;
+                    case "-ultrart-particles-soft": soft = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
+                    case "-ultrart-particles-soft-distance": softDistance = F(softDistance); break;
                 }
             }
         }

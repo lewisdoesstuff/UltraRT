@@ -343,9 +343,9 @@ namespace UltraRT
         {
             var m = e.Source;
             if (m == null || e.Mat == null) return;
-            Color tint = m.HasProperty("_TintColor") ? m.GetColor("_TintColor") * 2f : m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
+            Color tint = LitParticles.EffectTint(m); // swapped materials (soft particles) keep their tint and blend
             e.Mat.SetColor(TintId, tint);
-            bool oneOne = m.HasProperty("_SrcBlend") && Mathf.RoundToInt(m.GetFloat("_SrcBlend")) == (int)BlendMode.One;
+            bool oneOne = LitParticles.EffectSrcOne(m);
             e.Mat.SetFloat(ModeId, oneOne ? 1f : 0f);
             if (e.Kind != Kind.Sprite && m.HasProperty(MainTexId))
             {

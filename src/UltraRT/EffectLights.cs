@@ -278,12 +278,13 @@ namespace UltraRT
             {
                 string s = m.shader != null ? m.shader.name : "";
                 bool additive;
-                if (m.HasProperty("_DstBlend")) additive = Mathf.RoundToInt(m.GetFloat("_DstBlend")) == (int)BlendMode.One;
+                // A material swapped to the lit / soft particle shader (LitParticles.cs) carries its blend in _PLDstBlend.
+                if (m.HasProperty("_PLDstBlend")) additive = Mathf.RoundToInt(m.GetFloat("_PLDstBlend")) == (int)BlendMode.One && Mathf.RoundToInt(m.GetFloat("_PLKind")) != 6;
+                else if (m.HasProperty("_DstBlend")) additive = Mathf.RoundToInt(m.GetFloat("_DstBlend")) == (int)BlendMode.One;
                 else additive = s.IndexOf("Additive", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (additive && m.renderQueue >= 2450 && !IsExcluded(m))
                 {
-                    Color tint = m.HasProperty("_TintColor") ? m.GetColor("_TintColor") * 2f
-                               : m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
+                    Color tint = LitParticles.EffectTint(m);
                     var t = m.mainTexture != null ? TexAverage(m.mainTexture) : Color.white;
                     info.Color = new Color(tint.r * tint.a * t.r, tint.g * tint.a * t.g, tint.b * tint.a * t.b, 1f);
                     info.Glows = MaxC(info.Color) > 1e-3f;

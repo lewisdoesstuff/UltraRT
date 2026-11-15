@@ -169,6 +169,7 @@ namespace UltraRT
             m.Bool("ScreenEffects", "Enabled", "Screen effects  [Ctrl+F2]", () => _vfxSettings.enabled, v => _vfxSettings.enabled = v, "-ultrart-vfx");
             m.Bool("ScreenEffects", "Bloom", "Bloom  [Shift+F2]", () => _vfxSettings.bloom, v => _vfxSettings.bloom = v, "-ultrart-bloom");
             m.Float("ScreenEffects", "BloomStrength", "Bloom strength", 0f, 2f, 2, () => _vfxSettings.bloomStrength, v => _vfxSettings.bloomStrength = v, "-ultrart-bloom-strength");
+            m.Bool("ScreenEffects", "SoftParticles", "Soft particles", () => _particleSettings.soft, v => _particleSettings.soft = v, "-ultrart-particles-soft");
             m.Bool("ScreenEffects", "HeatHaze", "Heat haze over lava and fire", () => _vfxSettings.heatHaze, v => _vfxSettings.heatHaze = v, "-ultrart-heathaze");
             m.Float("ScreenEffects", "HeatHazeStrength", "Heat haze strength", 0f, 3f, 2, () => _vfxSettings.heatAmplitude / VfxSettings.HeatAmplitudeDefault, v => _vfxSettings.heatAmplitude = v * VfxSettings.HeatAmplitudeDefault, "-ultrart-heathaze-strength");
             m.Bool("ScreenEffects", "Shockwaves", "Explosion shockwaves", () => _vfxSettings.shockwaves, v => _vfxSettings.shockwaves = v, "-ultrart-shockwaves");

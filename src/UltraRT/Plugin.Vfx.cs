@@ -24,8 +24,9 @@ namespace UltraRT
         private Camera _vfxLateCam;
         private Texture _lateTarget;       // PostProcessV2_Handler recreates its targets and strips AfterForwardAlpha buffers
         private RenderTexture _vfxHdr;     // this frame's HDR bloom source (null: the composite didn't write one)
+        private Vector2 _vfxHdrScale = Vector2.one; // visible / stored size of it
         private int _vfxLastFrame = -10;
-        private float _vfxNextHeat, _vfxNextLog;
+        private float _vfxNextHeat, _vfxNextLog, _vfxNextSummary;
         private readonly List<(Bounds bounds, Color color)> _vfxLava = new List<(Bounds, Color)>();
         private readonly List<Vector4> _vfxFlames = new List<Vector4>();
         private const int SlotVfx = 19, SlotVfxLate = 20;
@@ -101,15 +102,33 @@ namespace UltraRT
         /// has the image before the tone curve). Other paths (hybrid, DLSS RR) leave it out and bloom falls back to the
         /// displayed image.
         /// </summary>
-        private void VfxBloomSource(Kind kind, int w, int h, bool rr)
+        private void VfxBloomSource(Kind kind, int w, int h, bool rr, RenderTexture screenDepth)
         {
             _vfxHdr = null;
+            _vfxHdrScale = Vector2.one;
             if (_denoiser == null) return;
-            bool want = VfxFor(kind) && kind == Kind.Denoised && !rr && _vfxSettings.bloom && _vfxSettings.bloomStrength > 0f;
-            if (want) _vfxHdr = _vfx.EnsureHdr(w, h);
-            _denoiser.BloomTarget = _vfxHdr;
+            bool want = VfxFor(kind) && kind == Kind.Denoised && _vfxSettings.bloom && _vfxSettings.bloomStrength > 0f;
             var s = _vfxSettings;
-            _denoiser.BloomParams = new Vector4(Mathf.Max(0f, s.bloomExcess), Mathf.Max(0f, s.bloomEmission), s.bloomEmissionLo, Mathf.Max(s.bloomEmissionHi, s.bloomEmissionLo + 1e-3f));
+            var p = new Vector4(Mathf.Max(0f, s.bloomExcess), Mathf.Max(0f, s.bloomEmission), s.bloomEmissionLo, Mathf.Max(s.bloomEmissionHi, s.bloomEmissionLo + 1e-3f));
+            if (rr)
+            {
+                // DLSS RR (pathtrace; relight with Ctrl+F8): its Finish kernel has the image before the tone curve, after
+                // the remodulation, at screen resolution.
+                _denoiser.BloomTarget = null;
+                if (_rr == null) return;
+                if (want && screenDepth != null) _vfxHdr = _vfx.EnsureHdr(screenDepth.width, screenDepth.height);
+                _rr.BloomTarget = _vfxHdr;
+                _rr.BloomParams = p;
+                return;
+            }
+            if (_rr != null) _rr.BloomTarget = null;
+            if (want)
+            {
+                _vfxHdr = _vfx.EnsureHdr(w, h);
+                _vfxHdrScale = new Vector2(1f / _guardScale.x, 1f / _guardScale.y); // trace resolution, with the guard band
+            }
+            _denoiser.BloomTarget = _vfxHdr;
+            _denoiser.BloomParams = p;
         }
 
         // An explosion spawned (EffectLights' spawn queue): a shock front for the distortion pass.
@@ -211,7 +230,7 @@ namespace UltraRT
                 camera = _camera,
                 target = target,
                 hdr = _vfxHdr,
-                hdrScale = new Vector2(1f / _guardScale.x, 1f / _guardScale.y),
+                hdrScale = _vfxHdrScale,
                 time = Time.time,
                 waterLightDir = Vector3.up,
             };
@@ -228,6 +247,11 @@ namespace UltraRT
                 }
             }
             if (!_vfx.Wanted(frame)) return;
+            if (Time.realtimeSinceStartup >= _vfxNextSummary)
+            {
+                _vfxNextSummary = Time.realtimeSinceStartup + 10f;
+                Logger.LogInfo($"Screen effects: {VfxSummary()}; HDR source {(_vfxHdr != null ? $"{_vfxHdr.width}x{_vfxHdr.height}" : "none (displayed image)")}");
+            }
             bool bloom = _vfxSettings.bloom && _vfxSettings.bloomStrength > 0f;
             _gpu?.Begin(_cmd, SlotVfx);
             if (bloom)
@@ -243,6 +267,6 @@ namespace UltraRT
 
         /// <summary>For bench logs.</summary>
         private string VfxSummary() => _vfx == null ? "screen effects unavailable"
-            : $"screen effects {_vfxSettings}; heat boxes {_vfx.HeatBoxes}, fires {_vfx.HeatPoints}, shockwaves {_vfx.ActiveShocks}, underwater {(_vfxWater != null ? FormattableString.Invariant($"yes (surface {_vfxWaterSurface:F1})") : "no")}";
+            : $"{_vfxSettings}; heat boxes {_vfx.HeatBoxes}, fires {_vfx.HeatPoints}, shockwaves {_vfx.ActiveShocks}, underwater {(_vfxWater != null ? FormattableString.Invariant($"yes (surface {_vfxWaterSurface:F1}, colour {_vfxWater.clr})") : "no")}";
     }
 }

@@ -1,0 +1,43 @@
+{
+    "Name": "vfx-softdiag",
+    "Scenarios": [
+        {
+            "Name": "warm-up",
+            "Scene": "Level 1-1",
+            "Path": {
+                "Type": "spawn",
+                "Duration": 8
+            },
+            "Modes": [
+                "off",
+                "pathtrace"
+            ],
+            "Segment": 2
+        },
+        {
+            "Name": "1-1 blast",
+            "Scene": "Level 1-1",
+            "Path": {
+                "Type": "spawn",
+                "Duration": 4
+            },
+            "Effects": {
+                "Kinds": [
+                    "explosion"
+                ],
+                "Every": 0,
+                "Distance": 14,
+                "ShotDelay": 0.25
+            },
+            "Modes": [
+                "pathtrace+pl.softKinds=0",
+                "pathtrace+pl.softKinds=1",
+                "pathtrace+pl.softKinds=2",
+                "pathtrace+pl.softKinds=4"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        }
+    ]
+}

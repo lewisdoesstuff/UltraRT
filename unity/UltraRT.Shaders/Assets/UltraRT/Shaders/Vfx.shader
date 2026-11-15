@@ -31,17 +31,17 @@ Shader "UltraRT/Vfx"
             SamplerState my_linear_repeat_sampler;
             float4 _VfxSrcTexel;               // xy 1 / size of _VfxSrc
             float4 _VfxBloomParams;            // x strength, y late-delta weight, z delta threshold lo, w delta threshold hi
-            float4 _VfxBloomParams2;           // x 1 = HDR source valid, y clamp, z soft maximum the bloom adds (display), w unused
+            float4 _VfxBloomParams2;           // x 1 = HDR source valid, y clamp, z soft maximum the bloom adds (display), w how much bright pixels are spared
             float4 _VfxHdrScale;               // xy visible size / traced size of the HDR source (guard band)
             float4 _VfxCamPos;                 // xyz camera position, w time (s)
             float4 _VfxRayX, _VfxRayY, _VfxRayZ; // view ray = Z + X ndc.x + Y ndc.y (X = right / P00, Y = up / P11)
             float4x4 _VfxViewProj;             // world -> clip (GL convention, y up)
-            float4 _VfxProj;                   // x P00, y P11
+            float4 _VfxProj;                   // x P00, y P11, z view-plane size of a pixel at 1 m
             float4 _VfxCounts;                 // x heat boxes, y heat points, z shockwaves, w 1 = any distortion
             float4 _VfxHeatBoxMin[8];          // xyz, w strength
             float4 _VfxHeatBoxMax[8];
             float4 _VfxHeatPoints[16];         // xyz centre of the hot air, w radius
-            float4 _VfxHeat;                   // x amplitude (m), y noise frequency (1/m), z rise speed (m/s), w max offset (uv)
+            float4 _VfxHeat;                   // x amplitude (fraction of the screen height), y noise frequency (1/m), z rise speed (m/s), w max offset (uv)
             float4 _VfxShock[8];               // xyz centre, w radius now (m)
             float4 _VfxShockP[8];              // x amplitude (m), y thickness (m)
             float4 _VfxWater;                  // x 1 = camera under water, y surface height, z wobble (uv), w fog density (1/m)
@@ -69,6 +69,7 @@ Shader "UltraRT/Vfx"
             }
 
             float MaxC(float3 c) { return max(c.r, max(c.g, c.b)); }
+            float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
             float3 ToLinear(float3 c) { return pow(max(c, 0.0), 2.2); }
             float3 ToDisplay(float3 c) { return pow(max(c, 0.0), 1.0 / 2.2); }
 
@@ -79,13 +80,22 @@ Shader "UltraRT/Vfx"
                 float3 late = _VfxScene.SampleLevel(my_linear_clamp_sampler, i.uv, 0).rgb;
                 float3 pre = _VfxPre.SampleLevel(my_linear_clamp_sampler, i.uv, 0).rgb;
                 // What the transparents added, where the result is bright: additive glows saturate, smoke and dust don't.
-                float3 delta = max(ToLinear(late) - ToLinear(pre), 0.0);
+                // The amount is the luminance they added; the colour is the pixel's own (a channel that was already
+                // saturated has no difference left, which would turn the glow of lava green).
+                float3 lateLin = ToLinear(late);
+                float added = max(Luma(lateLin) - Luma(ToLinear(pre)), 0.0);
+                float3 delta = lateLin * (added / max(Luma(lateLin), 1e-3));
                 delta *= smoothstep(_VfxBloomParams.z, _VfxBloomParams.w, MaxC(late)) * _VfxBloomParams.y;
                 float3 hdr = 0;
                 if (_VfxBloomParams2.x > 0.5)
                 {
                     float2 tuv = (i.uv - 0.5) * _VfxHdrScale.xy + 0.5;
                     hdr = _VfxHdr.SampleLevel(my_linear_clamp_sampler, tuv, 0).rgb;
+                }
+                else
+                {
+                    // No HDR source (hybrid): the brightest part of the displayed RT image stands in.
+                    hdr = ToLinear(pre) * smoothstep(0.8, 1.0, MaxC(pre)) * 0.5;
                 }
                 float3 c = delta + hdr;
                 if (any(isnan(c)) || any(isinf(c))) c = 0;
@@ -128,12 +138,14 @@ Shader "UltraRT/Vfx"
             }
 
             // World-anchored, rising noise (two octaves), zero mean.
-            float2 HeatNoise(float3 p)
+            // lod: mip of the first octave at which one texel covers the pixel's footprint (the pattern averages out
+            // towards zero beyond it instead of turning into moire on surfaces seen at a grazing angle).
+            float2 HeatNoise(float3 p, float lod)
             {
                 float t = _VfxCamPos.w;
                 float f = _VfxHeat.y;
-                float2 a = _VfxNoise.SampleLevel(my_linear_repeat_sampler, float2(p.x + p.z * 0.71, p.y - t * _VfxHeat.z) * f, 0).rg;
-                float2 b = _VfxNoise.SampleLevel(my_linear_repeat_sampler, float2(p.z - p.x * 0.63, p.y - t * _VfxHeat.z * 1.7) * f * 2.3 + 0.37, 0).gr;
+                float2 a = _VfxNoise.SampleLevel(my_linear_repeat_sampler, float2(p.x + p.z * 0.71, p.y - t * _VfxHeat.z) * f, lod).rg;
+                float2 b = _VfxNoise.SampleLevel(my_linear_repeat_sampler, float2(p.z - p.x * 0.63, p.y - t * _VfxHeat.z * 1.7) * f * 2.3 + 0.37, lod + 1.2).gr;
                 return (a - 0.5) * 2.0 + (b - 0.5);
             }
 
@@ -155,7 +167,7 @@ Shader "UltraRT/Vfx"
                     float3 pm = ro + rd * (0.5 * (ta + tb));
                     // strongest just above the surface, gone at the top of the column
                     float h = saturate((pm.y - _VfxHeatBoxMin[b].y) / max(_VfxHeatBoxMax[b].y - _VfxHeatBoxMin[b].y, 1e-3));
-                    float w = saturate((tb - ta) * 0.25) * (1.0 - h) * (1.0 - h) * _VfxHeatBoxMin[b].w;
+                    float w = saturate((tb - ta) * 0.2) * (1.0 - h) * _VfxHeatBoxMin[b].w;
                     // fade near the sides so the column has no hard edge
                     float2 e = min(pm.xz - _VfxHeatBoxMin[b].xz, _VfxHeatBoxMax[b].xz - pm.xz);
                     w *= saturate(min(e.x, e.y) * 2.0 + 0.25);
@@ -183,9 +195,12 @@ Shader "UltraRT/Vfx"
                 if (wSum > 1e-4)
                 {
                     float3 pm = pSum / wSum;
+                    // Hot air bends light by an angle: the shimmer has the same size on screen at any distance (a little
+                    // less far away), while its pattern, anchored in the world, gets finer.
                     float z = max(dot(pm - ro, _VfxRayZ.xyz), 0.5);
-                    float2 n = HeatNoise(pm);
-                    float2 o = n * (min(wSum, 1.5) * _VfxHeat.x * 0.5 / z) * _VfxProj.xy;
+                    // footprint of 4 pixels (the mid point moves several times faster than the surface point at grazing angles)
+                    float2 n = HeatNoise(pm, log2(max(z * _VfxProj.z * 4.0 * _VfxHeat.y * 128.0, 1.0)));
+                    float2 o = n * (min(wSum, 1.5) * _VfxHeat.x / (1.0 + z * 0.02)) * float2(_VfxProj.x / _VfxProj.y, 1.0);
                     float m = length(o);
                     if (m > _VfxHeat.w) o *= _VfxHeat.w / m;
                     offset += o;
@@ -266,7 +281,7 @@ Shader "UltraRT/Vfx"
                 }
                 // Fog: distance fades into the water colour, which darkens with the camera's depth.
                 float dark = exp(-depthCam * _VfxWaterColor.w);
-                float3 fogC = _VfxWaterColor.rgb * (0.08 + 0.45 * dark);
+                float3 fogC = _VfxWaterColor.rgb * (0.03 + 0.22 * dark);
                 float vis = exp(-min(dist, 400.0) * sigma);
                 c = lerp(fogC, c, vis);
                 c += (_VfxWaterColor.rgb * 0.5 + 0.5) * shaft * dark;
@@ -308,7 +323,9 @@ Shader "UltraRT/Vfx"
                 float3 c;
                 if (dot(offset, offset) > 0.0)
                 {
-                    c = _VfxScene.SampleLevel(my_linear_clamp_sampler, uv + offset, 0).rgb;
+                    // Point sampled: displaced pixels stay whole pixels (bilinear resampling blurred everything a shock
+                    // front or the water's wobble touched).
+                    c = _VfxScene.SampleLevel(my_point_clamp_sampler, uv + offset, 0).rgb;
                     if (water) dist = SceneDistance(uv + offset, rd);
                 }
                 else c = _VfxScene.SampleLevel(my_point_clamp_sampler, uv, 0).rgb;
@@ -318,6 +335,8 @@ Shader "UltraRT/Vfx"
                 {
                     float3 b = _VfxBloom.SampleLevel(my_linear_clamp_sampler, uv + offset, 0).rgb * _VfxBloomParams.x;
                     if (_VfxDebug > 0.5) return float4(ToDisplay(b), 1.0);
+                    // Less of it on pixels that are already bright: the glow goes around the light, the art stays as drawn.
+                    b *= 1.0 - _VfxBloomParams2.w * smoothstep(0.35, 0.95, MaxC(c));
                     float3 o = ToDisplay(ToLinear(saturate(c)) + b);
                     // Soft shoulder on what was added (as the volumetric scatter does): the glow saturates smoothly towards
                     // white and never adds more than the soft maximum, so it can't wash out the art around it.

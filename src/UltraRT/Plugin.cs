@@ -733,6 +733,7 @@ namespace UltraRT
         private void OnCameraPreRender(Camera cam)
         {
             if (cam == null || _cmd == null) return;
+            Shader.SetGlobalVector(SoftParticlesId, Vector4.zero); // soft particles: only while the main camera draws (set again in Trace)
             if (cam.name != "Main Camera") { ViewmodelPreRender(cam); return; } // the HUD camera: viewmodel pass (Plugin.Viewmodel.cs)
             if (_recordedFrame == Time.frameCount && cam == _attachedCam) return; // rendered twice in a frame: keep the recording
             _recordedFrame = Time.frameCount;
@@ -802,6 +803,7 @@ namespace UltraRT
         private RenderTexture _depthCopy;
         private bool _noDepthMatch;
         private static readonly int UltraRTGameDepthId = Shader.PropertyToID("_UltraRTGameDepth");
+        private static readonly int SoftParticlesId = Shader.PropertyToID("_UltraRTSoft");
         private static readonly int UltraRTDepthParamsId = Shader.PropertyToID("_UltraRTDepthParams");
         private static readonly int UltraRTUVScaleId = Shader.PropertyToID("_UltraRTUVScale");
         /// <summary>-ultrart-guard X [Y]: guard band per side as a fraction of the trace width / height (0 = off).</summary>
@@ -1277,7 +1279,7 @@ namespace UltraRT
                 _gpu?.Begin(_cmd, SlotDenoise);
                 _denoiser.FrameTime = Time.unscaledDeltaTime;
                 BindExposure();
-                VfxBloomSource(kind, w, h, rr); // the composite also writes the HDR bloom source (Plugin.Vfx.cs)
+                VfxBloomSource(kind, w, h, rr, depthBuf); // the composite also writes the HDR bloom source (Plugin.Vfx.cs)
                 if (!rr) _denoiser.Execute(_cmd, inputs, _denoised);
                 if (!rr) RunExposure(w, h); // relight auto exposure: measured after the denoiser, applied from the next frame
                 if (kind == Kind.Hybrid && _unpackHybrid != null)
@@ -1304,6 +1306,9 @@ namespace UltraRT
             }
 
             BindGameDepth(pt);
+            // Soft particles (LitParticle.shader): the depth copy is this camera's, from here to the end of its render.
+            _cmd.SetGlobalVector(SoftParticlesId, _depthCopy != null && pt && !_noDepthMatch && _particleSettings.soft
+                ? new Vector4(1f / Mathf.Max(0.02f, _particleSettings.softDistance), 1f, 0f, 0f) : Vector4.zero);
             bool upsampled = false;
             if (rr && _depthCopy != null && RunRayReconstruction(w, h, viewProj, new Vector2Int(gxPx, gyPx))) upsampled = true;
             else if (taau && _displayed == _denoised && _depthCopy != null)

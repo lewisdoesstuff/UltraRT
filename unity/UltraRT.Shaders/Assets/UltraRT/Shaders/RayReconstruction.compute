@@ -175,6 +175,11 @@ void Prepare(uint3 id : SV_DispatchThreadID)
 Texture2D<float4> _RRColor;   // RR output (screen res)
 Texture2D<float>  _GameDepth; // the game's raw device depth (screen res)
 RWTexture2D<float4> _Final;   // screen res: rgb displayed colour, a 1 = RT pixel
+// HDR bloom source (docs/vfx.md), screen res, linear light: what the tone curve compressed plus bright emission, as
+// Denoise.compute's Composite writes it for the other denoiser. A 1x1 dummy is bound when nobody wants it.
+RWTexture2D<float4> _BloomOut;
+float4 _BloomParams; // x weight of the compressed energy, y weight of bright emission, z/w emission threshold (lo, hi)
+float  _BloomOn;
 RWTexture2D<float4> _AEFiltered;
 RWTexture2D<float4> _AEAlbedo;
 float4 _OutDim;   // W, H, 1/W, 1/H
@@ -194,8 +199,8 @@ void Finish(uint3 id : SV_DispatchThreadID)
 {
     int2 p = (int2)id.xy;
     if (any(p >= (int2)_OutDim.xy)) return;
-    float3 c = Display(RRAt(p));
-    c = saturate(UltraRTToneMap(c));
+    float3 hdr = Display(RRAt(p));
+    float3 c = saturate(UltraRTToneMap(hdr));
 
     float zg = 1.0 / (_ZParams.z * _GameDepth[p] + _ZParams.w);
     float tol = zg * _Match.x + _Match.y;
@@ -223,8 +228,21 @@ void Finish(uint3 id : SV_DispatchThreadID)
         // Back to the image: x the demodulation colour at screen resolution (the matching trace sample's where the
         // upsampler has nothing yet).
         float4 dh = _DemodHi[p];
-        c = Display(RRAt(p)) * (dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb);
-        c = saturate(UltraRTToneMap(c));
+        hdr = Display(RRAt(p)) * (dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb);
+        c = saturate(UltraRTToneMap(hdr));
+    }
+    if (_BloomOn > 0.5)
+    {
+        float3 b = 0;
+        if (a > 0.0)
+        {
+            float3 excess = max(pow(max(hdr, 0.0), 2.2) - pow(c, 2.2), 0.0);
+            float3 em = max(_Emission[kHit].rgb, 0.0);
+            float ew = smoothstep(_BloomParams.z, _BloomParams.w, max(em.r, max(em.g, em.b)));
+            b = excess * _BloomParams.x + pow(em, 2.2) * (ew * _BloomParams.y);
+            if (any(isnan(b)) || any(isinf(b))) b = 0;
+        }
+        _BloomOut[p] = float4(min(b, 64.0), 1.0);
     }
     _Final[p] = float4(c, a);
 }

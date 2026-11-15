@@ -28,6 +28,8 @@ namespace UltraRT
         private double _particleScanMs;
         private const int SlotParticles = 16;
         private bool _particlesOff; // bench A/B: relight+plugin._particlesOff=1
+        private int _particleSoftKinds = 7;
+        private bool _particleSoftScanned = true; // the soft setting the materials were last classified with
 
         private static readonly int PLTexId = Shader.PropertyToID("_UltraRTPL"), PLViewProjId = Shader.PropertyToID("_UltraRTPLViewProj"),
             PLCamId = Shader.PropertyToID("_UltraRTPLCam"), PLFwdId = Shader.PropertyToID("_UltraRTPLFwd"),
@@ -104,6 +106,13 @@ namespace UltraRT
             if (want && !_litParticles.Active) Shader.SetGlobalVector(PLCamId, Vector4.zero); // until the first volume
             try
             {
+                // Soft particles also decide which glow materials are swapped (fire, explosions, their smoke).
+                if (_particleSoftScanned != _particleSettings.soft || _particleSoftKinds != _particleSettings.softKinds)
+                {
+                    _particleSoftScanned = _particleSettings.soft;
+                    _particleSoftKinds = _particleSettings.softKinds;
+                    _litParticles.Reclassify();
+                }
                 if (want && Time.realtimeSinceStartup >= _particleNextScan)
                 {
                     _particleNextScan = Time.realtimeSinceStartup + 5f;

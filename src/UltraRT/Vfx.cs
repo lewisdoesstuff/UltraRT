@@ -18,7 +18,7 @@ namespace UltraRT
         /// <summary>Multiplier on the blurred glow (linear light). Gentle by default.</summary>
         public float bloomStrength = 0.5f;
         /// <summary>HDR source: weight of the energy the tone curve compressed or clipped (lit hotspots).</summary>
-        public float bloomExcess = 1f;
+        public float bloomExcess = 0.35f;
         /// <summary>HDR source: weight of bright emissive pixels (lava, neon, screens, glowing enemies).</summary>
         public float bloomEmission = 0.35f;
         /// <summary>Emission starts to glow above this brightest-channel value (display units) and fully from the second.</summary>
@@ -30,19 +30,22 @@ namespace UltraRT
         /// <summary>Source clamp per channel (linear), against fireflies.</summary>
         public float bloomClamp = 6f;
         /// <summary>The most the glow may add to a pixel (display units, soft). 0 = up to white.</summary>
-        public float bloomMaxAdd = 0.35f;
+        public float bloomMaxAdd = 0.3f;
+        /// <summary>How much less of the glow lands on pixels that are already bright (0 = none of it is held back): the glow
+        /// belongs around a light, not on top of the art that draws it.</summary>
+        public float bloomProtect = 0.8f;
         /// <summary>Mip levels of the blur chain (half resolution down).</summary>
         public int bloomMips = 6;
 
         // ---- distortion
         public bool heatHaze = true;
-        /// <summary>World-space displacement amplitude of the shimmer (m).</summary>
+        /// <summary>Displacement amplitude of the shimmer, as a fraction of the screen height.</summary>
         public float heatAmplitude = HeatAmplitudeDefault;
-        public const float HeatAmplitudeDefault = 0.035f, ShockAmplitudeDefault = 0.35f;
+        public const float HeatAmplitudeDefault = 0.004f, ShockAmplitudeDefault = 0.3f;
         /// <summary>Noise frequency (1/m) and rise speed (m/s).</summary>
-        public float heatFrequency = 0.45f, heatRise = 1.6f;
+        public float heatFrequency = 0.14f, heatRise = 1.2f;
         /// <summary>Height of the hot air column over lava (m) and how far from the camera heat sources are considered (m).</summary>
-        public float heatHeight = 5f, heatRange = 60f;
+        public float heatHeight = 8f, heatRange = 80f;
         /// <summary>Hot air over fires: radius multiplier of the flame's bounds, and the maximum radius (m).</summary>
         public float fireRadiusScale = 2.2f, fireRadiusMax = 3f;
         /// <summary>Largest displacement, as a fraction of the screen.</summary>
@@ -50,7 +53,7 @@ namespace UltraRT
         public bool shockwaves = true;
         /// <summary>Shock front: displacement (m) for an explosion of radius 5, thickness as a fraction of the radius reached,
         /// final radius as a multiple of the explosion's, and life (s).</summary>
-        public float shockAmplitude = ShockAmplitudeDefault, shockThickness = 0.12f, shockRadius = 2.2f, shockLife = 0.45f;
+        public float shockAmplitude = ShockAmplitudeDefault, shockThickness = 0.03f, shockRadius = 1.7f, shockLife = 0.6f;
 
         // ---- underwater
         public bool underwater = true;
@@ -163,7 +166,7 @@ namespace UltraRT
         /// <summary>Tileable smooth noise, two independent channels (value noise from a wrapped random lattice).</summary>
         private static Texture2D MakeNoise(int n)
         {
-            var tex = new Texture2D(n, n, TextureFormat.RGHalf, false, true)
+            var tex = new Texture2D(n, n, TextureFormat.RGHalf, true, true)
                 { name = "UltraRT Vfx Noise", wrapMode = TextureWrapMode.Repeat, filterMode = FilterMode.Bilinear, hideFlags = HideFlags.HideAndDontSave };
             var rnd = new System.Random(12345);
             const int cells = 16;
@@ -185,7 +188,7 @@ namespace UltraRT
                     px[y * n + x] = new Color(r, g, 0, 1);
                 }
             tex.SetPixels(px);
-            tex.Apply(false, true);
+            tex.Apply(true, true); // with mips: the shimmer fades out where its pattern gets finer than a pixel
             return tex;
         }
 
@@ -317,7 +320,7 @@ namespace UltraRT
             m.SetVector(IdRayY, t.up / proj.m11);
             m.SetVector(IdRayZ, t.forward);
             m.SetMatrix(IdViewProj, proj * cam.worldToCameraMatrix);
-            m.SetVector(IdProj, new Vector4(proj.m00, proj.m11, 0, 0));
+            m.SetVector(IdProj, new Vector4(proj.m00, proj.m11, 2f / (proj.m11 * Mathf.Max(1, target.height)), 0)); // z: view-plane size of a pixel at 1 m
             m.SetTexture(IdNoise, _noise);
             m.SetFloat(IdDebug, s.debugView);
 
@@ -331,10 +334,10 @@ namespace UltraRT
                 {
                     float a = Mathf.Clamp01((f.time - sh.Start) / Mathf.Max(0.05f, s.shockLife));
                     // The front races out and slows (ease-out); the kick fades as it spreads.
-                    float r = sh.Size * s.shockRadius * (1f - (1f - a) * (1f - a));
+                    float r = sh.Size * s.shockRadius * (1f - Mathf.Pow(1f - a, 1.5f));
                     float amp = s.shockAmplitude * Mathf.Sqrt(sh.Size / 5f) * (1f - a) * (1f - a) * Mathf.Clamp01(a * 12f);
                     _shock[ns] = new Vector4(sh.Pos.x, sh.Pos.y, sh.Pos.z, r);
-                    _shockP[ns] = new Vector4(amp, Mathf.Max(0.25f, r * s.shockThickness + 0.2f), 0, 0);
+                    _shockP[ns] = new Vector4(amp, 0.25f + r * s.shockThickness, 0, 0);
                     ns++;
                 }
             }
@@ -356,7 +359,7 @@ namespace UltraRT
             cmd.CopyTexture(target, _scene);
             cmd.SetGlobalTexture(IdScene, _scene);
             m.SetVector(IdBloomParams, new Vector4(bloom ? Mathf.Max(0f, s.bloomStrength) : 0f, Mathf.Max(0f, s.bloomEffects), s.bloomEffectsLo, Mathf.Max(s.bloomEffectsHi, s.bloomEffectsLo + 1e-3f)));
-            m.SetVector(IdBloomParams2, new Vector4(f.hdr != null ? 1f : 0f, Mathf.Max(0.1f, s.bloomClamp), Mathf.Max(0f, s.bloomMaxAdd), 0));
+            m.SetVector(IdBloomParams2, new Vector4(f.hdr != null ? 1f : 0f, Mathf.Max(0.1f, s.bloomClamp), Mathf.Max(0f, s.bloomMaxAdd), Mathf.Clamp01(s.bloomProtect)));
             m.SetVector(IdHdrScale, new Vector4(f.hdrScale.x, f.hdrScale.y, 0, 0));
             if (bloom)
             {
