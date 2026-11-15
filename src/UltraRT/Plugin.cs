@@ -289,6 +289,9 @@ namespace UltraRT
                     case "-ultrart-motion-probe": SceneProxies.MotionProbe = true; break;
                     case "-ultrart-motion-probe-filter": SceneProxies.MotionProbe = true; SceneProxies.MotionProbeFilter = Next(); break;
                     case "-ultrart-nomirrorfix": SceneProxies.MirroredSkinFix = false; break; // mirrored skinned meshes keep the default winding (docs/scene-proxies.md)
+                    case "-ultrart-noreadd": SceneProxies.NewInstanceReAdd = false; break; // new rigid instances are added once only (docs/scene-proxies.md, "Instances added too early")
+                    case "-ultrart-trace-proxies": SceneProxies.TraceFilter = Next(); break;
+                    case "-ultrart-orb-light": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _orbLightScale); break;
                 }
             }
             _scale = Mathf.Clamp(_scale, 0.1f, 1f);
@@ -602,6 +605,13 @@ namespace UltraRT
                 // An orb's light: shadowed, but its rays skip fixtures (the statue holding it; SceneProxies.Orbs.cs).
                 if (l3.z == 0f && SceneProxies.OrbHolders && _proxies.OrbLights.Contains(l)) _lightData[i + 3].z = OrbLightShadowFlag;
                 if (ov != null) ApplyLightOverride(ov, l, _lightCount);
+                // The statue orbs' lights, a touch weaker than the game's (user, 2026-11-15): the orb sits right at the stone
+                // and lights it physically, brighter than the game's thin vertex lighting (docs/scene-proxies.md, "Statue orbs").
+                if (_orbLightScale != 1f && SceneProxies.OrbHolders && _proxies.OrbFixtureLights.Contains(l))
+                {
+                    var oc = _lightData[i + 1];
+                    _lightData[i + 1] = new Vector4(oc.x * _orbLightScale, oc.y * _orbLightScale, oc.z * _orbLightScale, oc.w);
+                }
                 _lightPlaced[_lightCount] = ov != null && ov.OwnsGeometry;
                 _lightCount++;
             }
@@ -622,6 +632,10 @@ namespace UltraRT
         private int _fixtureLiftVersion = -1;
         private bool _fixtureLift = true; // -ultrart-nofixturelift
         private const float OrbLightShadowFlag = 0.25f; // l3.z: shadowed, rays skip fixtures (UltraRTLights.hlsl LightShadowSetup)
+        /// <summary>Statue orb lights' intensity factor (-ultrart-orb-light, bench plugin._orbLightScale).</summary>
+        private float _orbLightScale = 0.5f;
+        /// <summary>Diagnostic (bench plugin._readdDynamic=1): remove and re-add every active dynamic instance once.</summary>
+        private bool _readdDynamic;
         private readonly bool[] _lightPlaced = new bool[MaxLights]; // packed light i is placed by a light override (offset / shape)
         private bool _logFixtures;        // -ultrart-logfixtures
         private float _nextLightDump;
@@ -1165,6 +1179,7 @@ namespace UltraRT
                 Perf.Add(Perf.Sec.Rescan, tr);
                 Logger.LogInfo($"Rescan took {sw.Elapsed.TotalMilliseconds:F2} ms");
             }
+            if (_readdDynamic) { _readdDynamic = false; Logger.LogInfo($"Re-added {_proxies.ReAddDynamic()} dynamic instances (diagnostic)"); }
             _proxies.SyncDynamic();
             _proxies.UpdateLava(); // scroll offsets of the lava proxies (SceneProxies.Lava.cs)
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
@@ -1197,7 +1212,7 @@ namespace UltraRT
                 var mv = _proxies.Motion;
                 Logger.LogInfo($"RT scene sync CPU avg {_cpuMs / _cpuFrames:F3} ms/frame; motion vectors {(MotionVectors.Enabled ? "on" : "off")}: " +
                                $"{mv.SlotCount} slots, {mv.CopiesLastFrame} skinned pose copies/frame, {mv.SkinVertices} pose vertices, " +
-                               $"{(double)mv.RigidUpdates / _cpuFrames:F1} rigid updates/frame, {(double)_proxies.SkinnedTransformUpdateCount / _cpuFrames:F1} skinned transform updates/frame, motion CPU {mv.Ticks * 1000.0 / Stopwatch.Frequency / _cpuFrames:F3} ms/frame; " +
+                               $"{(double)mv.RigidUpdates / _cpuFrames:F1} rigid updates/frame, {(double)_proxies.SkinnedTransformUpdateCount / _cpuFrames:F1} skinned transform updates/frame, {_proxies.NewInstancesReAdded} new rigid instances re-added ({_proxies.NewMeshInstancesReAdded} with a mesh new to the RTAS; scene total), motion CPU {mv.Ticks * 1000.0 / Stopwatch.Frequency / _cpuFrames:F3} ms/frame; " +
                                $"deferred proxies: {_proxies.DeferredMade} made in {_proxies.DeferredMs:F1} ms (queue max {_proxies.DeferredMaxQueue}, now {_proxies.DeferredCount}), " +
                                $"{_proxies.HierarchiesAdded} hierarchies ({Patches.SpawnCount} instantiated), {_proxies.Lights.Count} lights tracked ({_activeLights.Count} on); " +
                                $"emissive: {_emissive.AliasBuilds} alias rebuilds ({_emissive.AliasTicks * 1000.0 / Stopwatch.Frequency:F1} ms), {_emissive.ActiveUpdates} active-set updates, " +

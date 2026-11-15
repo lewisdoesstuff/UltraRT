@@ -25,6 +25,8 @@ namespace UltraRT
 
         /// <summary>Lights at the centre of an orb fixture whose holder was found: their shadow rays skip fixtures.</summary>
         public readonly HashSet<Light> OrbLights = new HashSet<Light>();
+        /// <summary>The statue orbs' own lights (OrbLights minus beam housings): dimmed by Plugin._orbLightScale.</summary>
+        public readonly HashSet<Light> OrbFixtureLights = new HashSet<Light>();
         private readonly Dictionary<Renderer, List<Light>> _orbLightsByFixture = new Dictionary<Renderer, List<Light>>();
         private readonly HashSet<Renderer> _orbHolders = new HashSet<Renderer>();
         private int _orbHoldersVersion = -1;
@@ -61,6 +63,7 @@ namespace UltraRT
                     foreach (var r in rs) if (r is MeshRenderer || r is SkinnedMeshRenderer) b.Encapsulate(r.bounds);
                     if (b.size.magnitude > OrbHolderMaxSize) continue;
                     OrbLights.Add(l);
+                    OrbFixtureLights.Add(l);
                     foreach (var r in rs)
                         if (r != orb && (r is MeshRenderer || r is SkinnedMeshRenderer) && _orbHolders.Add(r)) added++;
                 }
