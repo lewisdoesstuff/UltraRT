@@ -1,0 +1,168 @@
+{
+    "Name": "vfx-report",
+    "Scenarios": [
+        {
+            "Name": "warm-up",
+            "Scene": "Level 0-5",
+            "Path": {
+                "Type": "spawn",
+                "Duration": 8
+            },
+            "Modes": [
+                "off",
+                "pathtrace"
+            ],
+            "Segment": 2
+        },
+        {
+            "Name": "0-5 lava",
+            "Scene": "Level 0-5",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/0-5-approach.json",
+                "Duration": 5
+            },
+            "Modes": [
+                "off",
+                "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
+                "relight",
+                "pathtrace",
+                "hybrid"
+            ],
+            "Screenshots": [
+                3
+            ]
+        },
+        {
+            "Name": "0-1 metal blast",
+            "Scene": "Level 0-1",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/0-1-metal.json",
+                "Duration": 5
+            },
+            "Modes": [
+                "off",
+                "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
+                "relight",
+                "pathtrace",
+                "hybrid"
+            ],
+            "Screenshots": [
+                3
+            ],
+            "Effects": {
+                "Kinds": [
+                    "explosion"
+                ],
+                "Every": 0,
+                "Distance": 11,
+                "ShotDelay": 0.15
+            }
+        },
+        {
+            "Name": "0-1 metal blood",
+            "Scene": "Level 0-1",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/0-1-metal.json",
+                "Duration": 5
+            },
+            "Modes": [
+                "off",
+                "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
+                "relight",
+                "pathtrace"
+            ],
+            "Screenshots": [
+                3
+            ],
+            "Effects": {
+                "Kinds": [
+                    "bloodstain"
+                ],
+                "Every": 0,
+                "ShotDelay": 0.5
+            }
+        },
+        {
+            "Name": "P-2 vent smoke",
+            "Scene": "Level P-2",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/p-2-vent-smoke.json",
+                "Duration": 5
+            },
+            "Modes": [
+                "off",
+                "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
+                "relight",
+                "pathtrace"
+            ],
+            "Screenshots": [
+                3
+            ]
+        },
+        {
+            "Name": "7-1 underwater",
+            "Scene": "Level 7-1",
+            "Path": {
+                "Type": "static",
+                "Position": [
+                    80,
+                    18,
+                    520
+                ],
+                "Yaw": 0,
+                "Pitch": -20,
+                "Duration": 6,
+                "Load": "none"
+            },
+            "Enemies": "blind",
+            "Modes": [
+                "off",
+                "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
+                "relight",
+                "pathtrace"
+            ],
+            "Screenshots": [
+                3
+            ]
+        },
+        {
+            "Name": "6-2 start",
+            "Scene": "Level 6-2",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/6-2-start.json",
+                "Duration": 5
+            },
+            "Modes": [
+                "off",
+                "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
+                "relight",
+                "pathtrace"
+            ],
+            "Screenshots": [
+                3
+            ]
+        },
+        {
+            "Name": "1-1 start",
+            "Scene": "Level 1-1",
+            "Path": {
+                "Type": "spawn",
+                "Duration": 5
+            },
+            "Modes": [
+                "off",
+                "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
+                "relight",
+                "pathtrace"
+            ],
+            "Screenshots": [
+                3
+            ]
+        }
+    ]
+}

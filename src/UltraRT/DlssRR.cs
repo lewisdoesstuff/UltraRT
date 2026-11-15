@@ -91,6 +91,12 @@ namespace UltraRT
         public float DemodSharpness = 30f, DemodMaxWeight = 4f;
 
         public RenderTexture Final => _final;
+        /// <summary>Set before Execute: Finish also writes the HDR bloom source into it (must be the output size; null = not
+        /// wanted). BloomWritten says whether the last Execute did. Params as Denoiser.BloomParams (docs/vfx.md).</summary>
+        public RenderTexture BloomTarget;
+        public Vector4 BloomParams;
+        public bool BloomWritten { get; private set; }
+        private RenderTexture _bloomDummy;
         public int State => _disposed ? -1 : _getState();
         public long Evaluations => _evalCount();
         public string Status => Marshal.PtrToStringAnsi(_getStatus()) ?? "";
@@ -347,6 +353,18 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, k, "_Final", _final);
             cmd.SetComputeTextureParam(cs, k, "_DemodTex", _demod);
             cmd.SetComputeTextureParam(cs, k, "_DemodHi", remod ? _demodUp.Output : _demod);
+            // HDR bloom source (docs/vfx.md): screen resolution here. A 1x1 dummy when nobody wants it.
+            if (_bloomDummy == null)
+            {
+                _bloomDummy = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear) { enableRandomWrite = true, name = "UltraRT RR Bloom Dummy", hideFlags = HideFlags.HideAndDontSave };
+                _bloomDummy.Create();
+            }
+            bool bloom = BloomTarget != null && BloomTarget.width == Ws && BloomTarget.height == Hs;
+            cmd.SetComputeTextureParam(cs, k, "_BloomOut", bloom ? BloomTarget : _bloomDummy);
+            cmd.SetComputeTextureParam(cs, k, "_Emission", i.emission);
+            cmd.SetComputeVectorParam(cs, "_BloomParams", BloomParams);
+            cmd.SetComputeFloatParam(cs, "_BloomOn", bloom ? 1f : 0f);
+            BloomWritten = bloom;
             BindExposure(cmd, k, i);
             cmd.DispatchCompute(cs, k, Mathf.CeilToInt(Ws / 8f), Mathf.CeilToInt(Hs / 8f), 1);
 

@@ -59,6 +59,8 @@ namespace UltraRT
     internal sealed class EffectLights
     {
         public EffectLightSettings Settings = new EffectLightSettings();
+        /// <summary>Called for every spawned hierarchy as the queue drains (screen effects: explosions; Plugin.Vfx.cs).</summary>
+        public Action<GameObject> Spawned;
 
         public int TrackedLights => _trackedCount;
         public int EmitterCount => _emitters.Count;
@@ -107,6 +109,7 @@ namespace UltraRT
             public float Radius;
             public Color Hue;         // normalised colour (max channel 1)
             public float Strength;    // 0..1
+            public bool Flame;        // named like a fire: heat haze rises from it (CollectFlames)
         }
 
         private readonly List<Emitter> _emitters = new List<Emitter>(256);
@@ -171,6 +174,7 @@ namespace UltraRT
                 try
                 {
                     survey?.OnSpawned(go);
+                    Spawned?.Invoke(go);
                     bool hasLight = false;
                     go.GetComponentsInChildren(true, _tmpLights);
                     foreach (var l in _tmpLights)
@@ -257,7 +261,7 @@ namespace UltraRT
             _emitters.Add(new Emitter
             {
                 R = r, PS = ps, SR = r as SpriteRenderer, Go = r.gameObject, T = r.transform, Kind = kind, Id = id, Base = col, Name = m.name,
-                OnLight = onLight,
+                OnLight = onLight, Flame = IsFlame(m.name) || IsFlame(r.name) || (r.transform.parent != null && IsFlame(r.transform.parent.name)),
             });
         }
 
@@ -274,12 +278,13 @@ namespace UltraRT
             {
                 string s = m.shader != null ? m.shader.name : "";
                 bool additive;
-                if (m.HasProperty("_DstBlend")) additive = Mathf.RoundToInt(m.GetFloat("_DstBlend")) == (int)BlendMode.One;
+                // A material swapped to the lit / soft particle shader (LitParticles.cs) carries its blend in _PLDstBlend.
+                if (m.HasProperty("_PLDstBlend")) additive = Mathf.RoundToInt(m.GetFloat("_PLDstBlend")) == (int)BlendMode.One && Mathf.RoundToInt(m.GetFloat("_PLKind")) != 6;
+                else if (m.HasProperty("_DstBlend")) additive = Mathf.RoundToInt(m.GetFloat("_DstBlend")) == (int)BlendMode.One;
                 else additive = s.IndexOf("Additive", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (additive && m.renderQueue >= 2450 && !IsExcluded(m))
                 {
-                    Color tint = m.HasProperty("_TintColor") ? m.GetColor("_TintColor") * 2f
-                               : m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
+                    Color tint = LitParticles.EffectTint(m);
                     var t = m.mainTexture != null ? TexAverage(m.mainTexture) : Color.white;
                     info.Color = new Color(tint.r * tint.a * t.r, tint.g * tint.a * t.g, tint.b * tint.a * t.b, 1f);
                     info.Glows = MaxC(info.Color) > 1e-3f;
@@ -346,6 +351,31 @@ namespace UltraRT
         }
 
         private static float MaxC(Color c) => Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+
+        private static bool IsFlame(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return false;
+            return name.IndexOf("fire", StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("flame", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("torch", StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("burn", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>The flames burning near the camera right now (the emitters this frame's virtual lights and flicker were
+        /// measured for): xyz bounds centre, w radius. For the heat haze over fires (Plugin.Vfx.cs).</summary>
+        public void CollectFlames(List<Vector4> output, Vector3 camPos, float range)
+        {
+            float r2 = range * range;
+            void Take(List<Emitter> list)
+            {
+                foreach (var e in list)
+                {
+                    if (!e.Flame || e.R == null || e.Strength <= 0f || !e.Go.activeInHierarchy || !e.R.enabled) continue;
+                    if ((e.Pos - camPos).sqrMagnitude > r2) continue;
+                    output.Add(new Vector4(e.Pos.x, e.Pos.y, e.Pos.z, e.Radius));
+                }
+            }
+            Take(_flickers);
+            Take(_selected);
+        }
 
         // ---------------------------------------------------------------- per frame
 

@@ -109,6 +109,12 @@ Blood drops are drawn in the opaque pass (queue 2450), before the RT composite o
 frame's volume (its own grid matrices travel with it as globals). The composite keeps them, since their depth is in front
 of the traced surface.
 
+**Soft particles** (2026-11-15, [vfx.md](vfx.md)). Every blended kind fades out where it meets the opaque scene
+(`pl.soft`, `pl.softDistance` 0.6 m), and three more kinds are swapped unlit for that fade alone: fire sprites
+(`ULTRAKILL/Additive`), explosion spheres (Master additive with SCROLLING) and the multiply smoke of explosions and
+fires. The swap now re-applies its `_PL*` values after the shader change and can be redone at runtime
+(`LitParticles.Reclassify`).
+
 ## Settings
 
 | Flag | Field | Default | |

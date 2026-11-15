@@ -356,6 +356,56 @@ namespace UltraRT
             }
         }
 
+        // Explosion debris (docs/vfx.md, "Glowing debris"): proxies with their own materials flagged _HotDebris.
+        private readonly List<DynamicProxy> _hotDebris = new List<DynamicProxy>();
+        private static readonly int IdHotDebris = Shader.PropertyToID("_HotDebris");
+
+        /// <summary>
+        /// Gives the proxy of an explosion chunk its own copies of its materials, flagged to emit the debris glow
+        /// (Proxy.shader, _UltraRTDebrisGlow). Own copies, because the chunks use ordinary level materials ('Wall') whose
+        /// shared proxy also covers the level's walls. False while the renderer has no proxy yet (they are made a few
+        /// frames after the spawn).
+        /// </summary>
+        public bool MarkHotDebris(Renderer src)
+        {
+            DynamicProxy d = null;
+            for (int i = _dynamic.Count - 1, n = 0; i >= 0 && n < 1024; i--, n++) // new proxies are at the end
+                if (ReferenceEquals(_dynamic[i].Source, src)) { d = _dynamic[i]; break; }
+            if (d == null || d.Sync == null || d.Proxy == null || d.Sync.Shared == null) return false;
+            var sync = d.Sync;
+            var mats = d.Proxy.sharedMaterials;
+            if (sync.Own == null) sync.Own = new Material[sync.Shared.Length];
+            for (int i = 0; i < sync.Shared.Length; i++)
+            {
+                var shared = sync.Shared[i];
+                if (shared == null) continue;
+                var cur = sync.Own[i];
+                if (cur == null)
+                {
+                    cur = new Material(shared) { name = shared.name + " (debris)" };
+                    _ownMaterials.Add(cur);
+                    sync.Own[i] = cur;
+                    if (i < mats.Length) mats[i] = cur;
+                    if (IsTwoSided(shared)) _twoSidedProxies.Add(cur);
+                }
+                cur.SetFloat(IdHotDebris, 1f);
+            }
+            d.Proxy.sharedMaterials = mats;
+            _hotDebris.Add(d);
+            return true;
+        }
+
+        /// <summary>Frees the materials of debris that is gone (chunks live 1-3 s).</summary>
+        public void PruneHotDebris()
+        {
+            for (int i = _hotDebris.Count - 1; i >= 0; i--)
+            {
+                if (_hotDebris[i].Source != null) continue;
+                ReleaseOwn(_hotDebris[i]);
+                _hotDebris.RemoveAt(i);
+            }
+        }
+
         private void ReleaseOwn(DynamicProxy d)
         {
             var own = d.Sync?.Own;

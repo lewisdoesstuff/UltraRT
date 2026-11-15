@@ -22,6 +22,7 @@ The log says which case applies (`BepInEx/LogOutput.log`):
 | Lighting | Light reference, light exposure, fill light cut, sky + linear light (Ctrl+F5), sky sampling, sky light, emissive lighting (F5: glowing surfaces as lights) and its brightness |
 | Auto exposure | On/off (Ctrl+F4), target brightness, darkest and brightest exposure (EV) |
 | Effects | Volumetric light and fog (Ctrl+F6), fog density, light shaft strength; surface detail maps (Ctrl+F1), detail strength in relight/pt-dn and in hybrid, roughness variation; reflections (F4) and their strength, V1 in reflections, ray-traced mirrors; effect lights (muzzle flashes, explosions, fire); fire and explosions in reflections; lava and acid |
+| Screen effects | Screen effects on/off (Ctrl+F2: the whole late pass), bloom (Shift+F2) and its strength, soft particles, heat haze over lava and fire and its strength, explosion shockwaves and their strength, glowing explosion debris, underwater shafts / fog / distortion; rain wetness and puddles, its wetness and puddle amount, wet blood and its drying time ([vfx.md](vfx.md)) |
 | Tools | Reload shaders (F9), reset all UltraRT settings |
 | Keybinds (sub page) | A read-only list of the hotkeys |
 

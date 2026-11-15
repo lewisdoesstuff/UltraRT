@@ -1,0 +1,155 @@
+{
+    "Name": "vfx-soft",
+    "Scenarios": [
+        {
+            "Name": "warm-up",
+            "Scene": "Level 1-1",
+            "Path": {
+                "Type": "spawn",
+                "Duration": 8
+            },
+            "Modes": [
+                "off",
+                "pathtrace"
+            ],
+            "Segment": 2
+        },
+        {
+            "Name": "1-1 blast",
+            "Scene": "Level 1-1",
+            "Path": {
+                "Type": "spawn",
+                "Duration": 4
+            },
+            "Effects": {
+                "Kinds": [
+                    "explosion"
+                ],
+                "Every": 0,
+                "Distance": 14,
+                "ShotDelay": 0.25
+            },
+            "Modes": [
+                "off",
+                "pathtrace+pl.soft=0",
+                "pathtrace",
+                "relight"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        },
+        {
+            "Name": "1-1 fire game",
+            "Scene": "Level 1-1",
+            "FreshLoad": true,
+            "Path": {
+                "Type": "spawn",
+                "Duration": 4
+            },
+            "Effects": {
+                "Kinds": [
+                    "fire"
+                ],
+                "Every": 0,
+                "Distance": 5,
+                "ShotDelay": 0.5
+            },
+            "Modes": [
+                "off"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        },
+        {
+            "Name": "1-1 fire hard",
+            "Scene": "Level 1-1",
+            "FreshLoad": true,
+            "Path": {
+                "Type": "spawn",
+                "Duration": 4
+            },
+            "Effects": {
+                "Kinds": [
+                    "fire"
+                ],
+                "Every": 0,
+                "Distance": 5,
+                "ShotDelay": 0.5
+            },
+            "Modes": [
+                "pathtrace+pl.soft=0"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        },
+        {
+            "Name": "1-1 fire soft",
+            "Scene": "Level 1-1",
+            "FreshLoad": true,
+            "Path": {
+                "Type": "spawn",
+                "Duration": 4
+            },
+            "Effects": {
+                "Kinds": [
+                    "fire"
+                ],
+                "Every": 0,
+                "Distance": 5,
+                "ShotDelay": 0.5
+            },
+            "Modes": [
+                "pathtrace"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        },
+        {
+            "Name": "0-5 lava",
+            "Scene": "Level 0-5",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/0-5-approach.json",
+                "Duration": 4
+            },
+            "Modes": [
+                "pathtrace+vfx.heatHaze=0",
+                "pathtrace",
+                "pathtrace+vfx.debugView=2"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        },
+        {
+            "Name": "0-1 metal blast",
+            "Scene": "Level 0-1",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/0-1-metal.json",
+                "Duration": 4
+            },
+            "Effects": {
+                "Kinds": [
+                    "explosion"
+                ],
+                "Every": 0,
+                "Distance": 12,
+                "ShotDelay": 0.15
+            },
+            "Modes": [
+                "off",
+                "pathtrace+vfx.shockwaves=0+pl.soft=0",
+                "pathtrace",
+                "pathtrace+vfx.debugView=2"
+            ],
+            "Screenshots": [
+                2.5
+            ]
+        }
+    ]
+}

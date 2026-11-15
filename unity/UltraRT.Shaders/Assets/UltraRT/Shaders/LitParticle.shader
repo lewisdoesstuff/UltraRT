@@ -7,11 +7,19 @@
 //             like the game's), PS1 vertex snapping (_VertexWarping)
 //          2  Sprites (ULTRAKILL/Sprites/Default, SplashSprite*): premultiplied tex x vertex colour x _Color x _RendererColor
 //          3  Mobile/Particles/Alpha Blended: tex x vertex colour
-//          4  ULTRAKILL/Master transparent: tex x _Color x vertex colour
+//          4  ULTRAKILL/Master transparent: tex x _Color x vertex colour, alpha x _Opacity; _PLScroll: the SCROLLING
+//             keyword (uv + _ScrollOffset + _ScrollSpeed x time: explosion spheres)
+//          5  ULTRAKILL/Additive and the legacy Particles/Additive: 2 x vertex colour x _TintColor x tex (fire sprites)
+//          6  Legacy Particles/Multiply (Double): lerp(0.5, 2 x tex x vertex colour, alpha), blended DstColor SrcColor
+//             (explosion and fire smoke)
+// Kinds 5 and 6, and kind 4 for glows, are swapped in unlit (_PLLit 0, no tone curve): they only get the soft fade.
 // The colour is then multiplied by the ray-traced lighting at the vertex, from the particle lighting volume
 // (ParticleLight.raytrace / .compute): lerp(1, lighting x exposure, _PLLit), tone mapped like relight's composite.
 // Without a volume this frame (_UltraRTPLCam.w = 0: other modes, other cameras' frames before the first trace) the lighting
 // is 1 and the result is the game's own look.
+// Soft particles (docs/vfx.md): blended kinds fade out over _UltraRTSoft.x metres in front of the opaque scene (the
+// game's depth as copied at the RT composite), so a puff of smoke no longer ends in a hard line where its quad cuts
+// into the floor. Only in the main camera's pass (_UltraRTSoft.y), never for depth-writing kinds.
 Shader "UltraRT/Particles/Lit"
 {
     Properties
@@ -35,6 +43,11 @@ Shader "UltraRT/Particles/Lit"
         _PLDstBlend ("Dst blend", Float) = 10
         _PLZWrite ("ZWrite", Float) = 0
         _PLCull ("Cull", Float) = 0
+        _PLScroll ("Master SCROLLING", Float) = 0
+        _TintColor ("Tint Color", Color) = (0.5,0.5,0.5,0.5)
+        _Opacity ("Opacity", Float) = 1
+        _ScrollSpeed ("Scroll speed", Vector) = (0,0,0,0)
+        _PLSrcOne ("Src blend is One", Float) = 0
     }
 
     SubShader
@@ -62,7 +75,10 @@ Shader "UltraRT/Particles/Lit"
             float4 _CameraFadeParams;
             float4 _RendererColor;
             float4 _Flip;
-            float _PLKind, _PLColorMode, _PLAlphaTest, _PLPremultiply, _PLFade, _PLFog, _PLVertexColor, _PLLit;
+            float _PLKind, _PLColorMode, _PLAlphaTest, _PLPremultiply, _PLFade, _PLFog, _PLVertexColor, _PLLit, _PLSrcOne, _PLScroll;
+            float4 _TintColor;
+            float _Opacity;
+            float4 _ScrollSpeed, _ScrollOffset; // Master SCROLLING (_ScrollOffset comes from the renderer's property block)
             float _VertexWarping, _VertexWarpScale; // psx vertex snapping (the game's own values, global or per material)
 
             // The particle lighting volume (Plugin.Particles.cs, globals).
@@ -79,6 +95,9 @@ Shader "UltraRT/Particles/Lit"
             float _UltraRTTonemapWhite;
             float4 _UltraRTPLAdditiveMax;  // additive smoke: x scale, y soft maximum of the lighting multiplier (0 = raw; ParticleLighting.cs)
             float4 _UltraRTTonemapParams;
+            Texture2D _UltraRTGameDepth;   // the game's opaque depth (raw), copied at the RT composite
+            float4 _UltraRTSoft;           // x 1 / fade distance (m), y 1 = valid for the camera rendering now
+            float _PLZWrite;
 
             struct appdata
             {
@@ -93,7 +112,7 @@ Shader "UltraRT/Particles/Lit"
                 float4 color : COLOR;
                 float2 uv : TEXCOORD0;
                 float3 light : TEXCOORD1;  // lighting multiplier (display, exposed); 1 = the game's look
-                float2 fogFade : TEXCOORD2; // x fog factor (1 = no fog), y camera fade
+                float3 fogFade : TEXCOORD2; // x fog factor (1 = no fog), y camera fade, z eye depth
             };
 
             float3 VolumeLighting(float3 wpos)
@@ -134,19 +153,21 @@ Shader "UltraRT/Particles/Lit"
                     o.pos.xyz = ndc * o.pos.w;
                 }
                 o.uv = TRANSFORM_TEX(v.uv.xy, _MainTex);
+                if (_PLScroll > 0.5) o.uv += _ScrollOffset.xy + _ScrollSpeed.xy * _Time.y;
                 float4 c = _PLVertexColor > 0.5 ? v.color : 1.0;
                 if (_PLKind > 1.5 && _PLKind < 2.5) c *= _Color * _RendererColor;
-                else if (_PLKind > 3.5) c *= _Color;
+                else if (_PLKind > 4.5 && _PLKind < 5.5) c *= 2.0 * _TintColor;
+                else if (_PLKind > 3.5 && _PLKind < 4.5) c *= _Color;
                 else if (_PLKind > 0.5 && _PLKind < 1.5) c.rgb *= _Color.rgb;
                 o.color = c;
                 o.light = VolumeLighting(wpos);
                 float dist = distance(wpos, _WorldSpaceCameraPos);
-                float fog = 1.0;
-                if (_PLFog > 0.5 && _UltraRTPLFogColor.w > 0.5)
-                    fog = saturate((_UltraRTPLFogParams.y - dist) / max(_UltraRTPLFogParams.y - _UltraRTPLFogParams.x, 1e-3));
                 float eye = -UnityObjectToViewPos(vertex.xyz).z;
+                float fog = 1.0;
+                if (_PLFog > 0.5 && _UltraRTPLFogColor.w > 0.5) // the legacy particle shaders fog by depth, the others by distance
+                    fog = saturate((_UltraRTPLFogParams.y - (_PLKind > 4.5 ? eye : dist)) / max(_UltraRTPLFogParams.y - _UltraRTPLFogParams.x, 1e-3));
                 float fade = _PLFade > 0.5 ? saturate((eye - _CameraFadeParams.x) * _CameraFadeParams.y) : 1.0;
-                o.fogFade = float2(fog, fade);
+                o.fogFade = float3(fog, fade, eye);
                 return o;
             }
 
@@ -193,6 +214,7 @@ Shader "UltraRT/Particles/Lit"
                     else c *= i.color;
                 }
                 else c = tex * i.color;
+                if (_PLKind > 3.5 && _PLKind < 4.5) c.a = saturate(c.a) * _Opacity;
 
                 if (_PLAlphaTest > 0.5)
                 {
@@ -206,9 +228,17 @@ Shader "UltraRT/Particles/Lit"
                     else clip(c.a - _Cutoff);
                 }
                 c.a *= i.fogFade.y;
+                float soft = 1.0;
+                if (_UltraRTSoft.y > 0.5 && _PLZWrite < 0.5)
+                {
+                    float sceneZ = LinearEyeDepth(_UltraRTGameDepth.Load(int3(i.pos.xy, 0)).r);
+                    soft = saturate((sceneZ - i.fogFade.z) * _UltraRTSoft.x);
+                    soft *= soft * (3.0 - 2.0 * soft);
+                }
+                c.a *= soft;
 
                 float3 light = i.light;
-                if (_PLKind > 3.5 && _PLFog > 1.5 && _UltraRTPLAdditiveMax.x > 0.0 && _UltraRTPLAdditiveMax.y > 0.0 && _UltraRTPLCam.w > 0.5)
+                if (_PLKind > 3.5 && _PLKind < 4.5 && _PLLit > 0.0 && _PLFog > 1.5 && _UltraRTPLAdditiveMax.x > 0.0 && _UltraRTPLAdditiveMax.y > 0.0 && _UltraRTPLCam.w > 0.5)
                 {
                     // ULTRAKILL/Master additive smoke (_PLKind 4) is in-scattered light. The game lights it with its flat ambient only, so the art at
                     // lighting 1 is much brighter than anything the game shows: scale it down, and let the brightest
@@ -218,11 +248,22 @@ Shader "UltraRT/Particles/Lit"
                     float s = _UltraRTPLAdditiveMax.x * m;
                     if (m > 1e-5) light *= (s / (1.0 + s / _UltraRTPLAdditiveMax.y)) / m;
                 }
+                if (_PLKind > 5.5)
+                {
+                    // Multiply (Double): 2 x src x dst, neutral at 0.5; fog and the soft fade both lead back to neutral.
+                    float k = c.a * i.fogFade.x;
+                    return float4(0.5 + k * (2.0 * c.rgb - 0.5), 1.0);
+                }
                 float3 lit = c.rgb * light;
-                if (_UltraRTPLCam.w > 0.5) lit = UltraRTToneCurve(lit, _UltraRTTonemapWhite, _UltraRTTonemapParams);
-                if (_PLFog > 1.5) lit *= i.fogFade.x;                                          // additive: fade out
+                if (_UltraRTPLCam.w > 0.5 && _PLLit > 0.0) lit = UltraRTToneCurve(lit, _UltraRTTonemapWhite, _UltraRTTonemapParams);
+                if (_PLFog > 1.5)                                                              // additive: fade out
+                {
+                    lit *= i.fogFade.x;
+                    if (_PLKind > 3.5 && _PLKind < 4.5 && _PLLit <= 0.0) c.a *= i.fogFade.x;   // Master fades the alpha as well
+                }
                 else if (_PLFog > 0.5) lit = lerp(_UltraRTPLFogColor.rgb, lit, i.fogFade.x);    // blended: fog colour
                 if (_PLPremultiply > 0.5) lit *= c.a;
+                else if (_PLSrcOne > 0.5) lit *= soft; // Blend One X without premultiplied alpha: the colour carries the fade
                 return float4(lit, c.a);
             }
             ENDCG

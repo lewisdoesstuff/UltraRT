@@ -30,6 +30,7 @@ namespace UltraRT
             var harmony = new Harmony(id);
             harmony.PatchAll(typeof(Patches).Assembly);
             PatchPortalClones(harmony);
+            BloodWet.Patch(harmony); // wet blood: the birth time of every stain (BloodWet.cs)
             // Instantiate<T>(T) is generic and goes straight to native code (gibs, fire pools, BulkInstantiate use it).
             // Mono shares one body for every reference-type T, so patching one instantiation covers them all. Optional:
             // without it the periodic rescan still finds those objects.

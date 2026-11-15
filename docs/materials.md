@@ -276,6 +276,9 @@ kept).
   is smooth anyway.
 
 ## 7. Rain on surfaces (2026-11-14 pm, branch `lights-pm`)
+(Since 2026-11-15 rained-on surfaces are also wet: darker, glossier, with puddles and ripple normals from the same
+raindrop rings. See [vfx.md](vfx.md), "Rain".)
+
 User report: in P-2 the raindrops on the floor vanish with RT on. They are not particles: the game turns on the `RAIN`
 keyword on outdoor materials at runtime (`StaticSceneOptimizer.UpdateRain` on the outdoor batch material, shader
 `ULTRAKILL-Stationary`; `StencilValuesByLayer` on reusable `ULTRAKILL/Master` materials), and both shaders then change the

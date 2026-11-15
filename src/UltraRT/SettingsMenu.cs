@@ -164,13 +164,32 @@ namespace UltraRT
             m.Bool("Effects", "EffectReflections", "Fire and explosions in reflections", () => _fxgSettings.enabled, v => _fxgSettings.enabled = v, "-ultrart-noeffectgeometry");
             m.Bool("Effects", "Lava", "Ray-traced lava and acid", () => LavaCfg.active, v => LavaCfg.active = v, "-ultrart-nolava");
 
+            // Screen-space effects (docs/vfx.md)
+            m.Group = "Screen effects";
+            m.Bool("ScreenEffects", "Enabled", "Screen effects  [Ctrl+F2]", () => _vfxSettings.enabled, v => _vfxSettings.enabled = v, "-ultrart-vfx");
+            m.Bool("ScreenEffects", "Bloom", "Bloom  [Shift+F2]", () => _vfxSettings.bloom, v => _vfxSettings.bloom = v, "-ultrart-bloom");
+            m.Float("ScreenEffects", "BloomStrength", "Bloom strength", 0f, 2f, 2, () => _vfxSettings.bloomStrength, v => _vfxSettings.bloomStrength = v, "-ultrart-bloom-strength");
+            m.Bool("ScreenEffects", "SoftParticles", "Soft particles", () => _particleSettings.soft, v => _particleSettings.soft = v, "-ultrart-particles-soft");
+            m.Bool("ScreenEffects", "HeatHaze", "Heat haze over lava and fire", () => _vfxSettings.heatHaze, v => _vfxSettings.heatHaze = v, "-ultrart-heathaze");
+            m.Float("ScreenEffects", "HeatHazeStrength", "Heat haze strength", 0f, 3f, 2, () => _vfxSettings.heatAmplitude / VfxSettings.HeatAmplitudeDefault, v => _vfxSettings.heatAmplitude = v * VfxSettings.HeatAmplitudeDefault, "-ultrart-heathaze-strength");
+            m.Bool("ScreenEffects", "Shockwaves", "Explosion shockwaves", () => _vfxSettings.shockwaves, v => _vfxSettings.shockwaves = v, "-ultrart-shockwaves");
+            m.Float("ScreenEffects", "ShockwaveStrength", "Shockwave strength", 0f, 3f, 2, () => _vfxSettings.shockAmplitude / VfxSettings.ShockAmplitudeDefault, v => _vfxSettings.shockAmplitude = v * VfxSettings.ShockAmplitudeDefault, "-ultrart-shockwave-strength");
+            m.Bool("ScreenEffects", "DebrisGlow", "Glowing explosion debris", () => _vfxSettings.debrisGlow, v => _vfxSettings.debrisGlow = v, "-ultrart-debris-glow");
+            m.Bool("ScreenEffects", "Underwater", "Underwater shafts, fog and distortion", () => _vfxSettings.underwater, v => _vfxSettings.underwater = v, "-ultrart-underwater");
+
+            m.Bool("Wet", "Rain", "Rain wetness and puddles", () => _wetSettings.rain, v => _wetSettings.rain = v, "-ultrart-wet-rain");
+            m.Float("Wet", "RainWetness", "Rain wetness", 0f, 1f, 2, () => _wetSettings.rainWetness, v => _wetSettings.rainWetness = v, "-ultrart-wet-rain-strength");
+            m.Bool("Wet", "Blood", "Wet blood (fresh stains are glossy)", () => _wetSettings.blood, v => _wetSettings.blood = v, "-ultrart-wet-blood");
+            m.Float("Wet", "BloodDryTime", "Blood drying time (s)", 5f, 180f, 0, () => _wetSettings.bloodDryTime, v => _wetSettings.bloodDryTime = v, "-ultrart-wet-blood-dry");
+            m.Float("Wet", "Puddles", "Puddles", 0f, 1f, 2, () => _wetSettings.puddles, v => _wetSettings.puddles = v, "-ultrart-wet-puddles");
+
             m.Action("Reload shaders  [F9]", ReloadShaders);
             m.Keybinds = new[]
             {
                 "Page Up / Page Down|previous / next view mode", "F7|ray tracing on / off", "F2|temporal upsampler",
                 "F3|radiance cache mode (Shift: debug view)", "Ctrl+F3|denoiser preset", "F4|reflections", "Ctrl+F4|auto exposure",
                 "F5|glowing surfaces as lights", "Ctrl+F5|sky light and linear transport", "F6|light sampling", "Ctrl+F6|volumetrics",
-                "Ctrl+F1|surface detail maps", "Ctrl+F8|DLSS Ray Reconstruction (relight)", "F9|reload shaders", "F10|record", "F11|save pose",
+                "Ctrl+F1|surface detail maps", "Ctrl+F2|screen effects (bloom, heat haze, shockwaves, underwater)", "Shift+F2|bloom", "Ctrl+F8|DLSS Ray Reconstruction (relight)", "F9|reload shaders", "F10|record", "F11|save pose",
             };
             m.Capture();
         }

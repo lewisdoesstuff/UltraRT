@@ -1,0 +1,29 @@
+{
+    "Name": "vfx-a",
+    "Scenarios": [
+        { "Name": "warm-up", "Scene": "Level 0-5",
+          "Path": { "Type": "spawn", "Duration": 8 },
+          "Modes": ["off", "pathtrace"], "Segment": 2 },
+        { "Name": "0-5 lava", "Scene": "Level 0-5",
+          "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 5 },
+          "Modes": ["off", "pathtrace+vfx.enabled=0", "pathtrace", "relight", "pathtrace+vfx.debugView=1", "pathtrace+vfx.debugView=2"], "Screenshots": [3] },
+        { "Name": "0-5 lava blast", "Scene": "Level 0-5",
+          "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 5 },
+          "Effects": { "Kinds": ["explosion"], "Every": 0, "Distance": 14, "ShotDelay": 0.2 },
+          "Modes": ["off", "pathtrace+vfx.enabled=0", "pathtrace", "relight", "pathtrace+vfx.debugView=2"], "Screenshots": [3] },
+        { "Name": "0-1 metal blast", "Scene": "Level 0-1",
+          "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 5 },
+          "Effects": { "Kinds": ["explosion", "revolver"], "Every": 0, "Distance": 12, "ShotDelay": 0.1 },
+          "Modes": ["off", "pathtrace+vfx.enabled=0", "pathtrace", "relight", "pathtrace+vfx.debugView=1"], "Screenshots": [3] },
+        { "Name": "1-1 start", "Scene": "Level 1-1",
+          "Path": { "Type": "spawn", "Duration": 4 },
+          "Modes": ["off", "pathtrace+vfx.enabled=0", "pathtrace", "relight", "pathtrace+vfx.debugView=1"], "Screenshots": [2] },
+        { "Name": "6-2 start", "Scene": "Level 6-2",
+          "Path": { "Type": "static", "Approach": "../recordings/6-2-start.json", "Duration": 4 },
+          "Modes": ["off", "pathtrace+vfx.enabled=0", "pathtrace", "relight", "pathtrace+vfx.debugView=1"], "Screenshots": [2] },
+        { "Name": "7-1 underwater", "Scene": "Level 7-1",
+          "Path": { "Type": "static", "Position": [80, 18, 520], "Yaw": 0, "Pitch": -20, "Duration": 6, "Load": "none" },
+          "Enemies": "blind",
+          "Modes": ["off", "pathtrace+vfx.enabled=0", "pathtrace", "relight"], "Screenshots": [3] }
+    ]
+}

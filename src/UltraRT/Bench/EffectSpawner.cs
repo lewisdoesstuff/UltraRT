@@ -107,6 +107,34 @@ namespace UltraRT.Bench
                     foreach (var ps in go.GetComponentsInChildren<ParticleSystem>(true)) { ps.Clear(true); ps.Play(true); }
                     break;
                 }
+                case "bloodstain":
+                {
+                    // Blood stains straight into the game's stain buffer (as a splatter's drops do when they land), on
+                    // the floor and the walls ahead: for the wet-blood look (docs/vfx.md), which needs fresh stains.
+                    // (Never GoreZone.ResolveGoreZone on the camera: it reparents what it is given.)
+                    GoreZone any = null;
+                    foreach (var g in UnityEngine.Object.FindObjectsOfType<GoreZone>()) if (g != null && g.stains != null) { any = g; break; }
+                    if (any == null)
+                    {
+                        // As the game does for gore with no zone (GoreZone.ResolveGoreZone): a zone of its own.
+                        any = new GameObject("UltraRT bench gore zone").AddComponent<GoreZone>();
+                        if (any.stains == null) any.stains = any.gameObject.AddComponent<BloodstainParent>();
+                    }
+                    int made = 0, hits = 0;
+                    for (int k = 0; k < 9; k++)
+                    {
+                        var dir = Quaternion.AngleAxis((k % 3 - 1) * 14f, cam.up) * Quaternion.AngleAxis(8f + (k / 3) * 12f, cam.right) * cam.forward;
+                        if (!Physics.Raycast(cam.position, dir, out var hit, 40f, ~((1 << 2) | (1 << 12) | (1 << 13)), QueryTriggerInteraction.Ignore)) continue;
+                        hits++;
+                        var gz = hit.collider != null ? hit.collider.GetComponentInParent<GoreZone>() : null;
+                        if (gz == null || gz.stains == null) gz = any;
+                        if (gz == null) continue;
+                        gz.stains.CreateChild(hit.point, hit.normal, true, false);
+                        made++;
+                    }
+                    if (made == 0) throw new InvalidOperationException($"no stain made ({hits} surfaces hit, gore zone {(any != null ? any.name : "none")})");
+                    break;
+                }
                 case "dust":
                 {
                     // The landing dust puff (NewMovement.impactDust), on the floor ahead.

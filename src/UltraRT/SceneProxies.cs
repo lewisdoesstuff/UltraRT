@@ -1028,6 +1028,9 @@ namespace UltraRT
 
         public int RejectedTextures { get; private set; }
 
+        /// <summary>The proxy material made for a source material, or null if none was made (yet).</summary>
+        public Material ProxyMaterialOf(Material src) => src != null && _materialCache.TryGetValue(src, out var m) ? m : null;
+
         private Material Proxy(Material src)
         {
             if (src == null) return _disabledMaterial;

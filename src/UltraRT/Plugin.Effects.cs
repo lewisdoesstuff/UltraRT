@@ -54,14 +54,15 @@ namespace UltraRT
             if (!_effectArgsParsed) ParseEffectArgs();
             if (_effectLights == null)
             {
-                _effectLights = new EffectLights(Logger) { Settings = _effectSettings };
+                _effectLights = new EffectLights(Logger) { Settings = _effectSettings, Spawned = VfxOnSpawn };
                 _effectGeometry = new EffectGeometry(Logger) { Settings = _fxgSettings };
                 _effectGeometry.SetShader(_effectProxyShader);
                 _effectLights.GlowSink = _effectGeometry.Track;
                 if (_lightSampling != null) _lightSampling.VirtualIds = _lightIds;
             }
             if (_effectSurveyEnabled && _effectSurvey == null) _effectSurvey = new EffectSurvey(Logger);
-            EffectSpawns.Enabled = _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker || _effectSurvey != null;
+            EffectSpawns.Enabled = _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker || _effectSurvey != null ||
+                                   (_vfx != null && _vfxSettings.enabled && (_vfxSettings.shockwaves || _vfxSettings.debrisGlow));
             // Without a traced frame (view off, menus) nothing updates the effect instances: tell the shaders there are none.
             if (!_viewEnabled && _effectGeometry != null && _effectGeometry.Active > 0) _effectGeometry.Update(null, null);
             _effectLights.ProcessSpawns(_effectSurvey);

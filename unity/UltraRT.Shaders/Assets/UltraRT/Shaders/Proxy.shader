@@ -66,6 +66,9 @@ Shader "UltraRT/Proxy"
         _DetailTex ("Detail (normal xy, roughness, valid)", 2D) = "black" {}
         _DetailParams ("Detail params", Vector) = (0,0,0,0)
         // The game's RAIN keyword (SceneProxies.Rain.cs, docs/materials.md "Rain"): mirrored from the source material.
+        // Explosion debris (docs/vfx.md, "Glowing debris"): the proxy material of the game's ExplosionChunk; it emits the
+        // global _UltraRTDebrisGlow, which cools after each explosion (Plugin.Vfx.cs).
+        _HotDebris ("Hot debris", Float) = 0
         _Rain ("Rain", Float) = 0
         _RainDrops ("Rain drops", 2D) = "black" {}
         _RainTrails ("Rain trails", 2D) = "black" {}
@@ -143,6 +146,8 @@ Shader "UltraRT/Proxy"
 
             Texture2D _RainDrops, _RainTrails;
             float4 _RainDarkening, _RainColor;
+            float _HotDebris;
+            float4 _UltraRTDebrisGlow; // global: rgb the glow of fresh explosion debris right now
             float _Rain, _RainSpeed, _RaindropsIntensity, _RainScale, _WarpDetail, _LocalOffsetRain, _RainCeilingToggle;
             float _UltraRTRainTime; // global: Time.timeSinceLevelLoad, the game shaders' _Time.y
 
@@ -150,6 +155,68 @@ Shader "UltraRT/Proxy"
             // albedo change before lighting. Dominant-axis planar projection of the world position (tile 16 / _RainScale
             // m); up- or down-facing surfaces get expanding raindrop rings (none on ceilings with _RainCeilingToggle 1),
             // walls get running streaks. albedo * _RainDarkening + amount * _RainColor.
+            // Rain wetness (docs/vfx.md, "Rain"): global, x wetness of a rained-on surface (0 = off), y puddle amount,
+            // z puddle noise frequency (1/m), w ripple strength.
+            float4 _UltraRTWet;
+
+            float WetHash(float2 p)
+            {
+                p = frac(p * float2(0.1031, 0.1030));
+                p += dot(p, p.yx + 33.33);
+                return frac((p.x + p.y) * p.x);
+            }
+
+            // Smooth value noise in [0, 1], two octaves: where water collects on a floor.
+            float WetNoise(float2 p)
+            {
+                float s = 0.0, a = 0.65;
+                for (int o = 0; o < 2; o++)
+                {
+                    float2 i = floor(p), f = frac(p);
+                    f = f * f * (3.0 - 2.0 * f);
+                    s += a * lerp(lerp(WetHash(i), WetHash(i + float2(1, 0)), f.x), lerp(WetHash(i + float2(0, 1)), WetHash(i + float2(1, 1)), f.x), f.y);
+                    p = p * 2.7 + 17.3;
+                    a = 0.35;
+                }
+                return s;
+            }
+
+            // The game's raindrop ring at a _RainDrops sample (RainAlbedo below), signed: the ring's height profile.
+            float RainRing(float4 d)
+            {
+                float y = d.r * 31.45 + _UltraRTRainTime * _RainSpeed * 1.5;
+                float f = frac(y);
+                float alt = floor(frac(y * 0.5) * 2.0);
+                return alt * d.g * (1.0 - f) * sin(1.5 * clamp(9.0 * (d.g + f - 1.0), 0.0, 3.0));
+            }
+
+            // Wetness of a rained-on hit: wet 0..1 (darker, glossier), puddle 0..1 (standing water on floors: mirror-like,
+            // flat), slope = the puddle surface's tilt from the raindrop rings (world x, z), primary rays only.
+            void RainWetness(float3 P, float3 N, bool ripples, out float wet, out float puddle, out float2 slope)
+            {
+                wet = 0.0; puddle = 0.0; slope = 0.0;
+                if (_UltraRTWet.x <= 0.0) return;
+                // Ceilings and undersides stay dry when the game keeps its drops off them; walls are wet from the streaks.
+                float up = saturate(N.y);
+                float under = N.y < -0.2 && abs(_RainCeilingToggle - 1.0) < 1e-3 ? 0.0 : 1.0;
+                wet = _UltraRTWet.x * lerp(0.6, 1.0, up) * under;
+                if (up < 0.9 || _UltraRTWet.y <= 0.0) return;
+                float n = WetNoise(P.xz * _UltraRTWet.z);
+                float lo = 1.0 - _UltraRTWet.y * 0.75;
+                puddle = smoothstep(lo, lo + 0.12, n) * saturate((up - 0.9) * 20.0);
+                if (!ripples || _UltraRTWet.w <= 0.0) return;
+                float3 p = P;
+                if (_LocalOffsetRain != 0.0) { float3x4 o = ObjectToWorld3x4(); p -= float3(o[0][3], o[1][3], o[2][3]); }
+                float2 uv = p.xz * (_RainScale * 0.0625);
+                uint tw, th;
+                _RainDrops.GetDimensions(tw, th);
+                float2 e = 1.0 / float2(max(tw, 1u), max(th, 1u));
+                float h0 = RainRing(_RainDrops.SampleLevel(my_linear_repeat_sampler, uv, 0));
+                float hx = RainRing(_RainDrops.SampleLevel(my_linear_repeat_sampler, uv + float2(e.x, 0.0), 0));
+                float hz = RainRing(_RainDrops.SampleLevel(my_linear_repeat_sampler, uv + float2(0.0, e.y), 0));
+                slope = float2(hx - h0, hz - h0) * (_UltraRTWet.w * 1.5) * lerp(0.35, 1.0, puddle);
+            }
+
             float3 RainAlbedo(float3 albedo, float3 P, float3 N)
             {
                 float3 p = P;
@@ -405,7 +472,19 @@ Shader "UltraRT/Proxy"
                 float litWeight, blendWeight;
                 float2 texUV;
                 float4 albedo = SampleAlbedo(tri, b, uv, litWeight, blendWeight, texUV);
-                if (_Rain > 0.5) albedo.rgb = RainAlbedo(albedo.rgb, WorldRayOrigin() + WorldRayDirection() * RayTCurrent(), nGame);
+                float wet = 0.0, puddle = 0.0;
+                float2 wetSlope = 0.0;
+                if (_Rain > 0.5)
+                {
+                    float3 hitP = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+                    albedo.rgb = RainAlbedo(albedo.rgb, hitP, nGame);
+                    if (litWeight > 0.5)
+                    {
+                        RainWetness(hitP, nGame, wantDetail, wet, puddle, wetSlope);
+                        // A wet surface is darker (water fills the pores); standing water darker still.
+                        albedo.rgb *= 1.0 - 0.18 * wet - 0.15 * puddle;
+                    }
+                }
 
                 // Per-texel detail: perturbed shading normal and roughness. Primary rays also return the vertex normal
                 // (packed in `primitive`) for the hybrid shadow ratio's denominator (the game lights with it).
@@ -417,6 +496,12 @@ Shader "UltraRT/Proxy"
                     float2 xy = (detail.rg * 2.0 - 1.0) * (_DetailParams.x * _UltraRTDetail.y);
                     n = DetailNormal(u0, u1, u2, p0, p1, p2, n, xy);
                     flags |= ULTRART_FLAG_DETAIL;
+                }
+                if (puddle > 0.0 || any(wetSlope != 0.0))
+                {
+                    // Standing water is flat (the surface detail drowns), and tilts with the raindrop rings.
+                    float3 nw = normalize(nVertex + float3(-wetSlope.x, 0.0, -wetSlope.y));
+                    n = normalize(lerp(n, nw, saturate(puddle + (any(wetSlope != 0.0) ? 0.5 : 0.0))));
                 }
 
                 float3 emission = 0;
@@ -431,6 +516,8 @@ Shader "UltraRT/Proxy"
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                     if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
                 }
+                // Fresh explosion debris glows and cools; the texture's light and dark texels stay readable.
+                if (_HotDebris > 0.5) emission += _UltraRTDebrisGlow.rgb * (0.4 + 1.2 * dot(albedo.rgb, float3(0.2126, 0.7152, 0.0722)));
                 // Pattern cubes (_GameCubeLit): the game's cube term C on top of the surface, game = lit k + C with C lit by
                 // lerp(1, lighting, _LightingContribution) -> albedo k + C lc (lit by RT) and C (1 - lc) as emission.
                 if (_GameCubeLit > 0.5 && _GameRefl.x > 0.5 && !wantGameCube)
@@ -466,8 +553,28 @@ Shader "UltraRT/Proxy"
                 // Per-texel roughness around the class value (glossy classes only; REFLECTION keeps the game's strength).
                 if (hasDetail && mode == ULTRART_REFL_SPECULAR)
                     rough = saturate(rough + (detail.b * 2.0 - 1.0) * (_DetailParams.y * _UltraRTDetail.z));
-                p.material = second ? PackMaterialWord(rough, _Metalness2, _F02, specWeight)
-                                    : PackMaterialWord(rough, _Metalness, _F0, specWeight);
+                float metal = second ? _Metalness2 : _Metalness;
+                float f0 = second ? _F02 : _F0;
+                if (wet > 0.0 && mode != ULTRART_REFL_BLEND && mode != ULTRART_REFL_ADD)
+                {
+                    // A film of water: a smooth dielectric coat over whatever is underneath. Matte classes become
+                    // (weakly) reflective, glossy ones get smoother; a puddle is a near mirror at grazing angles.
+                    if (mode == ULTRART_REFL_NONE)
+                    {
+                        mode = ULTRART_REFL_SPECULAR;
+                        specWeight = 0.0;
+                        rough = 1.0;
+                        metal = 0.0;
+                    }
+                    // Metals keep their own weight (their reflection already replaces the diffuse colour: a higher weight
+                    // turned a wet metal floor black under a dark sky) and most of their roughness.
+                    float nonMetal = 1.0 - metal;
+                    float film = saturate(wet + puddle) * lerp(0.35, 1.0, nonMetal);
+                    rough = lerp(rough, min(rough, lerp(0.3, 0.03, puddle)), film);
+                    specWeight = max(specWeight, lerp(0.5 * wet, 1.0, puddle) * nonMetal);
+                    f0 = max(f0, 0.04);
+                }
+                p.material = PackMaterialWord(rough, metal, f0, specWeight);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls)
                         | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT);
