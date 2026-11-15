@@ -315,3 +315,63 @@ another agent's, seconds after your release): copy it before `game-lock.ps1 rele
 (the user's late playtest poses for 0-2 blood stains, 6-1 coffins, 3-2 eye and walls, 0-E ice, the museum fountain) and
 `materials-late-check.json` (those plus water-glass, 8-2 pool, 0-2 blood river, 0-5 lava) go with docs/reflections.md
 "Late playtest fixes".
+
+## Scrolling textures (SCROLLING)
+
+User report 2026-11-15 (5-2, pose 1): "with RT off the water shows a rushing current, with RT on it looks more like
+gentle waves". 5-2's sea is not water to us: it is two opaque `Sea/Sea Itself/Filler/Plane` renderers with `Corpses` /
+`CorpsesAlt (Instance)` (Master, `SCROLLING VERTEX_DISPLACEMENT VERTEX_LIGHTING RAIN`, texture `styxture3`), traced as
+geometry with displaced copies. The current is the texture: a `ScrollingTexture` component on each renderer adds
+`speed x Time.deltaTime` (here (1.25, 0.5) uv/s) to an offset every frame and writes it to the renderer's property block as
+`_ScrollOffset`; its `Start` instances the materials and enables `SCROLLING` on them (decompiled `ScrollingTexture`). The
+Master shader samples at `uv * _MainTex_ST + _ScrollOffset + _ScrollSpeed * _Time.y`. Proxy materials copied `_MainTex_ST`
+only, and relight / pathtrace replace the game's opaque pixel with RT albedo x lighting, so the texture stood still and
+only the vertex displacement moved.
+
+Now (`src/UltraRT/SceneProxies.Scroll.cs`, `Proxy.shader`):
+- **Scroll.** A proxy of a `SCROLLING` material gets `_Scrolling`, `_ScrollSpeed` and `_ScrollOffset`; the hit shader adds
+  `_ScrollOffset + _ScrollSpeed * t` (t = `_UltraRTRainTime`, the game's `_Time.y`) to the main texture's uv (non-atlas
+  materials). The property-block sync (`SceneProxies.Sync.cs`) follows `_ScrollOffset` like `_Color`: the renderer is
+  "hot", its own proxy material copy gets the offset every frame. Logged every 600 frames as
+  `Scrolling textures: N active ScrollingTexture renderers: 'Plane' speed (1.25, 0.5) offset game (33.806, 13.522) rt
+  (33.797, 13.519) ...` (game vs proxy, at most a frame apart) and at the build as `Scrolling textures: N traced SCROLLING
+  materials`.
+- **Texture motion.** The temporal filters reproject along geometry motion, which is zero on a scrolling surface, so the
+  moving texture smeared (relight burst on the 5-2 pose, masked sigma 2.48 against 0.37 with the texture frozen). The hit
+  shader now adds the texture's own motion to `p.motion` (`ScrollMotion`): the world-space tangent frame of the triangle's
+  texture uv (dP/du, dP/dv, as for the detail normals) times `_ScrollVelocity x dt` (`ScrollingTexture` speed +
+  `_ScrollSpeed`, `_UltraRTFrameDt` = `Time.deltaTime`, the game's own step). TAAU, RR and the denoiser follow the flowing
+  texture; lighting on such surfaces is smooth, so following the texture costs nothing visible. Same burst: 0.36.
+- **Switches.** `-ultrart-notexscroll` / bench `plugin._texScroll=0` (frozen, as before), `-ultrart-notexscroll-motion` /
+  `plugin._texScrollMotion=0` (scroll without texture motion vectors).
+- **Seen in game.** 5-2: the two sea planes. 1-1: the fountain's `Limbo Water 2` cylinders scroll (0, 1) / (0, 0.5) but
+  are transparent water (overlay, not proxies: unaffected). 0-5: `Lava Opaque` has `SCROLLING` with speed 0 and no
+  `ScrollingTexture` (unchanged); the lava pieces with `ScrollingTexture` are LavaProxy proxies, which already scrolled
+  (docs/lava.md). Museum fountain, 0-5 lava: same image as before at the regression poses (`mgw-diag4`).
+- **Cost** (`bench/suites/mgw-perf.json`, `-Perf`, exclusive slots, 2560x1440, modes alternating every 0.5 s; the sea fills
+  half the screen): GPU total relight 3.761 against 3.730 ms with `plugin._texScroll=0` (+0.03), pathtrace 4.344 against
+  4.339 ms; frame times within noise (9.09 / 9.19 ms relight).
+- **Not done.** The transparent water overlay's procedural ripples (docs/reflections.md, "Water and glass") don't follow a
+  `ScrollingTexture` flow; atlas (StaticSceneOptimizer) materials never scroll in the game.
+
+## Cutout audit
+
+`Cutout audit: dynamic N cutout submeshes (A active; lost material X, opaque flag Y), static ...` (after the scene build
+and every 600 frames, `SceneProxies.Cutout.cs`): every traced alpha-tested submesh needs an `_AlphaTest` proxy material and
+an instance flag without `ClosestHitOnly`, or its any-hit never runs and the card is a solid quad. The first audit of a
+scene also logs `Foliage materials:` (grass/bush/leaf/flower material names: shader, queue, RenderType tag, keywords,
+alpha/blend/cull properties, whether we treat them as alpha tested). 1-1 (2026-11-15): `GrassSprite1-4 1` (Master
+`ALPHA_TEST`, queue 2450, TransparentCutout) on `1 - First Field/1 Nonstuff/Grass` are dynamic proxies, all with material
+and flag intact at every audit; `Bush` (Master, queue 2000, Opaque, no alpha test) is opaque in the game too.
+
+**1-1 grass report (2026-11-15, not reproduced).** The user's screenshot (pathtrace, standing in the grass by the fountain)
+showed grass cards as solid yellow-green quads with hard triangular shadows. Tried on master 86fbb58 + this branch, all
+with correct cutouts and blade shadows: the old `1-1 grass` pose and the user's pose (relight, pathtrace, albedo; vertex
+displacement on and `plugin._displaceRange=-1`), a 360 degree sweep inside the grass, a 7-stop walk through the grass
+beside the fountain with the camera among the cards (`bench/suites/mgw-grass.json`, `recordings/1-1-grass-wander.json`;
+pathtrace at the user's normal strength x2, albedo, `-ultrart-viewprobe`), and the cutout audit at every 600 frames (no
+cutout submesh ever lost its material or flag). Ruled out by inventory: vertex displacement (1-1 has no
+`VERTEX_DISPLACEMENT` renderer), the static groups (the grass sprites are dynamic proxies), material swaps (5 in the whole
+approach, none on grass). The audit shows 112 of 184 cutout submeshes' sources destroyed during the approach (the game
+replaces those objects), which is the one state change found. A bisect needs a reproduction: an F11 pose saved where it
+happens, with the mode in use, is the next step.
