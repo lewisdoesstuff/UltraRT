@@ -665,6 +665,12 @@ RWTexture2D<float4> _Output;
 RWTexture2D<float4> _BloomOut;
 float4 _BloomParams; // x weight of the compressed energy, y weight of bright emission, z/w emission threshold (lo, hi; brightest channel)
 float  _BloomOn;
+// Remodulation (docs/path-tracing.md, "UltraRT's denoiser at 1/3 scale"): the composite before the tone curve, divided by
+// what the surface shows under white light (RayReconstruction.compute's Demod), so the temporal upsampler accumulates
+// lighting only and the texels are put back at screen resolution. A 1x1 dummy when off.
+Texture2D<float4>   _RemodDemod;
+RWTexture2D<float4> _RemodOut;
+float  _RemodOn;
 
 float4 _OutDim;    // output w, h
 int    _DebugView; // see DenoiserDebugView
@@ -761,6 +767,7 @@ void Composite(uint3 id : SV_DispatchThreadID)
     if (_DebugView == 0)
     {
         float3 hdr = max(c, 0.0);
+        if (_RemodOn > 0.5) _RemodOut[id.xy] = float4(min(hdr / max(_RemodDemod[s].rgb, 1.0 / 255.0), 65000.0), 1.0);
         c = UltraRTToneMap(c);
         if (_BloomOn > 0.5)
         {

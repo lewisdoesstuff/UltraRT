@@ -842,6 +842,16 @@ namespace UltraRT
                     GameControl.HideCheatPanels();
                     yield return null;
                 }
+                // DLSS RR: each mode that uses it gets its feature now (NGX's start-up and the feature's creation run in the
+                // background; their frames run UltraRT's denoiser and would otherwise be measured as the mode's, or, before
+                // the warm-up, a stalled first frame could swallow the whole scenario).
+                foreach (var m in sc.Modes)
+                {
+                    if (m == "off" || !(m.StartsWith(PathTraceModeName) || m.Contains("_rrEnabled=1"))) continue;
+                    ApplyBenchMode(m);
+                    GameControl.SetPose(path.Start);
+                    yield return WaitForRR();
+                }
                 ApplyBenchMode("off");
             }
 
@@ -912,6 +922,7 @@ namespace UltraRT
                         foreach (var m in sc.Modes)
                         {
                             ApplyBenchMode(m);
+                            yield return WaitForRR();
                             for (int f = 0; f < 12; f++) { GameControl.HideCheatPanels(); yield return null; }
                             if (sc.ShotSettle > 0f)
                             {
@@ -988,7 +999,9 @@ namespace UltraRT
                     float allocKb = gcd == 0 ? Math.Max(0, heapNow - heap) / 1024f : 0f;
                     gc0 = gcNow;
                     heap = heapNow;
-                    bool counted = ++sinceSwitch > sc.SwitchSkipFrames;
+                    // Not counted either: frames while DLSS RR warms up (NGX's start-up or a feature being created in the
+                    // background: those frames run UltraRT's denoiser instead), so they can't fill a mode's measurement.
+                    bool counted = ++sinceSwitch > sc.SwitchSkipFrames && !RRWarmingNow;
                     csv.Append(pathT.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)).Append(',').Append(current).Append(counted ? "" : "*").Append(',')
                         .Append(F(dt * 1000f)).Append(',').Append(F(scriptsMs)).Append(',').Append(F(renderMs)).Append(',').Append(gcd).Append(',').Append(F(allocKb));
                     for (int k = 0; k < nSec; k++) csv.Append(',').Append(F(secMs[k]));

@@ -118,6 +118,12 @@ namespace UltraRT
                 v => v.ToString(),
                 v => v == PathTraceScale.UltraPerformance ? "Ultra performance (1/3)" : v == PathTraceScale.Performance ? "Performance (1/2)" : "Balanced (0.67x)",
                 "-ultrart-pt-scale");
+            m.Choice("PathTrace", "Scale", "Render resolution with UltraRT's denoiser",
+                () => _ptSettings.scale < 0.42f ? PathTraceScale.UltraPerformance : _ptSettings.scale < 0.585f ? PathTraceScale.Performance : PathTraceScale.Balanced,
+                v => { _ptSettings.scale = v == PathTraceScale.UltraPerformance ? 1f / 3f : v == PathTraceScale.Performance ? 0.5f : 0.67f; _denoiser?.Reset(); _lightSampling?.Reset(); },
+                v => v.ToString(),
+                v => v == PathTraceScale.UltraPerformance ? "1/3 (with exact texels)" : v == PathTraceScale.Performance ? "1/2" : "0.67x");
+            m.Bool("PathTrace", "Remodulate", "UltraRT's denoiser: exact texels (remodulation)", () => _ptSettings.remodulate, v => _ptSettings.remodulate = v);
             m.Float("PathTrace", "Paths", "Paths per pixel", 1f, 4f, 0, () => _ptSettings.paths, v => _ptSettings.paths = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4), "-ultrart-pt-paths");
             m.Float("PathTrace", "Bounces", "Bounces per path", 1f, 4f, 0, () => _ptSettings.bounces, v => _ptSettings.bounces = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4), "-ultrart-pt-bounces");
             m.Float("PathTrace", "DirectSamples", "Light samples per pixel (DLSS RR)", 1f, 4f, 0, () => _ptSettings.directSamplesRR, v => _ptSettings.directSamplesRR = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4));
@@ -183,6 +189,7 @@ namespace UltraRT
             m.Float("Wet", "RainWetness", "Rain wetness", 0f, 1f, 2, () => _wetSettings.rainWetness, v => _wetSettings.rainWetness = v, "-ultrart-wet-rain-strength");
             m.Bool("Wet", "Blood", "Wet blood (fresh stains are glossy)", () => _wetSettings.blood, v => _wetSettings.blood = v, "-ultrart-wet-blood");
             m.Float("Wet", "BloodDryTime", "Blood drying time (s)", 5f, 180f, 0, () => _wetSettings.bloodDryTime, v => _wetSettings.bloodDryTime = v, "-ultrart-wet-blood-dry");
+            m.Bool("Wet", "StainReflections", "Blood stains in reflections", () => _wetSettings.stainReflections, v => _wetSettings.stainReflections = v, "-ultrart-stain-reflections");
             m.Float("Wet", "Puddles", "Puddles", 0f, 1f, 2, () => _wetSettings.puddles, v => _wetSettings.puddles = v, "-ultrart-wet-puddles");
 
             m.Action("Reload shaders  [F9]", ReloadShaders);

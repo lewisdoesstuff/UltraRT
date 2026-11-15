@@ -42,16 +42,16 @@ section "RR for path tracing" is what changed for the `pathtrace` mode, where it
 ### Native side (Dlss.cpp)
 
 - **Device.** We use Unity's `ID3D12Device` from `IUnityGraphicsD3D12v7` (GpuTimer.cpp already registers the DLL with
-  Unity, see [gpu-timer.md](gpu-timer.md)). NGX starts lazily on the first evaluate, on the render thread:
-  `NVSDK_NGX_D3D12_Init_with_ProjectID` with a made-up project GUID and engine type CUSTOM. `PathListInfo` points at the
+  Unity, see [gpu-timer.md](gpu-timer.md)). NGX starts on a worker thread when the game starts (see "Warm-up"; without
+  the warm-up, lazily on the first evaluate on the render thread): `NVSDK_NGX_D3D12_Init_with_ProjectID` with a made-up project GUID and engine type CUSTOM. `PathListInfo` points at the
   plugin folder, so NGX finds `nvngx_dlssd.dll` next to our DLL, and the log callback is set. Next come
   `GetCapabilityParameters` (`SuperSamplingDenoising.Available`) and `AllocateParameters`.
 - **Feature.** `NGX_D3D12_CREATE_DLSSD_EXT` with render size = the visible trace (guard band cropped) and output size =
   the screen. Flags `IsHDR | MVLowRes` (motion vectors at render resolution, unjittered), roughness packed in
   `normals.w`, linear depth, PerfQuality picked from the ratio (0.5 = Performance), and the preset hint set for every
-  quality mode. It is recreated when sizes or the preset change. It is released through a plugin event after 5 s
-  without RR, after waiting for the frame fence of its last evaluate, so the bench's alternating modes don't rebuild it
-  every segment.
+  quality mode. It is recreated when sizes or the preset change, on the warm-up worker (see "Warm-up"). It is released
+  through a plugin event after 5 s without RR, after waiting for the frame fence of its last evaluate, so the bench's
+  alternating modes don't rebuild it every segment.
 - **Events.** IDs 94 to 96 (the timer uses 91 to 93), configured at device init:
   - **94, Unity's command list** (`CommandRecordingState`), flag `ModifiesCommandBuffersState`, because NGX binds its own
     descriptor heaps, root signature and PSO. We transition the inputs UAV -> NON_PIXEL_SHADER_RESOURCE, evaluate, then
@@ -166,8 +166,48 @@ grey-white under RR, the room's tint without).
   input (the water/glass reflection overlay is applied by the game's own transparent draw, later).
 - The "first RR burst after another mode is noisier" effect did not reproduce in balanced lists (first and last RR
   bursts within 10% either way; identical with a 480-frame settle). What does happen once per process: NGX
-  initialises on the first RR frame, which takes seconds; a bench scenario that triggers it loses its captures, so
-  suites that use RR begin with a warm-up scenario.
+  initialised on the first RR frame, which took seconds; a bench scenario that triggered it lost its captures. Now NGX
+  warms up in the background at start and the bench waits for the feature before a capture ("Warm-up").
+
+### Warm-up
+
+The first RR frame of a session used to stop the game for about 3 s: NGX's initialisation (loading `nvngx_dlssd.dll`,
+its model and its CUDA kernels) ran inside the first evaluate on Unity's render thread. Then every feature creation
+(entering the mode after the 5 s release, a resolution change) and every new feature's first evaluate stalled it again:
+measured 130-230 ms frames (`bench/results/20261115-013047_pt2-a`: 148 ms at the first switch to `pathtrace`, 135 ms
+on P-2, 194 ms on 8-3).
+
+Now (`UltraRT_Dlss_Warm`, `Dlss.cpp`; `DlssRR.WarmInit` / `EnsureFeatureAsync`; `Plugin.Dlss.cs`):
+- **At start** (frame 3, whenever RR could be used: the `pathtrace` denoiser is Auto or RR, or RR in relight is on), a
+  native worker thread initialises NGX (2.4-3.1 s, during the boot and the main menu) and creates a small throw-away
+  feature (320x180 -> 960x540) that it evaluates once: NGX loads its kernels on the first evaluate of the process, and
+  that stalled the render thread even when the worker did it mid-game. The C# side then releases that probe through the
+  render-thread event (`[RR] start-up probe released on the render thread`).
+- **Every frame that wants RR** first checks that the feature for this frame's exact sizes exists. If not, the worker
+  creates it with its creation commands on a D3D12 queue of its own (31-82 ms), plus one evaluate on zero-filled inputs
+  of the right sizes (6-30 ms): NGX's per-feature lazy work. Any other feature is released first, by the render-thread
+  event: the worker releasing a feature it had created on its since-destroyed queue froze the render thread for 16 s
+  inside NGX's ReleaseFeature. Meanwhile the frames use UltraRT's denoiser (the plain upsampler, no remodulation targets
+  to allocate): 14-18 frames, 125-200 ms in all, at normal frame times (38.7, 14.4, 4.7, 8.4, 5.0, 6.8 ms after a
+  relight -> pathtrace switch; the first is any mode switch's). The first real frame resets RR's history.
+- A critical section serialises NGX between the worker and the render thread. A render event never waits for it: an
+  evaluate that finds the worker busy is skipped (the C# side doesn't ask for one then), a release is done at the next
+  event.
+- `-ultrart-rr-nowarm` (bench `plugin._rrWarm=0`): the old lazy behaviour. The bench waits for the feature after a mode
+  switch before screenshots, bursts and motion passes (`WaitForRR`).
+- Log lines: `[RR] NGX ready ... (init N ms on the warm-up thread)`, `feature ... (created in N ms on the warm-up
+  thread)`, `warm-up: first evaluate N ms`, and `DLSS Ray Reconstruction: ready after N ms of warm-up`; while it waits,
+  once a second, `still warming up ... (worker busy | releasing the old feature | warm-up requested)`. `View mode A -> B
+  at frame N: frame ms ...` logs the first six frame times after every mode switch.
+- The longest first-use freeze was not NGX at all: the `pathtrace` mode's ray tracing pipeline (RayGenPT) compiles on
+  its first dispatch, 16-32 s after a new shader bundle. It is now compiled on the session's first trace
+  ([path-tracing.md](path-tracing.md), "Warm-up").
+
+Trap: Windows' Smart App Control blocked one build of `UltraRT.Native.dll` (`LoadLibrary` error 4551, CodeIntegrity
+event 3077 "did not meet the Enterprise signing level requirements"), and every rebuild of that same source; the
+previous source loaded. RR then reported itself unavailable and `pathtrace` silently ran on UltraRT's denoiser for a
+whole bench run. Check `game.log` for `DLSS Ray Reconstruction unavailable` after a native change; a quick
+`LoadLibraryW` of the staged DLL from PowerShell shows the block before any game run.
 
 ## Evaluation (relight's signal, the prototype)
 
@@ -283,7 +323,8 @@ and costs the same GPU time. RR in relight stays an option, off by default.
 
 Problems and limits:
 - Hybrid is untouched: RR would need the game's colour as input. Not attempted.
-- NGX initialises on the first RR frame of a session (seconds). Bench suites warm it up first.
+- NGX's start-up (3 s) and each feature's creation run on a worker thread ("Warm-up"); before that, the first RR
+  frame of a session froze the game for seconds.
 - Unity-list mode needs `ModifiesCommandBuffersState`. It worked here, but given the GPU timer's history with that flag
   the own-list mode stays the default.
 - Licensing blocks redistribution without NVIDIA's involvement (see "License").

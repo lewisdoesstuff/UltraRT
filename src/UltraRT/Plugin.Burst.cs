@@ -173,6 +173,7 @@ namespace UltraRT
             {
                 string mode = spec == "off" ? "off" : ApplyBenchVariant(spec);
                 ApplyBenchMode(mode);
+                yield return WaitForRR();
                 int frame = 0;
                 CamPose Pose() => path.Sample(moving ? Mathf.Min(t0 + frame++ / 360f, path.Duration) : t0);
                 // Auto exposure trace (relight): every frame's state, to tell exposure drift and flicker from lighting noise.

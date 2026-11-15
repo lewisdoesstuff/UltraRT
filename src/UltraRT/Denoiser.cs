@@ -310,6 +310,7 @@ namespace UltraRT
             IdMoments = Shader.PropertyToID("_Moments"),
             IdOutput = Shader.PropertyToID("_Output"),
             IdBloomOut = Shader.PropertyToID("_BloomOut"), IdBloomParams = Shader.PropertyToID("_BloomParams"), IdBloomOn = Shader.PropertyToID("_BloomOn"),
+            IdRemodDemod = Shader.PropertyToID("_RemodDemod"), IdRemodOut = Shader.PropertyToID("_RemodOut"), IdRemodOn = Shader.PropertyToID("_RemodOn"),
             IdOutDim = Shader.PropertyToID("_OutDim"),
             IdDebugView = Shader.PropertyToID("_DebugView"),
             IdSpecular = Shader.PropertyToID("_Specular"),
@@ -366,6 +367,10 @@ namespace UltraRT
         public RenderTexture BloomTarget;
         public Vector4 BloomParams;
         private RenderTexture _bloomDummy;
+        /// <summary>Set before Execute (both or neither): the Composite kernel also writes the composite before the tone curve divided
+        /// by <see cref="RemodDemod"/> (the demodulation colour) into <see cref="RemodTarget"/> (ARGBHalf, output size), for the
+        /// remodulating upsampler (docs/path-tracing.md).</summary>
+        public RenderTexture RemodTarget, RemodDemod;
 
         /// <summary>Counts <see cref="Reset"/> calls (the temporal upsampler drops its history along with the denoiser's).</summary>
         public int Generation { get; private set; }
@@ -533,6 +538,10 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kComposite, IdBloomOut, BloomTarget != null ? BloomTarget : _bloomDummy);
             cmd.SetComputeVectorParam(cs, IdBloomParams, BloomParams);
             cmd.SetComputeFloatParam(cs, IdBloomOn, BloomTarget != null ? 1f : 0f);
+            bool remod = RemodTarget != null && RemodDemod != null;
+            cmd.SetComputeTextureParam(cs, _kComposite, IdRemodOut, remod ? RemodTarget : _bloomDummy);
+            cmd.SetComputeTextureParam(cs, _kComposite, IdRemodDemod, remod ? (Texture)RemodDemod : Texture2D.whiteTexture);
+            cmd.SetComputeFloatParam(cs, IdRemodOn, remod ? 1f : 0f);
             cmd.DispatchCompute(cs, _kComposite, Mathf.CeilToInt(output.width / 8f), Mathf.CeilToInt(output.height / 8f), 1);
 
             // History for the next frame.

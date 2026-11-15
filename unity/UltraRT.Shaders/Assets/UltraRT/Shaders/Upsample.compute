@@ -139,7 +139,10 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
         if (cz.a < 0.0 || err > tol) continue;
         float2 d = gsPos[li] - pc;
         float d2 = dot(d, d);
-        float we = exp(-_Params.x * d2);
+        // Noise-free input (the demodulation colour): only exact hits count, except on moving objects. There the history
+        // is resampled every frame and exact hits arrive at 1 pixel in N x N, which left a stipple of sharp texels in a
+        // blurred surface (8-3's sliding slab under RR at 1/3): moving samples get the upsampler's usual weight.
+        float we = exp(-(_Params4.w > 0.0 && gsMotion[li] != 0u ? min(_Params.x, 4.0) : _Params.x) * d2);
         float ws = exp(-_Params.z * d2);
         sumE += cz.rgb * we; wE += we;
         if (we > wNear) { wNear = we; cNear = cz.rgb; }

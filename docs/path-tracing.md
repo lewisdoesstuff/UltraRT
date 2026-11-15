@@ -15,7 +15,9 @@ How the design was arrived at (the experiments, the alternatives): [pt-plan.md](
 | `unity/.../UltraRTEffects.hlsl`, `EffectProxy.shader` | The effects pass: glowing effects along specular rays |
 | `src/UltraRT/Plugin.PathTrace.cs` | `PathTraceSettings`, flags, the per-frame binds |
 | `src/UltraRT/EffectGeometry.cs`, `Plugin.Effects.cs` | Effect billboards in the RTAS |
-| `src/UltraRT/DlssRR.cs`, `Plugin.Dlss.cs`, `RayReconstruction.compute` | RR for the mode: remodulation, the exact jitter grid |
+| `src/UltraRT/DlssRR.cs`, `Plugin.Dlss.cs`, `RayReconstruction.compute` | RR for the mode: remodulation, the exact jitter grid, the warm-up |
+| `src/UltraRT/Plugin.Remod.cs` | Remodulation for UltraRT's own denoiser (the fallback, at trace scale 1/3) |
+| `src/UltraRT/Plugin.Stains.cs`, `unity/.../StainGrid.compute`, `UltraRTStains.hlsl` | Blood stains at reflection hits |
 | `bench/suites/pt-*.json` | `pt-quick` (look), `pt-noise`, `pt-perf`, `pt-fx`, `pt-exp-*` (the experiments) |
 
 ## Use
@@ -28,8 +30,34 @@ How the design was arrived at (the experiments, the alternatives): [pt-plan.md](
 - Bench variants: `pathtrace+ptx.<field>=value` for any field of `PathTraceSettings`, e.g.
   `pathtrace+ptx.paths=2+ptx.bounces=3`, `pathtrace+ptx.denoiser=UltraRT`.
 - DLSS RR needs the NVIDIA runtime next to the plugin (`scripts\fetch-dlss.ps1`, [dlss.md](dlss.md)). Without it, or on
-  another vendor's GPU, the mode runs on UltraRT's denoiser by itself. The first RR frame of a session takes a few
-  seconds (NGX initialises).
+  another vendor's GPU, the mode runs on UltraRT's denoiser by itself (trace scale 1/3 with remodulation, below).
+  Nothing waits on the first use any more ("Warm-up" below): NGX starts in the background when the game starts, the
+  mode's ray tracing pipeline is compiled on the first RT frame, and RR's feature is created in the background when the
+  mode is entered.
+
+## Warm-up (2026-11-15)
+
+The first switch to `pathtrace` in a session used to freeze the game, and a bench scenario could come back with no
+frames (the lead's merge-regress on master 9fd12e3, '0-1 metal'). Three separate costs were in it:
+
+| What | First use cost (measured) | Now |
+|---|---|---|
+| NGX initialisation (loads `nvngx_dlssd.dll`, the models) | 2.4-3.1 s | on a worker thread from frame 3 of the game (`[RR] NGX ready ... init 2927 ms on the warm-up thread`) |
+| NGX's kernels, on a process's first RR evaluate | 130-230 ms | a throw-away 320x180 feature evaluated once on the worker at start-up, then released on the render thread |
+| RR's feature for the current sizes | 31-82 ms create + its first evaluate | created and evaluated once on the worker when the mode is entered; meanwhile (17-18 frames, about 150 ms) the frames use UltraRT's denoiser |
+| **RayGenPT's ray tracing pipeline** | **16-33 s** after a new shader bundle (the driver's shader cache misses), about 0.2 s on a cache hit | compiled by a 1x1 dispatch on the session's first trace in any mode, usually at the main menu (`ptx.prewarm`, `-ultrart-pt-noprewarm`) |
+
+- The 16-33 s was the pipeline, not NGX: it measured the same with UltraRT's denoiser (`View mode relight -> pathtrace
+  ... frame ms 18276.3`, `bench/results/20261115-022925_pt2-i_alt`) and only after a shader change (runs that reused
+  the same bundle took 223 ms). Unity compiles each raygen's pipeline on its first dispatch, so relight never paid for
+  RayGenPT. After an update the wait now happens once at the menu.
+- Frame times when RR's feature is created mid-game (relight -> pathtrace, `bench/results/20261115-022749_pt2-h_alt`):
+  38.7, 14.4, 4.7, 8.4, 5.0, 6.8 ms. The first frame is any mode switch's (relight -> pathtrace with the feature ready:
+  15-22 ms; off -> relight: 27 ms).
+- The bench waits for RR before it measures a mode that uses it (`WaitForRR`, at most 20 s, logged as `Benchmark: waited
+  N ms`), and frames that ran UltraRT's denoiser while RR warmed up are not counted.
+- A worker-thread release of a feature it created froze the render thread for 16 s inside NGX; releases only happen on
+  the render thread now ([dlss.md](dlss.md), "Warm-up").
 
 ## What a pixel traces
 
@@ -84,8 +112,11 @@ the light comes from: contact shadows and colour bleeding within the first two b
 | `skyAtVertices` | off | a direct sky sample at every path vertex (the primary hit always takes one) |
 | `denoiser` | Auto | Auto (RR when available), UltraRT, RayReconstruction |
 | `scaleRR` | 1/3 | trace scale with RR (853x480 at 1440p) |
-| `scale` | 0.5 | trace scale with UltraRT's denoiser |
+| `scale` | 1/3 | trace scale with UltraRT's denoiser (was 0.5; settings menu "Render resolution with UltraRT's denoiser") |
 | `pathsOwn` | 1 | paths per pixel with UltraRT's denoiser (0 = `paths`) |
+| `remodulate`, `remodExactGrid` | on, on | UltraRT's denoiser remodulates as RR does, with the exact N x N jitter grid at 1/3 (or 1/5) |
+| `remodSharpness`, `remodMaxWeight` | 1, 6 | the remodulated lighting's upsampler: sample weight exp(-x d^2), history cap |
+| `prewarm` | on | compile RayGenPT's pipeline on the session's first trace (Warm-up) |
 | `lightsRR`, `candidatesRR`, `directSamplesRR` | 1 (RIS), 16, 1 | light sampling at the primary hit under RR |
 
 ## Effects in reflections
@@ -193,6 +224,127 @@ In motion (replay sigma / 4x4 block sigma, `vol=0`, 360 Hz steps; `bench/results
   7-17% here too. Fresh pixels are where RR is better (0-2: fresh 1.11 against 3.10, young 1.84 against 9.38): it
   has no history to wait for.
 - More samples did not measure quieter in motion either; the replay metric's run-to-run spread is about 0.2.
+
+## UltraRT's denoiser at 1/3 (remodulation, 2026-11-15)
+
+Without RR the mode used to trace at 0.5 scale (72-116 fps: over budget) or at 1/3 with the temporal upsampler's texture
+blur. It now does what RR's path does ([dlss.md](dlss.md), "Remodulation"), in `Plugin.Remod.cs`:
+
+1. Before the denoiser, the `Demod` kernel writes each surface's demodulation colour D (what it shows under white
+   light: albedo x (1 - specular) + specular weight + emission) at trace resolution.
+2. The denoiser's composite also writes `composite / D`: lighting only, no texture.
+3. Two temporal upsamplers bring both to the screen: the lighting with `remodSharpness` / `remodMaxWeight`, D with
+   exact hits (sharpness 30, `ExactReplace` 0.08: a texel that disagrees replaces the history).
+4. `RemodFinish` multiplies them back together at screen resolution and applies the tone curve.
+
+At 1/3 the trace is sized for the exact 3 x 3 jitter grid that RR uses (`remodExactGrid`): one trace pixel is exactly
+three screen pixels and nine frames visit every screen pixel centre, so D converges to the game's texels.
+
+Masked burst sigma, 0-1 metal (48 frames held; `bench/results/20261115-015835_pt2-d`, run without RR):
+
+| UltraRT denoiser | sigma (block) |
+|---|---|
+| 1/3, plain | 1.24 |
+| 1/3, remodulated, lighting upsampler 4 / 3 (the plain one's) | 1.38 |
+| **1/3, remodulated, 1 / 6 (default)** | **1.20 (0.74)** |
+| 1/3, remodulated, no exact grid | 1.38 |
+
+- Texture detail at 1/3 now matches RR's and the 0.5 fallback's; plain 1/3 blurs it (crops of 0-1 metal in
+  `bench/results/20261115-013855_pt2-b`). The softer lighting upsampler (1 / 6) gives the noise back that sharp
+  remodulated samples cost (0.5 / 4 measured 1.90).
+- In motion the remodulated fallback measured 1.73 (replay sigma, two-window mean) against RR's 1.96.
+- Cost: +0.27 ms GPU over plain 1/3 (0-1 metal 7.12 against 6.85 ms; 6-2 4.59 against 4.32 ms).
+- While RR's feature is created (a few frames) the plain upsampler runs instead: the remodulation's first use
+  allocates two screen-size upsamplers, which was a 130 ms frame.
+- At 0.5 (`ptx.scale=0.5`) it remodulates without the exact grid (0.5 is not an integer upscale); there remodulation
+  measured noisier (1.30 against 1.17), so 0.5 users can turn `remodulate` off.
+
+## Motion noise under RR (2026-11-15)
+
+Pathtrace was 4-11% noisier than relight in motion. Measured with the replay metric (`vol=0`, sigma averaged over the
+windows; run-to-run spread 0.2-0.35), `bench/results/20261115-014817_pt2-c` and `20261115-020657_pt2-e_alt`:
+
+| 0-2 v1 shadow walk | sigma |
+|---|---|
+| relight | 1.38-1.59 |
+| pathtrace (default) | 1.59-1.96 |
+| RR render guard (`plugin._rrGuard=1`) | 2.02 |
+| ReSTIR under RR (`ptx.lightsRR=2`) | 2.28 |
+| 32 RIS candidates | 1.92 |
+| RR at 0.5 scale | 1.67 |
+| 2 paths | 1.75 |
+| 2 light samples | 1.83 |
+
+- The excess is in interior pixels (not edges or disocclusions), with the 4 x 4 block sigma about equal to the pixel
+  sigma: low-frequency blotches that RR lets through while the view moves, not missing history. Fresh pixels stay
+  RR's strength (1.11 against relight's 3.10).
+- None of the inputs move it beyond the metric's spread: more samples, more candidates, a higher render scale, RR seeing
+  the guard band. It is RR's temporal behaviour on this signal. What is left to try: diffuse hit distances as an RR guide
+  (RR uses them to size its filter; we pass only the specular ones), which needs one more trace output.
+- `plugin._rrGuard` (RR evaluates the guard band too, off by default) stays as an option.
+
+## Blood stains in reflections
+
+The game draws its blood stains as screen-space decals multiplied over the finished frame (`CompositeBlood`), so no ray
+saw them. `Plugin.Stains.cs` builds a world-space hash grid of the stains near the camera each frame from the game's own
+GPU buffers (`StainGrid.compute`: 6 m cells, 16,384 buckets of 32, stains within `wet.stainDistance` 80 m), with each
+stain's box, axes, atlas cell and clip state exactly as the game's stamp shader computes them (BloodWet.shader's port).
+`StainTint` (UltraRTStains.hlsl) applies the game's composite at a hit: x (1, 1 - t, 1 - t), t fading with distance over
+the fog range, darker where the stain is wet (BloodWet.cs's birth times).
+
+- Used at relight's and hybrid's reflection hits and at the specular vertices of pathtrace's paths. Not at the camera
+  hit: there the game's own decal is already in the image.
+- Cost (0-1 metal with stains spawned, `bench/results/20261115-021448_pt2-perf`): relight +0.13 ms GPU, pathtrace
+  +0.33 ms, CPU +0.06 ms.
+- `wet.stainReflections` (settings menu "Blood stains in reflections", `-ultrart-stain-reflections on|off`);
+  `wet.stainDebug=1` (bench) paints every stain the lookup finds bright green, at camera hits too, to check it lines up
+  with the game's decals, and logs a readback of the game's stain slots, our records and the grid every 2 s (`Stain
+  probe: ...`). Verified that way on 0-1 metal (`bench/results/20261115-023727_pt2-l_alt`): the green covers the game's
+  floor blood in relight and pathtrace, and the side wall's reflection of it turns green.
+- Trap: the game stores a stain's normal pointing into the surface ((0, -1, 0) for a floor stain); its stamp shader's
+  clip test compares the surface normal with the quad mesh's own normal (`BloodStainMesh`, z = -1), not with the stored
+  one. Comparing with the stored normal rejected every clipped stain (nothing showed until the readback made it plain).
+  StainGrid.compute flips the axis by the mesh normal's sign (read from the mesh, logged as `side -1`).
+
+## 8-3 in pathtrace
+
+Cost (GPU ms / fps; `bench/results/20261115-021448_pt2-perf`, exclusive):
+
+| | off | relight | pathtrace | hybrid |
+|---|---|---|---|---|
+| 8-3 portals | 148 fps | 6.90 / 59 | 6.28 / 70 | 5.41 / 70 |
+| 8-3 b | 113 fps | 5.85 / 57 | 5.73 / 63 | 5.37 / 61 |
+| 8-3 route (recording, 96 s) | | 6.05 / 69 (1,876 frames over 16.7 ms) | 6.11 / 80 (122 over) | |
+
+- 8-3 is CPU-bound (the game's render thread at 10-13 ms), and pathtrace runs faster than relight there: the main
+  thread's render time is 10.2 against 12.6 ms and UltraRT's `lights` section 0.25 against 0.57 ms. Not investigated
+  further; it is relight's cost, not pathtrace's.
+- Portals and mirrors show the same in pathtrace as in relight: no wrong sides, no missing portal views in the shots.
+  Shots of 8-3 can't be compared pixel by pixel across modes: the false-start slab and the arena strips move on the wall
+  clock, not the game clock.
+- **Remaining defect**: the sliding false-start slab smears and shows a stipple of sharp texels under RR with
+  remodulation (UltraRT's denoiser with remodulation too), and is clean with `plugin._rrRemodulate=0` and in relight.
+  The remodulation's D upsampler keeps a texel history that the slab's motion should move; the motion debug view shows
+  no object motion on the slab in the one frame captured, so its motion is either missing (static-batched geometry
+  moved through its batch root has motion slot 0, [denoiser.md](denoiser.md), "Limits") or the slab was at rest.
+  Next: a burst of the motion view on the slab; if the motion is missing, give static proxies under a moving batch root a
+  motion slot.
+
+## P-2: the orange floor with rain
+
+Reported: P-2's floor looks brighter and more orange in pathtrace with rain wetness. Six shots per mode at the vent pose
+(`bench/results/20261115-013047_pt2-a`, `-013855_pt2-b`, `-015835_pt2-d`), floor lighting from the radiance statistics:
+
+| | relight | pathtrace |
+|---|---|---|
+| wet (rain) | 0.11 | 0.11 |
+| dry | 0.14 | 0.10 |
+
+- Bright orange spikes (1.0-1.9) show in 4 of 18 wet shots and none of 12 dry ones, in both modes: the chance of that
+  split by luck is about 19%, so it is not tied to wetness either.
+- They are P-2's two orange searchlights (colour (1, 0.31, 0), range 200 m) sweeping across the floor on their own clock
+  (the bench can't hold them; replays differ by 2-13 luma), plus bloom tinting the gun when one passes. Neither
+  pathtrace nor the rain wetness makes the floor brighter or more orange. No change.
 
 ## Energy: RIS, ReSTIR and the reference
 
