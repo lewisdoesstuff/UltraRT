@@ -49,6 +49,13 @@ namespace UltraRT
         private bool _vmCheckerboard = true; // trace half the half-res pixels per frame (alternating); the filter fills the rest
         private int _vmRayTest = 0;            // measurement only: 1 = dispatch a single ray-gen thread (fixed cost of the dispatch)
         private bool _vmStableRefl = true;   // mirror-direction reflection rays (stable); false = GGX samples like the world
+        /// <summary>Per-vertex motion of skinned renderers (bone animation) from a copy of last frame's skinned vertex buffer;
+        /// false = rigid motion of the root bone only (the first version). Bench plugin._vmSkinnedMotion=0.</summary>
+        private bool _vmSkinnedMotion = true;
+        /// <summary>Exponent of the cosine for the player's own lights (flashlight, muzzle flashes, held torch) on the gun
+        /// under linear transport (Viewmodel.raytrace): 2.2 shades like the game's gamma-space Lambert; 1 = the physical
+        /// cosine (flat, blown out under 7-3's flashlight).</summary>
+        private float _vmNdlPow = 2.2f;
         private int _vmKBounds;
         private ComputeBuffer _vmBoundsBuf;
         private static readonly uint[] VmBoundsInit = { 0xFFFFu, 0xFFFFu, 0u, 0u };
@@ -77,7 +84,23 @@ namespace UltraRT
         private Rect _vmLastRect;
         private const int SlotViewmodel = 11, SlotVmGBuffer = 12, SlotVmRays = 13, SlotVmFilter = 14, SlotVmComposite = 15;
 
-        private struct VmDraw { public Renderer r; public int sub; public Material mat, src; public Transform t; public bool custom; }
+        private struct VmDraw { public Renderer r; public int sub; public Material mat, src; public Transform t; public bool custom; public int baseVertex; }
+
+        /// <summary>Skinned renderer: a copy of its skinned vertex buffer from the last frame it was drawn (ViewmodelGBuffer's
+        /// _VMPrevVerts), so the G-buffer's motion vectors carry bone animation.</summary>
+        private sealed class VmSkin
+        {
+            public GraphicsBuffer prev, cur; // cur: this frame's skinned buffer (Unity's; disposed next frame)
+            public int bytes, stride, posOffset, vertexCount;
+            public uint copiedFrame;         // _vmFrame of the last copy into prev (0 = never)
+            public bool logged;
+        }
+        private readonly Dictionary<SkinnedMeshRenderer, VmSkin> _vmSkins = new Dictionary<SkinnedMeshRenderer, VmSkin>();
+        private readonly List<GraphicsBuffer> _vmDisposeNext = new List<GraphicsBuffer>();
+        private GraphicsBuffer _vmDummyVerts;
+        private int _vmKCopyVerts = -1;
+        private int _vmSkinLogs;
+        private static readonly int VmPrevVertsId = Shader.PropertyToID("_VMPrevVerts"), VmPrevSkinId = Shader.PropertyToID("_VMPrevSkin");
         private MaterialPropertyBlock _vmMpb;
         private int _vmDrawKey, _vmDrawLogs;
         private static readonly int[] VmCustomIds = { Shader.PropertyToID("_CustomColor1"), Shader.PropertyToID("_CustomColor2"), Shader.PropertyToID("_CustomColor3") };
@@ -125,6 +148,7 @@ namespace UltraRT
                     case "-ultrart-vm-history": float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out _vmMaxHistory); break;
                     case "-ultrart-vm-lightmask": int.TryParse(Next(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _vmLightMask); break;
                     case "-ultrart-vm-fullscreen": _vmFullScreen = true; break;
+                    case "-ultrart-vm-skinned": _vmSkinnedMotion = Next() != "off"; break;
                 }
             }
             Logger.LogInfo($"Viewmodel RT: {(_vmEnabled ? "on" : "off")} (hybrid {(_vmHybrid ? "on" : "off")})");
@@ -153,6 +177,7 @@ namespace UltraRT
             _vmKTemporal = _vmFilter.FindKernel("Temporal");
             _vmKAtrous = _vmFilter.FindKernel("Atrous");
             _vmKBounds = _vmFilter.FindKernel("Bounds");
+            _vmKCopyVerts = _vmFilter.HasKernel("CopyVerts") ? _vmFilter.FindKernel("CopyVerts") : -1;
         }
 
         private void ViewmodelHotkeys()
@@ -182,6 +207,7 @@ namespace UltraRT
             _vmRenderers.Clear();
             _vmDraws.Clear();
             _vmPrevMV.Clear();
+            ReleaseViewmodelSkins();
             _vmNextRefresh = 0f;
             _vmHistValid = false;
             _vmNeedsClear = true;
@@ -235,6 +261,9 @@ namespace UltraRT
                 int layer = r.gameObject.layer;
                 if (((hud.cullingMask >> layer) & 1) == 0 || ((mainMask >> layer) & 1) != 0) continue; // drawn by the HUD camera only
                 _vmRenderers.Add(r);
+                // Skinned motion: the skinned vertex buffer must be bindable as a raw buffer (it is copied every frame).
+                if (_vmSkinnedMotion && r is SkinnedMeshRenderer smr && (smr.vertexBufferTarget & GraphicsBuffer.Target.Raw) == 0)
+                    smr.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
             }
             if (_vmLogs < 3)
             {
@@ -350,7 +379,7 @@ namespace UltraRT
                 {
                     if (VmSkipShader(mats[i])) continue;
                     var gm = ViewmodelMaterial(mats[i]);
-                    _vmDraws.Add(new VmDraw { r = r, sub = i, mat = gm, src = mats[i], t = t, custom = gm.GetFloat("_VMCustom") > 0.5f });
+                    _vmDraws.Add(new VmDraw { r = r, sub = i, mat = gm, src = mats[i], t = t, custom = gm.GetFloat("_VMCustom") > 0.5f, baseVertex = (int)mesh.GetBaseVertex(i) });
                 }
             }
         }
@@ -496,6 +525,8 @@ namespace UltraRT
 
             _vmFrame++;
             float stamp = _vmFrame % 2000u + 1u;
+            _vmLastStamp = stamp;
+            _vmLastStampFrame = Time.frameCount;
             var cmd = _vmCmd;
             _gpu?.Begin(cmd, SlotViewmodel);
 
@@ -512,16 +543,25 @@ namespace UltraRT
             var w2c = hud.worldToCameraMatrix;
             Renderer lastR = null;
             Matrix4x4 delta = Matrix4x4.identity;
+            VmSkin skin = null;
+            bool skinPrev = false;
+            BeginViewmodelSkins();
             foreach (var d in _vmDraws)
             {
                 if (d.r != lastR)
                 {
                     lastR = d.r;
                     var mv = w2c * d.t.localToWorldMatrix;
-                    delta = _vmHistValid && _vmPrevMV.TryGetValue(d.r, out var prev) ? prev * mv.inverse : Matrix4x4.identity;
+                    bool hadPrev = _vmPrevMV.TryGetValue(d.r, out var prev);
+                    delta = _vmHistValid && hadPrev ? prev * mv.inverse : Matrix4x4.identity;
                     _vmPrevMV[d.r] = mv;
                     cmd.SetGlobalMatrix(VmPrevDeltaId, delta);
+                    // Skinned: last frame's skinned positions (this renderer was drawn, and copied, on the previous frame).
+                    skin = d.r is SkinnedMeshRenderer smr ? ViewmodelSkin(smr) : null;
+                    skinPrev = skin != null && skin.prev != null && _vmHistValid && hadPrev && skin.copiedFrame == _vmFrame - 1u;
+                    cmd.SetGlobalBuffer(VmPrevVertsId, skinPrev ? skin.prev : ViewmodelDummyVerts());
                 }
+                cmd.SetGlobalVector(VmPrevSkinId, skinPrev ? new Vector4(1f, skin.stride, d.baseVertex, skin.posOffset) : Vector4.zero);
                 if (d.custom)
                 {
                     // The colours live in the renderer's property block (falling back to the material's own values).
@@ -532,7 +572,8 @@ namespace UltraRT
                 }
                 cmd.DrawRenderer(d.r, d.mat, d.sub, 0);
             }
-
+            // This frame's skinned positions become next frame's "previous" ones (after the draws that read them).
+            CopyViewmodelSkins(cmd);
 
             _gpu?.End(cmd, SlotVmGBuffer);
             // 3. Rays.
@@ -557,6 +598,7 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(rt, "_VMDirectSamples", Mathf.Clamp(_vmSamples, 1, 4));
             cmd.SetRayTracingIntParam(rt, "_VMCheckerboard", _vmCheckerboard ? 1 : 0);
             cmd.SetRayTracingIntParam(rt, "_VMStableRefl", _vmStableRefl ? 1 : 0);
+            cmd.SetRayTracingFloatParam(rt, "_VMNdlPow", Mathf.Max(1f, _vmNdlPow));
             cmd.SetRayTracingIntParam(rt, "_FrameIndex", (int)_frameIndex);
             cmd.SetRayTracingBufferParam(rt, "_Lights", _lightBuffer);
             cmd.SetRayTracingBufferParam(rt, "_LightMasks", _lightMaskBuffer);
@@ -600,7 +642,11 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, "_Stamps", new Vector4(stamp, _vmPrevStamp, 0, 0));
             // Lights appeared or disappeared (muzzle flashes, explosions): keep only a few frames of history.
             cmd.SetComputeVectorParam(cs, "_Params2", new Vector4(_lightSampling.LightSetChanged ? 1f : 0f, Mathf.Max(0f, _vmFastSigma), Mathf.Max(0f, _vmFastTol), Mathf.Max(0f, _vmFastTolChange)));
-            cmd.SetComputeVectorParam(cs, "_Params3", new Vector4(_vmHistorySearch ? 1f : 0f, 0, 0, 0));
+            bool stats = VmStatsOn;
+            cmd.SetComputeVectorParam(cs, "_Params3", new Vector4(_vmHistorySearch ? 1f : 0f, stats ? 1f : 0f, 0, 0));
+            _vmStatsBuf ??= new ComputeBuffer(4, 4) { name = "UltraRT VM stats" };
+            cmd.SetComputeBufferParam(cs, _vmKTemporal, "_VMStats", _vmStatsBuf);
+            if (stats) cmd.SetBufferData(_vmStatsBuf, VmStatsZero);
             cmd.SetComputeVectorParam(cs, "_Params", new Vector4(Mathf.Max(1f, _vmMaxHistory), Mathf.Max(1f, _vmMaxHistoryRefl), Mathf.Max(0.5f, _vmClampK), _vmHistValid ? 1f : 0f));
             int k = _vmKTemporal;
             cmd.SetComputeTextureParam(cs, k, "_RawLight", _vmRawLight);
@@ -618,6 +664,13 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, k, "_OutGeo", _vmHGeo[cur]);
             int gx = (hrw + 7) / 8, gy = (hrh + 7) / 8;
             cmd.DispatchCompute(cs, k, gx, gy, 1);
+            if (stats)
+                cmd.RequestAsyncReadback(_vmStatsBuf, r =>
+                {
+                    if (r.hasError) return;
+                    var d = r.GetData<uint>();
+                    for (int i = 0; i < 4; i++) VmStatTotals[i] += d[i];
+                });
             RenderTexture fl = _vmHLight[cur], fd = _vmHDirect[cur], fr = _vmHRefl[cur];
             int iters = Mathf.Clamp(_vmAtrous, 0, 3);
             for (int it = 0; it < iters; it++)
@@ -679,7 +732,7 @@ namespace UltraRT
             var exposure = _autoExposure?.ExposureBuffer;
             if (exposure == null)
             {
-                _vmDummyExposure ??= new ComputeBuffer(1, 16) { name = "UltraRT VM dummy exposure" };
+                _vmDummyExposure ??= new ComputeBuffer(4, 16) { name = "UltraRT VM dummy exposure" };
                 exposure = _vmDummyExposure;
             }
             mat.SetBuffer(VmExposureId, exposure);
@@ -704,6 +757,174 @@ namespace UltraRT
                 Logger.LogInfo($"Viewmodel RT: {_vmDraws.Count} draws ({_vmRenderers.Count} renderers, {_vmMaterials.Count} materials), rect {rect.x}x{rect.y} {rect.width}x{rect.height} of {w}x{h} " +
                                $"({100f * rect.width * rect.height / (w * h):F0}%), light mask 0x{ViewmodelLightMask(hud):X8} (ground layer {_vmGroundLayer}), mode {_vmTraceMode}");
             }
+            if (Time.realtimeSinceStartup >= _vmNextLightLog && _vmLightLogs < 10)
+            {
+                _vmNextLightLog = Time.realtimeSinceStartup + 2f;
+                LogViewmodelLights(hud);
+            }
+        }
+    
+        // ---------------------------------------------------------------- skinned motion
+
+        private void BeginViewmodelSkins()
+        {
+            // Unity's buffer wrappers from last frame: their command buffer has run by now.
+            foreach (var b in _vmDisposeNext) b?.Dispose();
+            _vmDisposeNext.Clear();
+            foreach (var s in _vmSkins.Values) s.cur = null;
+        }
+
+        private GraphicsBuffer ViewmodelDummyVerts()
+        {
+            _vmDummyVerts ??= new GraphicsBuffer(GraphicsBuffer.Target.Raw, 4, 4) { name = "UltraRT VM dummy verts" };
+            return _vmDummyVerts;
+        }
+
+        /// <summary>This frame's skinned vertex buffer of <paramref name="smr"/> and the copy of last frame's, or null (rigid
+        /// motion only) when skinned motion is off or Unity has no raw buffer for it.</summary>
+        private VmSkin ViewmodelSkin(SkinnedMeshRenderer smr)
+        {
+            if (!_vmSkinnedMotion || _vmKCopyVerts < 0 || smr.sharedMesh == null) return null;
+            if (!_vmSkins.TryGetValue(smr, out var s)) _vmSkins[smr] = s = new VmSkin();
+            if (s.cur != null) return s;
+            if ((smr.vertexBufferTarget & GraphicsBuffer.Target.Raw) == 0) smr.vertexBufferTarget |= GraphicsBuffer.Target.Raw;
+            GraphicsBuffer cur;
+            try { cur = smr.GetVertexBuffer(); }
+            catch (Exception e) { cur = null; if (_vmSkinLogs++ < 5) Logger.LogWarning($"Viewmodel skinned motion: {smr.name}: {e.Message}"); }
+            if (cur == null) { s.copiedFrame = 0; return null; }
+            _vmDisposeNext.Add(cur);
+            // The raw flag takes effect when Unity next (re)creates the buffer: until then it can't be bound as a raw
+            // buffer (doing so crashed D3D12 on the first frame of a new level).
+            if ((cur.target & GraphicsBuffer.Target.Raw) == 0) { s.copiedFrame = 0; return null; }
+            var mesh = smr.sharedMesh;
+            int bytes = cur.count * cur.stride, n = mesh.vertexCount;
+            if (n <= 0 || bytes % n != 0 || bytes / n < 12 || (bytes & 3) != 0)
+            {
+                if (!s.logged) { s.logged = true; Logger.LogWarning($"Viewmodel skinned motion: {smr.name}: buffer {cur.count}x{cur.stride} for {n} vertices, not used"); }
+                s.copiedFrame = 0;
+                return null;
+            }
+            int posOffset = mesh.GetVertexAttributeStream(VertexAttribute.Position) == 0 ? mesh.GetVertexAttributeOffset(VertexAttribute.Position) : 0;
+            if (s.prev == null || s.bytes != bytes)
+            {
+                s.prev?.Release();
+                s.prev = new GraphicsBuffer(GraphicsBuffer.Target.Raw, bytes / 4, 4) { name = "UltraRT VM prev skin " + smr.name };
+                s.copiedFrame = 0;
+            }
+            s.cur = cur; s.bytes = bytes; s.stride = bytes / n; s.posOffset = posOffset; s.vertexCount = n;
+            if (!s.logged)
+            {
+                s.logged = true;
+                Logger.LogInfo($"Viewmodel skinned motion: {Bench.GameControl.PathOf(smr.transform)}: {n} vertices, {s.stride} bytes each (mesh stream 0: " +
+                               $"{mesh.GetVertexBufferStride(0)}), position at {posOffset}, buffer {cur.count}x{cur.stride} {cur.target}, root bone {(smr.rootBone != null ? smr.rootBone.name : "-")}");
+            }
+            return s;
+        }
+
+        /// <summary>After the G-buffer draws: this frame's skinned positions into the "previous" copies.</summary>
+        private void CopyViewmodelSkins(CommandBuffer cmd)
+        {
+            if (_vmKCopyVerts < 0) return;
+            foreach (var s in _vmSkins.Values)
+            {
+                if (s.cur == null || s.prev == null) continue;
+                int words = s.bytes / 4;
+                cmd.SetComputeBufferParam(_vmFilter, _vmKCopyVerts, "_CopySrc", s.cur);
+                cmd.SetComputeBufferParam(_vmFilter, _vmKCopyVerts, "_CopyDst", s.prev);
+                cmd.SetComputeIntParam(_vmFilter, "_CopyWords", words);
+                cmd.DispatchCompute(_vmFilter, _vmKCopyVerts, (words + 255) / 256, 1, 1);
+                s.copiedFrame = _vmFrame;
+            }
+        }
+
+        private void ReleaseViewmodelSkins()
+        {
+            foreach (var s in _vmSkins.Values) s.prev?.Release();
+            _vmSkins.Clear();
+            foreach (var b in _vmDisposeNext) b?.Dispose();
+            _vmDisposeNext.Clear();
+        }
+
+        // ---------------------------------------------------------------- diagnostics
+
+        /// <summary>Bench (motion noise): count history hits and misses in the temporal filter into <see cref="VmStatTotals"/>
+        /// (viewmodel pixels with a history to look for, bilinear hits, 3x3 search hits, misses).</summary>
+        internal bool VmStatsOn;
+        internal readonly long[] VmStatTotals = new long[4];
+        private ComputeBuffer _vmStatsBuf;
+        private static readonly uint[] VmStatsZero = new uint[4];
+
+        private float _vmNextLightLog;
+        private int _vmLightLogs;
+        private float _vmLastStamp;
+        private int _vmLastStampFrame = -1, _vmCoverageLogs;
+
+        /// <summary>Bench (motion noise): the screen pixels whose viewmodel G-buffer was written this frame, bottom-up like
+        /// GetPixels32; null when the pass didn't run this frame. Synchronous readback of the position target (bench only).</summary>
+        private bool[] ViewmodelCoverage(int w, int h)
+        {
+            if (_vmLastStampFrame != Time.frameCount || _vmGB2 == null || _vmGB2.width != w || _vmGB2.height != h) return null;
+            var req = AsyncGPUReadback.Request(_vmGB2);
+            req.WaitForCompletion();
+            if (req.hasError) return null;
+            var data = req.GetData<ushort>();
+            if (data.Length < w * h * 4) return null;
+            var cov = new bool[w * h];
+            long lower = 0, upper = 0;
+            for (int i = 0; i < w * h; i++)
+            {
+                if (Mathf.HalfToFloat(data[i * 4 + 3]) != _vmLastStamp) continue;
+                cov[i] = true;
+                if (i < w * h / 2) lower++; else upper++;
+            }
+            // Row order: the gun is at the bottom of the screen, which GetPixels32 puts first. Readbacks of render
+            // textures are expected in that order already; flip if they are not.
+            bool flip = upper > lower;
+            if (flip)
+            {
+                var f = new bool[w * h];
+                for (int y = 0; y < h; y++) Array.Copy(cov, (h - 1 - y) * w, f, y * w, w);
+                cov = f;
+            }
+            if (_vmCoverageLogs++ < 2) Logger.LogInfo($"Viewmodel coverage readback: {lower + upper} px ({(lower + upper) * 100.0 / (w * h):F1}%), rows {(flip ? "flipped" : "as read")}");
+            return cov;
+        }
+
+        /// <summary>The strongest lights reaching the viewmodel at the camera (by the game's own falloff), with what decides how
+        /// bright they make the gun: distance, range, spot cone, culling mask (layer 13 = the game lights its own gun with
+        /// it), player-light flag.</summary>
+        private void LogViewmodelLights(Camera hud)
+        {
+            int vmMask = ViewmodelLightMask(hud);
+            var p = hud.transform.position;
+            var rows = new List<KeyValuePair<float, string>>();
+            for (int i = 0; i < _lightCount; i++)
+            {
+                uint m = _lightMasks[i];
+                if ((m & (uint)vmMask) == 0u) continue;
+                var l0 = _lightData[i * 4]; var l1 = _lightData[i * 4 + 1]; var l2 = _lightData[i * 4 + 2]; var l3 = _lightData[i * 4 + 3];
+                float game = 1f, d = 0f, cone = 1f;
+                if (l0.w != 0f)
+                {
+                    var toP = p - new Vector3(l0.x, l0.y, l0.z);
+                    d = toP.magnitude;
+                    float r = l0.w;
+                    game = 1f / (1f + 25f * d * d / (r * r)) * Mathf.Clamp01(2f - d / r);
+                    if (l3.x > -0.5f && d > 1e-4f) cone = Mathf.Clamp01((Vector3.Dot(toP / d, new Vector3(l2.x, l2.y, l2.z)) - l3.x) * l3.y);
+                }
+                float lum = 0.2126f * l1.x + 0.7152f * l1.y + 0.0722f * l1.z;
+                float s = lum * game * cone;
+                if (s < 0.02f) continue;
+                var l = _packedLights[i];
+                string name = !ReferenceEquals(l, null) && l != null ? Bench.GameControl.PathOf(l.transform) + $" [{l.type}, angle {(l.type == LightType.Spot ? l.spotAngle : 0f):F0}]" : "(virtual)";
+                rows.Add(new KeyValuePair<float, string>(s, $"{name}: colour x intensity {l1.x:F2},{l1.y:F2},{l1.z:F2} range {l0.w:F1} dist {d:F2} " +
+                    $"game falloff {game:F2} cone {cone:F2} mask 0x{m:X8}{(((m >> 13) & 1u) != 0u ? " (lights layer 13)" : "")} player {(l1.w > 0.5f ? 1 : 0)} fill {l3.z:F2}"));
+            }
+            if (rows.Count == 0) return;
+            _vmLightLogs++;
+            var sb = new StringBuilder($"Viewmodel lights at the camera (mask 0x{vmMask:X8}, mode {_vmTraceMode}):");
+            foreach (var r in rows.OrderByDescending(x => x.Key).Take(8)) sb.Append($"\n  {r.Key:F2} {r.Value}");
+            Logger.LogInfo(sb.ToString());
         }
     }
 }

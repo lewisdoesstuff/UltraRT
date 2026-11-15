@@ -9,6 +9,7 @@
 #pragma kernel Temporal
 #pragma kernel Atrous
 #pragma kernel Bounds
+#pragma kernel CopyVerts
 
 #define GROUP 8
 
@@ -36,7 +37,10 @@ float4 _Stamps;    // x this frame's stamp (written to _OutGeo.y), y last frame'
 // Fast response (docs/viewmodel.md): x 1 when lights appeared or disappeared this frame, y the test's sigma (standard errors
 // of the 3x3 mean; 0 = the old ratio test), z its relative tolerance, w the relative tolerance on light-set changes.
 float4 _Params2;
-float4 _Params3;   // x 3x3 history search when no bilinear tap matches (0 = off)
+float4 _Params3;   // x 3x3 history search when no bilinear tap matches (0 = off), y 1 = count into _VMStats
+// Bench statistics (motion noise, Scenario.MotionViewmodel): [0] viewmodel pixels with a history to look for, [1] found by
+// the bilinear taps, [2] found by the 3x3 search, [3] none (history rejected: depth or motion mismatch).
+RWStructuredBuffer<uint> _VMStats;
 
 float ViewDepth(float4 geo) { return dot(geo.xyz, _CamFwd.xyz); }
 uint2 PickPixel(uint2 h, float4 geo) { return h * 2u + kOrder[min((uint)geo.w - 1u, 3u)]; }
@@ -133,6 +137,13 @@ void Temporal(uint3 tid : SV_DispatchThreadID)
                 if (dd < best) { best = dd; bq = p; }
             }
             if (bq.x >= 0) { hL = _HistLight[bq]; hD = _HistDirect[bq]; hR = _HistRefl[bq]; wsum = 1.0; }
+            if (_Params3.y > 0.5 && bq.x >= 0) InterlockedAdd(_VMStats[2], 1u);
+        }
+        else if (_Params3.y > 0.5 && wsum > 1e-3) InterlockedAdd(_VMStats[1], 1u);
+        if (_Params3.y > 0.5)
+        {
+            InterlockedAdd(_VMStats[0], 1u);
+            if (wsum <= 1e-3) InterlockedAdd(_VMStats[3], 1u);
         }
     }
 
@@ -273,4 +284,18 @@ void Atrous(uint3 tid : SV_DispatchThreadID)
     _OutLight[id] = wL > 0.0 ? sL / wL : cL;
     _OutDirect[id] = wL > 0.0 ? sD / wL : cD;
     _OutRefl[id] = filterRefl && wR > 0.0 ? sR / wR : cR;
+}
+
+// Skinned motion (docs/viewmodel.md): after the G-buffer draws, a skinned renderer's vertex buffer (this frame's skinned
+// positions, Unity's raw buffer) is copied into the plugin's own buffer, which the next frame's G-buffer reads as last
+// frame's positions (ViewmodelGBuffer.shader, _VMPrevVerts).
+ByteAddressBuffer _CopySrc;
+RWByteAddressBuffer _CopyDst;
+uint _CopyWords;
+
+[numthreads(256, 1, 1)]
+void CopyVerts(uint3 tid : SV_DispatchThreadID)
+{
+    if (tid.x >= _CopyWords) return;
+    _CopyDst.Store(tid.x * 4u, _CopySrc.Load(tid.x * 4u));
 }

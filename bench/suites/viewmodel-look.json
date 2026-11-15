@@ -1,0 +1,23 @@
+{
+  "Name": "viewmodel-look",
+  "Scenarios": [
+    { "Name": "7-3 flashlight shadow", "Scene": "Level 7-3",
+      "Path": { "Type": "static", "Approach": "../recordings/late-7-3-flashlight-shadow.json", "Duration": 4,
+                "Areas": "../recordings/late-7-3-flashlight-shadow-areas.json" },
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight+plugin._vmNdlPow=1", "relight", "relight+plugin._vmDebug=2"], "Screenshots": [2] },
+    { "Name": "7-3 flashlight", "Scene": "Level 7-3",
+      "Path": { "Type": "static", "Approach": "../recordings/7-3-flashlight.json", "Duration": 4 },
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight+plugin._vmNdlPow=1", "relight", "relight+plugin._vmDebug=2"], "Screenshots": [2] },
+    { "Name": "1-1 start revolver", "Scene": "Level 1-1", "Weapon": 1,
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 3 },
+      "Effects": { "Kinds": ["revolver"], "Every": 0, "ShotDelay": 0.03 },
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight"], "Screenshots": [1.5] },
+    { "Name": "1-1 start revolver late", "Scene": "Level 1-1", "Weapon": 1,
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 3 },
+      "Effects": { "Kinds": ["revolver"], "Every": 0, "ShotDelay": 0.1 },
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight"], "Screenshots": [1.5] },
+    { "Name": "1-1 start", "Scene": "Level 1-1", "Weapon": 1,
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 3 },
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight+plugin._vmNdlPow=1", "relight", "relight+plugin._vmDebug=3"], "Screenshots": [1.5] }
+  ]
+}

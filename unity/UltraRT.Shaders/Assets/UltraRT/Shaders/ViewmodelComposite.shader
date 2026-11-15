@@ -139,6 +139,9 @@ Shader "UltraRT/ViewmodelComposite"
                 {
                     float3 l = _UltraRTLinear > 0.5 ? pow(max(lighting, 0.0), 1.0 / 2.2) : lighting; // UltraRTDisplayLighting
                     l = lerp(1.0, l, lit);
+                    // Exposure only: the world's area colour match gain (_UltraRTExposure[3]) is left out on purpose. It
+                    // corrects the tint of the area's surfaces, and the gun is lit by other light (7-3's red room gave
+                    // (0.89, 1.24, 1.12), which turned the flashlit gun cyan; docs/viewmodel.md).
                     float e = 1.0;
                     if (_UltraRTAutoExposure > 0.0)
                     {

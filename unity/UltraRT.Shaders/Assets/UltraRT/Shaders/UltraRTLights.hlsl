@@ -416,6 +416,11 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
             float k = _RelightLinearK > 0.0 ? _RelightLinearK : 0.003205; // (1/7.25)^2.2 * 0.5^2
             float phys = k * (r * r) / max(d2, 0.01) * window * window;
             phys = min(phys, pow(3.0 * game + 0.05, 2.2));
+#ifdef ULTRART_PLAYER_LIGHT_NDL_POW
+            // The includer's player-light shaping also keeps those lights at or under the game's own falloff (the gun:
+            // 7-3's flashlight 10 m behind the eye was 1.4x the game there).
+            if (l1.w > 0.5 && ULTRART_PLAYER_LIGHT_NDL_POW > 1.0) phys = min(phys, gameL);
+#endif
             gameL = lerp(gameL, phys, saturate(_Relight.x));
         }
         atten = gameL * pow(saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y), 2.2);
@@ -447,6 +452,12 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
     if (l3.z > 0.9) scale *= 1.0 - saturate(_Relight.y); // unshadowed fill light (0.75: unshadowed, not a fill)
     if (scale <= 0.0) return false;
     // Exposure and fill cut scale the light's (gamma) colour, so a light on its own keeps its brightness either way.
+#ifdef ULTRART_PLAYER_LIGHT_NDL_POW
+    // An includer may shape the cosine of the player's own lights (flag in l1.w) under linear transport
+    // (Viewmodel.raytrace: ndl^2.2, so after the composite's ^(1/2.2) the gun shades like the game's gamma-space Lambert;
+    // docs/viewmodel.md, "Player lights on the gun").
+    if (lin && l1.w > 0.5) ndl = pow(ndl, ULTRART_PLAYER_LIGHT_NDL_POW);
+#endif
     c = ToLight(l1.rgb * scale) * (atten * ndl);
     return true;
 }
