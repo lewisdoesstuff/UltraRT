@@ -110,6 +110,7 @@ namespace UltraRT
             public Vector3 AddedRootPos; // diagnostics: where the root was when the instance entered the RTAS
             public int SkinBase = -1, SkinVerts, SkinGen;
             public bool SkinPrevValid;
+            public Displaced Disp; // VERTEX_DISPLACEMENT: the displaced mesh copy (SceneProxies.Displaced.cs); its pose region is SkinBase
 
             // Runtime material changes (SceneProxies.Sync.cs): null for proxies that aren't synced (transparent, lava).
             public SyncState Sync;
@@ -240,6 +241,7 @@ namespace UltraRT
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}, lit albedo-as-emissive {LitAlbedoEmissionMaterials}), light fixtures {FixtureCount}");
             LogMaterialClasses();
+            LogDisplacementInventory();
             LogTransparents();
             LogMirrorSurfaces();
             _log.LogInfo($"Material maps ({MaterialMaps.Settings}): {Maps.Bound} proxy materials bound, {Maps.Missing} without maps, " +
@@ -452,6 +454,7 @@ namespace UltraRT
                     if (AddLateStaticSource(r, mesh)) stats.LateStatic++;
                     return;
                 }
+                NoteUndisplaced(r, mats, staticBatch: true);
                 if (!batches.TryGetValue(mesh, out var list)) batches[mesh] = list = new List<MeshRenderer>();
                 list.Add(r);
                 stats.Batched++;
@@ -478,6 +481,7 @@ namespace UltraRT
             if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
             var mats = r.sharedMaterials;
             if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
+            NoteUndisplaced(r, mats, staticBatch: false);
             var proxy = CreateSkinnedProxy(r, mats, player);
             AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
             TrackSync(_dynamic[_dynamic.Count - 1], mats, r.sharedMesh);
@@ -554,6 +558,7 @@ namespace UltraRT
                 Mask = mask ?? (mats.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask),
             };
             _dynamic.Add(entry);
+            TryDisplace(entry, mats); // VERTEX_DISPLACEMENT sources: a displaced mesh copy (SceneProxies.Displaced.cs)
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
             tracker.Owner = this;
             tracker.Entry = entry;
@@ -700,6 +705,7 @@ namespace UltraRT
                     Motion.SetIdentity(d.Slot);
                     d.Moved = false;
                 }
+                if (d.Disp != null) DisplacedMotion(d); // rigid motion plus the previous displaced pose
             }
 
             long tPoll = Perf.Now;
@@ -747,7 +753,7 @@ namespace UltraRT
                 CountTransparent(d, true);
                 d.Moved = false;
                 d.SkinPrevValid = false;
-                if (d.SkinnedProxy != null && d.SkinBase < 0) d.SkinBase = Motion.AllocSkin(d.SkinVerts);
+                if ((d.SkinnedProxy != null || d.Disp != null) && d.SkinBase < 0) d.SkinBase = Motion.AllocSkin(d.SkinVerts);
                 Motion.SetIdentity(d.Slot);
             }
             else
@@ -1205,6 +1211,7 @@ namespace UltraRT
             DisposeTransparents();
             DisposeLava();
             DisposeSync();
+            DisposeDisplaced();
             _dynamic.Clear();
             _active.Clear();
             _dirty.Clear();

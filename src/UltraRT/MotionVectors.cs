@@ -15,6 +15,8 @@ namespace UltraRT
     ///  - Previous skinned pose: after each trace, every active skinned proxy's positions are copied from its skinned
     ///    vertex buffer into one shared buffer <c>_UltraRTPrevSkin</c> (MotionCopy.compute, one small dispatch each).
     ///    Regions are recycled per vertex count when a proxy leaves the RTAS.
+    ///  - Displaced proxies (VERTEX_DISPLACEMENT, SceneProxies.Displaced.cs) own regions of the same buffer: Displace.compute
+    ///    copies the old pose out before writing the new one, so they need no copy after the trace.
     /// Both buffers are global shader properties: hit shaders take resources from globals when the material lacks them.
     /// </summary>
     internal sealed class MotionVectors : IDisposable
@@ -52,6 +54,8 @@ namespace UltraRT
         public bool CanCopySkin => _kCopy >= 0 && Enabled;
         public int SlotCount => _slotCount;
         public int SkinVertices => _skinUsed;
+        /// <summary>The previous-pose buffer itself (Displace.compute writes displaced proxies' previous poses into it).</summary>
+        public ComputeBuffer PoseBuffer => _skin;
         public int CopiesLastFrame { get; private set; }
         /// <summary>Accumulated by SceneProxies (CPU ticks spent on motion bookkeeping, rigid instance updates), read and reset by the plugin's log.</summary>
         public long Ticks;

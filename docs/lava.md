@@ -126,7 +126,7 @@ Relight and hybrid stay within about 10 %. pt-dn 0-5 is +50 % in absolute luma. 
 
 - **Static-batched lava** (8-3: two lava cubes and the acid pool) is skipped, like static-batched water and glass. It would need StaticGroups support.
 - `Lava Blue` (5-2) uses a particle shader and is not handled.
-- VERTEX_DISPLACEMENT waves are not reproduced: the RT lava is the flat mesh.
+- VERTEX_DISPLACEMENT waves are reproduced on the traced lava surface since 2026-11-15 (docs/scene-proxies.md, "Vertex displacement"), but the emitter table keeps the rest-pose triangles (amplitude 0.25: lights sit up to about 0.1 m off the surface). Static-batched lava and acid (8-3) keep the rest pose.
 - Acid's lit main colour is not an emitter: in the game it is lit by the level's lights. Acid was not checked in game (3-1's generated pose missed it).
 - `LavaMagenta` in 8-4 is Geryon's projectile charge spheres (moving), not a pool. They are traced like any lava renderer.
 - No lighting pattern from the scrolling texture (see Emission). The lava's light is steady.

@@ -1,0 +1,56 @@
+{
+  "Name": "displace-perf",
+  "Scenarios": [
+    {
+      "Name": "3-2 moving walls",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-moving-walls.json",
+        "Duration": 16,
+        "Areas": "../recordings/late-3-2-moving-walls-areas.json"
+      },
+      "Modes": [
+        "relight+plugin._displaceRange=-1",
+        "relight",
+        "pathtrace+plugin._displaceRange=-1",
+        "pathtrace"
+      ],
+      "Segment": 2
+    },
+    {
+      "Name": "3-2 eye",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-eye.json",
+        "Duration": 16,
+        "Areas": "../recordings/late-3-2-eye-areas.json"
+      },
+      "Modes": [
+        "relight+plugin._displaceRange=-1",
+        "relight",
+        "pathtrace+plugin._displaceRange=-1",
+        "pathtrace"
+      ],
+      "Segment": 2
+    },
+    {
+      "Name": "3-1 noisy room",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/3-1-noisy-room.json",
+        "Duration": 16,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "relight+plugin._displaceRange=-1",
+        "relight",
+        "pathtrace+plugin._displaceRange=-1",
+        "pathtrace"
+      ],
+      "Segment": 2
+    }
+  ]
+}

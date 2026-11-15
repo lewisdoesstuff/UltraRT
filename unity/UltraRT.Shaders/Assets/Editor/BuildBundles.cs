@@ -37,6 +37,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/CacheUpdate.raytrace",
                     "Assets/UltraRT/Shaders/Composite.shader",
                     "Assets/UltraRT/Shaders/DebugView.raytrace",
+                    "Assets/UltraRT/Shaders/Displace.compute",
                     "Assets/UltraRT/Shaders/Denoise.compute",
                     "Assets/UltraRT/Shaders/EffectProxy.shader",
                     "Assets/UltraRT/Shaders/Exposure.compute",

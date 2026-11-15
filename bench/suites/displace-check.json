@@ -1,0 +1,91 @@
+{
+  "Name": "displace-check",
+  "Scenarios": [
+    {
+      "Name": "3-2 moving walls",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-moving-walls.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-3-2-moving-walls-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+plugin._displaceRange=-1",
+        "relight+up.debugView=1",
+        "pathtrace",
+        "pathtrace+plugin._displaceRange=-1"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "3-2 eye",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-eye.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-3-2-eye-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+plugin._displaceRange=-1",
+        "relight+up.debugView=1",
+        "pathtrace",
+        "pathtrace+plugin._displaceRange=-1"
+      ],
+      "Screenshots": [
+        2
+      ]
+    },
+    {
+      "Name": "3-2 walls motion",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-moving-walls.json",
+        "Duration": 3,
+        "Areas": "../recordings/late-3-2-moving-walls-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight"
+      ],
+      "Screenshots": [
+        1.5
+      ],
+      "Motion": 96,
+      "MotionModes": [
+        "off",
+        "relight+vol=0",
+        "relight+vol=0+plugin._displaceMotion=0",
+        "relight+vol=0+plugin._displaceRange=-1"
+      ]
+    },
+    {
+      "Name": "3-1 noisy room",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/3-1-noisy-room.json",
+        "Duration": 4,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+plugin._displaceRange=-1",
+        "relight+up.debugView=1",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ]
+    }
+  ]
+}

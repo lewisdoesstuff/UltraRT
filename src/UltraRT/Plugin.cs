@@ -205,6 +205,8 @@ namespace UltraRT
                     case "-ultrart-dumpverts": SceneProxies.DumpAtlasVertices = true; break;
                     case "-ultrart-skinned-visible": SceneProxies.SkinnedProxiesVisible = true; break;
                     case "-ultrart-skinned-noupdate": SceneProxies.SkinnedTransformUpdates = false; break;
+                    case "-ultrart-nodisplace": SceneProxies.DisplacementBuild = false; break; // VERTEX_DISPLACEMENT geometry keeps its rest pose
+                    case "-ultrart-displace-range": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _displaceRange); break; // m; < 0: original meshes (displacement off at run time)
                     case "-ultrart-spawn-test": _spawnTest = true; break;
                     case "-ultrart-gputimer": _useGpuTimer = true; break;
                     case "-ultrart-nostatic": SceneProxies.SkipStaticBatches = true; break;
@@ -329,6 +331,9 @@ namespace UltraRT
             else if (upSettings != null) _upsampler.Settings = upSettings;
             _motionCopy = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "MotionCopy");
             if (_motionCopy == null) Logger.LogWarning("MotionCopy compute shader missing from bundle: skinned meshes get root motion only");
+            _displaceCs = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Displace");
+            if (_displaceCs == null) Logger.LogWarning("Displace compute shader missing from bundle: VERTEX_DISPLACEMENT geometry traces its rest pose");
+            _proxies?.SetDisplaceShader(_displaceCs);
             if (settings != null) _denoiser.Settings = settings;
             _reflFilter?.Dispose();
             _reflFilter = new ReflectionFilter(reflections);
@@ -469,6 +474,7 @@ namespace UltraRT
                 var cam = playerCam != null ? playerCam : Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
                 Logger.LogInfo($"RT layer mask from {(cam != null ? Bench.GameControl.PathOf(cam.transform) : "none")}: 0x{(cam != null ? cam.cullingMask : ~0):X8}");
                 _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy);
+                _proxies.SetDisplaceShader(_displaceCs);
                 _proxies.Build();
                 _emissive.Build(_proxies);
                 Patches.PendingSpawns.Clear();
@@ -729,6 +735,11 @@ namespace UltraRT
         private Denoiser _denoiserDirect;          // hybrid: filters ReSTIR's (noisy) shadowed direct light
         private ComputeShader _unpackHybrid;
         private ComputeShader _motionCopy; // MotionCopy.compute: previous skinned poses for motion vectors
+        private ComputeShader _displaceCs; // Displace.compute: the game's VERTEX_DISPLACEMENT for the RT scene (SceneProxies.Displaced.cs)
+        /// <summary>Runtime switch for vertex displacement in the RT scene (bench variant plugin._displace=0: rest pose, as before).</summary>
+        private bool _displace = true;
+        private float _displaceRange = 40f; // bench variant plugin._displaceRange: copies beyond this (m) freeze (SceneProxies.DisplacementRange)
+        private bool _displaceMotion = true; // bench variant plugin._displaceMotion=0: displaced proxies without per-vertex motion vectors
         private RenderTexture _gShadowed, _denoisedDirectOut;
         private float _shadowBias = 0.1f; // -ultrart-shadowbias: how much of our light a surface needs before RT shadows apply fully
         private float _giStrength = 0.35f;
@@ -1184,6 +1195,10 @@ namespace UltraRT
                 _proxies.SyncSwaps = _proxies.SyncStaticSwaps = _proxies.SyncBlockUpdates = _proxies.SyncPropertyUpdates = 0;
                 _proxies.SyncTicks = _proxies.SyncSwapTicks = _proxies.SyncHotTicks = _proxies.SyncCopyTicks = _proxies.SyncStaticTicks = 0;
                 if (_proxies.PlayerProxiesTotal > 0) Logger.LogInfo(_proxies.DescribePlayerModel(_camera.transform.position));
+                if (_proxies.DisplacedCount > 0)
+                    Logger.LogInfo($"Vertex displacement ({(_displace ? "on" : "off")}): {_proxies.DisplacedCount} displaced proxies, {(double)_proxies.DisplaceDispatches / _cpuFrames:F1} dispatches/frame, " +
+                                   $"{(double)_proxies.DisplaceVertices / _cpuFrames:F0} vertices/frame, {(double)_proxies.DisplaceFrozen / _cpuFrames:F1} frozen/frame (range {_displaceRange} m, {_proxies.DisplaceSwitches} switches), record CPU {_proxies.DisplaceTicks * Perf.TickMs / _cpuFrames:F4} ms/frame");
+                _proxies.DisplaceDispatches = 0; _proxies.DisplaceVertices = 0; _proxies.DisplaceFrozen = 0; _proxies.DisplaceSwitches = 0; _proxies.DisplaceTicks = 0;
                 _proxies.DirtyEvaluations = 0; _proxies.DirtyTicks = _proxies.ActiveTicks = _proxies.PollTicks = 0;
                 _emissive.AliasBuilds = 0; _emissive.AliasTicks = 0; _emissive.ActiveUpdates = 0; _emissive.PendingTicks = _emissive.VisibilityTicks = _emissive.TransformTicks = 0;
                 _proxies.DeferredMade = 0; _proxies.DeferredMs = 0; _proxies.DeferredMaxQueue = 0; _proxies.HierarchiesAdded = 0; Patches.SpawnCount = 0;
@@ -1203,6 +1218,16 @@ namespace UltraRT
             _cmd.Clear();
             _gpu?.Begin(_cmd, SlotTotal);
             _cmd.BeginSample(SampleBuild);
+            if (_proxies.DisplacedCount > 0)
+            {
+                // The game's vertex displacement into the displaced proxies' meshes (their BLAS is rebuilt from them below).
+                SceneProxies.DisplacementActive = _displace;
+                SceneProxies.DisplacementMotion = _displaceMotion;
+                SceneProxies.DisplacementRange = _displaceRange;
+                _gpu?.Begin(_cmd, SlotDisplace);
+                _proxies.RecordDisplacement(_cmd, _camera.transform.position);
+                _gpu?.End(_cmd, SlotDisplace);
+            }
             _gpu?.Begin(_cmd, SlotRtas);
             _cmd.BuildRayTracingAccelerationStructure(_proxies.Rtas);
             _gpu?.End(_cmd, SlotRtas);
@@ -1437,8 +1462,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 21; // 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotCount = 22; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;
