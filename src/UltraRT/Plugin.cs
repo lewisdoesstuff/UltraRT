@@ -118,6 +118,7 @@ namespace UltraRT
             ParseLavaArgs();
             ParseViewmodelArgs();
             ParseVfxArgs(); // screen-space effects (Plugin.Vfx.cs)
+            ParseWetArgs(); // wet surfaces (Plugin.Wet.cs)
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);
 
@@ -151,6 +152,7 @@ namespace UltraRT
             if (!_noHook)
             {
                 Patches.Apply(Info.Metadata.GUID);
+                Logger.LogInfo(BloodWet.Hooked ? "Wet blood: stain hook installed (BloodsplatterManager.CreateBloodstain)" : $"Wet blood: stain hook missing ({BloodWet.HookError}): stains stay dry");
                 Logger.LogInfo(Patches.GenericInstantiateHooked ? "Instantiate hooks installed (incl. generic Instantiate<T>)"
                     : $"Instantiate hooks installed; generic Instantiate<T> not hooked ({Patches.GenericInstantiateError}), the periodic rescan covers it");
                 Logger.LogInfo(Patches.PortalClonesHooked ? "Portal clone hook installed (PortalAwareRenderer.CreateClone)" : $"Portal clones not hooked: {Patches.PortalClonesError}");
@@ -330,6 +332,7 @@ namespace UltraRT
             LoadDlssShader(bundle);
             LoadEffectShaders(shaders);
             LoadVfxShaders(bundle);
+            LoadWetShaders(bundle);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -1128,6 +1131,7 @@ namespace UltraRT
             long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
+            UpdateWet();  // rain wetness (Plugin.Wet.cs)
             Perf.Add(Perf.Sec.Emissive, te);
             _cpuMs += cpu.Elapsed.TotalMilliseconds;
             _cpuFrames++;
@@ -1225,6 +1229,7 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 BindTransparents(shader, denoised); // water and glass (Plugin.Transparent.cs)
+                BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
                 BindPathTrace(shader, full, rr);
                 PathTraceLightsEnd();
             }

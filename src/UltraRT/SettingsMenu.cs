@@ -176,6 +176,12 @@ namespace UltraRT
             m.Float("ScreenEffects", "ShockwaveStrength", "Shockwave strength", 0f, 3f, 2, () => _vfxSettings.shockAmplitude / VfxSettings.ShockAmplitudeDefault, v => _vfxSettings.shockAmplitude = v * VfxSettings.ShockAmplitudeDefault, "-ultrart-shockwave-strength");
             m.Bool("ScreenEffects", "Underwater", "Underwater shafts, fog and distortion", () => _vfxSettings.underwater, v => _vfxSettings.underwater = v, "-ultrart-underwater");
 
+            m.Bool("Wet", "Rain", "Rain wetness and puddles", () => _wetSettings.rain, v => _wetSettings.rain = v, "-ultrart-wet-rain");
+            m.Float("Wet", "RainWetness", "Rain wetness", 0f, 1f, 2, () => _wetSettings.rainWetness, v => _wetSettings.rainWetness = v, "-ultrart-wet-rain-strength");
+            m.Bool("Wet", "Blood", "Wet blood (fresh stains are glossy)", () => _wetSettings.blood, v => _wetSettings.blood = v, "-ultrart-wet-blood");
+            m.Float("Wet", "BloodDryTime", "Blood drying time (s)", 5f, 180f, 0, () => _wetSettings.bloodDryTime, v => _wetSettings.bloodDryTime = v, "-ultrart-wet-blood-dry");
+            m.Float("Wet", "Puddles", "Puddles", 0f, 1f, 2, () => _wetSettings.puddles, v => _wetSettings.puddles = v, "-ultrart-wet-puddles");
+
             m.Action("Reload shaders  [F9]", ReloadShaders);
             m.Keybinds = new[]
             {

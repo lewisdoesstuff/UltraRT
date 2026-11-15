@@ -243,6 +243,13 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, inout uint rng)
 
 // full: the pathtrace mode (RayGenPT). A compile-time constant at both call sites, so RayGen (relight and every other
 // mode) compiles to exactly what it was.
+// Wet blood (docs/vfx.md): the wetness of the fresh blood stains under each screen pixel (BloodWet.shader), read at the
+// primary hit. x: strength (0 = off, the texture is a dummy), yz: traced size / visible size (guard band), w: darkening.
+Texture2D<float> _BloodWetTex;
+SamplerState my_linear_clamp_sampler;
+float4 _BloodWetParams;
+float4 _BloodWetGloss; // x roughness, y f0, z specular weight of fully wet blood
+
 void RayGenBody(bool full)
 {
     uint2 id = DispatchRaysIndex().xy;
@@ -402,6 +409,28 @@ void RayGenBody(bool full)
             g_PlayerF = saturate(1.0 - p.alpha * dot(g_PlayerBlocked, lw) / max(dot(lighting, lw), 1e-6));
         }
         albedo = p.albedo;
+        if (_BloodWetParams.x > 0.0 && path.hops == 0u && p.alpha > 0.5)
+        {
+            // Fresh blood on this pixel: a glossy, darker film over the surface (a dielectric coat, as rain; REFLECTION
+            // materials keep the game's model). The game multiplies the stain's red over the result afterwards.
+            float2 suv = ndc * _BloodWetParams.yz * 0.5 + 0.5;
+            float bw = all(suv > 0.0) && all(suv < 1.0) ? _BloodWetTex.SampleLevel(my_linear_clamp_sampler, suv, 0) * _BloodWetParams.x : 0.0;
+            if (bw > 0.0)
+            {
+                SurfaceMaterial bm = MaterialFromPayload(p.material, p.flags);
+                albedo *= 1.0 - _BloodWetParams.w * bw;
+                if (bm.mode != ULTRART_REFL_BLEND && bm.mode != ULTRART_REFL_ADD)
+                {
+                    if (bm.mode == ULTRART_REFL_NONE) { bm.roughness = 1.0; bm.weight = 0.0; bm.metalness = 0.0; bm.f0 = 0.0; }
+                    float nonMetal = 1.0 - bm.metalness;
+                    bm.roughness = lerp(bm.roughness, min(bm.roughness, _BloodWetGloss.x), bw);
+                    bm.f0 = max(bm.f0, _BloodWetGloss.y * bw);
+                    bm.weight = max(bm.weight, _BloodWetGloss.z * bw * nonMetal);
+                    p.material = PackMaterialWord(bm.roughness, bm.metalness, bm.f0, bm.weight);
+                    p.flags = (p.flags & ~(3u << 1)) | (ULTRART_REFL_SPECULAR << 1);
+                }
+            }
+        }
         emission = PayloadEmission(p) * _EmissionScale;
         float3 shown = LightToDisplay(lighting); // = lighting unless linear transport (_Radiance keeps lighting space)
         c = albedo * shown + emission;
