@@ -36,6 +36,8 @@ namespace UltraRT
         private readonly RenderTargetIdentifier[] _cameraTargets = new RenderTargetIdentifier[3];
 
         public RenderTexture Mask => _mask;
+        /// <summary>Per slot: the time the stain was made (the game's clock), for the stains in reflections (Plugin.Stains.cs).</summary>
+        public ComputeBuffer BirthBuffer => _birthBuffer;
         public int FreshStains { get; private set; }
         public static bool Hooked;
         public static string HookError;

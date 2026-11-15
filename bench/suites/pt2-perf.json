@@ -1,0 +1,153 @@
+{
+ "Name": "pt2-perf",
+ "Scenarios": [
+  {
+   "Name": "warm-up",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.remodulate=0",
+    "pathtrace+ptx.denoiser=UltraRT",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333+ptx.remodulate=0",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "6-2 start",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/6-2-start.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.remodulate=0",
+    "pathtrace+ptx.denoiser=UltraRT",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333+ptx.remodulate=0",
+    "pathtrace+ptx.denoiser=UltraRT+ptx.scale=0.3333"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "0-1 metal stains",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "relight+wet.stainReflections=0",
+    "relight",
+    "pathtrace+wet.stainReflections=0",
+    "pathtrace"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20,
+   "Effects": {
+    "Kinds": [
+     "bloodstain"
+    ],
+    "Every": 0.5,
+    "Distance": 5,
+    "ShotDelay": 0.5
+   }
+  },
+  {
+   "Name": "8-3 portals",
+   "Scene": "Level 8-3",
+   "RandomPicks": {
+    "False Starts": "1-1"
+   },
+   "Path": {
+    "Type": "static",
+    "Yaw": 631.03,
+    "Pitch": -4.38,
+    "Approach": "../recordings/8-3-approach.json",
+    "ApproachSpeed": 2,
+    "Duration": 10
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "hybrid"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "8-3 b",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-b.json",
+    "Duration": 10
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "hybrid"
+   ],
+   "Screenshots": [],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  },
+  {
+   "Name": "8-3 route relight",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/8-3-b.json"
+   },
+   "KillEnemies": true,
+   "Modes": [
+    "relight"
+   ]
+  },
+  {
+   "Name": "8-3 route pathtrace",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/8-3-b.json"
+   },
+   "KillEnemies": true,
+   "Modes": [
+    "pathtrace"
+   ]
+  }
+ ]
+}

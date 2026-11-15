@@ -8,6 +8,8 @@
 //                  depth (the composite keeps the game's pixel elsewhere, as with the temporal upsampler).
 //   ExposureInput  trace res: what relight's auto exposure meters (the lit part of the RR result, unexposed).
 //   Demod          trace res, before Prepare: the demodulation colour (see "Remodulation").
+//   RemodFinish    screen res, UltraRT's denoiser with remodulation (no RR; docs/path-tracing.md): the upsampled lighting
+//                  (composite / D) x the upsampled D, tone mapped: the temporal upsampler's output for the composite.
 //
 // Remodulation (_RRParams2.x; docs/dlss.md, "Remodulation"). RR reconstructs texture detail from a third to a half of
 // the screen's pixels, which blurs the game's point-sampled texels. So RR is given the image divided by what each
@@ -28,6 +30,7 @@
 #pragma kernel Finish
 #pragma kernel ExposureInput
 #pragma kernel Demod
+#pragma kernel RemodFinish
 
 #include "UltraRTMaterial.hlsl"
 #include "UltraRTCommon.hlsl" // UnpackMotion
@@ -245,6 +248,22 @@ void Finish(uint3 id : SV_DispatchThreadID)
         _BloomOut[p] = float4(min(b, 64.0), 1.0);
     }
     _Final[p] = float4(c, a);
+}
+
+Texture2D<float4> _RemodX; // screen res: the upsampled composite / D (pre tone curve), a = upsampler weight (0: no RT surface)
+
+[numthreads(8, 8, 1)]
+void RemodFinish(uint3 id : SV_DispatchThreadID)
+{
+    int2 p = (int2)id.xy;
+    if (any(p >= (int2)_OutDim.xy)) return;
+    float4 x = _RemodX[p];
+    if (x.a <= 0.0) { _Final[p] = 0; return; }
+    float4 dh = _DemodHi[p];
+    // Where the D upsampler has nothing yet: the trace sample nearest the pixel centre.
+    int2 k = clamp((int2)floor(((float2)p + 0.5) * _TraceMap.xy + _TraceMap.zw - _Jitter.xy), 0, (int2)_Dim.xy - 1);
+    float3 d = dh.a > 0.0 ? dh.rgb : _DemodTex[k].rgb;
+    _Final[p] = float4(saturate(UltraRTToneMap(max(x.rgb, 0.0) * d)), x.a);
 }
 
 [numthreads(8, 8, 1)]

@@ -1,0 +1,31 @@
+{
+ "Name": "pt2-h",
+ "Scenarios": [
+  {
+   "Name": "0-1 first pt own",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 5
+   },
+   "Modes": [
+    "relight",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Segment": 2.5
+  },
+  {
+   "Name": "0-1 first rr",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 5
+   },
+   "Modes": [
+    "relight",
+    "pathtrace"
+   ],
+   "Segment": 2.5
+  }
+ ]
+}

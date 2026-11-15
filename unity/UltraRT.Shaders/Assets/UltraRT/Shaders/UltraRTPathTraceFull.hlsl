@@ -15,7 +15,8 @@
 // is on and its cell is valid; that is the only place the cache enters a path.
 //
 // Needs, from the includer: Rand, CosineHemisphere, ReflectionDirection, TraceScene, DirectOne, SkyDirect,
-// SkyMissWeight, CacheQueryTotal, EffectsAlong, SpecularTerms, _ReflParams, _ReflMaxRadiance, _Ambient, _BounceAmbient, _EmissionScale.
+// SkyMissWeight, CacheQueryTotal, EffectsAlong, StainTint, SpecularTerms, _ReflParams, _ReflMaxRadiance, _Ambient, _BounceAmbient,
+// _EmissionScale.
 
 // x paths per pixel (1-4), y bounce rays per path (1-4), z radiance-cache tail at the last vertex (0/1),
 // w Russian roulette: paths whose throughput falls below this survive in proportion (0 = off)
@@ -102,11 +103,13 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces
         // The surface: a diffuse part (albedo x keep) and, on glossy and REFLECTION materials, the specular lobe the
         // composite adds at primary hits. The last vertex is all diffuse: its lobe would need one more segment.
         SurfaceMaterial mat = MaterialFromPayload(h.material, h.flags);
+        // Seen along a specular segment (a reflection): the game's blood stains, which only its camera view draws.
+        float3 albedo = specular ? h.albedo * StainTint(hp, hn) : h.albedo;
         float3 specW = 0;
         float keep = 1.0;
         if (specLobes && !last && mat.mode != ULTRART_REFL_NONE)
-            SpecularTerms(mat, h.albedo, saturate(dot(hn, -r.Direction)), _ReflParams.yz, false, specW, keep);
-        float3 diffuse = ToLight(h.albedo * keep);
+            SpecularTerms(mat, albedo, saturate(dot(hn, -r.Direction)), _ReflParams.yz, false, specW, keep);
+        float3 diffuse = ToLight(albedo * keep);
         float lit = h.alpha; // 0 = fullbright: shows its albedo whatever the light, and reflects none
 
         float3 light;

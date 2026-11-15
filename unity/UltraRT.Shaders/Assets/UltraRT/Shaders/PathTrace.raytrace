@@ -104,6 +104,7 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 #include "UltraRTCache.hlsl" // radiance cache lookups (read-only: no UAVs)
 #include "UltraRTSky.hlsl"   // sky radiance and sky light sampling (SRVs only)
 #include "UltraRTEffects.hlsl" // glowing effects along a specular ray (EffectsAlong)
+#include "UltraRTStains.hlsl"  // blood stains at reflection hits (StainTint)
 
 // The game's lighting at a point: same lights and falloff, but no shadows (the game has none) and its full ambient.
 // Used as the denominator of the ratio composite: game colour * (RT lighting / game lighting).
@@ -189,7 +190,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
         float3 hp = r.Origin + r.Direction * h.t;
         float footprint = ht * spread + (t + ht) * pixelAngle;
         float3 hitLight = ReflectionHitLight(hp, h, footprint, rng);
-        c = PayloadEmission(h) * _EmissionScale + h.albedo * lerp(1.0, LightToDisplay(hitLight), h.alpha);
+        c = PayloadEmission(h) * _EmissionScale + h.albedo * StainTint(hp, h.normal) * lerp(1.0, LightToDisplay(hitLight), h.alpha);
     }
     // Fire, explosions, flashes and beams in front of the hit (the last segment after portals), added as the game blends them.
     c += EffectsAlong(r.Origin, r.Direction, h.t < 0.0 ? 1.0e4 : h.t) * (glossy ? EffectLobeWeight(sqrt(0.5 * spread)) : 1.0);
@@ -432,6 +433,7 @@ void RayGenBody(bool full)
             }
         }
         emission = PayloadEmission(p) * _EmissionScale;
+        if (_StainParams.x > 1.5) { float sw; if (StainAt(pos, n, sw) > 0.0) emission += float3(0.0, 2.0, 0.0); } // debug: the lookup at camera hits (green), to line up with the game's decals
         float3 shown = LightToDisplay(lighting); // = lighting unless linear transport (_Radiance keeps lighting space)
         c = albedo * shown + emission;
 
