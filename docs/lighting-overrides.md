@@ -114,6 +114,10 @@ centre.
   sizes (mostly the incoherent soft-shadow rays). CPU (`lights` section): 0.084 against 0.060 ms per frame, plus a
   one-off ~6 ms frame the first time a level's overrides are resolved (JIT and the per-light lookup cache).
 
+  These run-time on/off comparisons use the same compiled shaders both ways, so they could not see that the area-light
+  code itself (compiled into every light evaluation and shadow ray) cost ~1.1 ms of relight dispatch in every level;
+  fixed on branch t3/perf-1440p (docs/performance.md, "The light-overrides merge regression").
+
 ## In-game editor
 
 **Insert** toggles it (free key; Ctrl+Insert runs the classifier). Off during benchmarks. Numpad while it is open:

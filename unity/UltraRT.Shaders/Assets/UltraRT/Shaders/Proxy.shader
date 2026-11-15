@@ -489,7 +489,9 @@ Shader "UltraRT/Proxy"
                 // Per-texel detail: perturbed shading normal and roughness. Primary rays also return the vertex normal
                 // (packed in `primitive`) for the hybrid shadow ratio's denominator (the game lights with it).
                 float4 detail;
-                bool hasDetail = wantDetail && DetailSample(texUV, detail);
+                detail = 0;
+                bool hasDetail = false;
+                if (wantDetail) hasDetail = DetailSample(texUV, detail); // not &&: HLSL 2018 doesn't short-circuit (a texture read per hit)
                 float3 nVertex = n;
                 if (hasDetail)
                 {
@@ -510,9 +512,8 @@ Shader "UltraRT/Proxy"
                     // ULTRAKILL/Master (and Unity's Standard) sample the emission map at the main texture's uv
                     // (uv0 * _MainTex_ST), not with _EmissiveTex_ST: materials that share one texture and pick a band of it
                     // by _MainTex offset (0-2's FinalFrameL 2/3 strips) otherwise glow one band off.
-                    float3 e = _UseAlbedoAsEmissive > 0.5
-                        ? albedo.rgb
-                        : _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, 0).rgb;
+                    float3 e = albedo.rgb;
+                    if (_UseAlbedoAsEmissive < 0.5) e = _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, 0).rgb; // not ?: (both sides run)
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                     if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
                 }
@@ -537,7 +538,8 @@ Shader "UltraRT/Proxy"
                 p.instance = InstanceIndex();
                 p.uvHalf = f32tof16(uv.x) | (f32tof16(uv.y) << 16);
                 p.primitive = hasDetail && wantMotion ? PackOct24(nVertex) : PrimitiveIndex();
-                p.motion = wantMotion ? HitMotion(tri, b) : 0u;
+                p.motion = 0u;
+                if (wantMotion) p.motion = HitMotion(tri, b); // not ?: (both sides run in HLSL 2018: motion buffers read on every hit)
 
                 // Reflection material: constant per proxy material, or the secondary set on VERTEX_BLENDING surfaces.
                 bool second = _Secondary > 0.5 && blendWeight < 0.5;
@@ -589,6 +591,59 @@ Shader "UltraRT/Proxy"
                     p.primitive = (p.primitive & 0xFFFFFFu) | (Unorm8(_GameRefl.z) << 24);
                     p.flags |= ULTRART_FLAG_GAMECUBE;
                 }
+            }
+            ENDHLSL
+        }
+
+        // Visibility-only dispatches (Volumetrics.raytrace: shadow rays with SKIP_CLOSEST_HIT): the alpha test alone, as the
+        // UltraRTHit pass's any-hit does it (SampleAlbedo's alpha). Unity rebuilds the shader table at every DispatchRays and
+        // binds each record's material resources; a pass that uses three of them makes that much cheaper on the render
+        // thread (docs/performance.md, "Render thread").
+        Pass
+        {
+            Name "UltraRTShadow"
+            Tags { "LightMode" = "RayTracing" }
+
+            HLSLPROGRAM
+            #pragma raytracing UltraRTShadow
+
+            #include "UnityRayTracingMeshUtils.cginc"
+            #include "UltraRTCommon.hlsl"
+
+            Texture2D _MainTex;
+            float4 _MainTex_ST;
+            Texture2D _BlendTex;
+            SamplerState my_point_repeat_sampler;
+            float4 _Color;
+            float _Cutoff;
+            float _AtlasMode;
+            float _AlphaTest;
+
+            [shader("anyhit")]
+            void AnyHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
+            {
+                if (_AlphaTest < 0.5) return;
+                uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
+                float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
+                float2 uv = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0) * b.x
+                          + UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0) * b.y
+                          + UnityRayTracingFetchVertexAttribute2(tri.z, kVertexAttributeTexCoord0) * b.z;
+                float a;
+                if (_AtlasMode > 0.5)
+                {
+                    float2 f = frac(uv);
+                    float4 rect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord1);
+                    a = _MainTex.SampleLevel(my_point_repeat_sampler, lerp(rect.xy, rect.zw, f), 0).a;
+                    float nw = abs(UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeNormal).w) * b.x
+                             + abs(UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeNormal).w) * b.y
+                             + abs(UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeNormal).w) * b.z;
+                    float blendW = saturate(nw - 1.0);
+                    float4 blendRect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord2);
+                    if (any(blendRect != 0) && blendW < 0.999)
+                        a = lerp(_BlendTex.SampleLevel(my_point_repeat_sampler, lerp(blendRect.xy, blendRect.zw, f), 0).a, a, blendW);
+                }
+                else a = _MainTex.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0).a;
+                if (a * _Color.a < _Cutoff) IgnoreHit();
             }
             ENDHLSL
         }

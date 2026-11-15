@@ -149,8 +149,9 @@ float3 UnshadowedAll(float3 p, float3 n, uint layer)
 // _GIStrength, like the bounce it adds to the game's colour.
 float3 ReflectionHitLight(float3 hp, RayPayload h, float footprint, inout uint rng)
 {
-    float3 total, indirect;
-    bool cached = _ReflCache.x > 0.5 && CacheLookup(hp, h.normal, total, indirect);
+    float3 total = 0, indirect = 0;
+    bool cached = false;
+    if (_ReflCache.x > 0.5) cached = CacheLookup(hp, h.normal, total, indirect); // not &&: HLSL 2018 doesn't short-circuit
     float giW = _Mode == 3 ? _GIStrength : 1.0;
     float3 light;
     if (cached && (_ReflCache.x > 1.5 || footprint >= CacheCellSize(CacheLevel(hp)) * _ReflCache.y))
@@ -230,7 +231,8 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, inout uint rng)
     float3 pos = ray.Origin + ray.Direction * p.t;
     float3 ng = p.normal; // faces the ray
     SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
-    float3 n = mat.cls == 13u ? WaterNormal(ng, pos, p.t) : ng; // 13 = Wet: water
+    float3 n = ng;
+    if (mat.cls == 13u) n = WaterNormal(ng, pos, p.t); // 13 = Wet: water
     float3 L = reflect(ray.Direction, n);
     if (dot(L, ng) < 0.02) L = reflect(ray.Direction, ng);
     float dist;
@@ -378,9 +380,10 @@ void RayGenBody(bool full)
             else
             {
                 float3 hp = b.Origin + b.Direction * h.t;
-                float3 cached;
-                float3 hitLight = (CacheQueryTotal(hp, h.normal, cached) ? cached : DirectOne(hp, h.normal, PayloadLayer(h), rng))
-                                + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
+                // An if, not ?: (HLSL 2018 evaluates both sides: DirectOne's candidates and shadow ray ran on every cache hit).
+                float3 hitLight;
+                [branch] if (!CacheQueryTotal(hp, h.normal, hitLight)) hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng);
+                hitLight += ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
                 // Emitters that are sampled directly (EmissiveLights) must not also count when a bounce hits them.
                 indirect = ToLight(PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight)) + ToLight(h.albedo) * lerp(1.0, hitLight, h.alpha);
             }
@@ -503,7 +506,10 @@ void RayGenBody(bool full)
 
     // Water and glass: along the camera ray, up to the opaque hit or the first portal (the game doesn't overlay what it
     // shows through a portal).
-    _Output[id] = _TransParams.y > 0.5 ? TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, rng) : float4(c, 1.0);
+    // An if, not ?: (HLSL 2018 evaluates both sides: the transparent ray and its reflection were traced in every mode).
+    float4 outC = float4(c, 1.0);
+    [branch] if (_TransParams.y > 0.5) outC = TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, rng);
+    _Output[id] = outC;
 }
 
 [shader("raygeneration")]

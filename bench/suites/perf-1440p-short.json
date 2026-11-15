@@ -1,0 +1,68 @@
+{
+  "Name": "perf-1440p-short",
+  "Scenarios": [
+    {
+      "Name": "warm-up",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 6
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 1.5
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "8-3 b",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-3-b.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    }
+  ]
+}

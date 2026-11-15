@@ -177,9 +177,10 @@ float4 _UltraRTPlayerBoxMin, _UltraRTPlayerBoxMax;
 
 bool InPlayerBox(float3 e) { return all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz); }
 
-bool VisibleMasked(float3 p, float3 n, float3 dir, float dist, uint mask)
+// The one shadow-ray TraceRay. Every visibility test computes its ray first and traces through here once: each extra
+// TraceRay site in a function that is inlined into the ray generation shaders costs (docs/performance.md, "One trace site").
+bool VisibleRaw(float3 p, float3 n, float3 dir, float dist, uint mask)
 {
-    mask |= g_ShadowPlayerMask;
     RayDesc r;
     r.Origin = p + n * 0.02;
     r.Direction = dir;
@@ -190,6 +191,8 @@ bool VisibleMasked(float3 p, float3 n, float3 dir, float dist, uint mask)
     TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, mask, 0, 1, 0, r, sp);
     return sp.t < 0.0;
 }
+
+bool VisibleMasked(float3 p, float3 n, float3 dir, float dist, uint mask) { return VisibleRaw(p, n, dir, dist, mask | g_ShadowPlayerMask); }
 
 // Geometry + light fixtures (0x01 | 0x04); sky walls (0x02) never block light.
 bool Visible(float3 p, float3 n, float3 dir, float dist) { return VisibleMasked(p, n, dir, dist, 0x05u); }
@@ -273,10 +276,13 @@ float3 LightAreaSample(float4 l0, float4 l2, float4 l3, float3 p, float u1, floa
     return c + t * (r * cos(phi)) + b * (r * sin(phi));
 }
 
-bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
+// The shadow ray toward light i (L, dist: towards its centre): the jittered direction and length and the instance mask.
+// 0 = blocked without a ray (the jittered direction is below the surface), 1 = visible without a ray, 2 = trace it.
+uint LightShadowSetup(uint i, float3 p, float3 n, inout float3 L, inout float dist, out uint mask)
 {
+    mask = _FixtureShadows > 0.5 ? 0x05u : 0x01u; // fixtures (0x04) cast shadows unless disabled
     float4 al3 = _Lights[i * 4 + 3];
-    if (LightIsArea(al3) && dist < 1.0e3)
+    [branch] if (LightIsArea(al3) && dist < 1.0e3)
     {
         // Area light: a uniform point on the emitter, so the shadow is as soft as the emitter is large.
         float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
@@ -284,64 +290,66 @@ bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
         float3 lp = LightAreaSample(_Lights[i * 4], _Lights[i * 4 + 2], al3, p, u1, u2);
         float3 d = lp - p;
         dist = length(d);
-        if (dist < 1e-4) return true;
+        if (dist < 1e-4) return 1u;
         L = d / dist;
 #ifndef ULTRART_LIGHT_ISOTROPIC
-        if (dot(L, n) <= 0.0) return false;
+        if (dot(L, n) <= 0.0) return 0u;
 #endif
-        uint amask = _FixtureShadows > 0.5 ? 0x05u : 0x01u;
-        uint aplayer = g_ShadowPlayerMask;
-        if (_Lights[i * 4 + 1].w > 0.5) g_ShadowPlayerMask = 0u;
-        bool avis = VisibleMasked(p, n, L, dist - min(kLightFixtureClearance, 0.5 * dist), amask);
-        g_ShadowPlayerMask = aplayer;
-        return avis;
     }
-    // Soft shadows: aim at a random point within the light's radius (a point light becomes a small sphere).
-    // Per-light radius: > 0 a sphere; < 0 the upper half-sphere only (a flame sitting on its bowl: samples never dip
-    // below the rim, where the bowl itself would block them).
-    float radius = _Lights[i * 4 + 2].w != 0.0 ? _Lights[i * 4 + 2].w : _LightRadius;
-    bool upper = radius < 0.0;
-    radius = abs(radius);
-    if (dist >= 1.0e3 && _SkyLight.y > 0.0)
+    else
     {
-        // Directional light (the sun): a random direction within its disk, for penumbrae that widen with distance.
-        float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
-        float u2 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
-        float cosT = 1.0 - u1 * (1.0 - cos(_SkyLight.y));
-        float sinT = sqrt(max(0.0, 1.0 - cosT * cosT));
-        float phi = u2 * 6.28318530718;
-        float3 t = abs(L.y) < 0.999 ? normalize(cross(L, float3(0, 1, 0))) : float3(1, 0, 0);
-        float3 b = cross(L, t);
-        L = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + L * cosT);
+        // Soft shadows: aim at a random point within the light's radius (a point light becomes a small sphere).
+        // Per-light radius: > 0 a sphere; < 0 the upper half-sphere only (a flame sitting on its bowl: samples never dip
+        // below the rim, where the bowl itself would block them).
+        float radius = _Lights[i * 4 + 2].w != 0.0 ? _Lights[i * 4 + 2].w : _LightRadius;
+        bool upper = radius < 0.0;
+        radius = abs(radius);
+        if (dist >= 1.0e3 && _SkyLight.y > 0.0)
+        {
+            // Directional light (the sun): a random direction within its disk, for penumbrae that widen with distance.
+            float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+            float u2 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+            float cosT = 1.0 - u1 * (1.0 - cos(_SkyLight.y));
+            float sinT = sqrt(max(0.0, 1.0 - cosT * cosT));
+            float phi = u2 * 6.28318530718;
+            float3 t = abs(L.y) < 0.999 ? normalize(cross(L, float3(0, 1, 0))) : float3(1, 0, 0);
+            float3 b = cross(L, t);
+            L = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + L * cosT);
 #ifndef ULTRART_LIGHT_ISOTROPIC
-        if (dot(L, n) <= 0.0) return false;
+            if (dot(L, n) <= 0.0) return 0u;
 #endif
-    }
-    else if (radius > 0.0 && dist < 1.0e3)
-    {
-        float3 lp = p + L * dist;
-        float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
-        float u2 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
-        float u3 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
-        float z = u1 * 2.0 - 1.0, phi = u2 * 6.28318530718, rr = sqrt(max(0.0, 1.0 - z * z));
-        float3 o = float3(rr * cos(phi), z, rr * sin(phi));
-        if (upper) o.y = abs(o.y);
-        lp += o * (radius * pow(u3, 1.0 / 3.0));
-        float3 d = lp - p;
-        dist = length(d);
-        L = d / max(dist, 1e-4);
+        }
+        else if (radius > 0.0 && dist < 1.0e3)
+        {
+            float3 lp = p + L * dist;
+            float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+            float u2 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+            float u3 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+            float z = u1 * 2.0 - 1.0, phi = u2 * 6.28318530718, rr = sqrt(max(0.0, 1.0 - z * z));
+            float3 o = float3(rr * cos(phi), z, rr * sin(phi));
+            if (upper) o.y = abs(o.y);
+            lp += o * (radius * pow(u3, 1.0 / 3.0));
+            float3 d = lp - p;
+            dist = length(d);
+            L = d / max(dist, 1e-4);
 #ifndef ULTRART_LIGHT_ISOTROPIC
-        if (dot(L, n) <= 0.0) return false;
+            if (dot(L, n) <= 0.0) return 0u;
 #endif
+        }
     }
-    uint mask = _FixtureShadows > 0.5 ? 0x05u : 0x01u; // fixtures (0x04) cast shadows unless disabled
+    dist -= min(kLightFixtureClearance, 0.5 * dist);
     // The player's own lights (a head-mounted flashlight, the held torch, muzzle flashes) sit inside or next to V1's
     // model: it never shadows them (flag set by Plugin.FlagPlayerLights).
-    uint playerMask = g_ShadowPlayerMask;
-    if (_Lights[i * 4 + 1].w > 0.5) g_ShadowPlayerMask = 0u;
-    bool vis = VisibleMasked(p, n, L, dist - min(kLightFixtureClearance, 0.5 * dist), mask);
-    g_ShadowPlayerMask = playerMask;
-    return vis;
+    if (_Lights[i * 4 + 1].w <= 0.5) mask |= g_ShadowPlayerMask;
+    return 2u;
+}
+
+bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
+{
+    uint mask;
+    uint s = LightShadowSetup(i, p, n, L, dist, mask);
+    if (s != 2u) return s == 1u;
+    return VisibleRaw(p, n, L, dist, mask);
 }
 
 // LightVisible without the soft-shadow jitter: the ray to the light's centre (the sun's own direction), to tell an umbra
@@ -382,14 +390,21 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
     L = 0; dist = 0; c = 0;
     bool local = l0.w != 0.0;
     bool area = local && LightIsArea(l3);
-    float3 toL = local ? (area ? LightAreaClosest(l0, l2, l3, p) : l0.xyz) - p : l0.xyz;
+    // Unity compiles HLSL 2018: ?: and && evaluate both sides, so anything costly sits behind an if (docs/performance.md,
+    // "Short-circuit"). As a ternary, LightAreaClosest ran for every light evaluation (+0.2-0.3 ms everywhere).
+    float3 toL = local ? l0.xyz - p : l0.xyz;
+    [branch] if (area) toL = LightAreaClosest(l0, l2, l3, p) - p;
     float d2 = max(dot(toL, toL), 1e-6);
     float d = sqrt(d2);
     L = toL / d;
     // Rect and disc emitters light their front side only, with a cosine lobe (sphere: every direction).
-    float emit = area && (LightAreaCode(l3) & 3u) >= 2u ? dot(l2.xyz, -L) : 1.0;
-    if (area && d2 <= 1e-6) emit = 1.0; // on the emitter itself
-    if (emit <= 0.0) return false;
+    float emit = 1.0;
+    [branch] if (area)
+    {
+        if ((LightAreaCode(l3) & 3u) >= 2u) emit = dot(l2.xyz, -L);
+        if (d2 <= 1e-6) emit = 1.0; // on the emitter itself
+        if (emit <= 0.0) return false;
+    }
 #ifdef ULTRART_LIGHT_ISOTROPIC
     float ndl = emit; // a point in the air (lit particles): no surface orientation
 #else
@@ -478,7 +493,7 @@ float3 LightFrom(uint i, float3 p, float3 n, uint layer)
     float3 L, c;
     float dist;
     if (!LightEval(i, p, n, layer, L, dist, c)) return 0;
-    if (!LightUnshadowed(i) && !LightVisible(i, p, n, L, dist)) return 0;
+    if (!LightUnshadowed(i)) { if (!LightVisible(i, p, n, L, dist)) return 0; } // nested: && does not short-circuit
     return c;
 }
 
@@ -555,13 +570,29 @@ bool EmissiveEval(uint tri, uint bary, float3 p, float3 n, out float3 L, out flo
 }
 
 // Visibility of an emitter sample: the ray stops just short of the emitter, so the emitter can't shadow itself.
+void EmissiveShadowSetup(float3 p, inout float dist, float3 L, out uint mask)
+{
+    mask = 0x05u;
+    if (!InPlayerBox(p + L * dist)) mask |= g_ShadowPlayerMask; // an emitter at the player (see _UltraRTPlayerBoxMin)
+    dist = dist * 0.999 - 0.02;
+}
+
 bool EmissiveVisible(float3 p, float3 n, float3 L, float dist)
 {
-    uint playerMask = g_ShadowPlayerMask;
-    if (InPlayerBox(p + L * dist)) g_ShadowPlayerMask = 0u; // an emitter at the player (see _UltraRTPlayerBoxMin)
-    bool vis = Visible(p, n, L, dist * 0.999 - 0.02);
-    g_ShadowPlayerMask = playerMask;
-    return vis;
+    uint mask;
+    EmissiveShadowSetup(p, dist, L, mask);
+    return VisibleRaw(p, n, L, dist, mask);
+}
+
+// Visibility of light code `code` (a light index, or ULTRART_EMISSIVE | triangle) along (L, dist): one TraceRay site for
+// both kinds.
+bool VisibleTo(uint code, float3 p, float3 n, float3 L, float dist)
+{
+    uint mask, s = 2u;
+    [branch] if ((code & ULTRART_EMISSIVE) != 0u) EmissiveShadowSetup(p, dist, L, mask);
+    else s = LightShadowSetup(code, p, n, L, dist, mask);
+    if (s != 2u) return s == 1u;
+    return VisibleRaw(p, n, L, dist, mask);
 }
 
 void SampleEmissiveTable(float u, out uint tri, out float pdf)
@@ -683,7 +714,7 @@ float VisFactor(uint light, float3 p, float3 L, float dist)
     [unroll] for (uint k = 0; k < 3; k++)
         if ((g_VisSlot[k] & 0xFFFFu) == light) f = VisEstimate(g_VisSlot[k]);
 #ifdef ULTRART_MOVERS
-    if (f < 0.5 && _UltraRTMoverCount > 0 && MoverCrosses(p, L, dist)) f = 0.5;
+    if (f < 0.5 && _UltraRTMoverCount > 0) { if (MoverCrosses(p, L, dist)) f = 0.5; }
 #endif
     return f;
 }
@@ -774,7 +805,9 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
 
 bool SampleVisible(Reservoir r, float3 p, float3 n)
 {
-    return (r.light & ULTRART_EMISSIVE) != 0u ? EmissiveVisible(p, n, r.L, r.dist) : LightVisible(r.light, p, n, r.L, r.dist);
+    // Not ?: (HLSL 2018 evaluates both sides: that traced an emitter ray and a light ray for every sample), and one
+    // TraceRay site for both kinds (VisibleTo).
+    return VisibleTo(r.light, p, n, r.L, r.dist);
 }
 
 // ---------------------------------------------------------------- temporal reuse
@@ -912,10 +945,11 @@ bool RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, i
         if (_UltraRTPlayerSplit != 0 && _Mode == 0) g_ShadowPlayerMask = 0u;
 #endif
         bool emitter = (light & ULTRART_EMISSIVE) != 0u;
-        bool vis = emitter ? EmissiveVisible(pos, n, L, dist) : LightVisible(light, pos, n, L, dist);
+        bool vis = VisibleTo(light, pos, n, L, dist);
         // Blocked twice in a row. An umbra (the light's centre is blocked as well) keeps the full M; a penumbra (or an
         // emitter) is capped, or one more blocked draw would hold it dark for the whole history.
-        bool umbra = !vis && !emitter && _RestirRetestUmbra != 0 && !LightCentreVisible(light, pos, n, L, dist);
+        bool umbra = false;
+        [branch] if (!vis && !emitter && _RestirRetestUmbra != 0) umbra = !LightCentreVisible(light, pos, n, L, dist);
         g_ShadowPlayerMask = playerMask;
         if (!vis) { w = 0.0; Wh = 0.0; if (!umbra) M = min(M, _RestirRetestCap); }
     }
@@ -1095,7 +1129,9 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
             float dist;
             if (!LightEval((uint)i, pos, n, layer, L, dist, c)) continue;
             unshadowed += c;
-            if (LightUnshadowed((uint)i) || LightVisible((uint)i, pos, n, L, dist))
+            bool lit = LightUnshadowed((uint)i);
+            if (!lit) lit = LightVisible((uint)i, pos, n, L, dist); // not ||: it does not short-circuit
+            if (lit)
             {
                 float3 cd = c * DetailScale(n, L);
                 g_DirectVertex += c * _LightScale;
@@ -1120,8 +1156,12 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
     bool temporal = _LightSampling >= 2;
     // A pixel without temporal history (disocclusion, screen edge in motion, first frame) would otherwise show an
     // 8-candidate RIS sample: give it more candidates (light evaluations only, no extra rays).
-    if (temporal && !RestirReuse(r, dim, pos, n, t, layer, rng) && _RestirFreshCandidates > 0)
-        ReservoirCombine(r, RisCandidates(pos, n, layer, _RestirFreshCandidates, rng), Rand(rng));
+    // Nested ifs: && does not short-circuit (RestirReuse ran in RIS mode too, its result unused).
+    [branch] if (temporal)
+    {
+        if (!RestirReuse(r, dim, pos, n, t, layer, rng) && _RestirFreshCandidates > 0)
+            ReservoirCombine(r, RisCandidates(pos, n, layer, _RestirFreshCandidates, rng), Rand(rng));
+    }
 
     float W = ReservoirW(r);
     float storedW = W;     // the history keeps the unshadowed W, flagged when occluded (re-tested next frame)
@@ -1218,7 +1258,7 @@ float3 DirectOne(float3 p, float3 n, uint layer, inout uint rng)
     float3 sum = FillLighting(p, n, layer);
     Reservoir r = RisCandidates(p, n, layer, _BounceCandidates, rng);
     float W = ReservoirW(r);
-    if (W > 0.0 && SampleVisible(r, p, n)) sum += r.c * W;
+    [branch] if (W > 0.0) { if (SampleVisible(r, p, n)) sum += r.c * W; } // nested: no shadow ray without a sample
     return sum * _LightScale;
 }
 

@@ -129,20 +129,27 @@ float3 SecondaryHitLight(float3 hp, RayPayload h, bool shadows, inout uint rng)
 {
     float3 cached;
     if (CacheQueryTotal(hp, h.normal, cached)) return cached;
-    return shadows ? DirectOne(hp, h.normal, PayloadLayer(h), rng) : FillLighting(hp, h.normal, PayloadLayer(h)) * _LightScale;
+    // An if, not ?: (HLSL 2018 evaluates both sides: the shadow ray ran with shadows off too; docs/performance.md).
+    [branch] if (shadows) return DirectOne(hp, h.normal, PayloadLayer(h), rng);
+    return FillLighting(hp, h.normal, PayloadLayer(h)) * _LightScale;
 }
 
 float3 ReflectionHitLight(float3 hp, RayPayload h, float footprint, bool shadows, inout uint rng)
 {
-    float3 total, indirect;
-    bool cached = _ReflCache.x > 0.5 && CacheLookup(hp, h.normal, total, indirect);
+    float3 total = 0, indirect = 0;
+    bool cached = false;
+    if (_ReflCache.x > 0.5) cached = CacheLookup(hp, h.normal, total, indirect); // not && (no short-circuit in HLSL 2018)
     float giW = _VMMode == 3 ? _GIStrength : 1.0;
     float3 light;
     if (cached && (_ReflCache.x > 1.5 || footprint >= CacheCellSize(CacheLevel(hp)) * _ReflCache.y))
         light = total - indirect * (1.0 - giW);
     else
-        light = (shadows ? DirectOne(hp, h.normal, PayloadLayer(h), rng) : cached ? total - indirect : FillLighting(hp, h.normal, PayloadLayer(h)) * _LightScale)
-              + (cached ? indirect * giW : 0.0);
+    {
+        [branch] if (shadows) light = DirectOne(hp, h.normal, PayloadLayer(h), rng);
+        else if (cached) light = total - indirect;
+        else light = FillLighting(hp, h.normal, PayloadLayer(h)) * _LightScale;
+        light += cached ? indirect * giW : 0.0;
+    }
     return light + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
 }
 

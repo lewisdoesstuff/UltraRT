@@ -11,6 +11,9 @@ namespace UltraRT
     public sealed class VolumetricsSettings
     {
         public bool enabled = true;
+        /// <summary>Trace with Proxy.shader's slim UltraRTShadow hit pass (alpha test only) instead of UltraRTHit: same
+        /// shadows, a cheaper shader table on the render thread (docs/performance.md, "Render thread").</summary>
+        public bool shadowPass = true;
         /// <summary>Also in pt-dn and hybrid (relight always, when enabled). Hybrid gets the in-scattering only: the game's
         /// colour already carries its fog.</summary>
         public bool ptDn = true, hybrid = false;
@@ -327,6 +330,7 @@ namespace UltraRT
             cmd.SetRayTracingBufferParam(_rt, IdVolLightCone, f.cones);
             cmd.SetRayTracingFloatParam(_rt, IdVolEmissive, Mathf.Max(0f, s.emissive));
             cmd.SetRayTracingFloatParam(_rt, IdVolClamp, Mathf.Max(0f, s.maxSample));
+            _rt.SetShaderPass(Settings.shadowPass ? "UltraRTShadow" : "UltraRTHit");
             cmd.DispatchRays(_rt, "VolumeRayGen", (uint)w, (uint)h, 1);
 
             // 3. temporal accumulation
