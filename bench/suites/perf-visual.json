@@ -1,0 +1,57 @@
+{
+  "Name": "perf-visual",
+  "Note": "Look check for perf changes (docs/performance.md): run once per build in one launch and compare the shots (mean luma, blurred difference).",
+  "Scenarios": [
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "ShotSettle": 1.0
+    },
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "ShotSettle": 1.0
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "relight",
+        "hybrid"
+      ],
+      "Screenshots": [
+        4
+      ],
+      "ShotSettle": 1.0
+    }
+  ]
+}

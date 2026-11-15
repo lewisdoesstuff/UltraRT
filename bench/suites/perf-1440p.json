@@ -1,0 +1,134 @@
+{
+  "Name": "perf-1440p",
+  "Note": "Profile + A/B for docs/performance.md: relight and pathtrace interleaved every 0.75 s per pose (run with -Perf). A warm-up compiles the RT pipelines after a bundle hot-reload.",
+  "Scenarios": [
+    {
+      "Name": "warm-up",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 6
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 1.5
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "0-3 ghosts",
+      "Scene": "Level 0-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-3-ghosts.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "0-5 lava",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-5-approach.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "8-2 portal side 1",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-portal-side1.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "8-3 b",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-3-b.json",
+        "Duration": 8
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    }
+  ]
+}

@@ -1309,6 +1309,7 @@ namespace UltraRT
             _cmd.DispatchRays(shader, pt && full ? "RayGenPT" : "RayGen", (uint)w, (uint)h, 1);
             _gpu?.End(_cmd, SlotDispatch);
             _cmd.EndSample(SampleTrace);
+            if (_diagDispatches > 0 && pt) DiagDispatches(invViewProj); // bench: per-dispatch render-thread cost (docs/performance.md)
             _proxies.RecordMotionCopies(_cmd); // this frame's skinned poses become next frame's previous poses
             if (kind == Kind.PathTrace) TraceCacheDebug(mode);
             if (pt) TraceParticleLight(kind); // lit particles' lighting volume (Plugin.Particles.cs)
@@ -1453,6 +1454,30 @@ namespace UltraRT
             Perf.Add(Perf.Sec.Trace, traceStart);
             if (pt && _accumulate) _accumFrames++;
             if (_tracedFrames++ == 0) Logger.LogInfo($"First trace OK: {w}x{h}, instances={_proxies.Rtas.GetInstanceCount()}, lights={_lightCount}, cache={(_radianceCache?.Active == true ? $"{_cacheSettings.mode} {_radianceCache.Capacity} slots {_radianceCache.GpuBytes >> 20} MB" : "off")}");
+        }
+
+        // Bench diagnostics (docs/performance.md, "Render thread"): plugin._diagDispatches=N records N extra 1x1 DispatchRays of
+        // the debug view against the scene RTAS; plugin._diagNoHit=1 gives them a hit pass no material has (no hit groups).
+        private int _diagDispatches;
+        private bool _diagNoHit;
+        private RenderTexture _diagTarget;
+
+        private void DiagDispatches(Matrix4x4 invViewProj)
+        {
+            if (_debugShader == null) return;
+            if (_diagTarget == null)
+            {
+                _diagTarget = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBHalf) { enableRandomWrite = true, name = "UltraRT Diag" };
+                _diagTarget.Create();
+            }
+            _debugShader.SetShaderPass(_diagNoHit ? "UltraRTDiagNoSuchPass" : "UltraRTHit");
+            _cmd.SetRayTracingAccelerationStructure(_debugShader, "_Scene", _proxies.Rtas);
+            _cmd.SetRayTracingTextureParam(_debugShader, "_Output", _diagTarget);
+            _cmd.SetRayTracingMatrixParam(_debugShader, "_InvViewProj", invViewProj);
+            _cmd.SetRayTracingVectorParam(_debugShader, "_CamPos", _camera.transform.position);
+            _cmd.SetRayTracingIntParam(_debugShader, "_Mode", 1);
+            _cmd.SetRayTracingFloatParam(_debugShader, "_DepthScale", 150f);
+            for (int k = 0; k < _diagDispatches; k++) _cmd.DispatchRays(_debugShader, "RayGen", 1, 1, 1);
         }
 
         // Debug markers (visible in PIX/RenderDoc). Unity's Recorder reports 0 GPU time in this release player;

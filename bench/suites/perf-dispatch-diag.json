@@ -1,0 +1,69 @@
+{
+  "Name": "perf-dispatch-diag",
+  "Note": "Render-thread cost per DispatchRays (extra 1x1 dispatches, with/without hit groups) and relight-only passes (docs/performance.md).",
+  "Scenarios": [
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 12
+      },
+      "Modes": [
+        "relight",
+        "relight+plugin._diagDispatches=4",
+        "relight+plugin._diagDispatches=4+plugin._diagNoHit=1",
+        "relight+taau=0",
+        "relight+lights=ris",
+        "relight+plugin._vmEnabled=0",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "8-2 portal side 1",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-portal-side1.json",
+        "Duration": 12
+      },
+      "Modes": [
+        "relight",
+        "relight+plugin._diagDispatches=4",
+        "relight+plugin._diagDispatches=4+plugin._diagNoHit=1",
+        "relight+taau=0",
+        "relight+lights=ris",
+        "relight+plugin._vmEnabled=0",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "8-3 b",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-3-b.json",
+        "Duration": 14
+      },
+      "Modes": [
+        "relight",
+        "relight+plugin._diagDispatches=4",
+        "relight+plugin._diagDispatches=4+plugin._diagNoHit=1",
+        "relight+taau=0",
+        "relight+lights=ris",
+        "relight+plugin._vmEnabled=0",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    }
+  ]
+}
