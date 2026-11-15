@@ -49,6 +49,10 @@ namespace UltraRT
             byte[][] cls = new byte[caps][];
             int W = 0, H = 0, tw = 0, th = 0;
             bool classImageSaved = false;
+            // Scenario.MotionViewmodel: every pass starts the gun from the same state (animators, FOV kick, Random).
+            bool vmStat = sc.MotionViewmodel;
+            var animSnap = vmStat ? SnapshotViewmodelAnimators() : null;
+            float fovMain = _camera != null ? _camera.fieldOfView : 0f;
             Denoiser.FrameTimeOverride = 1f / 360f;
             Time.captureDeltaTime = 1f / 360f;
             try
@@ -63,6 +67,8 @@ namespace UltraRT
                     double offsetSum = 0;
                     int offsetN = 0;
                     var images = new List<string>();
+                    VmStatsOn = vmStat && !isOff;
+                    Array.Clear(VmStatTotals, 0, 4);
                     string baseName = $"{Sanitize(sc.Name)}_motion_{t0:F1}s_{Sanitize(spec)}";
 
                     // Pass -1 (RT modes): warm-up, so the radiance cache has seen this stretch of the path before pass 0.
@@ -70,10 +76,17 @@ namespace UltraRT
                     {
                         ResetHistories();
                         _upsampler?.Reset();
+                        if (vmStat)
+                        {
+                            UnityEngine.Random.InitState(sc.Seed * 7919 + 17);
+                            RestoreViewmodelAnimators(animSnap);
+                            if (_camera != null && fovMain > 0f) _camera.fieldOfView = fovMain;
+                        }
                         if (_upsampler != null) _upsampler.JitterIndex = sc.MotionJitterRotate || _motionJitterRotate ? (uint)Math.Max(0, pass) : 0u;
                         for (int f = 0; f < total; f++)
                         {
                             GameControl.SetPose(path.Sample(moving ? Mathf.Min(tStart + f / 360f, path.Duration) : t0));
+                            GameControl.BobTime = tStart + f / 360f;
                             GameControl.HideCheatPanels();
                             QualitySettings.vSyncCount = 0;
                             Application.targetFrameRate = -1;
@@ -137,6 +150,7 @@ namespace UltraRT
                                 {
                                     var mask = offMask != null && offMask[ci] != null && offMask[ci].Length == px.Length ? offMask[ci] : null;
                                     var excl = Exclusion(sc, W, H);
+                                    var vmCov = vmStat ? ViewmodelCoverage(W, H) : null; // this frame's viewmodel pixels
                                     var c = cls[ci];
                                     var r = refL[ci];
                                     // The pass's global offset (auto exposure settles slightly differently each pass) is not noise.
@@ -158,6 +172,7 @@ namespace UltraRT
                                     for (int bx = 0; bx + 4 <= W; bx += 4)
                                     {
                                         float bs = 0; int bn = 0;
+                                        float vs = 0; int vn = 0;
                                         for (int yy = 0; yy < 4; yy++)
                                         {
                                             int y = by + yy;
@@ -165,6 +180,17 @@ namespace UltraRT
                                             for (int xx = 0; xx < 4; xx++)
                                             {
                                                 int x = bx + xx, i = y * W + x;
+                                                if (vmCov != null && vmCov[i])
+                                                {
+                                                    // The viewmodel (MotionExclude leaves it out of the world statistics).
+                                                    if (mask != null && mask[i] != 0) continue;
+                                                    float dv = LumaOf(px[i]) - r[i] - off;
+                                                    if (Math.Abs(dv) > MotionClip) { rec.VmClipped++; continue; }
+                                                    rec.VmSum += dv * dv; rec.VmCnt++;
+                                                    vs += dv; vn++;
+                                                    if (err != null) err[i] = Math.Abs(dv) * 0.70710678f;
+                                                    continue;
+                                                }
                                                 if ((mask != null && mask[i] != 0) || excl[i]) { rec.MaskedOut++; continue; }
                                                 float d = LumaOf(px[i]) - r[i] - off;
                                                 // Gross differences are the game's (birds, gore), not denoised lighting noise: skipped, counted.
@@ -183,6 +209,7 @@ namespace UltraRT
                                             }
                                         }
                                         if (bn == 16) { float bm = bs / 16f; rec.BlockSum += bm * bm; rec.Blocks++; }
+                                        if (vn == 16) { float vm = vs / 16f; rec.VmBlockSum += vm * vm; rec.VmBlocks++; }
                                     }
                                     recs.Add(rec);
                                     if (err != null)
@@ -215,12 +242,13 @@ namespace UltraRT
                     int dropped = recs.Count - kept.Count;
                     var sum = new double[MotionClassNames.Length];
                     var cnt = new long[MotionClassNames.Length];
-                    double blockSum = 0;
-                    long blocks = 0, considered = 0, maskedOut = 0, clipped = 0;
+                    double blockSum = 0, vmSum = 0, vmBlockSum = 0;
+                    long blocks = 0, considered = 0, maskedOut = 0, clipped = 0, vmCnt = 0, vmBlocks = 0, vmClipped = 0;
                     foreach (var x in kept)
                     {
                         for (int k = 0; k < sum.Length; k++) { sum[k] += x.Sum[k]; cnt[k] += x.Cnt[k]; }
                         blockSum += x.BlockSum; blocks += x.Blocks; considered += x.Considered; maskedOut += x.MaskedOut; clipped += x.Clipped;
+                        vmSum += x.VmSum; vmCnt += x.VmCnt; vmBlockSum += x.VmBlockSum; vmBlocks += x.VmBlocks; vmClipped += x.VmClipped;
                     }
                     if (!isOff && considered > 0)
                     {
@@ -237,6 +265,9 @@ namespace UltraRT
                             Dropped = dropped,
                             Clipped = (float)((double)clipped / Math.Max(1, considered + clipped)),
                             Images = images,
+                            VmSigma = vmCnt > 0 ? (float)Math.Sqrt(vmSum / vmCnt / 2.0) : 0f,
+                            VmBlock = vmBlocks > 0 ? (float)Math.Sqrt(vmBlockSum / vmBlocks / 2.0) : 0f,
+                            VmShare = kept.Count > 0 ? (float)((double)vmCnt / kept.Count / Math.Max(1, W * H)) : 0f,
                         };
                         for (int k = 0; k < MotionClassNames.Length; k++)
                         {
@@ -248,7 +279,11 @@ namespace UltraRT
                         sr.MotionNoise.Add(ms);
                         Logger.LogInfo($"Motion noise '{sc.Name}' @ {t0:F1}s {spec}: sigma {ms.Sigma:F2} block4 {ms.SigmaBlock:F2} offset {ms.Offset:F2} masked {ms.MaskedShare:P0} clipped {ms.Clipped:P2} dropped {dropped}/{recs.Count}; " +
                                        string.Join(", ", Enumerable.Range(0, MotionClassNames.Length).Select(k =>
-                                           $"{MotionClassNames[k]} {ms.ClassSigma[k]:F2} ({ms.ClassShare[k]:P0} px, {ms.ClassEnergy[k]:P0} energy)")));
+                                           $"{MotionClassNames[k]} {ms.ClassSigma[k]:F2} ({ms.ClassShare[k]:P0} px, {ms.ClassEnergy[k]:P0} energy)")) +
+                                       (vmStat ? $"; viewmodel sigma {ms.VmSigma:F2} block4 {ms.VmBlock:F2} ({ms.VmShare:P1} of the screen, clipped {vmClipped}); " +
+                                                 $"viewmodel history: bilinear {Pct(VmStatTotals[1], VmStatTotals[0])}, search {Pct(VmStatTotals[2], VmStatTotals[0])}, " +
+                                                 $"rejected {Pct(VmStatTotals[3], VmStatTotals[0])} of {VmStatTotals[0]} px-frames" : ""));
+                        if (vmStat) { ms.VmHistHit = VmStatTotals[0] > 0 ? (float)VmStatTotals[1] / VmStatTotals[0] : 0f; ms.VmHistMiss = VmStatTotals[0] > 0 ? (float)VmStatTotals[3] / VmStatTotals[0] : 0f; }
                     }
                     RestoreVariantState(saved);
                 }
@@ -256,6 +291,7 @@ namespace UltraRT
             finally
             {
                 if (_denoiser != null) _denoiser.ClassifyFrame = false;
+                VmStatsOn = false;
                 Time.captureDeltaTime = prevCapture;
                 Denoiser.FrameTimeOverride = 0f;
                 RestoreVariantState(saved);
@@ -291,6 +327,8 @@ namespace UltraRT
             public readonly long[] Cnt;
             public double BlockSum;
             public long Blocks, Considered, MaskedOut, Clipped;
+            public double VmSum, VmBlockSum;
+            public long VmCnt, VmBlocks, VmClipped;
             public MotionRecord(int n) { Sum = new double[n]; Cnt = new long[n]; }
             public double SurfaceMse
             {
@@ -305,6 +343,8 @@ namespace UltraRT
 
         /// <summary>Per-pixel differences above this (luma) are left out of the statistics and counted as clipped.</summary>
         private const float MotionClip = 40f;
+
+        private static string Pct(long a, long b) => b > 0 ? $"{100.0 * a / b:F2}%" : "-";
 
         private static int LumaOf(Color32 c) => (2126 * c.r + 7152 * c.g + 722 * c.b + 5000) / 10000;
 
@@ -369,6 +409,75 @@ namespace UltraRT
                                   string.Join(" | ", cols.Select(k =>
                                       k < m.ClassSigma.Count ? $"{m.ClassSigma[k]:F2} / {m.ClassShare[k] * 100:F0}% / {m.ClassEnergy[k] * 100:F0}%" : "-")) +
                                   $" | {(m.ClassSigma.Count > 5 ? $"{m.ClassSigma[5]:F2} / {m.ClassShare[5] * 100:F0}%" : "-")} | {m.Offset:F2} / {m.Dropped} |");
+            if (!r.Scenarios.Any(s => s.MotionNoise.Any(m => m.VmShare > 0f))) return;
+            sb.AppendLine();
+            sb.AppendLine("Viewmodel motion noise (MotionViewmodel: the same measure over the pixels the viewmodel pass covers):");
+            sb.AppendLine();
+            sb.AppendLine("| Scenario | Window | Mode | sigma | block4 | share of screen | history: bilinear hit / rejected |");
+            sb.AppendLine("|---|---|---|---|---|---|---|");
+            foreach (var sc in r.Scenarios)
+                foreach (var m in sc.MotionNoise)
+                    if (m.VmShare > 0f) sb.AppendLine($"| {sc.Name} | {m.Window:F1}s | {m.Mode} | {m.VmSigma:F2} | {m.VmBlock:F2} | {m.VmShare * 100:F1}% | {m.VmHistHit * 100:F1}% / {m.VmHistMiss * 100:F2}% |");
+        }
+
+        // ---------------------------------------------------------------- viewmodel (Scenario.MotionViewmodel)
+
+        private sealed class AnimSnap
+        {
+            public Animator a;
+            public int[] hash; public float[] time;
+            public AnimatorControllerParameter[] pars; public float[] values;
+        }
+
+        /// <summary>The state of every active animator under the main camera (the weapons and arms).</summary>
+        private List<AnimSnap> SnapshotViewmodelAnimators()
+        {
+            var list = new List<AnimSnap>();
+            if (_camera == null) return list;
+            foreach (var a in _camera.GetComponentsInChildren<Animator>())
+            {
+                if (a == null || !a.isActiveAndEnabled || a.runtimeAnimatorController == null) continue;
+                var s = new AnimSnap { a = a, hash = new int[a.layerCount], time = new float[a.layerCount], pars = a.parameters };
+                for (int l = 0; l < a.layerCount; l++)
+                {
+                    var st = a.GetCurrentAnimatorStateInfo(l);
+                    s.hash[l] = st.fullPathHash; s.time[l] = st.normalizedTime;
+                }
+                s.values = new float[s.pars.Length];
+                for (int k = 0; k < s.pars.Length; k++)
+                {
+                    var p = s.pars[k];
+                    s.values[k] = p.type == AnimatorControllerParameterType.Float ? a.GetFloat(p.nameHash)
+                                : p.type == AnimatorControllerParameterType.Int ? a.GetInteger(p.nameHash)
+                                : p.type == AnimatorControllerParameterType.Bool ? (a.GetBool(p.nameHash) ? 1f : 0f) : 0f;
+                }
+                list.Add(s);
+            }
+            Logger.LogInfo($"Motion noise: {list.Count} viewmodel animators reset at every pass ({string.Join(", ", list.Select(x => x.a.name))})");
+            return list;
+        }
+
+        private static void RestoreViewmodelAnimators(List<AnimSnap> list)
+        {
+            if (list == null) return;
+            foreach (var s in list)
+            {
+                var a = s.a;
+                if (a == null || !a.isActiveAndEnabled) continue;
+                for (int k = 0; k < s.pars.Length; k++)
+                {
+                    var p = s.pars[k];
+                    switch (p.type)
+                    {
+                        case AnimatorControllerParameterType.Trigger: a.ResetTrigger(p.nameHash); break;
+                        case AnimatorControllerParameterType.Float: a.SetFloat(p.nameHash, s.values[k]); break;
+                        case AnimatorControllerParameterType.Int: a.SetInteger(p.nameHash, (int)s.values[k]); break;
+                        case AnimatorControllerParameterType.Bool: a.SetBool(p.nameHash, s.values[k] > 0.5f); break;
+                    }
+                }
+                for (int l = 0; l < s.hash.Length; l++) a.Play(s.hash[l], l, s.time[l]);
+                a.Update(0f);
+            }
         }
     }
 }

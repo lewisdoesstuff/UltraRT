@@ -78,11 +78,24 @@ namespace UltraRT.Bench
         /// <summary>Screen rectangles left out of the motion-noise statistics, [x0, y0, x1, y1] as fractions of the screen from
         /// the top left: by default the viewmodel and the HUD panel (drawn by the game over the RT image).</summary>
         public List<float[]> MotionExclude = new List<float[]> { new[] { 0.5f, 0.5f, 0.84f, 1f }, new[] { 0f, 0.55f, 0.32f, 1f } };
+        /// <summary>Motion noise of the viewmodel (docs/viewmodel.md, "Motion"): also report the noise over the pixels the
+        /// viewmodel pass covers (its G-buffer this frame), which MotionExclude leaves out of the main statistics. Each pass
+        /// then starts from the same game state for the gun: the viewmodel's animators are put back to their state at the
+        /// start of the first pass, the camera FOV is restored and Random is reseeded (the revolver's shot picks its
+        /// animation at random).</summary>
+        public bool MotionViewmodel;
+        /// <summary>Weapon bob while the bench drives the camera (GameControl): the gun swings as WalkingBob moves it while
+        /// walking at full speed (+-8 cm sideways, 2.5 cm down, ~0.68 s per cycle), times this. 0 = off (the player stands).</summary>
+        public float GunBob;
+        /// <summary>Weapon slot to hold (GunControl.SwitchWeapon: 1 revolver, 2 shotgun, 3 nailgun, 4 railcannon, 5 rocket
+        /// launcher), switched to when the bench takes the player over; 0 = whatever the save holds.</summary>
+        public int Weapon;
     }
 
     /// <summary>
-    /// Effects spawned in front of the camera during a scenario: "revolver" (a revolver beam from the camera, with its
-    /// muzzle light and hit sparks), "explosion" / "superexplosion" (harmless), "projectile" (an enemy orb flying away),
+    /// Effects spawned in front of the camera during a scenario: "revolver" (the held revolver fires as the game fires it:
+    /// beam from its barrel, muzzle light, recoil animation; a beam from the camera with the barrel as its start point when
+    /// no revolver is held), "revolverbeam" (only the beam, never the gun's own shot), "explosion" / "superexplosion" (harmless), "projectile" (an enemy orb flying away),
     /// "fire" / "firesimple" (a pooled flame on the floor ahead, with / without its light).
     /// At each screenshot they are also spawned once per mode, ShotDelay seconds before the capture, so every mode shows
     /// the effect at the same age.
@@ -199,6 +212,11 @@ namespace UltraRT.Bench
         /// <summary>Share of pixels whose difference exceeded 40 luma (the game's own birds, gore): left out.</summary>
         public float Clipped;
         public float Sigma, SigmaBlock, Offset, MaskedShare;
+        /// <summary>Scenario.MotionViewmodel: the same sigma / block4 over the viewmodel's pixels, and their share of the screen.</summary>
+        public float VmSigma, VmBlock, VmShare;
+        /// <summary>Scenario.MotionViewmodel: share of the viewmodel filter's pixels whose history the bilinear taps found, and
+        /// whose history was rejected (no tap, no 3x3 search hit): how well the motion vectors follow the gun.</summary>
+        public float VmHistHit, VmHistMiss;
         public List<string> Classes = new List<string>();
         public List<float> ClassShare = new List<float>(), ClassSigma = new List<float>(), ClassEnergy = new List<float>();
         public List<string> Images;

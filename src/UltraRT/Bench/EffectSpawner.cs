@@ -33,6 +33,42 @@ namespace UltraRT.Bench
             }
         }
 
+        private static readonly System.Reflection.MethodInfo RevolverShoot =
+            typeof(Revolver).GetMethod("Shoot", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        private static int _shootFailures, _beamLogs;
+
+        /// <summary>Revolver.Shoot(1) on the held revolver: the shot exactly as the player fires it.</summary>
+        private static bool ShootRevolver(Revolver rev)
+        {
+            if (RevolverShoot == null || _shootFailures > 3) return false;
+            try
+            {
+                RevolverShoot.Invoke(rev, new object[] { 1 });
+                if (_beamLogs++ < 2)
+                {
+                    var cam = MonoSingleton<CameraController>.Instance.transform;
+                    Log?.LogInfo($"EffectSpawner: revolver shot by {GameControl.PathOf(rev.transform)}, barrel at {Local(cam, rev.gunBarrel != null ? rev.gunBarrel.transform.position : cam.position)} (camera space)");
+                }
+                return true;
+            }
+            catch (Exception e)
+            {
+                _shootFailures++;
+                Log?.LogWarning($"EffectSpawner: Revolver.Shoot failed ({(e.InnerException ?? e).GetType().Name}: {(e.InnerException ?? e).Message}), spawning the beam instead");
+                return false;
+            }
+        }
+
+        private static Vector3 Local(Transform cam, Vector3 p) => cam.InverseTransformPoint(p);
+
+        private static void LogBeam(GameObject go, Transform cam, Revolver rev)
+        {
+            var sb = new System.Text.StringBuilder($"EffectSpawner: revolver beam '{go.name}' at {Local(cam, go.transform.position)} (camera space), barrel {(rev.gunBarrel != null ? Local(cam, rev.gunBarrel.transform.position).ToString() : "-")}; lights:");
+            foreach (var l in go.GetComponentsInChildren<Light>(true))
+                sb.Append($" {l.name} {l.type} I {l.intensity:F1} range {l.range:F1} at {Local(cam, l.transform.position)} mask 0x{l.cullingMask:X8};");
+            Log?.LogInfo(sb.ToString());
+        }
+
         private static Vector3 InFront(Transform cam, float distance)
         {
             var dir = cam.forward;
@@ -47,18 +83,27 @@ namespace UltraRT.Bench
             switch (kind)
             {
                 case "revolver":
+                case "revolverbeam":
                 {
                     Revolver rev = null;
                     foreach (var r in UnityEngine.Object.FindObjectsOfType<Revolver>(true))
                         if (r != null && r.revolverBeam != null) { rev = r; if (r.isActiveAndEnabled) break; }
                     if (rev == null) throw new InvalidOperationException("no Revolver with a beam prefab");
+                    // The held revolver fires as the game fires it (Revolver.Shoot): the beam starts at the camera with the
+                    // gun barrel as its start point, the muzzle flash sits at the barrel, the gun plays its recoil.
+                    if (kind == "revolver" && rev.isActiveAndEnabled && ShootRevolver(rev)) break;
                     var go = UnityEngine.Object.Instantiate(rev.revolverBeam, cam.position, cam.rotation);
                     var beam = go.GetComponent<RevolverBeam>();
                     if (beam != null)
                     {
                         beam.sourceWeapon = rev.gameObject;
-                        beam.alternateStartPoint = cam.position + cam.right * 0.35f - cam.up * 0.3f + cam.forward * 0.6f;
+                        // As Revolver.Shoot: the barrel is where the beam and its muzzle flash start (a point right of and
+                        // below the camera when the revolver isn't out).
+                        beam.alternateStartPoint = rev.gunBarrel != null && rev.gunBarrel.activeInHierarchy
+                            ? rev.gunBarrel.transform.position
+                            : cam.position + cam.right * 0.35f - cam.up * 0.3f + cam.forward * 0.6f;
                     }
+                    if (_beamLogs++ < 2) LogBeam(go, cam, rev);
                     break;
                 }
                 case "explosion":
