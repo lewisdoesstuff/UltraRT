@@ -240,8 +240,10 @@ namespace UltraRT
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}, lit albedo-as-emissive {LitAlbedoEmissionMaterials}), light fixtures {FixtureCount}");
+            _log.LogInfo(CutoutAudit());
             LogMaterialClasses();
             LogDisplacementInventory();
+            LogScrolling();
             LogTransparents();
             LogMirrorSurfaces();
             _log.LogInfo($"Material maps ({MaterialMaps.Settings}): {Maps.Bound} proxy materials bound, {Maps.Missing} without maps, " +
@@ -1050,6 +1052,7 @@ namespace UltraRT
                 m.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
             }
             if (src.HasProperty("_Color")) m.SetColor("_Color", src.GetColor("_Color"));
+            ApplyScrolling(src, m);
             if (SourceAlphaTested(src))
             {
                 m.SetFloat("_AlphaTest", 1f);

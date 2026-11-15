@@ -82,6 +82,8 @@ namespace UltraRT
             public bool HasUv2;             // mesh has a 3+ component TEXCOORD2 (BLOOD_FILLER)
             public float LastEmitterRefresh = -100f;
             public int Signature;           // hash of the block values last applied
+            public ScrollingTexture ScrollTex; // the source's ScrollingTexture (SceneProxies.Scroll.cs), looked up once
+            public bool ScrollLooked;
         }
 
         private void NoteProxyMaterial(Material src, Material proxy)
@@ -251,7 +253,7 @@ namespace UltraRT
 
         private static bool BlockRelevant(MaterialPropertyBlock b) =>
             !b.isEmpty && (b.HasColor(IdColor) || b.HasVector(IdColor) || b.HasColor(IdEmissiveColor) || b.HasVector(IdEmissiveColor)
-                           || b.HasFloat(IdEmissiveIntensity) || b.HasFloat(IdFillAmount));
+                           || b.HasFloat(IdEmissiveIntensity) || b.HasFloat(IdFillAmount) || b.HasVector(IdScrollOffset));
 
         private void CheckBlockRelevant(DynamicProxy d)
         {
@@ -310,9 +312,13 @@ namespace UltraRT
                 float eIntensity = emissive ? (b.HasFloat(IdEmissiveIntensity) ? Mathf.Max(b.GetFloat(IdEmissiveIntensity), 0.0001f) : shared.GetFloat(IdEmissiveIntensity)) : 0f;
                 float fill = sync.BloodFill[i] && b.HasFloat(IdFillAmount) ? b.GetFloat(IdFillAmount) : 0f;
                 float scale = b.HasVector(IdMeshScale) ? b.GetVector(IdMeshScale).z : 1f;
+                // ScrollingTexture's per-renderer offset (SceneProxies.Scroll.cs), only on proxies that scroll.
+                bool scrolls = ProxyScrolls(shared);
+                Vector4 scroll = scrolls ? (b.HasVector(IdScrollOffset) ? b.GetVector(IdScrollOffset) : shared.GetVector(IdScrollOffset)) : Vector4.zero;
 
                 bool emissionDiffers = emissive && (cur.GetColor(IdEmissiveColor) != eColor || cur.GetFloat(IdEmissiveIntensity) != eIntensity);
-                bool differs = emissionDiffers || cur.GetColor(IdColor) != color || cur.GetFloat(IdBloodFill) != fill || (fill > 0f && cur.GetFloat(IdBloodScale) != scale);
+                bool differs = emissionDiffers || cur.GetColor(IdColor) != color || cur.GetFloat(IdBloodFill) != fill || (fill > 0f && cur.GetFloat(IdBloodScale) != scale)
+                               || (scrolls && cur.GetVector(IdScrollOffset) != scroll);
                 if (!differs) continue;
                 if (cur == shared)
                 {
@@ -329,6 +335,11 @@ namespace UltraRT
                 if (emissive) { cur.SetColor(IdEmissiveColor, eColor); cur.SetFloat(IdEmissiveIntensity, eIntensity); }
                 cur.SetFloat(IdBloodFill, fill);
                 cur.SetFloat(IdBloodScale, scale);
+                if (scrolls)
+                {
+                    cur.SetVector(IdScrollOffset, scroll);
+                    cur.SetVector(IdScrollVelocity, ScrollVelocity(sync, d.Source, shared));
+                }
             }
             if (proxyMats != null) d.Proxy.sharedMaterials = proxyMats;
             SyncBlockUpdates++;
@@ -352,6 +363,7 @@ namespace UltraRT
                 if (b.HasFloat(IdEmissiveIntensity)) h = h * 31 + b.GetFloat(IdEmissiveIntensity).GetHashCode();
                 if (b.HasFloat(IdFillAmount)) h = h * 31 + b.GetFloat(IdFillAmount).GetHashCode();
                 if (b.HasVector(IdMeshScale)) h = h * 31 + b.GetVector(IdMeshScale).GetHashCode();
+                if (b.HasVector(IdScrollOffset)) h = h * 31 + b.GetVector(IdScrollOffset).GetHashCode();
                 return h == 0 ? 1 : h;
             }
         }

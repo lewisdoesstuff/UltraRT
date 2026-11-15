@@ -35,6 +35,8 @@ namespace UltraRT
         /// "Remodulation"). -ultrart-rr-noremod, bench plugin._rrRemodulate=0.</summary>
         private bool _rrRemodulate = true;
         private float _rrDemodSharpness = 30f, _rrDemodMaxWeight = 4f;
+        /// <summary>V1's shadow factor filtered before RR (DlssRR.PlayerFilter; bench plugin._rrPlayerFilter=0: raw, as before).</summary>
+        private bool _rrPlayerFilter = true;
         /// <summary>At an integer upscale (trace scale 1/2, 1/3, 1/4) jitter on the exact screen-pixel pattern instead of Halton
         /// (DlssRR.ExactGrid). Bench plugin._rrExactJitter=0.</summary>
         private bool _rrExactJitter = true;
@@ -206,6 +208,7 @@ namespace UltraRT
                 _rr.RenderGuard = _rrGuard;
                 _rr.DemodSharpness = _rrDemodSharpness;
                 _rr.DemodMaxWeight = _rrDemodMaxWeight;
+                _rr.PlayerFilter = _rrPlayerFilter;
                 // NVIDIA's rule: 8 x (output / render)^2 phases (72 at 3x); never fewer than the configured count.
                 _rr.JitterPhases = name == PathTraceModeName ? Mathf.Max(_rrJitterPhases, Mathf.CeilToInt(8f / Mathf.Max(0.04f, _ptSettings.scaleRR * _ptSettings.scaleRR))) : _rrJitterPhases;
                 if (_rrWarm)

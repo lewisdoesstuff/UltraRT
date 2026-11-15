@@ -17,6 +17,13 @@ Shader "UltraRT/Proxy"
         _BlendTex ("Blend atlas", 2D) = "white" {}
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
+        // ULTRAKILL/Master SCROLLING: uv * _MainTex_ST + _ScrollOffset + _ScrollSpeed * _Time.y (5-2's sea current, conveyor
+        // belts, opaque lava). _ScrollOffset is ScrollingTexture's per-renderer property block value (SceneProxies.Sync.cs).
+        _Scrolling ("Texture scrolls (SCROLLING)", Float) = 0
+        _ScrollSpeed ("Scroll speed (uv/s)", Vector) = (0,0,0,0)
+        _ScrollOffset ("Scroll offset (uv)", Vector) = (0,0,0,0)
+        // The texture's velocity (uv/s: ScrollingTexture's speed + _ScrollSpeed), for its motion vectors.
+        _ScrollVelocity ("Scroll velocity (uv/s)", Vector) = (0,0,0,0)
         // Frosted transparents (ice) also traced as scene geometry (SceneProxies.Transparent.cs): camera rays pass through
         // (the game draws the surface), every other ray sees it. Needs a non-opaque submesh so the any-hit runs.
         _CameraSkip ("Camera rays pass through", Float) = 0
@@ -150,6 +157,11 @@ Shader "UltraRT/Proxy"
             float4 _UltraRTDebrisGlow; // global: rgb the glow of fresh explosion debris right now
             float _Rain, _RainSpeed, _RaindropsIntensity, _RainScale, _WarpDetail, _LocalOffsetRain, _RainCeilingToggle;
             float _UltraRTRainTime; // global: Time.timeSinceLevelLoad, the game shaders' _Time.y
+            float _Scrolling;
+            float4 _ScrollSpeed, _ScrollOffset, _ScrollVelocity;
+            float _UltraRTTexScroll; // global: 1 = SCROLLING textures move (bench plugin._texScroll=0: frozen, as before)
+            float _UltraRTScrollMotion; // global: 1 = scrolling surfaces report the texture's motion (bench plugin._texScrollMotion=0)
+            float _UltraRTFrameDt;      // global: Time.deltaTime of this frame (the game's scroll step)
 
             // The game's RAIN term (ULTRAKILL/Master and ULTRAKILL-Stationary pixel shaders, decoded from their DXBC): an
             // albedo change before lighting. Dominant-axis planar projection of the world position (tile 16 / _RainScale
@@ -305,6 +317,28 @@ Shader "UltraRT/Proxy"
                 return PackMotion(wPrev - wCur);
             }
 
+            // SCROLLING (SceneProxies.Scroll.cs): where the texture feature now under this hit was last frame, relative to
+            // the hit. The texture moves by -dP/dtexUV x (velocity x dt) over the surface (sampling uv + offset). The
+            // temporal filters (TAAU, RR's remodulation, the denoiser) then follow the flowing texture instead of
+            // smearing it; lighting on such surfaces (water, lava, belts) is smooth, so following the texture costs nothing.
+            float3 ScrollMotion(uint3 tri)
+            {
+                float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
+                float2 u1 = UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0);
+                float2 u2 = UnityRayTracingFetchVertexAttribute2(tri.z, kVertexAttributeTexCoord0);
+                float3 p0 = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributePosition);
+                float3 p1 = UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributePosition);
+                float3 p2 = UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributePosition);
+                float2 d1 = (u1 - u0) * _MainTex_ST.xy, d2 = (u2 - u0) * _MainTex_ST.xy;
+                float det = d1.x * d2.y - d1.y * d2.x;
+                if (abs(det) < 1e-12) return 0;
+                float3 e1 = p1 - p0, e2 = p2 - p0;
+                float3 tu = (e1 * d2.y - e2 * d1.y) / det; // dP / d(texture u), object space
+                float3 tv = (e2 * d1.x - e1 * d2.x) / det;
+                float2 duv = _ScrollVelocity.xy * _UltraRTFrameDt;
+                return mul((float3x3)ObjectToWorld3x4(), tu * duv.x + tv * duv.y); // previous position of the feature - current
+            }
+
             float2 FetchUV(uint3 tri, float3 b)
             {
                 float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
@@ -373,6 +407,7 @@ Shader "UltraRT/Proxy"
                 else
                 {
                     texUV = uv * _MainTex_ST.xy + _MainTex_ST.zw;
+                    if (_Scrolling * _UltraRTTexScroll > 0.5) texUV += _ScrollOffset.xy + _ScrollSpeed.xy * _UltraRTRainTime;
                     albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, 0) * _Color;
                     litWeight = 1.0 - _Unlit;
                     if (_BloodFill > 0.0) albedo.rgb *= BloodFillTint(tri, b);
@@ -540,6 +575,8 @@ Shader "UltraRT/Proxy"
                 p.primitive = hasDetail && wantMotion ? PackOct24(nVertex) : PrimitiveIndex();
                 p.motion = 0u;
                 if (wantMotion) p.motion = HitMotion(tri, b); // not ?: (both sides run in HLSL 2018: motion buffers read on every hit)
+                if (wantMotion && _Scrolling * _UltraRTTexScroll * _UltraRTScrollMotion > 0.5)
+                    p.motion = PackMotion(UnpackMotion(p.motion) + ScrollMotion(tri));
 
                 // Reflection material: constant per proxy material, or the secondary set on VERTEX_BLENDING surfaces.
                 bool second = _Secondary > 0.5 && blendWeight < 0.5;

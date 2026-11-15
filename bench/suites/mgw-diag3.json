@@ -1,0 +1,19 @@
+{
+  "Name": "mgw-diag3",
+  "Note": "1-1 pathtrace texel-edge flicker vs material normal strength (user played at x2), grass at x2, 5-2 scroll offsets (t3/motion-grass-water)",
+  "Scenarios": [
+    { "Name": "1-1 user 1115", "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-user-1115.json", "Duration": 4 },
+      "Modes": ["off", "pathtrace+mat.normalStrength=2", "relight+mat.normalStrength=2"],
+      "Screenshots": [2], "ShotSettle": 1,
+      "Burst": 72, "BurstModes": ["off", "pathtrace+mat.normalStrength=2", "pathtrace+mat.normalStrength=0", "pathtrace+mat.enabled=0", "relight+mat.normalStrength=2"] },
+    { "Name": "1-1 grass", "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-grass-approach.json", "Duration": 4 },
+      "Modes": ["off", "pathtrace+mat.normalStrength=2", "relight+mat.normalStrength=2", "albedo"],
+      "Screenshots": [2], "ShotSettle": 1 },
+    { "Name": "5-2 water 1115", "Scene": "Level 5-2",
+      "Path": { "Type": "static", "Approach": "../recordings/5-2-water-1115.json", "Duration": 12 },
+      "Modes": ["off", "relight"],
+      "Screenshots": [1, 1.1], "ShotSettle": 0 }
+  ]
+}
