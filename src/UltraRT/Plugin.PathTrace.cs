@@ -43,8 +43,9 @@ namespace UltraRT
         public PathTraceDenoiser denoiser = PathTraceDenoiser.Auto;
         /// <summary>Trace scale (per axis) when DLSS RR denoises and upscales: 0.3333 = 853x480 at 1440p.</summary>
         public float scaleRR = 0.3333f;
-        /// <summary>Trace scale with UltraRT's denoiser (its temporal upsampler's jitter is exact at 0.5).</summary>
-        public float scale = 0.5f;
+        /// <summary>Trace scale with UltraRT's denoiser. 1/3 with <see cref="remodulate"/> keeps the texels (the exact 3x3 grid, as
+        /// RR); without remodulation use 0.5, where the upsampler's own jitter is exact.</summary>
+        public float scale = 0.3333f;
         /// <summary>Paths per pixel with UltraRT's denoiser (0 = <see cref="paths"/>): at scale 0.5 it traces 2.25x the pixels.</summary>
         public int pathsOwn = 1;
         /// <summary>UltraRT's denoiser remodulates like RR: the upsampler accumulates lighting only, the texels come back from exact
@@ -52,10 +53,10 @@ namespace UltraRT
         public bool remodulate = true;
         /// <summary>With <see cref="remodulate"/> at trace scale 1/3 (or 1/5): the exact N x N jitter grid, as RR uses.</summary>
         public bool remodExactGrid = true;
-        /// <summary>The lighting upsampler's sample weight exp(-x d^2), d in screen px, and its history cap (exact hits). As the
-        /// plain upsampler: a softer weight (0.5) gave fresh samples more say and measured noisier at rest (0-1 metal 1.90 vs 1.05).</summary>
-        public float remodSharpness = 4f;
-        public float remodMaxWeight = 3f;
+        /// <summary>The lighting upsampler's sample weight exp(-x d^2), d in screen px, and its history cap (exact hits). Masked
+        /// burst sigma on 0-1 metal at 1/3: 1.90 with 0.5 / 4, 1.38 with 4 / 3 (the plain upsampler's), 1.20 with 1 / 6.</summary>
+        public float remodSharpness = 1f;
+        public float remodMaxWeight = 6f;
         /// <summary>Light sampling at the primary hit while RR denoises: -1 = as configured (F6), 1 = RIS without reuse,
         /// 2 = ReSTIR. RR wants uncorrelated samples (docs/dlss.md).</summary>
         public int lightsRR = 1;

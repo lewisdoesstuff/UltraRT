@@ -184,8 +184,11 @@ namespace UltraRT
         /// <summary>A warm-up (NGX init and/or feature creation) runs on the native worker thread: don't evaluate.</summary>
         public bool Busy => !_disposed && _isBusy() != 0;
 
-        /// <summary>Starts NGX's initialisation on a worker thread (docs/dlss.md, "Warm-up"). Main thread; returns at once.</summary>
-        public void WarmInit() { if (!_disposed) _warm(0, 0, 0, 0, Preset, 0); }
+        /// <summary>Starts NGX's initialisation on a worker thread (docs/dlss.md, "Warm-up"). Main thread; returns at once. With a
+        /// small throw-away feature that the worker evaluates once: NGX loads its kernels on the first evaluate of the process
+        /// (measured 130-230 ms, and it stalled the render thread even when it ran on the worker mid-game), so that happens at
+        /// start-up. The first real feature replaces it.</summary>
+        public void WarmInit() { if (!_disposed) _warm(320, 180, 960, 540, Preset, 3); }
 
         /// <summary>The feature Execute would use for this trace: render size (guard band cropped), output size, exact-grid
         /// output offset and the screen-to-trace map. Mirrors what Execute does.</summary>

@@ -20,8 +20,10 @@ namespace UltraRT
         private bool _remodLogged;
 
         /// <summary>Whether this frame's pathtrace fallback (UltraRT's denoiser) remodulates.</summary>
+        /// Not while RR's feature is being created (_rrWarming): those few frames take the plain upsampler, whose targets exist
+        /// already; the remodulation's first use allocates two screen-size upsamplers (a 130 ms frame measured).
         private bool RemodFor(bool full, bool rr, bool taau) =>
-            full && !rr && taau && _ptSettings.remodulate && _rrShader != null && _rrUpsampleShader != null && EnsureRemodKernels();
+            full && !rr && !_rrWarming && taau && _ptSettings.remodulate && _rrShader != null && _rrUpsampleShader != null && EnsureRemodKernels();
 
         private bool EnsureRemodKernels()
         {

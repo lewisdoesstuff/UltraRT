@@ -104,7 +104,7 @@ namespace UltraRT
             {
                 _stainNextLog = Time.realtimeSinceStartup + 30f;
                 var fog = StainFade();
-                Logger.LogInfo($"Blood stains in reflections: {cap} slots, mesh half extent {half:F2}, fade {fog.x:F0}-{fog.y:F0} m, wet {(haveBirth ? "on" : "off")}");
+                Logger.LogInfo($"Blood stains in reflections: {cap} slots, mesh bounds {bsm.optimizedBloodMesh.bounds}, fade {fog.x:F0}-{fog.y:F0} m, wet {(haveBirth ? "on" : "off")}");
             }
         }
 

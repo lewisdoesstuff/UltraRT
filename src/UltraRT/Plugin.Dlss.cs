@@ -46,6 +46,8 @@ namespace UltraRT
         /// init and creation on the render thread.</summary>
         private bool _rrWarm = true;
         private bool _rrWarmLogged;
+        /// <summary>This frame uses UltraRT's denoiser only because RR's feature is being created (Plugin.Remod.cs).</summary>
+        private bool _rrWarming;
         private float _rrWarmSince = -1f;
 
         private void ParseDlssArgs()
@@ -183,6 +185,7 @@ namespace UltraRT
                     warming = !_rr.EnsureFeatureAsync(tw, th, new Vector2Int(gx, gy), gs, depthBuf.width, depthBuf.height);
                 }
             }
+            _rrWarming = warming;
             if (warming)
             {
                 if (_rrWarmSince < 0f) _rrWarmSince = Time.realtimeSinceStartup;
