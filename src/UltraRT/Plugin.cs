@@ -1220,7 +1220,7 @@ namespace UltraRT
                 _proxies.PortalViewpoints(_camera.transform.position, _lightSampling.ViewPoints); // portal-aware importance
                 _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged, kind == Kind.Hybrid);
                 Perf.Add(Perf.Sec.LightSampling, tls);
-                _emissive.Bind(_cmd, shader, _lightSamplingSettings.mode);
+                _emissive.Bind(_cmd, shader, _lightSampling.ActiveMode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
                 _cmd.SetRayTracingIntParam(shader, "_AccumFrames", (int)_accumFrames);
                 _cmd.SetRayTracingVectorParam(shader, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));

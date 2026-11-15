@@ -97,7 +97,9 @@ namespace UltraRT
                 () => _cacheSettings.enabled ? _cacheSettings.mode : RadianceCacheMode.Off,
                 v => { _cacheSettings.enabled = true; _cacheSettings.mode = v; _denoiser?.Reset(); },
                 v => v.ToString(), v => v.ToString(), "-ultrart-nocache", "-ultrart-cache-mode");
-            m.Choice("Quality", "LightSampling", "Light sampling  [F6]",
+            // Key renamed from "LightSampling" when the default went from ReSTIR to RIS (docs/light-sampling.md, "Bias and
+            // noise, 2026-11-15"): config files keep the default they were first written with, so the old key pinned ReSTIR.
+            m.Choice("Quality", "LightSampler", "Light sampling  [F6]",
                 () => _lightSamplingSettings.mode,
                 v => { _lightSamplingSettings.mode = v; _lightSampling?.Reset(); },
                 v => v.ToString(),

@@ -210,6 +210,8 @@ Mean demodulated lighting at the primary hit (radiance statistics, linear; `benc
   room -16%, 2-2 less blue, 1-4's lamps +17% the other way), and it is the one that agrees with the reference. Relight
   is not changed (its look is the accepted one); `ptx.lightsRR=2` gives `pathtrace` the same sampler, at RR's
   correlated-noise cost.
+- Since 2026-11-15 relight defaults to RIS and its ReSTIR no longer reuses visibility; both match the reference
+  within about 2 % (docs/light-sampling.md, "Bias and noise").
 - The rest of the difference (pathtrace 0.778 against RIS relight 0.810 in the lava room; 0-5% of screen luma) is the
   path itself: a path vertex on metal splits into a diffuse and a specular lobe, where relight's single bounce treats
   every hit as fully diffuse, and its last vertex is two bounces away instead of one.
