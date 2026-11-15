@@ -48,6 +48,7 @@ Shader "UltraRT/Particles/Lit"
         _Opacity ("Opacity", Float) = 1
         _ScrollSpeed ("Scroll speed", Vector) = (0,0,0,0)
         _PLSrcOne ("Src blend is One", Float) = 0
+        _PLNoSoft ("No soft fade (per renderer)", Float) = 0
     }
 
     SubShader
@@ -98,6 +99,7 @@ Shader "UltraRT/Particles/Lit"
             Texture2D _UltraRTGameDepth;   // the game's opaque depth (raw), copied at the RT composite
             float4 _UltraRTSoft;           // x 1 / fade distance (m), y 1 = valid for the camera rendering now
             float _PLZWrite;
+            float _PLNoSoft;   // per-renderer property block: glow spheres around a statue orb keep the game's hard look
 
             struct appdata
             {
@@ -229,7 +231,7 @@ Shader "UltraRT/Particles/Lit"
                 }
                 c.a *= i.fogFade.y;
                 float soft = 1.0;
-                if (_UltraRTSoft.y > 0.5 && _PLZWrite < 0.5)
+                if (_UltraRTSoft.y > 0.5 && _PLZWrite < 0.5 && _PLNoSoft < 0.5)
                 {
                     float sceneZ = LinearEyeDepth(_UltraRTGameDepth.Load(int3(i.pos.xy, 0)).r);
                     soft = saturate((sceneZ - i.fogFade.z) * _UltraRTSoft.x);

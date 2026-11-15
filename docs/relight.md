@@ -392,3 +392,22 @@ volumetrics off: 1.24; radiance cache off: 1.79; a 0.02 m radius everywhere: 0.6
 records point/spot lights inside a static-batched renderer of at most 6 m with a footprint of at most 2 m, and
 `GatherLights` gives those that are not lifted a 0.03 m radius: sigma 0.73, block 0.59, drift 0.90
 (`bench/results/20261114-185737_lights-pm-check2_alt`). 8-2 has 7 such lights, P-2 17.
+
+## V1 beside a light (2026-11-15, user note 3)
+
+5-2, Ferryman's cabin (user pose 2): standing near the fireplace showed V1's shadow *on* the fireplace. The light that cast it
+is `3 - Ferryman's Cabin/3 Nonstuff/Interior/Point Light` (range 20, x3, orange), the room's fire-glow fill. It hangs in mid-air
+at chest height in the middle of the cabin, 1.2 m behind the player's pose, with nothing around it; the fire's own light
+(`Interior/Furnace/Fire`, range 10, x5, on the hearth) is weaker at that distance. With V1 between the fill and the hearth,
+the fill threw a magnified V1 silhouette over the fireplace. The game has no shadows; the player expects the fire to cast V1's
+shadow behind them.
+
+Fix: `data/lights/Level 5-2.json` makes that fill light unshadowed (`"shadows": false`, as the game draws it). The room keeps its
+brightness and the fire's light now casts V1's shadow away from the hearth. Moving the fill into the hearth (`offset`) was
+tried first: the hearth opening glared and the fireplace's front went dark.
+
+A general rule was also written and is **off by default** (`-ultrart-beside`, bench `plugin._besideV1=1`): free-standing
+level lights (no fixture, no lamp shade, not placed by an override, not a statue orb's) within 3 m horizontally of V1 and not
+above its head skip V1's shadow with a probability rising to 1 at 1.5 m (flag `0 < _Lights[i*4+1].w <= 0.5`;
+`UltraRTLights.hlsl LightSkipsPlayer`; the player's own lights keep flag 1). It also removed the V1 shadow under 0-2's
+first-room light (0.9 m from the eye, the `0-2 v1 shadow a` pose), which an earlier change keeps on purpose, so it is left off.

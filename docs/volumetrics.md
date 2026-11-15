@@ -468,3 +468,33 @@ the bench's `holdtorch` and the whiplash pressed `ShotDelay` before each capture
   counts (> 128) fall back to RIS.
 - The haze range is a heuristic on the light's range: a big-range lamp that really is a lamp loses its halo, and a
   short-range light the level uses as a fill keeps it.
+
+### Eye beams (2026-11-15, user note 4)
+
+3-1 (user pose 1, the staircase room): "the light beams coming from the eye don't seem to cast shadows". Each eye
+(`EyeWithSocket/Eyeball`) holds a Spot Light (range 80, x10, 60-90 degrees) and, parented under it, four nested ProBuilder
+frusta `Cube`..`Cube (3)` with `LightPillar 1F NoFog` (alpha-blended orange `(1, 0.5, 0)`, alpha 0.25, two-sided). Those
+meshes are the beam: drawn on top of everything, unshadowed. The camera in this room stands inside the outermost frustum, so
+they also give the room its orange cast. The same prefab sits in 3-1's circular and bridge arenas.
+
+What blocked a shadowed version:
+- **Matching.** LightShafts fitted cones only to meshes whose tip is at a light; these frusta start 2-10 m out. Beam meshes
+  parented under a spot light are now matched to it (`LightShaftSettings.parentSpots`): axis from the far half of the vertices
+  (within 20 degrees of the spot's forward), half angle the widest, nested meshes widen one cone, and the cone follows the light
+  if it moves (axis kept in the light's space). A cone whose light or mesh is destroyed (checkpoint respawns re-clone rooms)
+  makes LightShafts fit again, at most once a second.
+- **The eye blocked its own light.** The spot sits inside `BigEye` (39 m across) and the flesh socket `EyeWithSocket` (38 m),
+  ordinary geometry, so in RT the eye lit nothing: the floor under the beam was dark where the game's is beige. The renderers
+  around a beam light whose bounds hold it become its *housing* (`SceneProxies.AddHousing`, at most 64 m, beam lights only):
+  fixtures, and the light skips fixtures (as statue orbs, docs/scene-proxies.md). Now the eye lights the ribs and the floor,
+  and the ribs and V1 cast shadows from it (`LightShaftSettings.housings`, log `Light housing: ...`).
+- **Look.** The volumetric pass can draw the beams itself (`BeamSamples` in `Volumetrics.raytrace`: per beam, one uniform
+  point on the part of the view ray inside the cone and one shadow ray to the light, stopped where the meshes begin;
+  constant density of the meshes' colour, `1 - (1 - a)^(2n)` across the middle; a profile thins it to the edge), with the
+  game's meshes hidden. It works (the ribs cut the haze), but the composite adds haze in linear light under a soft cap
+  (`vol.maxAdd`, 0.25 display), and the game's beam is an alpha-blended orange wash: the result reads as an olive haze over the
+  whole room, not the game's cone (`relight+shaft.beamStrength=2+vol.maxAdd=0.6` in `shade-1115g`). So it is **off by default**
+  (`shaft.beamStrength` 0): the game's meshes stay, the eye's light now reaches the room with traced shadows.
+
+Next step if wanted: a separate beam channel through the temporal filter and the composite, blended like the game's meshes
+(`lerp(scene, colour, opacity x visible fraction)`) instead of added.

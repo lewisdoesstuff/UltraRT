@@ -151,6 +151,8 @@ namespace UltraRT
                 lights = _lightBuffer,
                 skip = VolumetricsSkipMask(),
                 cones = VolumetricsConeBuffer(), // lamp cones (Plugin.Shafts.cs)
+                beams = VolumetricsBeamBuffer(out int beamCount), // the game's beam meshes, shadowed (Plugin.Shafts.cs)
+                beamCount = beamCount,
                 lightCount = _lightCount,
                 sunDir = sunDir,
                 sunColor = sunColor,

@@ -57,6 +57,10 @@ float4   _EmissiveParams;   // y: EmissiveLightScale / pi, z: min squared distan
 float    _VolEmissive;      // emissive scattering multiplier (0 = off)
 float    _VolClamp;         // max luminance of the one-sample light + emissive estimate per pixel (linear, 0 = none)
 float4   _VolSamples;       // x light samples per pixel, y emissive samples per pixel
+// The game's beam meshes drawn by this pass (Plugin.Shafts.cs VolumetricsBeamBuffer; docs/volumetrics.md "Eye beams"),
+// _VolSamples.z of them, 3 float4 each: [0] apex (the light) + cos(half angle), [1] axis + far end (m along the axis),
+// [2] linear colour x density (per metre) + near end (m along the axis: where the meshes begin, past the light's housing).
+StructuredBuffer<float4> _VolBeams;
 float4   _VolLightShape;    // x haze range (m; lights with a larger range scatter less, 0 = off), y soft core (x range)
 
 static const float kPi = 3.14159265;
@@ -87,7 +91,7 @@ float PhaseHG(float cosT, float g)
     return (1.0 - g * g) / (4.0 * kPi * d * sqrt(max(d, 1e-6)));
 }
 
-bool Unoccluded(float3 p, float3 dir, float dist)
+bool Unoccluded(float3 p, float3 dir, float dist, uint mask = 0x05u)
 {
     RayDesc r;
     r.Origin = p;
@@ -98,7 +102,7 @@ bool Unoccluded(float3 p, float3 dir, float dist)
     sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
     // No back-face culling: a point in the air must be shadowed by thin one-sided geometry (leaf cards, roofs) from
     // either side. Geometry and light fixtures (0x05); sky walls never block light.
-    TraceRay(_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, 0x05u, 0, 1, 0, r, sp);
+    TraceRay(_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, mask, 0, 1, 0, r, sp);
     return sp.t < 0.0;
 }
 
@@ -158,13 +162,9 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
 
 // A spot light's cone (half angle: cos l3.x, apex at the light, axis l2.xyz) clips the ray segment [tA, tB] to the part
 // inside it (the hull of the inside pieces), so samples are not wasted on air the spot never lights. Point lights pass.
-bool ClipSpot(uint i, float3 o, float3 dir, inout float tA, inout float tB)
+bool ClipCone(float3 apex, float3 a, float c, float3 o, float3 dir, inout float tA, inout float tB)
 {
-    float3 a;
-    float c, sharpUnused;
-    ScatterCone(i, a, c, sharpUnused);
-    if (c <= -0.5) return true;
-    float3 v = o - _Lights[i * 4].xyz;
+    float3 v = o - apex;
     float da = dot(dir, a), va = dot(v, a), vd = dot(v, dir), vv = dot(v, v);
     // (va + t da)^2 - c^2 |v + t dir|^2 = A t^2 + 2 B t + C changes sign at the cone surface (both nappes)
     float A = da * da - c * c, B = va * da - c * c * vd, C = va * va - c * c * vv;
@@ -193,6 +193,15 @@ bool ClipSpot(uint i, float3 o, float3 dir, inout float tA, inout float tB)
     if (!(hi > lo)) return false;
     tA = lo; tB = hi;
     return true;
+}
+
+bool ClipSpot(uint i, float3 o, float3 dir, inout float tA, inout float tB)
+{
+    float3 a;
+    float c, sharpUnused;
+    ScatterCone(i, a, c, sharpUnused);
+    if (c <= -0.5) return true;
+    return ClipCone(_Lights[i * 4].xyz, a, c, o, dir, tA, tB);
 }
 
 // The part [tA, tB] of the ray segment [0, tMax] inside a light's reach (2 x range: its falloff window ends there) and,
@@ -353,6 +362,42 @@ float3 EmissiveSample(inout uint rng, float uT, float3 o, float3 dir, float tEnd
     return em;
 }
 
+// The beams: a constant-density glow of the game's beam colour inside each cone (as the game's layered meshes look,
+// whatever the spot's falloff), with one uniform point per beam on the part of the ray inside it and one shadow ray
+// toward the light, stopped at the beam's near end so the light's own housing (the eyeball) does not block it. A
+// profile thins the beam towards its edge like the game's nested meshes. Returns radiance (linear, unexposed).
+float3 BeamSamples(float3 o, float3 dir, float tEnd, float u, float sigmaT)
+{
+    float3 sum = 0;
+    int nb = clamp((int)_VolSamples.z, 0, 8);
+    for (int b = 0; b < nb; b++)
+    {
+        float4 b0 = _VolBeams[b * 3], b1 = _VolBeams[b * 3 + 1], b2 = _VolBeams[b * 3 + 2];
+        float tA = 0.0, tB = tEnd;
+        if (!ClipCone(b0.xyz, b1.xyz, b0.w, o, dir, tA, tB)) continue;
+        // between the near and far end along the axis
+        float da = dot(dir, b1.xyz), va = dot(o - b0.xyz, b1.xyz);
+        float t0 = (b2.w - va) / (abs(da) > 1e-6 ? da : 1e-6), t1 = (b1.w - va) / (abs(da) > 1e-6 ? da : 1e-6);
+        tA = max(tA, min(t0, t1));
+        tB = min(tB, max(t0, t1));
+        if (!(tB > tA)) continue;
+        float t = lerp(tA, tB, frac(u + 0.381966 * b));
+        float3 x = o + dir * t;
+        float3 toA = b0.xyz - x;
+        float dist = length(toA);
+        float3 L = toA / max(dist, 1e-4);
+        float ang = acos(clamp(dot(-L, b1.xyz), -1.0, 1.0)) / max(acos(clamp(b0.w, -1.0, 1.0)), 1e-3);
+        float edge = saturate(1.0 - ang);
+        float profile = edge * (2.0 - edge);
+        if (!(profile > 0.0)) continue;
+        float along = dot(-toA, b1.xyz);
+        // Geometry only: the beam's housing (the eye socket) is a fixture (SceneProxies.AddHousing).
+        if (!Unoccluded(x, L, dist * max(0.0, 1.0 - b2.w / max(along, 1e-3)), 0x01u)) continue; // nested: || does not short-circuit
+        sum += b2.rgb * (profile * (tB - tA) * exp(-sigmaT * t));
+    }
+    return sum;
+}
+
 // ---------------------------------------------------------------- ray generation
 
 [shader("raygeneration")]
@@ -478,6 +523,8 @@ void VolumeRayGen()
     // Lighting units: a surface's lighting is irradiance / pi (displayed = albedo x lighting), so the medium's radiance
     // sigma_s x phase x irradiance is pi x (sigma_s x phase x lighting).
     sum *= kPi;
+    // The game's beam meshes (already radiance)
+    if (_VolSamples.z > 0.5) sum += BeamSamples(o, dir, tEnd, BlueOffset(id, frame + 53u), sigmaT);
     if (any(!(sum >= 0.0)) || any(isinf(sum))) sum = 0; // NaN / Inf guard: one bad sample would blank the history
     _VolOut[id] = float4(min(sum, 64.0), 1.0);
 }

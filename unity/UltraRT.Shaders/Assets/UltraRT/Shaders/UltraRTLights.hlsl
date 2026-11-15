@@ -205,6 +205,19 @@ float _LightRadius;      // soft-shadow light size (m); 0 = point lights
 float _FixtureShadows;   // 1: light fixtures (torch bowls etc.) shadow their own lights
 static uint g_ShadowRng; // seeded per pixel by each ray-generation shader
 
+// V1's model casts no shadow from light i: flag 1 in _Lights[i*4+1].w = the player's own light; 0 < w <= 0.5 = a level
+// light right beside V1 (a room's fill light at chest height: 5-2's cabin), skipped with probability 2w so the shadow
+// fades out as V1 walks up to the light instead of popping (Plugin.FlagPlayerLights, docs/relight.md "V1 beside a light").
+bool LightSkipsFixtures(float4 l3) { return l3.z > 0.1 && l3.z < 0.5; }
+
+bool LightSkipsPlayer(uint i)
+{
+    float w = _Lights[i * 4 + 1].w;
+    if (w > 0.75) return true;
+    if (w <= 0.0) return false;
+    return (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0 < 2.0 * w;
+}
+
 // ---------------------------------------------------------------- area lights (docs/lighting-overrides.md)
 
 bool LightIsArea(float4 l3) { return l3.x < -1.5; }
@@ -280,8 +293,10 @@ float3 LightAreaSample(float4 l0, float4 l2, float4 l3, float3 p, float u1, floa
 // 0 = blocked without a ray (the jittered direction is below the surface), 1 = visible without a ray, 2 = trace it.
 uint LightShadowSetup(uint i, float3 p, float3 n, inout float3 L, inout float dist, out uint mask)
 {
-    mask = _FixtureShadows > 0.5 ? 0x05u : 0x01u; // fixtures (0x04) cast shadows unless disabled
     float4 al3 = _Lights[i * 4 + 3];
+    // Fixtures (0x04) cast shadows unless disabled, or unless the light is a statue orb's (shadow flag 0.25: the statue
+    // holding it is a fixture; SceneProxies.Orbs.cs).
+    mask = _FixtureShadows > 0.5 && !LightSkipsFixtures(al3) ? 0x05u : 0x01u;
     [branch] if (LightIsArea(al3) && dist < 1.0e3)
     {
         // Area light: a uniform point on the emitter, so the shadow is as soft as the emitter is large.
@@ -339,8 +354,8 @@ uint LightShadowSetup(uint i, float3 p, float3 n, inout float3 L, inout float di
     }
     dist -= min(kLightFixtureClearance, 0.5 * dist);
     // The player's own lights (a head-mounted flashlight, the held torch, muzzle flashes) sit inside or next to V1's
-    // model: it never shadows them (flag set by Plugin.FlagPlayerLights).
-    if (_Lights[i * 4 + 1].w <= 0.5) mask |= g_ShadowPlayerMask;
+    // model: it never shadows them; nor level lights right beside it (flag set by Plugin.FlagPlayerLights).
+    if (!LightSkipsPlayer(i)) mask |= g_ShadowPlayerMask;
     return 2u;
 }
 
@@ -356,9 +371,9 @@ bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
 // from a penumbra (docs/light-sampling.md, "Occluded history"). The caller sets g_ShadowPlayerMask as for LightVisible.
 bool LightCentreVisible(uint i, float3 p, float3 n, float3 L, float dist)
 {
-    uint mask = _FixtureShadows > 0.5 ? 0x05u : 0x01u;
+    uint mask = _FixtureShadows > 0.5 && !LightSkipsFixtures(_Lights[i * 4 + 3]) ? 0x05u : 0x01u;
     uint playerMask = g_ShadowPlayerMask;
-    if (_Lights[i * 4 + 1].w > 0.5) g_ShadowPlayerMask = 0u;
+    if (LightSkipsPlayer(i)) g_ShadowPlayerMask = 0u;
     bool vis = VisibleMasked(p, n, L, dist - min(kLightFixtureClearance, 0.5 * dist), mask);
     g_ShadowPlayerMask = playerMask;
     return vis;
@@ -434,7 +449,7 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
 #ifdef ULTRART_PLAYER_LIGHT_NDL_POW
             // The includer's player-light shaping also keeps those lights at or under the game's own falloff (the gun:
             // 7-3's flashlight 10 m behind the eye was 1.4x the game there).
-            if (l1.w > 0.5 && ULTRART_PLAYER_LIGHT_NDL_POW > 1.0) phys = min(phys, gameL);
+            if (l1.w > 0.75 && ULTRART_PLAYER_LIGHT_NDL_POW > 1.0) phys = min(phys, gameL);
 #endif
             gameL = lerp(gameL, phys, saturate(_Relight.x));
         }
@@ -471,7 +486,7 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
     // An includer may shape the cosine of the player's own lights (flag in l1.w) under linear transport
     // (Viewmodel.raytrace: ndl^2.2, so after the composite's ^(1/2.2) the gun shades like the game's gamma-space Lambert;
     // docs/viewmodel.md, "Player lights on the gun").
-    if (lin && l1.w > 0.5) ndl = pow(ndl, ULTRART_PLAYER_LIGHT_NDL_POW);
+    if (lin && l1.w > 0.75) ndl = pow(ndl, ULTRART_PLAYER_LIGHT_NDL_POW);
 #endif
     c = ToLight(l1.rgb * scale) * (atten * ndl);
     return true;
@@ -1191,7 +1206,7 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
             // V1 alone, along the sample's (unjittered) direction; skipped when the light is the player's own (as
             // SampleVisible decides: the player-light flag for lights, the player box for emitters; the 7-3 flashlight
             // used to get V1's shadow here) or the segment misses V1's bounds.
-            bool own = (r.light & ULTRART_EMISSIVE) != 0u ? InPlayerBox(pos + r.L * r.dist) : _Lights[r.light * 4 + 1].w > 0.5;
+            bool own = (r.light & ULTRART_EMISSIVE) != 0u ? InPlayerBox(pos + r.L * r.dist) : LightSkipsPlayer(r.light);
             float3 inv = 1.0 / (abs(r.L) > 1e-8 ? r.L : (r.L >= 0.0 ? 1e-8 : -1e-8));
             float3 t0 = (_UltraRTPlayerModelMin.xyz - pos) * inv, t1 = (_UltraRTPlayerModelMax.xyz - pos) * inv;
             float a = max(max(min(t0.x, t1.x), min(t0.y, t1.y)), max(min(t0.z, t1.z), 0.02));

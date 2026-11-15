@@ -213,6 +213,46 @@ namespace UltraRT
             ScanAtmosphere();
         }
 
+        // ------------------------------------------------------------------ orb glows (docs/vfx.md, "Soft particles")
+
+        private static readonly int NoSoftId = Shader.PropertyToID("_PLNoSoft");
+        private readonly MaterialPropertyBlock _noSoftBlock = new MaterialPropertyBlock();
+        private (int version, int lit) _orbScanned = (-1, -1);
+        public int OrbGlows { get; private set; }
+
+        /// <summary>
+        /// The cerberus statues' orbs sit inside an ExplosionSphere glow (swapped unlit for the soft fade). The fade made the
+        /// glow vanish where it is in front of the orb, so the orb looked hollow (a bright rim, a dark middle: 1-3, 8-1). Glow
+        /// renderers whose bounds hold an orb fixture's centre get a property block that turns the fade off. Explosions keep
+        /// it: they have no orb fixture inside. Re-checked when the orb list or the swapped set changes.
+        /// </summary>
+        public void KeepOrbGlows(IReadOnlyDictionary<Renderer, Bounds> orbs, int version)
+        {
+            if (orbs == null || (version, _lit.Count) == _orbScanned) return;
+            _orbScanned = (version, _lit.Count);
+            if (orbs.Count == 0) return;
+            int n = 0;
+            foreach (var r in UnityEngine.Object.FindObjectsOfType<MeshRenderer>(true))
+            {
+                var m = r != null ? r.sharedMaterial : null;
+                if (m == null) continue;
+                if (!_lit.TryGetValue(m, out var saved) && !_byName.TryGetValue(m.name.Replace(" (Instance)", ""), out saved)) continue;
+                if (saved.Kind != "master glow") continue;
+                var b = r.bounds;
+                foreach (var o in orbs.Values)
+                {
+                    if (!b.Contains(o.center) || b.size.magnitude < 0.8f * o.size.magnitude) continue;
+                    r.GetPropertyBlock(_noSoftBlock);
+                    _noSoftBlock.SetFloat(NoSoftId, 1f);
+                    r.SetPropertyBlock(_noSoftBlock);
+                    n++;
+                    break;
+                }
+            }
+            if (n != OrbGlows) _log.LogInfo($"Lit particles: {n} glow spheres around orb fixtures keep their hard edge (no soft fade)");
+            OrbGlows = n;
+        }
+
         // ------------------------------------------------------------------ atmosphere (docs/particles.md, "Atmosphere")
 
         /// <summary>Renderers given private copies of their original materials (game shader), with what they had before.</summary>

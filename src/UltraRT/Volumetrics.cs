@@ -138,6 +138,8 @@ namespace UltraRT
         public ComputeBuffer lights;
         public ComputeBuffer skip;         // one bit per light: skipped by the medium (attached to the player / camera)
         public ComputeBuffer cones;        // two float4 per light: cone override and scattering weight (LightShafts.cs)
+        public ComputeBuffer beams;        // three float4 per beam drawn by the pass (Plugin.Shafts.cs, VolumetricsBeamBuffer)
+        public int beamCount;
         public int lightCount;
         public Vector4 sunDir;             // xyz towards the sun, w cos(angular radius); w = 0: no sun
         public Color sunColor;             // linear irradiance
@@ -204,7 +206,7 @@ namespace UltraRT
             IdVolMaxAdd = Shader.PropertyToID("_VolMaxAdd"), IdVolToe = Shader.PropertyToID("_VolToe"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
             IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
-            IdVolSkip = Shader.PropertyToID("_VolSkip"), IdVolLightCone = Shader.PropertyToID("_VolLightCone"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
+            IdVolSkip = Shader.PropertyToID("_VolSkip"), IdVolLightCone = Shader.PropertyToID("_VolLightCone"), IdVolBeams = Shader.PropertyToID("_VolBeams"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
             IdTemporalParams3 = Shader.PropertyToID("_TemporalParams3"), IdAtrousIn = Shader.PropertyToID("_AtrousIn"),
             IdAtrousMom = Shader.PropertyToID("_AtrousMom"), IdAtrousOut = Shader.PropertyToID("_AtrousOut"),
             IdAtrousParams = Shader.PropertyToID("_AtrousParams"), IdAtrousParams2 = Shader.PropertyToID("_AtrousParams2");
@@ -322,12 +324,14 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(_rt, IdVolSunColor, new Vector4(f.sunColor.r * sunScale, f.sunColor.g * sunScale, f.sunColor.b * sunScale,
                 f.sunDir.w > 0f && sunScale > 0f ? 1f : 0f));
             cmd.SetRayTracingVectorParam(_rt, IdVolLightShape, new Vector4(Mathf.Max(0f, s.hazeRange), Mathf.Max(0f, s.core), 0, 0));
-            cmd.SetRayTracingVectorParam(_rt, IdVolSamples, new Vector4(Mathf.Clamp(s.lightSamples, 1, 8), Mathf.Clamp(s.emissiveSamples, 1, 8), 0, 0));
+            cmd.SetRayTracingVectorParam(_rt, IdVolSamples, new Vector4(Mathf.Clamp(s.lightSamples, 1, 8), Mathf.Clamp(s.emissiveSamples, 1, 8),
+                f.beams != null ? Mathf.Clamp(f.beamCount, 0, 8) : 0, 0));
             cmd.SetRayTracingVectorParam(_rt, IdVolLightParams, new Vector4(f.localLightCount, Mathf.Clamp(s.lightCandidates, 1, 32), Mathf.Max(0f, s.lights), 0.01f));
             cmd.SetRayTracingVectorParam(_rt, IdVolFalloff, f.falloff);
             cmd.SetRayTracingBufferParam(_rt, IdLights, f.lights);
             cmd.SetRayTracingBufferParam(_rt, IdVolSkip, f.skip);
             cmd.SetRayTracingBufferParam(_rt, IdVolLightCone, f.cones);
+            if (f.beams != null) cmd.SetRayTracingBufferParam(_rt, IdVolBeams, f.beams);
             cmd.SetRayTracingFloatParam(_rt, IdVolEmissive, Mathf.Max(0f, s.emissive));
             cmd.SetRayTracingFloatParam(_rt, IdVolClamp, Mathf.Max(0f, s.maxSample));
             _rt.SetShaderPass(Settings.shadowPass ? "UltraRTShadow" : "UltraRTHit");

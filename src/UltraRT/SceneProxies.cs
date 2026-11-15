@@ -240,6 +240,8 @@ namespace UltraRT
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
                          $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}, lit albedo-as-emissive {LitAlbedoEmissionMaterials}), light fixtures {FixtureCount}");
+            _log.LogInfo($"Orb fixtures (lamp balls around their light, EmitterMask{(OrbEmitters ? "" : ": off")}): {OrbFixtures.Count}" +
+                         (OrbFixtures.Count > 0 ? ": " + string.Join(", ", OrbFixtures.Keys.Take(8).Select(o => o != null ? GameControlPath(o.transform) : "-")) : ""));
             LogMaterialClasses();
             LogDisplacementInventory();
             LogTransparents();
@@ -555,7 +557,7 @@ namespace UltraRT
                 Root = ss != null ? (ss.rootBone != null ? ss.rootBone : ss.transform) : null,
                 SkinVerts = ss != null && ss.sharedMesh != null ? ss.sharedMesh.vertexCount : 0,
                 TwoSided = twoSided ?? mats.Any(m => Traceable(m) && SourceTwoSided(m)),
-                Mask = mask ?? (mats.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask),
+                Mask = mask ?? OrbHolderMask(source, mats.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask),
             };
             _dynamic.Add(entry);
             TryDisplace(entry, mats); // VERTEX_DISPLACEMENT sources: a displaced mesh copy (SceneProxies.Displaced.cs)
@@ -903,8 +905,13 @@ namespace UltraRT
         /// lamp the light stands for, so it gets EmitterMask, which no shadow ray tests (they use 0x01 | 0x04). Camera and
         /// bounce rays (0xFF) still see it.
         /// </summary>
-        private static bool IsGlowing(Renderer r)
+        private bool IsGlowing(Renderer r)
         {
+            // An orb around its light (the cerberus statues' Cerb_Apple: a lit Cerberus-material ball with the point light
+            // at its centre, 8-1 / 1-3 / 0-1): the ball is the lamp. As a fixture it blocked its own light (its 0.55 m
+            // radius is beyond the 0.35 m fixture clearance), so the statue holding it went black (docs/scene-proxies.md,
+            // "Statue orbs"). -ultrart-noorbemitters: the old fixture mask.
+            if (OrbEmitters && _fixtureOrb) return true;
             foreach (var m in r.sharedMaterials)
             {
                 if (m == null) continue;
@@ -921,6 +928,7 @@ namespace UltraRT
         /// </summary>
         private bool IsLightFixture(Renderer r)
         {
+            _fixtureOrb = false;
             if (_pointLights == null) BuildLightGrid();
             var rb = r.bounds;
             if (r.isPartOfStaticBatch && rb.size.magnitude <= 6f && Mathf.Max(rb.size.x, rb.size.z) <= 2f) NoteStaticEnclosure(rb);
@@ -948,15 +956,50 @@ namespace UltraRT
                              && p.y > rb.max.y && p.y - rb.max.y < FixtureSupportGap;
                 if (!inside && !under) continue;
                 encloses |= inside;
+                // A ball around its light: roughly as deep as wide, the light within the middle third of every axis, and
+                // the light hanging in an additive glow shell that wraps the ball (the statues' Sphere_8/Point Light).
+                // Without the shell test altars, skulls, desk lamps and the player's WallCheck counted as orbs.
+                if (inside && rb.size.y > 0.5f * Mathf.Max(rb.size.x, rb.size.z) && rb.size.y < 2f * Mathf.Min(rb.size.x, rb.size.z) && InGlowShell(l, rb))
+                {
+                    var o = p - rb.center;
+                    if (Mathf.Abs(o.x) <= OrbCentre * rb.extents.x && Mathf.Abs(o.y) <= OrbCentre * rb.extents.y && Mathf.Abs(o.z) <= OrbCentre * rb.extents.z)
+                    {
+                        _fixtureOrb = true;
+                        NoteOrbLight(r, l);
+                    }
+                }
                 if (FixtureBounds.TryGetValue(l, out var e)) { e.Encapsulate(rb); FixtureBounds[l] = e; }
                 else FixtureBounds[l] = rb;
                 FixtureVersion++;
             }
             if (encloses) FixtureCount++;
+            if (encloses && _fixtureOrb && !OrbFixtures.ContainsKey(r)) { OrbFixtures[r] = rb; OrbVersion++; }
             return encloses;
         }
 
         private const float FixtureSupportGap = 0.5f;
+
+        /// <summary>Orb fixtures (<see cref="IsGlowing"/>) get EmitterMask: shadow rays pass through them.
+        /// -ultrart-noorbemitters turns it off.</summary>
+        public static bool OrbEmitters = true;
+        private const float OrbCentre = 0.34f; // the light within the middle third of the ball on every axis
+
+        /// <summary>The light's parent draws an additive glow (ExplosionSphere, swapped or not) around the ball's centre.</summary>
+        private static bool InGlowShell(Light l, Bounds orb)
+        {
+            var parent = l.transform.parent;
+            var mr = parent != null ? parent.GetComponent<MeshRenderer>() : null;
+            var m = mr != null ? mr.sharedMaterial : null;
+            if (m == null || !mr.bounds.Contains(orb.center)) return false;
+            if (m.HasProperty("_PLDstBlend") && m.shader != null && m.shader.name.StartsWith("UltraRT/")) return Mathf.RoundToInt(m.GetFloat("_PLDstBlend")) == (int)BlendMode.One;
+            return m.IsKeywordEnabled("TRANSPARENCY") && m.HasProperty("_DstBlend") && Mathf.RoundToInt(m.GetFloat("_DstBlend")) == (int)BlendMode.One;
+        }
+        private bool _fixtureOrb;              // set by IsLightFixture for the renderer it just tested
+
+        /// <summary>Bounds of the orb fixtures (<see cref="IsGlowing"/>), for the glow spheres drawn around them
+        /// (LitParticles.KeepOrbGlows). <see cref="OrbVersion"/> changes when one is added.</summary>
+        public readonly Dictionary<Renderer, Bounds> OrbFixtures = new Dictionary<Renderer, Bounds>();
+        public int OrbVersion;
 
         /// <summary>
         /// Point/spot lights inside a small static-batched renderer (8-2's standing lamps: the light sits in the shade of a
