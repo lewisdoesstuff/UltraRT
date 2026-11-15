@@ -45,7 +45,7 @@ namespace UltraRT
         /// stall the game for seconds (docs/dlss.md, "Warm-up"). -ultrart-rr-nowarm, bench plugin._rrWarm=0: the old lazy
         /// init and creation on the render thread.</summary>
         private bool _rrWarm = true;
-        private bool _rrWarmLogged;
+        private bool _rrWarmLogged, _rrProbe;
         /// <summary>This frame uses UltraRT's denoiser only because RR's feature is being created (Plugin.Remod.cs).</summary>
         private bool _rrWarming;
         private float _rrWarmSince = -1f;
@@ -101,7 +101,12 @@ namespace UltraRT
             // Warm-up: start NGX's initialisation in the background as soon as the game runs, if anything may use RR.
             if (_rrWarm && !_rrInitTried && Time.frameCount > 2 && (_rrEnabled || _ptSettings.denoiser != PathTraceDenoiser.UltraRT) &&
                 SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D12 && EnsureRR())
+            {
                 _rr.WarmInit();
+                _rrProbe = true;
+            }
+            // The start-up probe has done its job (NGX's kernels are loaded): release it on the render thread.
+            if (_rrProbe && _rr != null && !_rr.Busy && _rr.HasFeature && !_rrWasActive) { _rr.ReleaseNow(); _rrProbe = false; }
             var log = _rr?.TakeLog();
             if (log != null) foreach (var line in log.Split('\n')) Logger.LogInfo($"[RR] {line}");
             if (_rr != null && Time.frameCount % 60 == 0)
@@ -110,6 +115,10 @@ namespace UltraRT
                 if (st != _rrStatusLogged) { _rrStatusLogged = st; Logger.LogInfo($"[RR] status: {st} (state {_rr.State}, {_rr.Evaluations} evaluations)"); }
             }
         }
+
+        /// <summary>Bench: RR is warming up this frame (the frame ran UltraRT's denoiser instead, or NGX is still starting).</summary>
+        private bool RRWarmingNow => (_rrWarming && Time.frameCount - _rrWarmingFrame <= 1) || (_rr != null && _rr.Busy);
+        private int _rrWarmingFrame;
 
         /// <summary>Bench: after a mode switch, wait until RR has its feature if the mode uses it (the warm-up creates it in the
         /// background and the frames meanwhile use UltraRT's denoiser), so screenshots, bursts and motion passes see RR.</summary>
@@ -188,11 +197,13 @@ namespace UltraRT
             _rrWarming = warming;
             if (warming)
             {
+                _rrWarmingFrame = Time.frameCount;
                 if (_rrWarmSince < 0f) _rrWarmSince = Time.realtimeSinceStartup;
                 if (!_rrWarmLogged) { _rrWarmLogged = true; Logger.LogInfo("DLSS Ray Reconstruction: creating the feature in the background; UltraRT's denoiser until it is ready"); }
                 _rrLastUsed = Time.realtimeSinceStartup; // not released meanwhile
                 return false;
             }
+            if (!want) _rrWarmSince = -1f; // a warm-up that was left (mode switch) starts its clock again
             if (want && _rrWarmSince >= 0f)
             {
                 Logger.LogInfo($"DLSS Ray Reconstruction: ready after {(Time.realtimeSinceStartup - _rrWarmSince) * 1000f:F0} ms of warm-up (frame {Time.frameCount})");
