@@ -104,7 +104,8 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces
         // composite adds at primary hits. The last vertex is all diffuse: its lobe would need one more segment.
         SurfaceMaterial mat = MaterialFromPayload(h.material, h.flags);
         // Seen along a specular segment (a reflection): the game's blood stains, which only its camera view draws.
-        float3 albedo = specular ? h.albedo * StainTint(hp, hn) : h.albedo;
+        float3 albedo = h.albedo;
+        if (specular) albedo *= StainTint(hp, hn); // not ?: (both sides run in HLSL 2018)
         float3 specW = 0;
         float keep = 1.0;
         if (specLobes && !last && mat.mode != ULTRART_REFL_NONE)
@@ -112,8 +113,10 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces
         float3 diffuse = ToLight(albedo * keep);
         float lit = h.alpha; // 0 = fullbright: shows its albedo whatever the light, and reflects none
 
-        float3 light;
-        if (!(last && cacheTail && CacheQueryTotal(hp, hn, light)))
+        float3 light = 0;
+        bool tail = false;
+        if (last && cacheTail) tail = CacheQueryTotal(hp, hn, light); // not && (no short-circuit in HLSL 2018)
+        if (!tail)
         {
             light = DirectOne(hp, hn, PayloadLayer(h), rng);
             if (skyNee) light += SkyDirect(hp, hn, rng);

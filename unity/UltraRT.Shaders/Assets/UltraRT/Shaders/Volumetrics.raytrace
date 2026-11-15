@@ -210,7 +210,8 @@ bool LightSegment(uint i, float3 o, float3 dir, float tMax, out float tA, out fl
     float k = sqrt(k2);
     tA = max(delta - k, 0.0);
     tB = min(delta + k, tMax);
-    return tB > tA && ClipSpot(i, o, dir, tA, tB);
+    if (!(tB > tA)) return false; // not &&: HLSL 2018 doesn't short-circuit
+    return ClipSpot(i, o, dir, tA, tB);
 }
 
 float LightTarget(uint i, float3 o, float3 dir, float tMax)
@@ -340,7 +341,8 @@ float3 EmissiveSample(inout uint rng, float uT, float3 o, float3 dir, float tEnd
     float3 L = toE / max(dist, 1e-4);
     float cosL = -dot(bn, L);
     if (b2) cosL = abs(cosL);
-    if (!(cosL > 1e-4) || !(pdfT > 0.0) || !Unoccluded(x, L, dist * 0.999 - 0.02)) return 0;
+    if (!(cosL > 1e-4) || !(pdfT > 0.0)) return 0;
+    if (!Unoccluded(x, L, dist * 0.999 - 0.02)) return 0; // separate: || does not short-circuit in HLSL 2018
     float3 li = ble * (cosL / max(d2, _EmissiveParams.z));
     float trans = exp(-sigmaT * (t + dist));
     float3 em = li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdfT) * W * _VolEmissive;
