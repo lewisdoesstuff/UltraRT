@@ -40,7 +40,7 @@ namespace UltraRT.Cinematics
 
         private sealed class Frame
         {
-            public int Index, Received, Valid, Expected;
+            public int Index, Received, Valid, Expected, Captured;
             public float[] Accum;      // RGB float (only with several samples)
             public byte[] Single;      // the only sample (RGBA32) when Expected == 1
         }
@@ -80,6 +80,7 @@ namespace UltraRT.Cinematics
         public void CaptureSample()
         {
             var frame = _current ?? throw new InvalidOperationException("BeginFrame first");
+            frame.Captured++;
             ScreenCapture.CaptureScreenshotIntoRenderTexture(_grab);
             AsyncGPUReadback.Request(_grab, 0, TextureFormat.RGBA32, r =>
             {
@@ -94,6 +95,14 @@ namespace UltraRT.Cinematics
                 src.CopyTo(buf);
                 try { _jobs.Add(new Job { Frame = frame, Data = buf }); } catch (InvalidOperationException) { } // disposed meanwhile
             });
+        }
+
+        /// <summary>A cancelled render: the current frame will never get all its samples; stop counting it as pending.</summary>
+        public void AbandonFrame()
+        {
+            var f = _current;
+            _current = null;
+            if (f != null && f.Captured < f.Expected) Interlocked.Decrement(ref _pendingFrames);
         }
 
         private void Work()

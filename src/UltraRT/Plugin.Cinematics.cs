@@ -150,7 +150,7 @@ namespace UltraRT
             "Cinematic: K / U / Delete|add key after the selected / update it / delete it",
             "Cinematic: Left / Right|select key and jump to it; Up/Down: segment duration (Shift: x4); T: easing; G: even speed",
             "Cinematic: P / Shift+P|play from the selected key / from the start; Ctrl+S save, L load next, N N new, H overlay",
-            "Cinematic: End|render the path offline (End or Esc cancels)",
+            "Cinematic: End|render the path offline (End again cancels)",
         };
 
         // ---------------------------------------------------------------- state
@@ -412,6 +412,7 @@ namespace UltraRT
                 if (!CineInLevel()) { CineExit(); return; }
                 if (CineGamePaused())
                 {
+                    if (_cineState == CineState.Render) { _cineCancel = true; if (!_cineBench) Toast("Render cancelled (paused)"); }
                     // The pause menu (and PluginConfigurator's page) live on the canvases we hid.
                     if (_cineCanvasesHidden) { foreach (var c in _cineCanvases) if (c != null) c.enabled = true; _cineCanvasesHidden = false; }
                     return;
@@ -424,7 +425,7 @@ namespace UltraRT
                 GameControl.HideCheatPanels();
                 if (_cineState == CineState.Render)
                 {
-                    if (!_cineBench && (KeyPressed(KeyCode.End) || KeyPressed(KeyCode.Escape))) { _cineCancel = true; Toast("Render: cancelling after this frame"); }
+                    if (!_cineBench && KeyPressed(KeyCode.End)) { _cineCancel = true; Toast("Render: cancelled"); }
                     return;
                 }
                 if (_cineBench) return;
@@ -607,7 +608,7 @@ namespace UltraRT
         {
             CineSetSpeed(_cine.timeScale);
             var sp = CineSplineNow();
-            if (KeyPressed(KeyCode.P) || KeyPressed(KeyCode.Escape)) { CineStopPlay(); return; }
+            if (KeyPressed(KeyCode.P)) { CineStopPlay(); return; }
             if (KeyPressed(KeyCode.H)) _cineHideOverlay = !_cineHideOverlay;
             _cinePlayT += Time.unscaledDeltaTime;
             if (_cinePlayT >= sp.Duration) { _cinePlayT = sp.Duration; _cineCur = sp.Sample(_cinePlayT); CineStopPlay(); return; }
@@ -719,7 +720,7 @@ namespace UltraRT
                 if (_cineState == CineState.Play)
                 {
                     if (!_cineHideOverlay)
-                        CineDrawShadowed(new Rect(20, Screen.height - 50, 900, 30), $"<b>PLAY</b> {_cinePlayT:F2} / {sp.Duration:F2} s   (P / Esc stop, H hide)", _cineSmall);
+                        CineDrawShadowed(new Rect(20, Screen.height - 50, 900, 30), $"<b>PLAY</b> {_cinePlayT:F2} / {sp.Duration:F2} s   (P stop, H hide)", _cineSmall);
                     return;
                 }
                 if (_cineHideOverlay) return;

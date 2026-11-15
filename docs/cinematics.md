@@ -17,7 +17,7 @@ Hooks elsewhere: `CineUpdate` in `OnUpdate`, `CineOnSceneChanged` on a scene cha
 3. **K** at each key pose. **P** plays the path from the selected key (**Shift+P** from the start). Fix keys with
    Left / Right (select and jump there), **U** (update from the camera), Up / Down (segment duration), **T** (easing).
 4. **Ctrl+S** saves the path (and the level state, see below).
-5. **End** renders it. Progress is at the bottom of the screen; End or Esc cancels after the current frame. Frames and the
+5. **End** renders it. Progress is at the bottom of the screen; End (or pausing) cancels. Frames and the
    video land in `BepInEx\ultrart\renders\<path>_<time>\`.
 6. **Home** again: everything goes back (camera, player, HUD, gun, game speed).
 
@@ -39,12 +39,12 @@ the game. Esc still pauses: the pause menu (and PluginConfigurator's page) show 
 | Up / Down | the selected key's segment (to the next key): +/- 0.25 s (Shift: 1 s) |
 | T | the selected segment's easing: linear, smooth, in, out, cut |
 | G | even speed: every segment's duration in proportion to its length, the total kept |
-| P / Shift+P | play from the selected key / from the start; P or Esc stops (the camera stays there) |
+| P / Shift+P | play from the selected key / from the start; P stops (the camera stays there) |
 | Ctrl+S | save the path |
 | L | load the next saved path of this level |
 | N, N | new, empty path (press twice) |
 | H / Shift+H | hide the overlay / the help lines |
-| End | render the path offline; End or Esc cancels |
+| End | render the path offline; End cancels, and so does pausing (Esc): frames written so far are kept and encoded |
 
 Chosen not to clash: F-keys are UltraRT's and the bench's (F10 record, F11 pose), Insert + numpad the light editor
 (which keeps working with the free camera: fly to a light, Keypad 5 selects it), `]` opens PluginConfigurator, F8 the

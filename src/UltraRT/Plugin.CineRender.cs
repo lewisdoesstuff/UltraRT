@@ -186,7 +186,7 @@ namespace UltraRT
                     while (sink.Pending >= FrameSink.MaxPending && sink.LastError == null) { Time.timeScale = 0f; yield return null; }
                     if (sink.LastError != null) throw new IOException("frame writer: " + sink.LastError);
                     sink.BeginFrame(f);
-                    for (int j = 0; j < J; j++)
+                    for (int j = 0; j < J && !_cineCancel; j++)
                     {
                         // This frame's game time was stepped by the frame before (see below); pose the camera to match.
                         float camT = t0 + f * fdt + j * mbStep;
@@ -198,7 +198,7 @@ namespace UltraRT
                         _denoiserDirect?.Reset();
                         _reflFilter?.Reset();
                         _lightSampling?.Reset();
-                        for (int s = 0; s < S; s++)
+                        for (int s = 0; s < S && !_cineCancel; s++)
                         {
                             bool last = s == S - 1;
                             _cineMeterFrame = o.exposure == CineExposure.Auto && last && j == J - 1;
@@ -211,9 +211,11 @@ namespace UltraRT
                             float elapsed = (float)loop.Elapsed.TotalSeconds;
                             float perFrame = f > 0 ? elapsed / f : 0f;
                             _cineProgress = $"Render '{name}': frame {f + 1}/{frames}, sample {j * S + s + 1}/{J * S}" +
-                                            (f > 0 ? $"  |  {perFrame:F2} s/frame, {CineFormat.Time(perFrame * (frames - f))} left" : "") + "  |  End / Esc cancels";
+                                            (f > 0 ? $"  |  {perFrame:F2} s/frame, {CineFormat.Time(perFrame * (frames - f))} left" : "") + "  |  End cancels";
                             if (!last) { yield return null; subframes++; continue; }
                             yield return new WaitForEndOfFrame();
+                            // Paused (Esc) or cancelled meanwhile: the pause menu may be on screen; this frame is dropped.
+                            if (CineGamePaused() || CineRenderAborted(scene)) { _cineCancel = true; break; }
                             sink.CaptureSample();
                             _cineHideGui = false;
                             yield return null;
@@ -224,6 +226,7 @@ namespace UltraRT
                         Logger.LogInfo($"Cinematic render: frame {f + 1}/{frames}, {loop.Elapsed.TotalSeconds / (f + 1):F3} s/frame, {loop.Elapsed.TotalMilliseconds / Math.Max(1, subframes):F2} ms/subframe, writer {sink.Written} written, {sink.Pending} pending");
                 }
                 r.Cancelled = _cineCancel || CineRenderAborted(scene);
+                if (r.Cancelled) sink.AbandonFrame();
                 r.RenderSeconds = (float)loop.Elapsed.TotalSeconds;
                 r.MsPerSubframe = (float)(loop.Elapsed.TotalMilliseconds / Math.Max(1, subframes));
                 // The last readbacks and PNGs.
