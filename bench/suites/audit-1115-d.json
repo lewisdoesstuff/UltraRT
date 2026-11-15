@@ -1,0 +1,101 @@
+{
+  "Name": "audit-1115-d",
+  "Note": "Visual audit of the user poses: game vs relight vs pathtrace (docs/audit-2026-11-15.md)",
+  "Scenarios": [
+    {
+      "Name": "3-2 eye",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-eye.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-3-2-eye-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-2 wall edges",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-wall-edges.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-3-2-wall-edges-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-2 moving walls",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-3-2-moving-walls.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-3-2-moving-walls-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "6-1 coffins",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-6-1-coffins.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-6-1-coffins-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "6-1 candles",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-6-1-candles.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-6-1-candles-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    }
+  ]
+}
