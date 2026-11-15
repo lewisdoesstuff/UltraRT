@@ -156,9 +156,52 @@ How a frame is made (`Plugin.CineRender.cs`):
 
 The render size is the game window's (2560x1440 here). It is never changed: for a smaller video use the output size.
 
-### Sample renders and quality / time
+### Sample renders and quality / time (2026-11-15, RTX 5070 Ti, 2560x1440)
 
-See "Sample renders" at the end (filled in from `bench/suites/cine-demo.json`).
+`bench/suites/cine-demo.json`, run `bench/results/20261115-140450_cine-demo/` (not committed: frames, MP4s, `render.json`):
+
+| Clip | Mode | Frames | Samples | s / frame | ms / sub-frame | Render + encode | Video |
+|---|---|---|---|---|---|---|---|
+| `1-3-water-glide` 1.0-4.0 s | pathtrace | 181 (3 s at 60 fps) | 16 x 4 AA = 64 spp | 2.49 | 38.9 | 451 s + 22 s | `cine_1-3_glide_pathtrace\1-3-water-glide.mp4` (24 MB) |
+| same | relight | 181 | 64 | 0.77 | 12.0 | 139 s + 25 s | `cine_1-3_glide_relight\1-3-water-glide.mp4` |
+| `1-1-start-descent` 0.5-3.5 s | pathtrace | 181 | 64 | 2.45 | 38.2 | 443 s + 26 s | `cine_1-1_descent_pathtrace\1-1-start-descent.mp4` (36 MB) |
+
+Live playback of the same paths in pathtrace (DLSS RR): 10.2 ms average, 19.8 ms p99 (1-3); 7.6 / 16.3 ms (1-1). The
+pathtrace clips' mean luma moves at most 2.8 (1-3) and 4.4 (1-1) per frame, with no reversals: the camera walking from
+the lit room into the corridor and out into daylight, not exposure flicker.
+
+Cost: a sub-frame is one full game frame with a full-resolution trace: about 38-46 ms in pathtrace at 1440p in these
+corridors (one path, 2 bounces, water and glass on), 16 ms in 6-1's dark hall, 12-14 ms in relight. Time per output
+frame = AA x samples x that. Two paths per frame cost 25.2 ms against 15.8 for one (6-1): about 20% cheaper per sample
+than accumulating twice as many frames, so raise `Paths` before `Samples` once the frame count is long. The PNG writer
+(350-470 ms per frame at 1440p, on the thread pool) is never the limit in pathtrace; very fast relight renders at a
+few samples are paced by it.
+
+Quality (one 1-3 frame at 4 AA, RMS difference in luma against 64 x 4 = 256 spp):
+
+| Samples per AA sample | spp | s / frame | RMS vs 256 spp | Mean luma |
+|---|---|---|---|---|
+| 4 | 16 | 0.71 | 6.9 | 36.95 |
+| 16 | 64 | 2.85 | 3.1 | 38.28 |
+| 64 | 256 | 11.75 | - | 38.37 |
+
+- Noise halves for every 4x the time, as it should for an unbiased mean: 64 spp leaves a fine grain on the dark red
+  walls (about 2.7 luma), 256 spp is clean. 64 spp is a good draft, 128-256 for final footage.
+- Keep `Samples` at 16 or more: each AA sample is converged in HDR and tone-mapped before the AA samples are averaged, so
+  very few samples per AA sample average noisy tone-mapped values and come out darker (4% at 4 samples, 0.2% at 16).
+- AA 4 is enough for the game's texture-and-edge look; more AA samples cost the same as more samples, so spend the budget
+  on samples. Motion blur uses the AA samples as time steps: use 4-8 with it.
+- Supersampling (`OutputScale` 0.5: 1280x720 from 1440p) puts 4 rendered pixels into each output pixel: the same render
+  time, half the noise. For 1440p output there is no supersampling (the render is the window's size).
+
+### Determinism
+
+`bench/suites/cine-replay.json` (run `20261115-142513_cine-replay`) replays seconds 4-6 of the 0-2 run twice from fresh
+loads (relight, 4 spp). The camera path, the player's position, the arena timing and the enemy that spawns are the same
+in both takes, frame for frame; the game's random smoke and dust particles are not (they are emitted with Unity's
+random numbers, which the level's seed does not pin down). On 16x16-pixel block means the two takes differ by 0.7 luma
+(noise) once the smoke has cleared and by up to 6.7 luma while it drifts through the view. A static path in a frozen
+world (game speed 0) renders the same image every time, up to sampling noise.
 
 ## Bench: cinematic scenarios
 
