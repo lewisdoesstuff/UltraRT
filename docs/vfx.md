@@ -70,6 +70,7 @@ Two traps found on the way:
 - **Effect lights and effect geometry read these materials** (blend state, tint). `LitParticles.EffectTint` /
   `EffectSrcOne` answer for swapped and unswapped materials alike; the swapped shader declares `_TintColor`.
 
+Soft particles ride on the lit-particle material swap, so they are off when lit particles are (Shift+F7).
 `pl.soft=0` restores the game's shaders for the three kinds (the materials are reclassified); `pl.softKinds` (1
 explosion spheres, 2 fire, 4 smoke) is the diagnostic switch.
 
@@ -209,7 +210,7 @@ Bench variants: `vfx.<field>`, `wet.<field>`, `pl.soft`, `pl.softDistance`.
 ## Results (RTX 5070 Ti, 2560x1440)
 
 Strips (game | relight with the new effects off, i.e. master's look | relight | pathtrace + RR), in
-`bench/results/20261115-010940_vfx-report_alt/strips/`: `0-5_lava_3.0.jpg` (bloom, heat haze),
+`bench/results/20261115-011824_vfx-report/strips/`: `0-5_lava_3.0.jpg` (bloom, heat haze),
 `0-1_metal_blast_3.0.jpg` (soft explosion, shock front, bloom), `0-1_metal_blood_3.0.jpg` (wet blood),
 `P-2_vent_smoke_3.0.jpg` (rain), `7-1_underwater_3.0.jpg`, `6-2_start_3.0.jpg` and `1-1_start_3.0.jpg` (unchanged
 looks). Detail crops of each effect came from `vfx-soft`, `vfx-wet`, `vfx-blood` and `vfx-c`.
