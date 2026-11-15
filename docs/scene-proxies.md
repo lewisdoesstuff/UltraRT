@@ -203,6 +203,34 @@ The motion vectors of skinned hits were wrong too, because the hit shader's `Obj
 
 `-ultrart-skinned-noupdate` turns the update off, to reproduce the bug. The 600-frame scene-sync log line reports `skinned transform updates/frame`: up to about 17 per frame in the 0-2 run, at well under a microsecond each. Measured cost is within run-to-run noise: 0-2 run pt-dn GPU total 1.949 ms without the update against 1.971 and 1.987 ms with it, dispatch 1.262 against 1.277 and 1.289 ms. The short suite is unchanged.
 
+### Mirrored skinned meshes (2026-11-15)
+
+The cerberus statues (`Statue*/CerberusStatic`: `Cerberus_Fused` and `Cerb_Apple`, in 8-1's lobby, 1-3's water hall, 0-1's gun
+room, 8-1's courtyard) showed RT lighting only as a bright rim around their outline, with the game's own statue inside it.
+The upsampler's depth view (`up.debugView=3`: red = the traced surface lies behind the game's, green = in front, grey-blue =
+matched) showed every mirrored statue solid red and the unmirrored ones matched.
+
+- **Half the statues are mirror images.** Their root bone `Root` has scale (-46, 46, 46) (determinant < 0), the others (46, 46, 46).
+- **Unity bakes the mirror into the skinned vertices.** `-ultrart-motion-probe-filter Cerb` reads back vertex 0 of the
+  proxy's skinned buffer: it equals `TRS(root position, root rotation, 1)^-1 x world` for both kinds (`raw = rootNoScale`), so
+  the buffer is in the root bone's space without its scale, and for a mirrored root the vertices themselves are mirrored
+  (vertex 0 at x -0.0085 instead of +0.0085). Mirroring reverses the triangles' winding.
+- **DXR decides facing in object space.** For a rigid instance the mirror sits in the instance transform and facing still
+  comes out right (the mirrored statue pedestal, a rigid MeshRenderer, matched). For a skinned instance the mirror is in the
+  object-space vertices, so with back-face culling on (the statue material culls back faces) every outward face was a back face:
+  primary rays passed through the near side and hit the inside of the far side. Its depth was behind the game's everywhere
+  except right at the silhouette, so the composite kept the game's pixels there and showed ours only as the rim. Shadow rays
+  had the same problem, so a mirrored statue also cast its shadows from its far side only.
+
+Fix (`SceneProxies.InstanceCcw`, used by every dynamic `AddInstance`): a skinned instance whose root bone has a negative
+determinant is added with the opposite front-face winding. Logged as `Mirrored skinned proxy '<path>' (root ... scale ...):
+front winding flipped` (first 8 per scene). `-ultrart-nomirrorfix` turns it off. Shading is unaffected: the hit shader already
+flips the geometric normal to face the ray.
+
+The 8-1 lobby's armchairs (`3 Stuff(Clone)/HotelChair`) also show red in that view, but for another reason: they are not in
+the RT scene at all (the `instance` view shows the wall behind them) although their proxy is in the RTAS (mask 0x1, not
+mirrored, readable mesh). The composite keeps the game's chairs, so they only lack RT light and shadows. Not resolved.
+
 ## New objects
 
 Everything found after the build goes through one path, `AddHierarchy` (`src/UltraRT/SceneProxies.cs`):
@@ -412,9 +440,6 @@ Measured on the user's poses (`bench/suites/shade-1115g.json`; mean luma in a bo
 | 8-1 statue (torso and legs) | 64 | 50 | 111 | 48 | 111 |
 | 1-3 orb centre | 59 | 102 | 128 | 100 | 122 |
 
-**Left (taste call / open):** the 8-1 statue is now brighter than the game's (1.7x in that box: the orb light is a physical
-light right at the stone, the game's vertex lighting spreads it thinly), and a bright rim follows the statue's silhouette.
-The rim is not lighting: on 1-3 the upsampler's debug view (`up.debugView=1`) shows no depth-matching trace sample anywhere
-on the statue (blue = history only), so the composite keeps the game's own statue pixels inside and our pixels only at the
-edges. Our `CerberusStatic` skinned proxies do not land at the game's depth there (holders log a transform scale of 114.3
-and a root bone scale of 45); not resolved, worth a `-ultrart-motion-probe` look at the statues' skinned proxies.
+**Left (taste call):** the 8-1 statue is now brighter than the game's (1.7x in that box: the orb light is a physical
+light right at the stone, the game's vertex lighting spreads it thinly). The bright rim that followed the silhouette of
+some statues was mirrored skinning, fixed in "Mirrored skinned meshes" below.

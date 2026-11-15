@@ -748,7 +748,7 @@ namespace UltraRT
             if (visible == d.Visible) return;
             if (visible)
             {
-                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: FrontCounterClockwise, mask: d.Mask, id: d.Id);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
                 d.SourceTransform.hasChanged = false;
                 _active.Add(d);
                 // Newly in the RTAS: no motion history (it appears where it is).
@@ -771,6 +771,26 @@ namespace UltraRT
             }
             d.Visible = visible;
         }
+
+        /// <summary>
+        /// Front-face winding of a dynamic instance. Unity skins into the root bone's space without its scale (raw vertex =
+        /// TRS(root position, rotation, 1)^-1 x world, -ultrart-motion-probe), so a mirrored root bone (negative determinant:
+        /// the cerberus statues' Root has scale (-46, 46, 46) in half of them) mirrors the skinned vertices themselves and
+        /// reverses their winding in object space, where DXR decides facing. With culling on, rays then passed through the
+        /// statue's near side and hit its far side: the traced statue lay behind the game's, so the composite kept the game's
+        /// pixels and showed ours only as a rim (docs/scene-proxies.md, "Mirrored skinned meshes"). Rigid instances keep the
+        /// mirror in their instance transform, which DXR accounts for. -ultrart-nomirrorfix turns this off.
+        /// </summary>
+        private bool InstanceCcw(DynamicProxy d)
+        {
+            if (!MirroredSkinFix || d.SkinnedProxy == null || d.Root == null || d.Root.localToWorldMatrix.determinant >= 0f) return FrontCounterClockwise;
+            if (_mirroredLogged.Add(d) && _mirroredLogged.Count <= 8)
+                _log.LogInfo($"Mirrored skinned proxy '{GameControlPath(d.Source.transform)}' (root '{d.Root.name}' scale {d.Root.lossyScale:F2}): front winding flipped");
+            return !FrontCounterClockwise;
+        }
+
+        public static bool MirroredSkinFix = true;
+        private readonly HashSet<DynamicProxy> _mirroredLogged = new HashSet<DynamicProxy>();
 
         /// <summary>
         /// The transform that moves an instance, as a matrix. Rigid proxies: exactly the instance transform. Skinned:
@@ -805,23 +825,43 @@ namespace UltraRT
                 bool ok = Motion.RecordCopy(cmd, d.SkinnedProxy, d.SkinBase, d.SkinVerts, out var vb);
                 d.SkinPrevValid = ok;
                 d.SkinGen = Motion.Generation;
-                if (ok && MotionProbe && _probeCount < 6 && ++_probeFrames % 97 == 0) { _probeCount++; ProbeSkinSpace(cmd, d, vb); }
+                if (ok && MotionProbe && ProbeWanted(d)) { _probeCount++; ProbeSkinSpace(cmd, d, vb); }
             }
             Motion.Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
         }
 
         /// <summary>-ultrart-motion-probe: log which space Unity's skinned vertex buffer is in (checks MotionMatrix's assumption).</summary>
         public static bool MotionProbe;
+        /// <summary>-ultrart-motion-probe-filter: probe each skinned proxy whose path contains this, once (else the first 6).</summary>
+        public static string MotionProbeFilter;
         private int _probeFrames, _probeCount;
+        private readonly HashSet<DynamicProxy> _probed = new HashSet<DynamicProxy>();
+
+        private bool ProbeWanted(DynamicProxy d)
+        {
+            if (string.IsNullOrEmpty(MotionProbeFilter)) return _probeCount < 6 && ++_probeFrames % 97 == 0;
+            if (_probeCount >= 16 || ++_probeFrames < 300 || _probed.Contains(d)) return false;
+            if (GameControlPath(d.SkinnedSource.transform).IndexOf(MotionProbeFilter, StringComparison.OrdinalIgnoreCase) < 0) return false;
+            _probed.Add(d);
+            return true;
+        }
 
         private void ProbeSkinSpace(CommandBuffer cmd, DynamicProxy d, GraphicsBuffer vb)
         {
             var smr = d.SkinnedSource;
             var baked = new Mesh();
-            smr.BakeMesh(baked, true);
+            smr.BakeMesh(baked, false);
             var v0 = baked.vertexCount > 0 ? baked.vertices[0] : Vector3.zero;
+            smr.BakeMesh(baked, true);
+            var v0s = baked.vertexCount > 0 ? baked.vertices[0] : Vector3.zero;
             Object.Destroy(baked);
-            var world = smr.transform.TransformPoint(v0);
+            // BakeMesh(useScale: false) = the renderer's local space without its own scale.
+            var world = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one).MultiplyPoint3x4(v0);
+            var worldScaled = Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one).MultiplyPoint3x4(v0s);
+            var px = d.Proxy.transform;
+            string place = $"bakeNoScale={v0:F4} bakeScale={v0s:F4} worldScaledBake={worldScaled:F4} smrPos={smr.transform.position:F3} rootPos={d.Root.position:F3} " +
+                           $"proxyScale={px.lossyScale:F3} proxyPos={px.position:F3} bounds={smr.bounds.center:F2}/{smr.bounds.size:F2} proxyBounds={d.Proxy.bounds.center:F2}/{d.Proxy.bounds.size:F2} " +
+                           $"rootParentScale={(d.Root.parent != null ? d.Root.parent.lossyScale : Vector3.one):F3} smrLocalScale={smr.transform.localScale:F3}";
             var root = d.Root;
             string name = smr.name;
             var rootNoScale = Matrix4x4.TRS(root.position, root.rotation, Vector3.one).inverse.MultiplyPoint3x4(world);
@@ -837,7 +877,7 @@ namespace UltraRT
                 if (r.hasError) { log.LogWarning("Motion probe: readback failed"); return; }
                 var raw = r.GetData<Vector3>()[0];
                 log.LogInfo($"Motion probe '{name}': raw={raw:F4} slot={slot} W.t={w.GetColumn(3):F4} world={world:F4} rootNoScale={rootNoScale:F4} rootLocal={rootLocal:F4} " +
-                            $"smrLocal={smrLocal:F4} rootScale={root.lossyScale:F3} smrScale={smr.transform.lossyScale:F3} root='{root.name}' stride={stride}");
+                            $"smrLocal={smrLocal:F4} rootScale={root.lossyScale:F3} smrScale={smr.transform.lossyScale:F3} root='{root.name}' stride={stride} {place}");
             });
         }
 

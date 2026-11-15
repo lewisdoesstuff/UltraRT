@@ -287,6 +287,8 @@ namespace UltraRT
                         if (i + 1 < a.Length && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var gy)) { _guardY = gy; i++; }
                         break;
                     case "-ultrart-motion-probe": SceneProxies.MotionProbe = true; break;
+                    case "-ultrart-motion-probe-filter": SceneProxies.MotionProbe = true; SceneProxies.MotionProbeFilter = Next(); break;
+                    case "-ultrart-nomirrorfix": SceneProxies.MirroredSkinFix = false; break; // mirrored skinned meshes keep the default winding (docs/scene-proxies.md)
                 }
             }
             _scale = Mathf.Clamp(_scale, 0.1f, 1f);

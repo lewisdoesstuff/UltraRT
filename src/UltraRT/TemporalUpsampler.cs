@@ -38,7 +38,8 @@ namespace UltraRT
         /// history weight is at least this; the held weight is multiplied by holdDecay each frame.</summary>
         public float holdMinWeight = 0.1f;
         public float holdDecay = 0.95f;
-        /// <summary>Debug: 1 = r matching samples, g history weight, b history kept without a sample; 2 = game depth.</summary>
+        /// <summary>Debug: 1 = r matching samples, g history weight, b history kept without a sample; 2 = game depth;
+        /// 3 = traced depth against the game's (r behind, g in front, full at 5%; grey-blue = matched, blue = no hit).</summary>
         public int debugView;
 
         public static UpsamplerSettings FromCommandLine()

@@ -230,6 +230,15 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
         // written with a = 1 so the composite shows it everywhere, which also breaks the history (debug only).
         float3 dbg = float3(n / 9.0, h / _Params.y, n == 0 && h > 0.0 ? 1.0 : 0.0);
         if (_Params3.w > 1.5) dbg = float3(saturate(zg / 100.0), saturate(raw * 10.0), 0); // game eye depth / 100 m, raw depth x10
+        if (_Params3.w > 2.5)
+        {
+            // 3: the nearest trace sample's depth against the game's: r = traced surface behind the game's, g = in front
+            // (relative error x20: full at 5%), b = no hit (sky). Grey-blue where it matches within the tolerance.
+            int2 ln = clamp(kn - kb, 0, TILE - 1);
+            float zt = gsColZ[(uint)(ln.y * TILE + ln.x)].a;
+            float e = (zt - zg) / max(zg, 1e-3);
+            dbg = zt < 0.0 ? float3(0, 0, 1) : abs(zt - zg) <= tol ? float3(0.15, 0.15, 0.25) : float3(saturate(e * 20.0), saturate(-e * 20.0), 0);
+        }
         _HistOut[p] = float4(dbg, 1.0); // breaks the history: debug only
         _HistDepthOut[p] = zg;
         return;
