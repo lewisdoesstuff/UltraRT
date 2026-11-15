@@ -293,6 +293,10 @@ namespace UltraRT
             {
                 camera = _camera,
                 target = target,
+                // The volumetric pass ran this frame, in its late buffer (added before this one): bloom from before the haze.
+                preHaze = _volumetrics != null && _volumetrics.PreHazeFrame == Time.frameCount && _volumetrics.PreHazeCopy != null
+                          && _volumetrics.PreHazeCopy.width == target.width && _volumetrics.PreHazeCopy.height == target.height
+                    ? _volumetrics.PreHazeCopy : null,
                 hdr = _vfxHdr,
                 hdrScale = _vfxHdrScale,
                 time = Time.time,

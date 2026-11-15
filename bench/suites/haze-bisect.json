@@ -1,0 +1,25 @@
+{
+ "Name": "haze-bisect",
+ "Note": "3-2 eye at older commits (scratch builds): relight / particles off / pathtrace",
+ "Scenarios": [
+  {
+   "Name": "3-2 eye",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-eye.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-eye-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+plugin._particlesOff=1"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  }
+ ]
+}

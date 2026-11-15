@@ -210,6 +210,105 @@ namespace UltraRT
             }
             if (added > 0) _log.LogInfo($"Lit particles: {added} new materials ({_lit.Count} in all): " +
                                         string.Join(", ", _lit.Take(40).Select(kv => $"{kv.Key.name} ({kv.Value.Shader.name}, {kv.Value.Kind})")));
+            ScanAtmosphere();
+        }
+
+        // ------------------------------------------------------------------ atmosphere (docs/particles.md, "Atmosphere")
+
+        /// <summary>Renderers given private copies of their original materials (game shader), with what they had before.</summary>
+        private readonly Dictionary<ParticleSystemRenderer, Material[]> _atmos = new Dictionary<ParticleSystemRenderer, Material[]>();
+        private readonly List<Material> _atmosCopies = new List<Material>();
+        private readonly HashSet<int> _atmosChecked = new HashSet<int>();
+
+        /// <summary>The size of the volume a particle system emits from (m, its largest side), from its shape module and the
+        /// transform's scale; 0 if it emits from a point or the shape is unknown.</summary>
+        private static float EmitterSize(ParticleSystem ps)
+        {
+            var sh = ps.shape;
+            if (!sh.enabled) return 0f;
+            var ls = ps.transform.lossyScale;
+            var sc = Vector3.Scale(sh.scale, new Vector3(Mathf.Abs(ls.x), Mathf.Abs(ls.y), Mathf.Abs(ls.z)));
+            float maxScale = Mathf.Max(sc.x, Mathf.Max(sc.y, sc.z));
+            switch (sh.shapeType)
+            {
+                case ParticleSystemShapeType.Box:
+                case ParticleSystemShapeType.BoxShell:
+                case ParticleSystemShapeType.BoxEdge:
+                case ParticleSystemShapeType.Rectangle:
+                    return maxScale;
+                case ParticleSystemShapeType.Mesh:
+                    return sh.mesh != null ? Vector3.Scale(sh.mesh.bounds.size, sc).magnitude : 0f;
+                case ParticleSystemShapeType.MeshRenderer:
+                    return sh.meshRenderer != null ? sh.meshRenderer.bounds.size.magnitude : 0f;
+                case ParticleSystemShapeType.SkinnedMeshRenderer:
+                    return sh.skinnedMeshRenderer != null ? sh.skinnedMeshRenderer.bounds.size.magnitude : 0f;
+                default:
+                    // Sphere, hemisphere, circle, cone, donut, edge: the radius
+                    return 2f * sh.radius * maxScale;
+            }
+        }
+
+        /// <summary>Particle systems whose emitter spans a room keep the game's shader: their renderer gets a private copy of
+        /// each swapped material, restored to the original shader, render queue and keywords (the shared material stays lit
+        /// for every other user: vents, debris trails).</summary>
+        private void ScanAtmosphere()
+        {
+            float size = Settings != null ? Settings.atmosphereSize : 0f;
+            if (size <= 0f) return;
+            foreach (var r in UnityEngine.Object.FindObjectsOfType<ParticleSystemRenderer>())
+            {
+                if (r == null || _atmos.ContainsKey(r) || _atmosChecked.Contains(r.GetInstanceID())) continue;
+                var ps = r.GetComponent<ParticleSystem>();
+                if (ps == null) { _atmosChecked.Add(r.GetInstanceID()); continue; }
+                float e = EmitterSize(ps);
+                if (e < size) { _atmosChecked.Add(r.GetInstanceID()); continue; }
+                // The particles must fill the room too: the bonus orbs' blood drops emit from a 64 m sphere shell but
+                // converge into a 12 m cloud. A system that hasn't spread yet is looked at again on the next scan.
+                var bs = r.bounds.size;
+                if (Mathf.Max(bs.x, Mathf.Max(bs.y, bs.z)) < size) continue;
+                _atmosChecked.Add(r.GetInstanceID());
+                var mats = r.sharedMaterials;
+                Material[] copies = null;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    var m = mats[i];
+                    if (m == null || !_lit.TryGetValue(m, out var saved)) continue;
+                    if (copies == null) copies = (Material[])mats.Clone();
+                    var c = new Material(m) { name = m.name + " (UltraRT atmosphere)", hideFlags = HideFlags.DontSave };
+                    c.shader = saved.Shader;
+                    c.renderQueue = saved.Queue;
+                    c.shaderKeywords = saved.Keywords;
+                    _decided.Add(c.GetInstanceID()); // never classified (and swapped) itself
+                    _atmosCopies.Add(c);
+                    copies[i] = c;
+                }
+                if (copies == null) continue;
+                _atmos[r] = mats;
+                r.sharedMaterials = copies;
+                var b = r.bounds.size;
+                _log.LogInfo(FormattableString.Invariant(
+                    $"Lit particles: '{PathOf(r.transform)}' keeps the game's look (atmosphere: {ps.shape.shapeType} emitter {e:F0} m, bounds {b.x:F0}x{b.y:F0}x{b.z:F0} m, ") +
+                    string.Join(", ", mats.Where(m => m != null && _lit.ContainsKey(m)).Select(m => m.name)) + ")");
+            }
+        }
+
+        private static string PathOf(Transform t)
+        {
+            var parts = new List<string>();
+            for (int i = 0; t != null && i < 4; t = t.parent, i++) parts.Add(t.name);
+            parts.Reverse();
+            return string.Join("/", parts);
+        }
+
+        /// <summary>Give the atmosphere renderers their original materials back and forget the decisions (the size changed).</summary>
+        public void RestoreAtmosphere()
+        {
+            foreach (var kv in _atmos)
+                if (kv.Key != null) kv.Key.sharedMaterials = kv.Value;
+            _atmos.Clear();
+            _atmosChecked.Clear();
+            foreach (var c in _atmosCopies) if (c != null) UnityEngine.Object.Destroy(c);
+            _atmosCopies.Clear();
         }
 
         /// <summary>A material that already has our shader: an instance (renderer.material) made from a swapped material.
@@ -272,6 +371,7 @@ namespace UltraRT
         {
             bool was = Active;
             if (was) Deactivate();
+            RestoreAtmosphere();
             _lit.Clear();
             _decided.Clear();
             _byName.Clear();
@@ -284,6 +384,19 @@ namespace UltraRT
         {
             var dead = _lit.Keys.Where(k => k == null).ToList();
             foreach (var k in dead) _lit.Remove(k);
+            var gone = _atmos.Keys.Where(k => k == null).ToList();
+            foreach (var k in gone) _atmos.Remove(k);
+            if (gone.Count > 0)
+            {
+                // Copies still used by a live renderer stay; the rest went with their level.
+                var used = new HashSet<Material>(_atmos.Keys.SelectMany(r => r.sharedMaterials).Where(m => m != null));
+                for (int i = _atmosCopies.Count - 1; i >= 0; i--)
+                {
+                    if (_atmosCopies[i] != null && used.Contains(_atmosCopies[i])) continue;
+                    if (_atmosCopies[i] != null) UnityEngine.Object.Destroy(_atmosCopies[i]);
+                    _atmosCopies.RemoveAt(i);
+                }
+            }
         }
     }
 }

@@ -1,0 +1,78 @@
+{
+ "Name": "haze-test",
+ "Note": "3-2 / 6-1 haze: atmosphere particles, pre-haze bloom, clear air, toe, per-term (docs/volumetrics.md Dark rooms)",
+ "Scenarios": [
+  {
+   "Name": "3-2 eye",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-eye.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-eye-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+pl.atmosphereSize=0",
+    "relight+vol=0",
+    "relight+vol.clearAir=0.3",
+    "relight+vol.toe=0.003",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "3-2 wall edges",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-wall-edges.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-3-2-wall-edges-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol=0",
+    "relight+vol.clearAir=0.3",
+    "relight+vol.clearAir=0",
+    "relight+vol.toe=0.002",
+    "relight+vol.toe=0.005",
+    "relight+vol.lights=0",
+    "relight+vol.emissive=0"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  },
+  {
+   "Name": "6-1 coffins",
+   "Scene": "Level 6-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-6-1-coffins.json",
+    "Duration": 4,
+    "Areas": "../recordings/late-6-1-coffins-areas.json"
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+vol=0",
+    "relight+vol.toe=0.002",
+    "relight+vol.toe=0.005",
+    "relight+vol.lights=0",
+    "relight+vol.emissive=0",
+    "relight+vol.hazeRange=10"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "ShotSettle": 1
+  }
+ ]
+}

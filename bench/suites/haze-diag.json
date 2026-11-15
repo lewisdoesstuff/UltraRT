@@ -1,0 +1,11 @@
+{
+  "Name": "haze-diag",
+  "Note": "3-2 / 6-1 extra brightness: split by term (bloom, volumetrics, whole vfx pass), game / relight / pathtrace (docs/volumetrics.md 'Dark rooms')",
+  "Scenarios": [
+    { "Name": "3-2 eye", "Scene": "Level 3-2", "Path": { "Type": "static", "Approach": "../recordings/late-3-2-eye.json", "Duration": 4, "Areas": "../recordings/late-3-2-eye-areas.json" }, "Modes": ["off", "relight", "relight+vfx.bloom=0", "relight+vol=0", "relight+vol=0+vfx.enabled=0", "relight+vol.debugView=1", "relight+vfx.debugView=1", "pathtrace", "pathtrace+vfx.bloom=0+vol=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "3-2 wall edges", "Scene": "Level 3-2", "Path": { "Type": "static", "Approach": "../recordings/late-3-2-wall-edges.json", "Duration": 4, "Areas": "../recordings/late-3-2-wall-edges-areas.json" }, "Modes": ["off", "relight", "relight+vfx.bloom=0", "relight+vol=0", "relight+vol=0+vfx.enabled=0", "relight+vol.debugView=1", "pathtrace"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "6-1 coffins", "Scene": "Level 6-1", "Path": { "Type": "static", "Approach": "../recordings/late-6-1-coffins.json", "Duration": 4, "Areas": "../recordings/late-6-1-coffins-areas.json" }, "Modes": ["off", "relight", "relight+vfx.bloom=0", "relight+vol=0", "relight+vol=0+vfx.enabled=0", "relight+vol.debugView=1", "pathtrace"], "Screenshots": [2], "ShotSettle": 1 }
+  ]
+}

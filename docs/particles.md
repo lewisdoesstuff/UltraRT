@@ -115,6 +115,18 @@ of the traced surface.
 fires. The swap now re-applies its `_PL*` values after the shader change and can be redone at runtime
 (`LitParticles.Reclassify`).
 
+**Atmosphere** (2026-11-15, docs/volumetrics.md "Dark rooms"). Re-applying the `_PL*` values made every Master
+additive `Smoke` really draw as relit smoke, including emitters that fill a whole room: 3-2's `HeatWaves (2)` (a 50 m
+rectangle around the eye) turned the cave into an orange veil (screen luma 23 in the game, 97 relit). The game lights
+that material with its flat ambient only (black there), and the volumetric pass already lights the air, so relighting
+room-sized clouds of it counts the lit air twice. Particle systems whose emitter shape spans `atmosphereSize` (30 m)
+or more and whose particles do too (renderer bounds; the bonus orbs' blood drops come from a 64 m sphere shell but
+gather in 12 m) keep the game's shader: their renderer gets a private copy of each swapped material, restored to the
+original shader, queue and keywords (`LitParticles.ScanAtmosphere`, every scan; the shared material stays lit for
+vents and debris trails). The log names each one (`Lit particles: '<path>' keeps the game's look (atmosphere: ...)`).
+Seen so far: 3-2 `HeatWaves (2)` and a 44 m cone of dust `Dot`s, 0-5 `Lava Foundry/Lava/HeatWaves (2)`, 8-2 `Rain/Mist`, P-2 street / idol arena `Mist`s,
+`1 - Opener/Mist`. `pl.atmosphereSize=0` (or `-ultrart-particles-atmosphere 0`) relights them as before.
+
 ## Settings
 
 | Flag | Field | Default | |
@@ -124,6 +136,7 @@ fires. The swap now re-applies its `_PL*` values after the shader change and can
 | `-ultrart-particles-hybrid F` | `hybridStrength` | 1 | 0 turns hybrid off |
 | `-ultrart-particles-additive on\|off` | `additiveSmoke` | on | additive smoke, dust and mist |
 | `-ultrart-particles-additive-scale F` / `-ultrart-particles-additive-max F` | `additiveScale` / `additiveMax` | 0.5 / 0.6 | Master additive smoke: lighting multiplier `s m / (1 + s m / max)` (see "Additive smoke brightness") |
+| `-ultrart-particles-atmosphere M` | `atmosphereSize` | 30 m | emitters (and their particles) this large keep the game's look (see "Atmosphere"); 0 = off |
 | `-ultrart-particles-grid X,Y,Z` | `gridX/Y/Z` | 64,36,32 | |
 | `-ultrart-particles-far M` | `far` | 96 | beyond: the last slice |
 | `-ultrart-particles-alpha F` | `alpha` | 0.12 | temporal weight of a new frame |

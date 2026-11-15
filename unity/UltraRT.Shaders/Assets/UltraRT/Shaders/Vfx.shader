@@ -21,6 +21,7 @@ Shader "UltraRT/Vfx"
 
             Texture2D _VfxScene;               // copy of the target after the transparents (screen resolution)
             Texture2D _VfxPre;                 // copy of the target right after the RT composite (before the transparents)
+            Texture2D _VfxLate;                // the target after the transparents, before the volumetric haze (or _VfxScene)
             Texture2D _VfxHdr;                 // HDR bloom source, linear light, trace resolution (may have a guard band)
             Texture2D _VfxSrc;                 // bloom chain input
             Texture2D _VfxBloom;               // bloom result (mip 0, half resolution)
@@ -77,7 +78,8 @@ Shader "UltraRT/Vfx"
 
             float4 fragPrefilter(v2f i) : SV_Target
             {
-                float3 late = _VfxScene.SampleLevel(my_linear_clamp_sampler, i.uv, 0).rgb;
+                // Before the haze: the in-scattering is not a transparent and must not bloom (3-2's lit air bloomed into a veil).
+                float3 late = _VfxLate.SampleLevel(my_linear_clamp_sampler, i.uv, 0).rgb;
                 float3 pre = _VfxPre.SampleLevel(my_linear_clamp_sampler, i.uv, 0).rgb;
                 // What the transparents added, where the result is bright: additive glows saturate, smoke and dust don't.
                 // The amount is the luminance they added; the colour is the pixel's own (a channel that was already

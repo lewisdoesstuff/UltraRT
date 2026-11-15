@@ -30,6 +30,7 @@ namespace UltraRT
         private bool _particlesOff; // bench A/B: relight+plugin._particlesOff=1
         private int _particleSoftKinds = 7;
         private bool _particleSoftScanned = true; // the soft setting the materials were last classified with
+        private float _particleAtmosScanned = -1f; // the atmosphere size the emitters were last decided with
 
         private static readonly int PLTexId = Shader.PropertyToID("_UltraRTPL"), PLViewProjId = Shader.PropertyToID("_UltraRTPLViewProj"),
             PLCamId = Shader.PropertyToID("_UltraRTPLCam"), PLFwdId = Shader.PropertyToID("_UltraRTPLFwd"),
@@ -112,6 +113,13 @@ namespace UltraRT
                     _particleSoftScanned = _particleSettings.soft;
                     _particleSoftKinds = _particleSettings.softKinds;
                     _litParticles.Reclassify();
+                }
+                // Room-filling emitters keep the game's shader; a changed size (bench variant pl.atmosphereSize) re-decides them.
+                if (_particleAtmosScanned != _particleSettings.atmosphereSize)
+                {
+                    _particleAtmosScanned = _particleSettings.atmosphereSize;
+                    _litParticles.RestoreAtmosphere();
+                    _particleNextScan = 0f;
                 }
                 if (want && Time.realtimeSinceStartup >= _particleNextScan)
                 {
