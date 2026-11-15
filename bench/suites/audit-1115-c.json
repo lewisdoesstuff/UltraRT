@@ -1,0 +1,152 @@
+{
+  "Name": "audit-1115-c",
+  "Note": "Visual audit of the user poses: game vs relight vs pathtrace (docs/audit-2026-11-15.md)",
+  "Scenarios": [
+    {
+      "Name": "8-2 a",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 b",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-b.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 c",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-c.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 portal side 1",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-portal-side1.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 portal side 2",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-portal-side2.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 lamp flicker",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-lamp-flicker.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 intro day",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-8-2-intro-day.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-8-2-intro-day-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 building boil",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-8-2-building-boil.json",
+        "Duration": 4,
+        "Areas": "../recordings/late-8-2-building-boil-areas.json"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    }
+  ]
+}
