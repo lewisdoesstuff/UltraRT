@@ -1,0 +1,47 @@
+{
+  "Name": "beams-3-1-perf",
+  "Note": "Beam channel cost (run with -Perf): the user's 3-1 pose and under the eye, channel on / off, relight and pathtrace.",
+  "Scenarios": [
+    {
+      "Name": "3-1 beams user",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 12,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "relight",
+        "relight+shaft.beams=0",
+        "pathtrace",
+        "pathtrace+shaft.beams=0"
+      ],
+      "Segment": 1.5
+    },
+    {
+      "Name": "3-1 beams under eye",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 12,
+        "Load": "checkpoint",
+        "Position": [
+          -183.0,
+          -101.0,
+          452.0
+        ],
+        "Yaw": 300,
+        "Pitch": 55
+      },
+      "Modes": [
+        "relight",
+        "relight+shaft.beams=0",
+        "pathtrace",
+        "pathtrace+shaft.beams=0"
+      ],
+      "Segment": 1.5
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "Name": "beams-3-1",
+  "Note": "3-1 eye beams through the beam channel (docs/volumetrics.md 'Eye beams'): the user's staircase pose (inside the widest beam), under the eye looking up, the back of the room, the walkway under the beam. Modes: game, relight, pathtrace, relight with the game's meshes (beam channel off), relight with the channel unshadowed (model check against the game's meshes).",
+  "Scenarios": [
+    {
+      "Name": "3-1 beams user",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 4,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace",
+        "relight+shaft.beams=0",
+        "relight+shaft.beamShadows=0"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight",
+        "relight+shaft.beams=0",
+        "pathtrace"
+      ]
+    },
+    {
+      "Name": "3-1 beams under eye",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 4,
+        "Load": "checkpoint",
+        "Position": [
+          -183.0,
+          -101.0,
+          452.0
+        ],
+        "Yaw": 300,
+        "Pitch": 55
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace",
+        "relight+shaft.beams=0"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-1 beams back",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 4,
+        "Load": "checkpoint",
+        "Position": [
+          -148.0,
+          -100.0,
+          452.0
+        ],
+        "Yaw": 278,
+        "Pitch": 12
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace",
+        "relight+shaft.beams=0"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-1 beams floor",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 4,
+        "Load": "checkpoint",
+        "Position": [
+          -165.0,
+          -101.0,
+          452.0
+        ],
+        "Yaw": 268,
+        "Pitch": -8
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace",
+        "relight+shaft.beams=0"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-1 beams sweep",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "sweep",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 6,
+        "Load": "checkpoint",
+        "Position": [
+          -173.63,
+          -101.0,
+          452.42
+        ],
+        "Yaw": 278.85,
+        "Pitch": 21,
+        "YawSpeed": 15,
+        "PitchAmplitude": 8
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "Burst": 64,
+      "BurstModes": [
+        "off",
+        "relight",
+        "relight+shaft.beams=0",
+        "pathtrace"
+      ]
+    }
+  ]
+}

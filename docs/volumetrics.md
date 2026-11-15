@@ -139,6 +139,8 @@ lighting is irradiance / pi, since displayed = albedo x lighting; the medium's r
    (`c + h (1 - exp(-delta / h))`, h the room above c), so bright shafts over a bright sky saturate smoothly. The
    exposure is relight's auto exposure (what the lit RT image gets), read from its GPU buffer; 1 when auto exposure is
    off (pt-dn by default).
+3. **Beams** (pass 2), in the same late buffer before the scatter pass's copy: the game's beam meshes times their traced
+   visibility, added in display space (see "Eye beams", "Beam channel").
 
 The scatter used to be drawn before the transparents too. Alpha-tested grates and fences are transparent-queue objects
 in ULTRAKILL (not in the depth buffer): drawn over the glowing air they stood out black (6-2's grates, reported by the
@@ -473,7 +475,7 @@ the bench's `holdtorch` and the whiplash pressed `ShotDelay` before each capture
 
 3-1 (user pose 1, the staircase room): "the light beams coming from the eye don't seem to cast shadows". Each eye
 (`EyeWithSocket/Eyeball`) holds a Spot Light (range 80, x10, 60-90 degrees) and, parented under it, four nested ProBuilder
-frusta `Cube`..`Cube (3)` with `LightPillar 1F NoFog` (alpha-blended orange `(1, 0.5, 0)`, alpha 0.25, two-sided). Those
+frusta `Cube`..`Cube (3)` with `LightPillar 1F NoFog` (additive orange `(1, 0.5, 0)`, alpha 0.25, two-sided). Those
 meshes are the beam: drawn on top of everything, unshadowed. The camera in this room stands inside the outermost frustum, so
 they also give the room its orange cast. The same prefab sits in 3-1's circular and bridge arenas.
 
@@ -488,13 +490,73 @@ What blocked a shadowed version:
   around a beam light whose bounds hold it become its *housing* (`SceneProxies.AddHousing`, at most 64 m, beam lights only):
   fixtures, and the light skips fixtures (as statue orbs, docs/scene-proxies.md). Now the eye lights the ribs and the floor,
   and the ribs and V1 cast shadows from it (`LightShaftSettings.housings`, log `Light housing: ...`).
-- **Look.** The volumetric pass can draw the beams itself (`BeamSamples` in `Volumetrics.raytrace`: per beam, one uniform
-  point on the part of the view ray inside the cone and one shadow ray to the light, stopped where the meshes begin;
-  constant density of the meshes' colour, `1 - (1 - a)^(2n)` across the middle; a profile thins it to the edge), with the
-  game's meshes hidden. It works (the ribs cut the haze), but the composite adds haze in linear light under a soft cap
-  (`vol.maxAdd`, 0.25 display), and the game's beam is an alpha-blended orange wash: the result reads as an olive haze over the
-  whole room, not the game's cone (`relight+shaft.beamStrength=2+vol.maxAdd=0.6` in `shade-1115g`). So it is **off by default**
-  (`shaft.beamStrength` 0): the game's meshes stay, the eye's light now reaches the room with traced shadows.
+- **Look (first try, replaced).** A constant-density glow of the beam colour inside the fitted cone, added to the haze: the
+  composite adds haze in linear light under a soft cap (`vol.maxAdd`), and it read as an olive haze over the whole room, not
+  the game's cone (`shade-1115g`).
 
-Next step if wanted: a separate beam channel through the temporal filter and the composite, blended like the game's meshes
-(`lerp(scene, colour, opacity x visible fraction)`) instead of added.
+#### Beam channel (2026-11-15, branch `t3/eye-beams-channel`)
+
+The beams are now drawn by a separate channel of the volumetric pass, on by default: the game's look where the beam is
+unoccluded, cut by traced shadows where it isn't. Code: `LightShafts.cs` (`BeamHull`, `FitHull`), `Plugin.Shafts.cs`
+(`VolumetricsBeamBuffer`, `DrawBeamMeshes`), `Volumetrics.cs` (`Filter`, beam textures), `Volumetrics.raytrace`
+(`BeamVisibility`), `VolumetricsComposite.shader` (pass 2, `fragBeams`).
+
+What the game draws (material `LightPillar 1F` / `1F NoFog`, read with UnityPy): `ULTRAKILL/Master` with `TRANSPARENCY`,
+`SrcBlend SrcAlpha`, `DstBlend One` (additive, not alpha-blended), `_Cull 0` (both sides), `_Color` (1, 0.5, 0, 0.25) in the
+staircase room and (1, 0.37, 0, 0.25) in the circular and bridge arenas, a white texture, and **vertex colours**: each
+frustum is white at the eye end and black at the far end (4-vertex pyramids in the circular arena, 8-vertex frusta
+elsewhere), so the beam fades along its length. A ray through the beam adds the colour once per face it crosses in front of
+the depth, so nested layers stack and from inside the widest frustum only its far side shows (the room's orange cast).
+
+1. **Hulls** (`FitHull`, once per scene with the cone fit): each beam mesh's convex hull from its vertices (planes through
+   every vertex triple with all vertices on one side; at most 8 planes, 64 vertices; every vertex must lie on the hull, else
+   the game keeps drawing that mesh), in its light's space so it follows the eye. Per face, a linear fit of the vertex
+   brightness over the mesh triangles lying on it (0 where the mesh has no face). Log: `Light shafts: beam hull ...`.
+2. **Visibility** (`BeamVisibility`, in the volumetric trace at 1/4 resolution): per hull the ray crosses, its weight
+   `w` (the hull's colour x the faces it draws in front of the depth) and `beamSamples` (1) uniform points on the ray's part
+   inside the hull, each with a shadow ray to the eye's light (geometry only, stopped where the mesh begins: the eyeball is
+   the light's housing). Output `(sum w x lit, sum w)` into a second UAV, filtered by the same temporal + a-trous kernels as
+   the haze with its own history (`beamAtrous` 2 passes). The composite upsamples both sums with depth weights and divides:
+   the lit fraction of the beam along each pixel's ray, smooth across the hulls' hard edges.
+3. **Colour** (`beamMeshes` 1): the game's own beam meshes, drawn with `DrawMesh` (their mesh, material, property block and
+   only pass, LightMode `Vertex`) into a screen-size buffer against the game's depth, in the late command buffer after the
+   transparents; the camera's targets are bound again afterwards. Their renderers stay disabled (`UpdateFakes`, only for
+   hulls drawn in the last 2 frames; the rest keep the game's meshes). Pass 2 adds `colour x visibility` to the target
+   (`Blend One One`, display space, as the game adds the meshes), before the haze's copy, so the bloom sees them as it sees
+   the game's transparents.
+
+   The analytic alternative (`beamMeshes=0`: each hull's colour x per-face vertex brightness, per screen pixel) matches the
+   meshes' shape, nesting and gradient, but the Master shader dims distant faces in a way the material alone doesn't
+   explain (`DISTANCE_FADE` is on; the far side of the outer frusta came out 1.3-3x too bright). Drawing the game's meshes
+   removes that guess; the analytic hulls remain for the visibility weights and as the fallback when the camera depth is
+   multisampled.
+
+Measured (2560x1440, RTX 5070 Ti, trace scale 0.5; `bench/suites/beams-3-1*.json`):
+
+| | |
+|---|---|
+| Model check, unshadowed channel (`shaft.beamShadows=0`) vs the game's meshes over the same relight image | mean abs diff 1.1-1.3 of 255 (relight noise level) at the user pose, under the eye and at the back of the room; analytic colour 3.3-3.5 |
+| Look | the beam above the rib cage as in the game; below it, dark where the spine and ribs shadow it, with shafts through the gaps (clearest from the walkway inside the beam, `3-1 beams floor`); the eye's housing does not block it |
+| Static noise (user pose, burst of 64, masked) | relight sigma 0.22 / block 0.17 (game meshes 0.21 / 0.16); pathtrace 0.32 / 0.24 |
+| Sweep (15 deg/s) | block sigma 1.11 vs 1.04 with the game's meshes (camera motion dominates); no crawling shafts in the frames |
+| GPU (`beams-3-1-perf`, `-Perf`) | `volumetrics` 0.21 -> 0.33 ms, `vollate` 0.07 -> 0.20 ms: about +0.25 ms in relight and pathtrace; plugin CPU +0.02-0.03 ms |
+
+| Field (`shaft.`) | Default | |
+|---|---|---|
+| `beams` (`-ultrart-beams on\|off`) | on | the channel; off = the game's meshes, unshadowed |
+| `beamStrength` | 1 | brightness relative to the game's meshes |
+| `beamShadows` | 1 | 1 = traced visibility, 0 = none (A/B against the game), in between = a mix |
+| `beamMeshes` | 1 | colour from the game's meshes (1) or the analytic hulls (0) |
+| `beamSamples`, `beamAtrous` | 1, 2 | shadow rays per hull and low-res pixel; a-trous passes over the visibility |
+| `maxBeamHulls` | 32 | nearest first, within 300 m; the rest keep the game's meshes |
+| `beamFaces` | 0 | analytic diagnostics: 1 entering faces only, 2 leaving faces only |
+
+Limits and taste calls:
+- The channel shadows what the game's meshes draw, nothing more: rays that end on the floor inside the widest frustum add
+  nothing (the game draws no face there), so the floor under the beam gets its light from the eye's spot (relight, traced),
+  not from the channel.
+- Below the rib cage the beam is mostly dark at the user's pose: that is what the spine and ribs do to light from the eye.
+  `shaft.beamShadows=0.7` keeps some of the game's glow there if that reads better.
+- The visibility is the lit fraction along the whole ray inside a hull, at 1/4 resolution: thin shafts narrower than about
+  4 screen pixels blur, and a moving camera shows the temporal filter's lag like the haze.
+- Only meshes under a spot light are drawn this way (`parentSpots`); lamp cones (8-2) keep the cone haze.

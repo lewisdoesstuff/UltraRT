@@ -153,6 +153,10 @@ namespace UltraRT
                 cones = VolumetricsConeBuffer(), // lamp cones (Plugin.Shafts.cs)
                 beams = VolumetricsBeamBuffer(out int beamCount), // the game's beam meshes, shadowed (Plugin.Shafts.cs)
                 beamCount = beamCount,
+                beamParams = new Vector4(_shaftSettings.beamSamples, _shaftSettings.beamAtrous, _shaftSettings.beamShadows, Mathf.Max(0f, _shaftSettings.beamStrength)),
+                drawBeamMeshes = _shaftSettings.beamMeshes > 0 && beamCount > 0 ? DrawBeamMeshes : (Action<CommandBuffer>)null,
+                cameraDepth = BeamCameraTargets(),
+                cameraTargets = _beamCamTargets,
                 lightCount = _lightCount,
                 sunDir = sunDir,
                 sunColor = sunColor,
@@ -192,7 +196,7 @@ namespace UltraRT
                 var m = _volumetrics.Medium;
                 string sunText = sun >= 0 ? FormattableString.Invariant($"#{sun} ({sunColor.r:F2}, {sunColor.g:F2}, {sunColor.b:F2})") : "none";
                 Logger.LogInfo(FormattableString.Invariant($"Volumetrics: medium {m.x:F4}/m (fog {_volumetrics.MediumSource}, colour {RenderSettings.fogColor}), tint ({m.y:F2}, {m.z:F2}, {m.w:F2}), ") +
-                               $"sun {sunText}, {_lightCount} lights, game fog {(frame.applyGameFog && _volSettings.gameFog ? "on" : "off")}");
+                               $"sun {sunText}, {_lightCount} lights, game fog {(frame.applyGameFog && _volSettings.gameFog ? "on" : "off")}, {beamCount} beam hulls");
             }
         }
 
@@ -238,6 +242,18 @@ namespace UltraRT
                 sb.Append(FormattableString.Invariant($" [{100f * list[n].imp / Mathf.Max(total, 1e-9f):F0}% '{nm}' {type} range {l0.w:F1} col ({c.x:F2},{c.y:F2},{c.z:F2}) dist {dist:F1}]"));
             }
             Logger.LogInfo(sb.ToString());
+        }
+
+        /// <summary>The camera's own targets at AfterForwardAlpha (colour, outline buffer, view normals) and its depth, to
+        /// put back after the beam meshes are drawn into their buffer (as BloodWet does); null depth = not available.</summary>
+        private RenderTexture BeamCameraTargets()
+        {
+            var pp = MonoSingleton<PostProcessV2_Handler>.Instance;
+            if (pp == null || pp.mainTex == null || pp.depthBuffer == null || pp.reusableBufferA == null || pp.viewNormal == null) return null;
+            _beamCamTargets[0] = pp.mainTex;
+            _beamCamTargets[1] = pp.reusableBufferA;
+            _beamCamTargets[2] = pp.viewNormal;
+            return pp.depthBuffer;
         }
 
         /// <summary>For bench logs.</summary>
