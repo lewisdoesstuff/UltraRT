@@ -52,7 +52,7 @@ function LockPath([string] $s) { Join-Path $LockDir $(if ($s -eq 'alt') { 'game-
 
 function Get-SlotProcs($procs, [string] $s) {
     $d = Get-NormPath $dirs[$s]
-    @($procs | Where-Object { (Get-NormPath $_.Dir) -eq $d -or (-not $_.Dir -and $s -eq 'main') })
+    @($procs | Where-Object { $_ -and $_.Pid -and ((Get-NormPath $_.Dir) -eq $d -or (-not $_.Dir -and $s -eq 'main')) })
 }
 
 # The user playing: a game of the main install that was not started with -ultrart-* arguments.
