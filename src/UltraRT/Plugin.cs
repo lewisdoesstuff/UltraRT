@@ -93,7 +93,7 @@ namespace UltraRT
         private Matrix4x4 _lastViewProj;
         private int _lastMode = -1;
         private int _tracedFrames;
-        private bool _ptPrewarmed;
+        private bool _ptPrewarmed, _ptPrewarmWanted;
         private int _ptPrewarmFrame = -10;
 
         private string _autoScene;
@@ -113,6 +113,10 @@ namespace UltraRT
             ParseExposureArgs();
             ParseDlssArgs(); // DLSS Ray Reconstruction (Plugin.Dlss.cs)
             ParsePathTraceArgs(); // the pathtrace mode (Plugin.PathTrace.cs)
+            // Pre-compile RayGenPT only when pathtrace is going to be used: the session starts in it, or a benchmark runs (its
+            // scenarios switch to it). Otherwise every shader update would freeze relight players' menu for up to ~30 s.
+            var cmdArgs = Environment.GetCommandLineArgs();
+            _ptPrewarmWanted = Modes[_mode].name == "pathtrace" || cmdArgs.Any(a => a == "-ultrart-bench" || a == "-ultrart-bench-server");
             ParseTransparentArgs();
             ParseSkyArgs();
             ParseVolumetricsArgs();
@@ -1254,7 +1258,7 @@ namespace UltraRT
                 _cmd.SetRayTracingFloatParam(shader, "_DepthScale", 150f);
             }
 
-            if (pt && !full && !_ptPrewarmed && _ptSettings.prewarm)
+            if (pt && !full && !_ptPrewarmed && _ptSettings.prewarm && _ptPrewarmWanted)
             {
                 // The pathtrace raygen's pipeline is compiled on its first dispatch (16-33 s after a shader change, docs/path-tracing.md,
                 // "Warm-up"): do it now, on the session's first trace, at one pixel. RayGen below rewrites that pixel.
