@@ -309,6 +309,7 @@ namespace UltraRT
             IdEmission = Shader.PropertyToID("_Emission"),
             IdMoments = Shader.PropertyToID("_Moments"),
             IdOutput = Shader.PropertyToID("_Output"),
+            IdBloomOut = Shader.PropertyToID("_BloomOut"), IdBloomParams = Shader.PropertyToID("_BloomParams"), IdBloomOn = Shader.PropertyToID("_BloomOn"),
             IdOutDim = Shader.PropertyToID("_OutDim"),
             IdDebugView = Shader.PropertyToID("_DebugView"),
             IdSpecular = Shader.PropertyToID("_Specular"),
@@ -359,6 +360,12 @@ namespace UltraRT
 
         /// <summary>Forget all history (scene load, teleport, respawn, camera cut, shader reload).</summary>
         public void Reset() { _historyValid = false; Generation++; }
+
+        /// <summary>Set before Execute: the Composite kernel also writes the HDR bloom source into it (same size as the output;
+        /// null = not wanted). Params: x weight of the tone-mapped-away energy, y weight of bright emission, zw emission threshold (docs/vfx.md).</summary>
+        public RenderTexture BloomTarget;
+        public Vector4 BloomParams;
+        private RenderTexture _bloomDummy;
 
         /// <summary>Counts <see cref="Reset"/> calls (the temporal upsampler drops its history along with the denoiser's).</summary>
         public int Generation { get; private set; }
@@ -516,6 +523,16 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kComposite, IdNormalDepth, inputs.normalDepth); // motion debug view
             cmd.SetComputeTextureParam(cs, _kComposite, IdInstanceId, inputs.instanceId);
             cmd.SetComputeTextureParam(cs, _kComposite, IdOutput, output);
+            // HDR bloom source (docs/vfx.md): what the tone curve compressed plus bright emission, linear light. A 1x1
+            // dummy when nobody wants it (the kernel's writes fall outside it).
+            if (_bloomDummy == null)
+            {
+                _bloomDummy = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear) { enableRandomWrite = true, name = "UltraRT Bloom Dummy", hideFlags = HideFlags.HideAndDontSave };
+                _bloomDummy.Create();
+            }
+            cmd.SetComputeTextureParam(cs, _kComposite, IdBloomOut, BloomTarget != null ? BloomTarget : _bloomDummy);
+            cmd.SetComputeVectorParam(cs, IdBloomParams, BloomParams);
+            cmd.SetComputeFloatParam(cs, IdBloomOn, BloomTarget != null ? 1f : 0f);
             cmd.DispatchCompute(cs, _kComposite, Mathf.CeilToInt(output.width / 8f), Mathf.CeilToInt(output.height / 8f), 1);
 
             // History for the next frame.
@@ -609,6 +626,7 @@ namespace UltraRT
             ReleaseTargets();
             _dummyKeys?.Release();
             _dummyResolved?.Release();
+            if (_bloomDummy != null) { _bloomDummy.Release(); UnityEngine.Object.Destroy(_bloomDummy); _bloomDummy = null; }
         }
     }
 }

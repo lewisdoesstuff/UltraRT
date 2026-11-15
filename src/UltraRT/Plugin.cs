@@ -115,6 +115,7 @@ namespace UltraRT
             ParseMaterialArgs();
             ParseLavaArgs();
             ParseViewmodelArgs();
+            ParseVfxArgs(); // screen-space effects (Plugin.Vfx.cs)
             _outDir = Path.Combine(Paths.BepInExRootPath, "ultrart");
             Directory.CreateDirectory(_outDir);
 
@@ -325,6 +326,7 @@ namespace UltraRT
             LoadVolumetricsShaders(bundle);
             LoadViewmodelShaders(bundle);
             LoadDlssShader(bundle);
+            LoadVfxShaders(bundle);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -361,12 +363,13 @@ namespace UltraRT
                 if (Input.GetKeyDown(KeyCode.F5) && !CtrlHeld()) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
                 VolumetricsHotkeys(); // Ctrl+F6
                 ViewmodelHotkeys(); // Ctrl+F7
+                VfxHotkeys(); // Ctrl+F2, Shift+F2
                 if (Input.GetKeyDown(KeyCode.F6) && !CtrlHeld()) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
                 // Page Up / Page Down cycle view modes (F8 opens ULTRAKILL's console).
                 if (Input.GetKeyDown(KeyCode.PageDown)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.PageUp)) { _mode = (_mode + Modes.Length - 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
-                if (Input.GetKeyDown(KeyCode.F2) && _upsampler != null)
+                if (Input.GetKeyDown(KeyCode.F2) && !CtrlHeld() && !ShiftHeld() && _upsampler != null)
                 {
                     _upsampler.Settings.enabled = !_upsampler.Settings.enabled;
                     string on = _upsampler.Settings.enabled ? "on" : "off (2x2 depth-guided)";
@@ -418,6 +421,7 @@ namespace UltraRT
             _autoExposure?.Reset();
             _volumetrics?.Reset();
             _lightShafts?.Clear();
+            _vfx?.Reset();
             ViewmodelReset();
         }
 
@@ -744,6 +748,7 @@ namespace UltraRT
             _cmd.Clear();
             TransparentFrameReset();
             VolumetricsFrameReset(cam); // the after-transparents buffer (Plugin.Volumetrics.cs)
+            VfxFrameReset(cam);         // screen effects, after it (Plugin.Vfx.cs)
             if (_proxies?.Rtas == null || !_viewEnabled || _ptShader == null || _compositeMat == null) return;
             if (_proxies.Rtas.GetInstanceCount() == 0) return; // dispatching against an empty RTAS hangs the GPU
 
@@ -1259,6 +1264,7 @@ namespace UltraRT
                 _gpu?.Begin(_cmd, SlotDenoise);
                 _denoiser.FrameTime = Time.unscaledDeltaTime;
                 BindExposure();
+                VfxBloomSource(kind, w, h, rr); // the composite also writes the HDR bloom source (Plugin.Vfx.cs)
                 if (!rr) _denoiser.Execute(_cmd, inputs, _denoised);
                 if (!rr) RunExposure(w, h); // relight auto exposure: measured after the denoiser, applied from the next frame
                 if (kind == Kind.Hybrid && _unpackHybrid != null)
@@ -1339,6 +1345,7 @@ namespace UltraRT
             _gpu?.End(_cmd, SlotBlit);
             TraceVolumetrics(kind, upsampled); // sun shafts, light halos, the game's fog on RT pixels (Plugin.Volumetrics.cs)
             CopyPreAlpha(); // refraction background for the water overlays (Plugin.Transparent.cs)
+            TraceVfx(kind); // bloom, heat haze, shockwaves, underwater: after the transparents (Plugin.Vfx.cs)
             _gpu?.End(_cmd, SlotTotal);
             if (_gpu != null)
             {
@@ -1360,8 +1367,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 19; // 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs)
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotCount = 21; // 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

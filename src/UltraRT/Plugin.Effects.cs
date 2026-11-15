@@ -49,11 +49,12 @@ namespace UltraRT
             if (!_effectArgsParsed) ParseEffectArgs();
             if (_effectLights == null)
             {
-                _effectLights = new EffectLights(Logger) { Settings = _effectSettings };
+                _effectLights = new EffectLights(Logger) { Settings = _effectSettings, Spawned = VfxOnSpawn };
                 if (_lightSampling != null) _lightSampling.VirtualIds = _lightIds;
             }
             if (_effectSurveyEnabled && _effectSurvey == null) _effectSurvey = new EffectSurvey(Logger);
-            EffectSpawns.Enabled = _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker || _effectSurvey != null;
+            EffectSpawns.Enabled = _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker || _effectSurvey != null ||
+                                   (_vfx != null && _vfxSettings.enabled && _vfxSettings.shockwaves);
             _effectLights.ProcessSpawns(_effectSurvey);
             if (_effectSurvey != null)
             {

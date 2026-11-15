@@ -140,13 +140,24 @@ namespace UltraRT
                 v => _effectSettings.spawnedLights = _effectSettings.virtualLights = _effectSettings.flicker = v);
             m.Bool("Effects", "Lava", "Ray-traced lava and acid", () => LavaCfg.active, v => LavaCfg.active = v, "-ultrart-nolava");
 
+            // Screen-space effects (docs/vfx.md)
+            m.Group = "Screen effects";
+            m.Bool("ScreenEffects", "Enabled", "Screen effects  [Ctrl+F2]", () => _vfxSettings.enabled, v => _vfxSettings.enabled = v, "-ultrart-vfx");
+            m.Bool("ScreenEffects", "Bloom", "Bloom  [Shift+F2]", () => _vfxSettings.bloom, v => _vfxSettings.bloom = v, "-ultrart-bloom");
+            m.Float("ScreenEffects", "BloomStrength", "Bloom strength", 0f, 2f, 2, () => _vfxSettings.bloomStrength, v => _vfxSettings.bloomStrength = v, "-ultrart-bloom-strength");
+            m.Bool("ScreenEffects", "HeatHaze", "Heat haze over lava and fire", () => _vfxSettings.heatHaze, v => _vfxSettings.heatHaze = v, "-ultrart-heathaze");
+            m.Float("ScreenEffects", "HeatHazeStrength", "Heat haze strength", 0f, 3f, 2, () => _vfxSettings.heatAmplitude / VfxSettings.HeatAmplitudeDefault, v => _vfxSettings.heatAmplitude = v * VfxSettings.HeatAmplitudeDefault, "-ultrart-heathaze-strength");
+            m.Bool("ScreenEffects", "Shockwaves", "Explosion shockwaves", () => _vfxSettings.shockwaves, v => _vfxSettings.shockwaves = v, "-ultrart-shockwaves");
+            m.Float("ScreenEffects", "ShockwaveStrength", "Shockwave strength", 0f, 3f, 2, () => _vfxSettings.shockAmplitude / VfxSettings.ShockAmplitudeDefault, v => _vfxSettings.shockAmplitude = v * VfxSettings.ShockAmplitudeDefault, "-ultrart-shockwave-strength");
+            m.Bool("ScreenEffects", "Underwater", "Underwater shafts, fog and distortion", () => _vfxSettings.underwater, v => _vfxSettings.underwater = v, "-ultrart-underwater");
+
             m.Action("Reload shaders  [F9]", ReloadShaders);
             m.Keybinds = new[]
             {
                 "Page Up / Page Down|previous / next view mode", "F7|ray tracing on / off", "F2|temporal upsampler",
                 "F3|radiance cache mode (Shift: debug view)", "Ctrl+F3|denoiser preset", "F4|reflections", "Ctrl+F4|auto exposure",
                 "F5|glowing surfaces as lights", "Ctrl+F5|sky light and linear transport", "F6|light sampling", "Ctrl+F6|volumetrics",
-                "Ctrl+F1|surface detail maps", "F9|reload shaders", "F10|record", "F11|save pose",
+                "Ctrl+F1|surface detail maps", "Ctrl+F2|screen effects (bloom, heat haze, shockwaves, underwater)", "Shift+F2|bloom", "F9|reload shaders", "F10|record", "F11|save pose",
             };
             m.Capture();
         }

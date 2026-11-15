@@ -660,6 +660,11 @@ Texture2D<float4>   _BoostInfo; // Temporal's _OutBoost (debug view 6)
 Texture2D<float>    _PlayerFactor; // Temporal's _OutPlayerF: V1's shadow, multiplied into the lighting here
 // Debug view 7 (motion) also reads _NormalDepth and _InstanceId (declared with the temporal pass).
 RWTexture2D<float4> _Output;
+// HDR bloom source (docs/vfx.md), linear light, same size as _Output: the energy the tone curve compressed or clipped
+// (lit hotspots) and bright emission (lava, neon, screens). A 1x1 dummy is bound when nobody wants it.
+RWTexture2D<float4> _BloomOut;
+float4 _BloomParams; // x weight of the compressed energy, y weight of bright emission, z/w emission threshold (lo, hi; brightest channel)
+float  _BloomOn;
 
 float4 _OutDim;    // output w, h
 int    _DebugView; // see DenoiserDebugView
@@ -753,7 +758,20 @@ void Composite(uint3 id : SV_DispatchThreadID)
     }
     // Optional tone mapping (relight; UltraRTExposure.hlsl): a shoulder above a knee, so hotspots roll off instead of
     // clipping. Global properties; 0/unset = off.
-    if (_DebugView == 0) c = UltraRTToneMap(c);
+    if (_DebugView == 0)
+    {
+        float3 hdr = max(c, 0.0);
+        c = UltraRTToneMap(c);
+        if (_BloomOn > 0.5)
+        {
+            float3 shown = saturate(c);
+            float3 excess = max(pow(hdr, 2.2) - pow(shown, 2.2), 0.0);
+            float3 em = max(_Emission[s].rgb, 0.0);
+            float ew = smoothstep(_BloomParams.z, _BloomParams.w, max(em.r, max(em.g, em.b)));
+            float3 b = excess * _BloomParams.x + pow(em, 2.2) * (ew * _BloomParams.y);
+            _BloomOut[id.xy] = float4(any(isnan(b)) || any(isinf(b)) ? 0.0 : min(b, 64.0), 1.0);
+        }
+    }
     _Output[id.xy] = float4(saturate(c), 1.0);
 }
 

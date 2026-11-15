@@ -1,0 +1,17 @@
+{
+    "Name": "vfx-survey",
+    "Scenarios": [
+        { "Name": "1-1 start blast", "Scene": "Level 1-1",
+          "Path": { "Type": "spawn", "Duration": 5 },
+          "Effects": { "Kinds": ["explosion", "fire", "dust"], "Every": 1.25, "Distance": 8, "ShotDelay": 0.25 },
+          "Modes": ["off", "relight"], "Screenshots": [3] },
+        { "Name": "0-5 lava blast", "Scene": "Level 0-5",
+          "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 5 },
+          "Effects": { "Kinds": ["superexplosion", "firesimple", "revolver"], "Every": 1.25, "Distance": 8, "ShotDelay": 0.25 },
+          "Modes": ["off", "relight"], "Screenshots": [3] },
+        { "Name": "0-1 metal blast", "Scene": "Level 0-1",
+          "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 5 },
+          "Effects": { "Kinds": ["explosion", "projectile", "blood"], "Every": 1.25, "Distance": 6, "ShotDelay": 0.25 },
+          "Modes": ["off", "relight"], "Screenshots": [3] }
+    ]
+}

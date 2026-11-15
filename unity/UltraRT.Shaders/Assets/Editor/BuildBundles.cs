@@ -52,6 +52,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/TransparentOverlay.shader",
                     "Assets/UltraRT/Shaders/UnpackHybrid.compute",
                     "Assets/UltraRT/Shaders/Upsample.compute",
+                    "Assets/UltraRT/Shaders/Vfx.shader",
                     "Assets/UltraRT/Shaders/Viewmodel.raytrace",
                     "Assets/UltraRT/Shaders/ViewmodelComposite.shader",
                     "Assets/UltraRT/Shaders/ViewmodelFilter.compute",
