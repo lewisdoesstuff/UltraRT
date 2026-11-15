@@ -32,6 +32,7 @@ namespace UltraRT
         [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)] private delegate int ConfigureFn(string dllDir, string dataDir);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SetFrameFn(int slot, ref FrameData f);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int TakeLogFn(byte[] buf, int size);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int SizesFn(int renderW, int renderH, int outW, int outH, int preset, int quality);
 
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr LoadLibraryW(string path);
@@ -45,6 +46,8 @@ namespace UltraRT
         private readonly LongFn _evalCount;
         private readonly PtrFn _getStatus;
         private readonly TakeLogFn _takeLog;
+        private readonly SizesFn _warm, _featureReady;
+        private readonly IntFn _isBusy;
         private readonly byte[] _logBuf = new byte[16384];
         private readonly float[] _w2v = new float[16], _v2c = new float[16];
 
@@ -113,6 +116,9 @@ namespace UltraRT
             _evalCount = Get<LongFn>(module, "UltraRT_Dlss_GetEvalCount");
             _getStatus = Get<PtrFn>(module, "UltraRT_Dlss_GetStatus");
             _takeLog = Get<TakeLogFn>(module, "UltraRT_Dlss_TakeLog");
+            _warm = Get<SizesFn>(module, "UltraRT_Dlss_Warm");
+            _featureReady = Get<SizesFn>(module, "UltraRT_Dlss_FeatureReady");
+            _isBusy = Get<IntFn>(module, "UltraRT_Dlss_IsBusy");
             if (_ring <= 0) throw new InvalidOperationException(Status);
             if (size != Marshal.SizeOf<FrameData>()) throw new InvalidOperationException($"frame struct size mismatch: native {size}, managed {Marshal.SizeOf<FrameData>()}");
         }
@@ -175,16 +181,55 @@ namespace UltraRT
 
         public void Reset() => _historyValid = false;
 
+        /// <summary>A warm-up (NGX init and/or feature creation) runs on the native worker thread: don't evaluate.</summary>
+        public bool Busy => !_disposed && _isBusy() != 0;
+
+        /// <summary>Starts NGX's initialisation on a worker thread (docs/dlss.md, "Warm-up"). Main thread; returns at once.</summary>
+        public void WarmInit() { if (!_disposed) _warm(0, 0, 0, 0, Preset, 0); }
+
+        /// <summary>The feature Execute would use for this trace: render size (guard band cropped), output size, exact-grid
+        /// output offset and the screen-to-trace map. Mirrors what Execute does.</summary>
+        public void FeatureSizes(int tw, int th, Vector2Int guardPx, Vector2 guardScale, int Ws, int Hs, out int rw, out int rh, out int W, out int H,
+                                 out bool exact, out Vector2Int outOffset, out Vector4 traceMap)
+        {
+            rw = tw - 2 * guardPx.x; rh = th - 2 * guardPx.y;
+            float os = Mathf.Clamp(OutScale, 0.25f, 4f);
+            W = Mathf.RoundToInt(Ws * os); H = Mathf.RoundToInt(Hs * os);
+            // Exact grid (Plugin.ExactGridTrace sized the trace for it): one trace pixel is exactly N screen pixels, so RR's
+            // output is N x its render size, a little larger than the screen and centred on it.
+            int grid = ExactGrid;
+            exact = grid > 2 && Mathf.Approximately(os, 1f) && rw * grid >= Ws && rh * grid >= Hs && (rw * grid - Ws) % 2 == 0 && (rh * grid - Hs) % 2 == 0
+                    && Mathf.Abs(guardScale.x - (float)tw * grid / Ws) < 1e-4f && Mathf.Abs(guardScale.y - (float)th * grid / Hs) < 1e-4f;
+            outOffset = Vector2Int.zero;
+            traceMap = new Vector4((float)rw / Ws, (float)rh / Hs, guardPx.x, guardPx.y);
+            if (exact)
+            {
+                W = rw * grid; H = rh * grid;
+                outOffset = new Vector2Int((W - Ws) / 2, (H - Hs) / 2);
+                traceMap = new Vector4(1f / grid, 1f / grid, guardPx.x + (float)outOffset.x / grid, guardPx.y + (float)outOffset.y / grid);
+            }
+        }
+
+        /// <summary>Whether the feature for this trace exists. If not, starts creating it on the native worker thread (with NGX's
+        /// init if that hasn't run) and returns false: the caller uses its own denoiser until it is ready, instead of the
+        /// render thread stalling for the creation (docs/dlss.md, "Warm-up").</summary>
+        public bool EnsureFeatureAsync(int tw, int th, Vector2Int guardPx, Vector2 guardScale, int Ws, int Hs)
+        {
+            if (_disposed) return false;
+            FeatureSizes(tw, th, guardPx, guardScale, Ws, Hs, out int rw, out int rh, out int W, out int H, out _, out _, out _);
+            int q = QualityFor(rw, W);
+            if (_featureReady(rw, rh, W, H, Preset, q) != 0) return true;
+            _warm(rw, rh, W, H, Preset, q);
+            return false;
+        }
+
         /// <summary>This frame's sample offset from the trace texel centre (trace px): Halton(2,3), JitterPhases long.</summary>
         public Vector2 NextJitter()
         {
             uint i = _jitterIndex++;
             if (ExactGrid > 2)
             {
-                int n = ExactGrid, cell = (int)(i % (uint)(n * n));
-                if (n == 3) cell = GridOrder3[cell];
-                else cell = (int)((cell * 7L + 3) % (n * n)); // 7 is coprime to n x n for n = 4, 5: a spread-out order
-                Jitter = new Vector2((cell % n + 0.5f) / n - 0.5f, (cell / n + 0.5f) / n - 0.5f);
+                Jitter = GridJitter(i, ExactGrid);
                 return Jitter;
             }
             if (JitterPhases == 4 || ExactGrid == 2)
@@ -201,6 +246,16 @@ namespace UltraRT
             uint k = i % (uint)Mathf.Max(1, JitterPhases) + 1;
             Jitter = new Vector2(Halton(k, 2) - 0.5f, Halton(k, 3) - 0.5f);
             return Jitter;
+        }
+
+        /// <summary>Phase i of the exact N x N grid: the sample offset (trace px) that lands on screen pixel centre i of each trace
+        /// pixel's N x N block, in a spread-out order.</summary>
+        public static Vector2 GridJitter(uint i, int n)
+        {
+            int cell = (int)(i % (uint)(n * n));
+            if (n == 3) cell = GridOrder3[cell];
+            else cell = (int)((cell * 7L + 3) % (n * n)); // 7 is coprime to n x n for n = 4, 5: a spread-out order
+            return new Vector2((cell % n + 0.5f) / n - 0.5f, (cell / n + 0.5f) / n - 0.5f);
         }
 
         private static float Halton(uint i, uint b)
@@ -227,23 +282,9 @@ namespace UltraRT
         {
             if (_disposed || _cs == null || _getState() < 0) return false;
             int tw = i.radiance.width, th = i.radiance.height;
-            int rw = tw - 2 * i.guardPx.x, rh = th - 2 * i.guardPx.y;
             int Ws = i.gameDepth.width, Hs = i.gameDepth.height;
             float os = Mathf.Clamp(OutScale, 0.25f, 4f);
-            int W = Mathf.RoundToInt(Ws * os), H = Mathf.RoundToInt(Hs * os);
-            // Exact grid (Plugin.ExactGridTrace sized the trace for it): one trace pixel is exactly N screen pixels, so RR's
-            // output is N x its render size, a little larger than the screen and centred on it.
-            int grid = ExactGrid;
-            bool exact = grid > 2 && Mathf.Approximately(os, 1f) && rw * grid >= Ws && rh * grid >= Hs && (rw * grid - Ws) % 2 == 0 && (rh * grid - Hs) % 2 == 0
-                         && Mathf.Abs(i.guardScale.x - (float)tw * grid / Ws) < 1e-4f && Mathf.Abs(i.guardScale.y - (float)th * grid / Hs) < 1e-4f;
-            var outOffset = Vector2Int.zero;
-            var traceMap = new Vector4((float)rw / Ws, (float)rh / Hs, i.guardPx.x, i.guardPx.y);
-            if (exact)
-            {
-                W = rw * grid; H = rh * grid;
-                outOffset = new Vector2Int((W - Ws) / 2, (H - Hs) / 2);
-                traceMap = new Vector4(1f / grid, 1f / grid, i.guardPx.x + (float)outOffset.x / grid, i.guardPx.y + (float)outOffset.y / grid);
-            }
+            FeatureSizes(tw, th, i.guardPx, i.guardScale, Ws, Hs, out int rw, out int rh, out int W, out int H, out bool exact, out var outOffset, out var traceMap);
             EnsureTargets(rw, rh, W, H, tw, th, Ws, Hs);
             var cs = _cs;
             var cam = i.camera;

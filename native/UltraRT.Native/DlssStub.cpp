@@ -19,3 +19,6 @@ ULTRART_API int UltraRT_Dlss_GetState() { return -1; }
 ULTRART_API long long UltraRT_Dlss_GetEvalCount() { return 0; }
 ULTRART_API const char* UltraRT_Dlss_GetStatus() { return "UltraRT.Native was built without the DLSS SDK (run scripts\fetch-dlss.ps1, rebuild)"; }
 ULTRART_API int UltraRT_Dlss_TakeLog(char* out, int size) { if (out && size > 0) out[0] = 0; return 0; }
+ULTRART_API int UltraRT_Dlss_Warm(int, int, int, int, int, int) { return 0; }
+ULTRART_API int UltraRT_Dlss_IsBusy() { return 0; }
+ULTRART_API int UltraRT_Dlss_FeatureReady(int, int, int, int, int, int) { return 0; }

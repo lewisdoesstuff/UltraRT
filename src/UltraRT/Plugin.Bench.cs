@@ -912,6 +912,7 @@ namespace UltraRT
                         foreach (var m in sc.Modes)
                         {
                             ApplyBenchMode(m);
+                            yield return WaitForRR();
                             for (int f = 0; f < 12; f++) { GameControl.HideCheatPanels(); yield return null; }
                             if (sc.ShotSettle > 0f)
                             {

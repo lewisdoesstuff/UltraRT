@@ -47,6 +47,14 @@ namespace UltraRT
         public float scale = 0.5f;
         /// <summary>Paths per pixel with UltraRT's denoiser (0 = <see cref="paths"/>): at scale 0.5 it traces 2.25x the pixels.</summary>
         public int pathsOwn = 1;
+        /// <summary>UltraRT's denoiser remodulates like RR: the upsampler accumulates lighting only, the texels come back from exact
+        /// hits at screen resolution (Plugin.Remod.cs). Needed below trace scale 0.5, where the upsampler blurs textures.</summary>
+        public bool remodulate = true;
+        /// <summary>With <see cref="remodulate"/> at trace scale 1/3 (or 1/5): the exact N x N jitter grid, as RR uses.</summary>
+        public bool remodExactGrid = true;
+        /// <summary>The lighting upsampler's sample weight exp(-x d^2), d in screen px (the lighting is smooth: softer than textures').</summary>
+        public float remodSharpness = 0.5f;
+        public float remodMaxWeight = 4f;
         /// <summary>Light sampling at the primary hit while RR denoises: -1 = as configured (F6), 1 = RIS without reuse,
         /// 2 = ReSTIR. RR wants uncorrelated samples (docs/dlss.md).</summary>
         public int lightsRR = 1;

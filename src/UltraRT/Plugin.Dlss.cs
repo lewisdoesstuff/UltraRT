@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using System.Linq;
 using BepInEx;
@@ -38,6 +39,12 @@ namespace UltraRT
         /// (DlssRR.ExactGrid). Bench plugin._rrExactJitter=0.</summary>
         private bool _rrExactJitter = true;
         private const int SlotRR = 17, SlotRREval = 18;
+        /// <summary>NGX init at plugin start and the feature's creation on a native worker thread, so the first RR frame doesn't
+        /// stall the game for seconds (docs/dlss.md, "Warm-up"). -ultrart-rr-nowarm, bench plugin._rrWarm=0: the old lazy
+        /// init and creation on the render thread.</summary>
+        private bool _rrWarm = true;
+        private bool _rrWarmLogged;
+        private float _rrWarmSince = -1f;
 
         private void ParseDlssArgs()
         {
@@ -57,6 +64,7 @@ namespace UltraRT
                     case "-ultrart-rr-nohitdist": _rrSpecHit = false; break;
                     case "-ultrart-rr-gamma": _rrLinear = false; break;
                     case "-ultrart-rr-noremod": _rrRemodulate = false; break;
+                    case "-ultrart-rr-nowarm": _rrWarm = false; break;
                     case "-ultrart-rr-jitter-sign":
                         float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _rrJitterSign);
                         break;
@@ -86,6 +94,10 @@ namespace UltraRT
                 }
             }
             catch (InvalidOperationException) { /* legacy input disabled */ }
+            // Warm-up: start NGX's initialisation in the background as soon as the game runs, if anything may use RR.
+            if (_rrWarm && !_rrInitTried && Time.frameCount > 2 && (_rrEnabled || _ptSettings.denoiser != PathTraceDenoiser.UltraRT) &&
+                SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D12 && EnsureRR())
+                _rr.WarmInit();
             var log = _rr?.TakeLog();
             if (log != null) foreach (var line in log.Split('\n')) Logger.LogInfo($"[RR] {line}");
             if (_rr != null && Time.frameCount % 60 == 0)
@@ -93,6 +105,15 @@ namespace UltraRT
                 string st = _rr.Status;
                 if (st != _rrStatusLogged) { _rrStatusLogged = st; Logger.LogInfo($"[RR] status: {st} (state {_rr.State}, {_rr.Evaluations} evaluations)"); }
             }
+        }
+
+        /// <summary>Bench: after a mode switch, wait until RR has its feature if the mode uses it (the warm-up creates it in the
+        /// background and the frames meanwhile use UltraRT's denoiser), so screenshots, bursts and motion passes see RR.</summary>
+        private IEnumerator WaitForRR()
+        {
+            for (int f = 0; f < 2; f++) yield return null;
+            float until = Time.realtimeSinceStartup + 20f;
+            while (_rr != null && (_rr.Busy || _rrWarmSince >= 0f) && Time.realtimeSinceStartup < until) { Bench.GameControl.HideCheatPanels(); yield return null; }
         }
 
         /// <summary>Main thread, lazily on first use: load the native side and point NGX at nvngx_dlssd.dll.</summary>
@@ -122,6 +143,7 @@ namespace UltraRT
             bool asked = name == PathTraceModeName ? PathTraceWantsRR : _rrEnabled && (name == "relight" || name == "pt-dn");
             bool want = asked && kind == Kind.Denoised && depthBuf != null && _rrShader != null;
             if (want) want = EnsureRR() && _rr.HasShader;
+            bool warming = false;
             // Unused for a few seconds (mode switch, Ctrl+F8): release the feature, ~200 MB of RR history at 1440p. Not at once,
             // so the bench's alternating modes don't recreate it every segment.
             if (want) { _rrWasActive = true; _rrLastUsed = Time.realtimeSinceStartup; }
@@ -149,6 +171,27 @@ namespace UltraRT
                 _rr.DemodMaxWeight = _rrDemodMaxWeight;
                 // NVIDIA's rule: 8 x (output / render)^2 phases (72 at 3x); never fewer than the configured count.
                 _rr.JitterPhases = name == PathTraceModeName ? Mathf.Max(_rrJitterPhases, Mathf.CeilToInt(8f / Mathf.Max(0.04f, _ptSettings.scaleRR * _ptSettings.scaleRR))) : _rrJitterPhases;
+                if (_rrWarm)
+                {
+                    // The feature for this frame's sizes must exist: if not, it is created on the native worker thread and this
+                    // frame (and the next few) use UltraRT's denoiser instead of the render thread stalling.
+                    bool full = name == PathTraceModeName;
+                    TraceDims(true, TraceScaleFor(full, true), _rr.ExactGrid, depthBuf, out int tw, out int th, out int gx, out int gy, out var gs, out _, out _);
+                    warming = !_rr.EnsureFeatureAsync(tw, th, new Vector2Int(gx, gy), gs, depthBuf.width, depthBuf.height);
+                }
+            }
+            if (warming)
+            {
+                if (_rrWarmSince < 0f) _rrWarmSince = Time.realtimeSinceStartup;
+                if (!_rrWarmLogged) { _rrWarmLogged = true; Logger.LogInfo("DLSS Ray Reconstruction: creating the feature in the background; UltraRT's denoiser until it is ready"); }
+                _rrLastUsed = Time.realtimeSinceStartup; // not released meanwhile
+                return false;
+            }
+            if (want && _rrWarmSince >= 0f)
+            {
+                Logger.LogInfo($"DLSS Ray Reconstruction: ready after {(Time.realtimeSinceStartup - _rrWarmSince) * 1000f:F0} ms of warm-up (frame {Time.frameCount})");
+                _rrWarmSince = -1f;
+                _rrWarmLogged = false;
             }
             return want;
         }
@@ -159,9 +202,8 @@ namespace UltraRT
         /// visible part of the trace becomes a whole number of trace pixels that overscans the screen by a fraction of one on
         /// each side, on top of the guard band; _guardScale carries the exact ratio to everything downstream.
         /// </summary>
-        private void ExactGridTrace(int screenW, int screenH, int gx, int gy, ref int w, ref int h)
+        private void ExactGridTrace(int n, int screenW, int screenH, int gx, int gy, ref int w, ref int h, ref Vector2 guardScale)
         {
-            int n = _rr != null ? _rr.ExactGrid : 0;
             if (n <= 2) return;
             int vw = Mathf.CeilToInt((float)screenW / n), vh = Mathf.CeilToInt((float)screenH / n);
             // The overscan must be an even number of screen pixels, so the screen sits centred on the grid.
@@ -170,7 +212,7 @@ namespace UltraRT
             if ((vw * n - screenW) % 2 != 0 || (vh * n - screenH) % 2 != 0) return; // even N on an odd screen size: keep the plain trace
             w = vw + 2 * gx;
             h = vh + 2 * gy;
-            _guardScale = new Vector2((float)w * n / screenW, (float)h * n / screenH);
+            guardScale = new Vector2((float)w * n / screenW, (float)h * n / screenH);
         }
 
         /// <summary>Trace(), after BindGameDepth: RR, then the composite reads _UltraRTUpsampled. False = nothing recorded.</summary>

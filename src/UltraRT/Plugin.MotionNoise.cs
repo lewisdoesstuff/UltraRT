@@ -57,6 +57,7 @@ namespace UltraRT
                 {
                     string mode = spec == "off" ? "off" : ApplyBenchVariant(spec);
                     ApplyBenchMode(mode);
+                    yield return WaitForRR();
                     bool isOff = mode == "off";
                     int nPasses = isOff ? 2 : passes;
                     var recs = new List<MotionRecord>(caps * passes);

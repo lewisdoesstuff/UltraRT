@@ -1,6 +1,9 @@
 // UltraRT.Native: DLSS Ray Reconstruction (NGX "DLSS-D") on Unity's D3D12 device. See docs/dlss.md.
 //
-// All NGX calls happen on Unity's render thread inside plugin events (NGX is initialised lazily on the first evaluate).
+// NGX calls happen on Unity's render thread inside plugin events, except the warm-up (UltraRT_Dlss_Warm): NGX's
+// initialisation (seconds: it loads the model DLL and its kernels) and the feature's creation run on a worker thread,
+// the creation's commands on a queue of our own, so neither stalls the render thread. s_NgxCs serialises the two
+// threads; a render event that finds the worker busy skips (the C# side doesn't ask for RR until it is done).
 // The C# side (src/UltraRT/DlssRR.cs) writes a DlssFrame into a ring slot with UltraRT_Dlss_SetFrame and issues
 //   IssuePluginEventAndData(GetRenderEventAndDataFunc(), UltraRT_Dlss_GetEventBase() + k, slot)
 // k = 0  evaluate, recorded into Unity's own command list (kEventEvalUnity; event flag ModifiesCommandBuffersState)
@@ -87,6 +90,26 @@ namespace
     int s_LogLen = 0;
     volatile LONG s_State = 0; // 0 idle, 1 NGX ready, 2 feature ready, -1 failed (see status)
     volatile LONG64 s_Evals = 0;
+
+    // ---- warm-up worker (UltraRT_Dlss_Warm)
+    CRITICAL_SECTION s_NgxCs;      // held by whoever calls NGX: the render thread (TryEnter) or the worker
+    INIT_ONCE s_NgxCsOnce = INIT_ONCE_STATIC_INIT;
+    BOOL CALLBACK InitCs(PINIT_ONCE, PVOID, PVOID*) { InitializeCriticalSection(&s_NgxCs); return TRUE; }
+    void EnsureCs() { InitOnceExecuteOnce(&s_NgxCsOnce, InitCs, nullptr, nullptr); }
+    HANDLE s_Worker = nullptr;
+    volatile LONG s_Busy = 0;      // 1 while the worker runs
+    volatile LONG s_ReleasePending = 0;
+    struct WarmRequest { int renderW, renderH, outW, outH, preset, quality; };
+    WarmRequest s_Warm = {};
+
+    double NowMs()
+    {
+        static LARGE_INTEGER freq = {};
+        if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+        LARGE_INTEGER t;
+        QueryPerformanceCounter(&t);
+        return (double)t.QuadPart * 1000.0 / (double)freq.QuadPart;
+    }
 
     void AppendLog(const char* line)
     {
@@ -187,8 +210,17 @@ namespace
         if (s_State == 2) InterlockedExchange(&s_State, 1);
     }
 
+    void JoinWorker()
+    {
+        if (!s_Worker) return;
+        WaitForSingleObject(s_Worker, INFINITE);
+        CloseHandle(s_Worker);
+        s_Worker = nullptr;
+    }
+
     void ShutdownAll()
     {
+        JoinWorker();
         if (s_NgxInit)
         {
             ReleaseFeature();
@@ -225,6 +257,7 @@ namespace
         info.LoggingInfo.MinimumLoggingLevel = NVSDK_NGX_LOGGING_LEVEL_ON;
         info.LoggingInfo.DisableOtherLoggingSinks = false;
         const wchar_t* data = s_DataDir[0] ? s_DataDir : L".";
+        double t0 = NowMs();
         // A project id (GUID format) and engine type CUSTOM: the documented route for apps without an NVIDIA app id.
         NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init_with_ProjectID("6d1e8a4b-2f3c-4b7e-9a51-0c2d7e9f4a18",
             NVSDK_NGX_ENGINE_TYPE_CUSTOM, "UltraRT-0.1", data, s_Device, &info, NVSDK_NGX_Version_API);
@@ -254,7 +287,8 @@ namespace
 
         s_NgxFailed = false;
         InterlockedExchange(&s_State, 1);
-        SetStatus("NGX ready, Ray Reconstruction available (dll dir %ls)", s_DllDir);
+        SetStatus("NGX ready, Ray Reconstruction available (dll dir %ls; init %.0f ms on the %s thread)", s_DllDir, NowMs() - t0,
+                  s_Busy ? "warm-up" : "render");
         return true;
     }
 
@@ -274,12 +308,18 @@ namespace
         return true;
     }
 
-    bool EnsureFeature(ID3D12GraphicsCommandList* cl, const DlssFrame& f)
+    bool FeatureMatches(int renderW, int renderH, int outW, int outH, int preset, int quality)
     {
-        if (s_Feature && s_FeatW == f.renderW && s_FeatH == f.renderH && s_FeatOutW == f.outW && s_FeatOutH == f.outH &&
-            s_FeatPreset == f.preset && s_FeatQuality == f.quality)
+        return s_Feature && s_FeatW == renderW && s_FeatH == renderH && s_FeatOutW == outW && s_FeatOutH == outH &&
+               s_FeatPreset == preset && s_FeatQuality == quality;
+    }
+
+    bool EnsureFeature(ID3D12GraphicsCommandList* cl, const DlssFrame& f, const char* where = "render")
+    {
+        if (FeatureMatches(f.renderW, f.renderH, f.outW, f.outH, f.preset, f.quality))
             return true;
         ReleaseFeature();
+        double t0 = NowMs();
         unsigned preset = (unsigned)(f.preset < 0 ? 0 : f.preset);
         NVSDK_NGX_Parameter_SetUI(s_Params, NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_DLAA, preset);
         NVSDK_NGX_Parameter_SetUI(s_Params, NVSDK_NGX_Parameter_RayReconstruction_Hint_Render_Preset_Quality, preset);
@@ -308,8 +348,112 @@ namespace
         s_FeatW = f.renderW; s_FeatH = f.renderH; s_FeatOutW = f.outW; s_FeatOutH = f.outH;
         s_FeatPreset = f.preset; s_FeatQuality = f.quality;
         InterlockedExchange(&s_State, 2);
-        SetStatus("Ray Reconstruction feature %dx%d -> %dx%d (preset %d, quality %d)", f.renderW, f.renderH, f.outW, f.outH, f.preset, f.quality);
+        SetStatus("Ray Reconstruction feature %dx%d -> %dx%d (preset %d, quality %d; created in %.0f ms on the %s thread)",
+                  f.renderW, f.renderH, f.outW, f.outH, f.preset, f.quality, NowMs() - t0, where);
         return true;
+    }
+
+    NVSDK_NGX_Result Evaluate(ID3D12GraphicsCommandList* cl, const DlssFrame& f);
+
+    ID3D12Resource* MakeTexture(int w, int h, DXGI_FORMAT fmt, bool uav, D3D12_RESOURCE_STATES state)
+    {
+        D3D12_HEAP_PROPERTIES hp = {};
+        hp.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC d = {};
+        d.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        d.Width = (UINT64)w;
+        d.Height = (UINT)h;
+        d.DepthOrArraySize = 1;
+        d.MipLevels = 1;
+        d.Format = fmt;
+        d.SampleDesc.Count = 1;
+        d.Flags = uav ? D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS : D3D12_RESOURCE_FLAG_NONE;
+        ID3D12Resource* r = nullptr;
+        // Committed resources are zero-filled: the throw-away evaluate below sees black, not garbage.
+        if (FAILED(s_Device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &d, state, nullptr, IID_PPV_ARGS(&r)))) return nullptr;
+        return r;
+    }
+
+    // ---- warm-up worker: NGX init and (optionally) the feature, with its creation commands on a queue of our own.
+    // NGX does more lazy work on a feature's first evaluate (130-190 ms measured, on the render thread it was a hitch), so the
+    // worker also runs one evaluate on zero-filled inputs of the right sizes. The first real frame resets the history.
+    DWORD WINAPI WarmWorker(void*)
+    {
+        EnterCriticalSection(&s_NgxCs);
+        double t0 = NowMs();
+        bool ok = s_NgxInit || (!s_NgxFailed && InitNgx());
+        const WarmRequest w = s_Warm;
+        if (ok && w.renderW > 0 && !FeatureMatches(w.renderW, w.renderH, w.outW, w.outH, w.preset, w.quality))
+        {
+            ID3D12CommandQueue* q = nullptr;
+            ID3D12CommandAllocator* alloc = nullptr;
+            ID3D12GraphicsCommandList* list = nullptr;
+            ID3D12Fence* fence = nullptr;
+            HANDLE ev = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            D3D12_COMMAND_QUEUE_DESC qd = {};
+            qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+            bool made = ev && SUCCEEDED(s_Device->CreateCommandQueue(&qd, IID_PPV_ARGS(&q))) &&
+                        SUCCEEDED(s_Device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&alloc))) &&
+                        SUCCEEDED(s_Device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, alloc, nullptr, IID_PPV_ARGS(&list))) &&
+                        SUCCEEDED(s_Device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+            if (made)
+            {
+                q->SetName(L"UltraRT DLSS warm-up");
+                DlssFrame f = {};
+                f.renderW = w.renderW; f.renderH = w.renderH; f.outW = w.outW; f.outH = w.outH;
+                f.preset = w.preset; f.quality = w.quality;
+                bool created = EnsureFeature(list, f, "warm-up");
+                ID3D12Resource* tex[8] = {};
+                double tEval = NowMs();
+                if (created)
+                {
+                    const D3D12_RESOURCE_STATES in = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+                    tex[0] = MakeTexture(f.renderW, f.renderH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, in); // color
+                    tex[1] = MakeTexture(f.renderW, f.renderH, DXGI_FORMAT_R8G8B8A8_UNORM, false, in);     // diffuse
+                    tex[2] = MakeTexture(f.renderW, f.renderH, DXGI_FORMAT_R8G8B8A8_UNORM, false, in);     // specular
+                    tex[3] = MakeTexture(f.renderW, f.renderH, DXGI_FORMAT_R16G16B16A16_FLOAT, false, in); // normals
+                    tex[4] = MakeTexture(f.renderW, f.renderH, DXGI_FORMAT_R32_FLOAT, false, in);          // depth
+                    tex[5] = MakeTexture(f.renderW, f.renderH, DXGI_FORMAT_R16G16_FLOAT, false, in);       // motion
+                    tex[6] = MakeTexture(f.renderW, f.renderH, DXGI_FORMAT_R16_FLOAT, false, in);          // spec hit
+                    tex[7] = MakeTexture(f.outW, f.outH, DXGI_FORMAT_R16G16B16A16_FLOAT, true, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                    bool all = true;
+                    for (ID3D12Resource* t : tex) all = all && t;
+                    if (all)
+                    {
+                        DlssFrame e = f;
+                        e.color = tex[0]; e.diffuse = tex[1]; e.specular = tex[2]; e.normals = tex[3]; e.depth = tex[4];
+                        e.motion = tex[5]; e.specHit = tex[6]; e.output = tex[7];
+                        e.reset = 1; e.flags = 1; e.mvScaleX = e.mvScaleY = 1.0f; e.frameTimeMs = 8.0f;
+                        for (int k = 0; k < 16; k++) e.worldToView[k] = e.viewToClip[k] = (k % 5 == 0) ? 1.0f : 0.0f;
+                        NVSDK_NGX_Result r = Evaluate(list, e);
+                        if (NVSDK_NGX_FAILED(r)) { char b[160]; snprintf(b, sizeof b, "warm-up: evaluate failed: %s", ResultText(r)); AppendLog(b); }
+                    }
+                    else AppendLog("warm-up: could not create the evaluate's textures; skipped");
+                }
+                list->Close();
+                ID3D12CommandList* lists[] = { list };
+                q->ExecuteCommandLists(1, lists);
+                q->Signal(fence, 1);
+                // The feature's first use (on Unity's queue) must see its initialisation done.
+                if (fence->GetCompletedValue() < 1 && SUCCEEDED(fence->SetEventOnCompletion(1, ev))) WaitForSingleObject(ev, 10000);
+                for (ID3D12Resource* t : tex) if (t) t->Release();
+                if (!created) AppendLog("warm-up: feature creation failed (it is retried on the render thread)");
+                else { char b[128]; snprintf(b, sizeof b, "warm-up: first evaluate %.0f ms (CPU + GPU, own queue)", NowMs() - tEval); AppendLog(b); }
+            }
+            else AppendLog("warm-up: could not create a command queue; the feature is created on the render thread");
+            if (fence) fence->Release();
+            if (list) list->Release();
+            if (alloc) alloc->Release();
+            if (q) q->Release();
+            if (ev) CloseHandle(ev);
+        }
+        char buf[160];
+        snprintf(buf, sizeof buf, "warm-up done in %.0f ms (NGX %s, feature %s)", NowMs() - t0, s_NgxInit ? "ready" : "failed",
+                 s_Feature ? "ready" : "none");
+        AppendLog(buf);
+        InterlockedExchange(&s_Busy, 0);
+        LeaveCriticalSection(&s_NgxCs);
+        return 0;
     }
 
     NVSDK_NGX_Result Evaluate(ID3D12GraphicsCommandList* cl, const DlssFrame& f)
@@ -514,11 +658,22 @@ bool Dlss_OnRenderEvent(int eventId, void* data)
     if (eventId < kEventBase || eventId > kEventRelease) return false;
     if (!s_HaveApi) return true;
     int slot = (int)(intptr_t)data;
-    if (eventId == kEventRelease) { ReleaseFeature(); return true; }
-    if (slot < 0 || slot >= kFrameRing) return true;
-    DlssFrame f = s_Frames[slot]; // copy: the main thread may already be writing the next frame into another slot
-    if (eventId == kEventEvalUnity) EvalUnityList(f);
-    else EvalOwnList(f);
+    EnsureCs();
+    // The warm-up worker holds the lock for seconds: never wait for it here. A release is done later; an evaluate is
+    // skipped (the C# side doesn't ask for RR while the worker runs, see UltraRT_Dlss_IsBusy).
+    if (!TryEnterCriticalSection(&s_NgxCs))
+    {
+        if (eventId == kEventRelease) InterlockedExchange(&s_ReleasePending, 1);
+        return true;
+    }
+    if (eventId == kEventRelease || InterlockedExchange(&s_ReleasePending, 0)) ReleaseFeature();
+    if (eventId != kEventRelease && slot >= 0 && slot < kFrameRing)
+    {
+        DlssFrame f = s_Frames[slot]; // copy: the main thread may already be writing the next frame into another slot
+        if (eventId == kEventEvalUnity) EvalUnityList(f);
+        else EvalOwnList(f);
+    }
+    LeaveCriticalSection(&s_NgxCs);
     return true;
 }
 
@@ -535,7 +690,36 @@ ULTRART_API int UltraRT_Dlss_Configure(const wchar_t* dllDir, const wchar_t* dat
 {
     if (dllDir) wcsncpy_s(s_DllDir, dllDir, _TRUNCATE);
     if (dataDir) wcsncpy_s(s_DataDir, dataDir, _TRUNCATE);
+    EnsureCs();
     return s_HaveApi ? 1 : 0;
+}
+
+// Main thread: initialise NGX and, with renderW > 0, create the feature for these sizes, on a worker thread (seconds the
+// first time; docs/dlss.md, "Warm-up"). Returns 1 if a warm-up is running (started now or before), 0 if there is nothing
+// to do (already done, NGX failed, no D3D12 interface).
+ULTRART_API int UltraRT_Dlss_Warm(int renderW, int renderH, int outW, int outH, int preset, int quality)
+{
+    if (!s_HaveApi || s_NgxFailed) return 0;
+    EnsureCs();
+    if (InterlockedCompareExchange(&s_Busy, 0, 0)) return 1;
+    // Nothing to do? (Read without the lock: only the render thread and the worker change these, and the worker isn't
+    // running; a render thread change in between only costs a redundant warm-up.)
+    if (s_NgxInit && (renderW <= 0 || FeatureMatches(renderW, renderH, outW, outH, preset, quality))) return 0;
+    JoinWorker(); // a finished worker's handle
+    s_Warm = { renderW, renderH, outW, outH, preset, quality };
+    InterlockedExchange(&s_Busy, 1);
+    s_Worker = CreateThread(nullptr, 0, WarmWorker, nullptr, 0, nullptr);
+    if (!s_Worker) { InterlockedExchange(&s_Busy, 0); return 0; }
+    return 1;
+}
+
+ULTRART_API int UltraRT_Dlss_IsBusy() { return (int)InterlockedCompareExchange(&s_Busy, 0, 0); }
+
+// 1 if the feature exists for exactly these sizes (and no warm-up is running).
+ULTRART_API int UltraRT_Dlss_FeatureReady(int renderW, int renderH, int outW, int outH, int preset, int quality)
+{
+    if (InterlockedCompareExchange(&s_Busy, 0, 0)) return 0;
+    return FeatureMatches(renderW, renderH, outW, outH, preset, quality) ? 1 : 0;
 }
 
 ULTRART_API int UltraRT_Dlss_GetEventBase() { return kEventBase; }

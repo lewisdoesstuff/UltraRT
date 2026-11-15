@@ -1040,6 +1040,23 @@ namespace UltraRT
         private bool _spawnTest;
         private float _lastTraceScale = -1f;
 
+        /// <summary>The trace size of a frame: <paramref name="visW"/> x <paramref name="visH"/> visible at <paramref name="scale"/>,
+        /// plus the guard band (docs/denoiser.md: a slightly wider view than the screen, so surfaces entering the screen while
+        /// turning already have denoiser/ReSTIR history and warm cache cells; the visible part keeps its pixel grid), resized
+        /// for RR's exact grid. No side effects (Plugin.Dlss.cs sizes RR's feature with it before the frame).</summary>
+        private void TraceDims(bool pt, float scale, int grid, RenderTexture depthBuf, out int w, out int h, out int gxPx, out int gyPx,
+                               out Vector2 guardScale, out int visW, out int visH)
+        {
+            w = visW = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * scale));
+            h = visH = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * scale));
+            gxPx = pt && _guardActive ? Mathf.RoundToInt(w * Mathf.Clamp(_guardX, 0f, 0.25f)) : 0;
+            gyPx = pt && _guardActive ? Mathf.RoundToInt(h * Mathf.Clamp(_guardY, 0f, 0.25f)) : 0;
+            guardScale = new Vector2((float)(w + 2 * gxPx) / w, (float)(h + 2 * gyPx) / h);
+            w += 2 * gxPx;
+            h += 2 * gyPx;
+            if (grid > 2 && depthBuf != null) ExactGridTrace(grid, depthBuf.width, depthBuf.height, gxPx, gyPx, ref w, ref h, ref guardScale); // an integer upscale: RR or the remodulating fallback (Plugin.Dlss.cs)
+        }
+
         private void Trace()
         {
             var (_, kind, mode) = Modes[_mode];
@@ -1059,19 +1076,13 @@ namespace UltraRT
             bool rr = RayReconstructionFor(kind, depthBuf); // DLSS RR replaces the denoiser and the upsampler (Plugin.Dlss.cs)
             float scale = pt ? TraceScaleFor(full, rr) : 1f;
             if (scale != _lastTraceScale) { _lastTraceScale = scale; _lightSampling.Reset(); } // reservoirs are per trace pixel
-            int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * scale));
-            int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * scale));
             bool taau = kind == Kind.Denoised && _upsampler != null && _upsampler.Settings.enabled && depthBuf != null;
-            _jitter = taau && _upsampler.Settings.jitter ? _upsampler.NextJitter(depthBuf.width, depthBuf.height, w, h) : Vector2.zero;
+            bool remod = RemodFor(full, rr, taau); // the pathtrace fallback remodulates like RR (Plugin.Remod.cs)
+            _remodGridNow = remod ? RemodGrid(scale) : 0;
+            TraceDims(pt, scale, rr ? _rr.ExactGrid : _remodGridNow, depthBuf, out int w, out int h, out int gxPx, out int gyPx, out _guardScale, out int visW, out int visH);
+            _jitter = taau && _upsampler.Settings.jitter ? _upsampler.NextJitter(depthBuf.width, depthBuf.height, visW, visH) : Vector2.zero;
+            if (_remodGridNow > 2 && _upsampler.Settings.jitter) _jitter = DlssRR.GridJitter(_remodJitterIndex++, _remodGridNow);
             if (rr) _jitter = _rr.NextJitter();
-            // Guard band (docs/denoiser.md): trace a slightly wider view than the screen, so surfaces entering the screen
-            // while turning already have denoiser/ReSTIR history and warm cache cells. The visible part keeps its pixel grid.
-            int gxPx = pt && _guardActive ? Mathf.RoundToInt(w * Mathf.Clamp(_guardX, 0f, 0.25f)) : 0;
-            int gyPx = pt && _guardActive ? Mathf.RoundToInt(h * Mathf.Clamp(_guardY, 0f, 0.25f)) : 0;
-            _guardScale = new Vector2((float)(w + 2 * gxPx) / w, (float)(h + 2 * gyPx) / h);
-            w += 2 * gxPx;
-            h += 2 * gyPx;
-            if (rr) ExactGridTrace(depthBuf.width, depthBuf.height, gxPx, gyPx, ref w, ref h); // RR at an integer upscale (Plugin.Dlss.cs)
             EnsureTargets(w, h);
 
             long traceStart = Perf.Now;
@@ -1286,6 +1297,8 @@ namespace UltraRT
                 _denoiser.FrameTime = Time.unscaledDeltaTime;
                 BindExposure();
                 VfxBloomSource(kind, w, h, rr, depthBuf); // the composite also writes the HDR bloom source (Plugin.Vfx.cs)
+                if (remod) RemodPrepare(w, h, invViewProj);
+                else _denoiser.RemodTarget = _denoiser.RemodDemod = null;
                 if (!rr) _denoiser.Execute(_cmd, inputs, _denoised);
                 if (!rr) RunExposure(w, h); // relight auto exposure: measured after the denoiser, applied from the next frame
                 if (kind == Kind.Hybrid && _unpackHybrid != null)
@@ -1324,10 +1337,14 @@ namespace UltraRT
                 bool reset = _denoiser.Generation != _upsamplerGen || _upsampledFrame != _frameIndex - 1;
                 _upsamplerGen = _denoiser.Generation;
                 _upsampledFrame = _frameIndex;
-                _upsampler.Execute(_cmd, _camera, _denoised, _gNormalDepth, _gInstanceId, _depthCopy,
-                    new Vector2Int(gxPx, gyPx), _guardScale, _jitter, reset);
+                if (remod) _cmd.SetGlobalTexture(UltraRTUpsampledId, RemodUpsample(new Vector2Int(gxPx, gyPx), reset));
+                else
+                {
+                    _upsampler.Execute(_cmd, _camera, _denoised, _gNormalDepth, _gInstanceId, _depthCopy,
+                        new Vector2Int(gxPx, gyPx), _guardScale, _jitter, reset);
+                    _cmd.SetGlobalTexture(UltraRTUpsampledId, _upsampler.Output);
+                }
                 _gpu?.End(_cmd, SlotUpsample);
-                _cmd.SetGlobalTexture(UltraRTUpsampledId, _upsampler.Output);
                 upsampled = true;
             }
 
