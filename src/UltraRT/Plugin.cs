@@ -1132,6 +1132,7 @@ namespace UltraRT
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
             UpdateWet();  // rain wetness (Plugin.Wet.cs)
+            UpdateDebrisGlow(); // explosion debris cools down (Plugin.Vfx.cs)
             Perf.Add(Perf.Sec.Emissive, te);
             _cpuMs += cpu.Elapsed.TotalMilliseconds;
             _cpuFrames++;

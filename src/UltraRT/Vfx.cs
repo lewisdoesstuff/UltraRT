@@ -55,14 +55,20 @@ namespace UltraRT
         /// final radius as a multiple of the explosion's, and life (s).</summary>
         public float shockAmplitude = ShockAmplitudeDefault, shockThickness = 0.03f, shockRadius = 1.7f, shockLife = 0.6f;
 
+        // ---- glowing debris
+        /// <summary>Explosion debris (the game's ExplosionChunk meshes) glows when it is thrown out and cools down.</summary>
+        public bool debrisGlow = true;
+        /// <summary>Emission of debris at the moment of the explosion (display units; above 1 it blooms) and the time it takes to cool to a third (s).</summary>
+        public float debrisIntensity = 3f, debrisCoolTime = 0.7f;
+
         // ---- underwater
         public bool underwater = true;
         /// <summary>Screen wobble (fraction of the screen).</summary>
         public float waterWobble = 0.0012f;
         /// <summary>Fog density (1/m) and how fast the fog colour darkens with the camera's depth (1/m).</summary>
-        public float waterFog = 0.045f, waterDarken = 0.12f;
+        public float waterFog = 0.025f, waterDarken = 0.12f;
         /// <summary>Light shafts from the surface, caustics on surfaces, and the pattern's size (m).</summary>
-        public float waterShafts = 0.55f, waterCaustics = 0.5f, waterPatternSize = 9f;
+        public float waterShafts = 0.6f, waterCaustics = 0.5f, waterPatternSize = 9f;
         /// <summary>Shafts are marched this far (m).</summary>
         public float waterShaftDistance = 24f;
 
@@ -87,6 +93,7 @@ namespace UltraRT
                     case "-ultrart-shockwaves": shockwaves = On(); break;
                     case "-ultrart-shockwave-strength": shockAmplitude = ShockAmplitudeDefault * F(1f); break;
                     case "-ultrart-underwater": underwater = On(); break;
+                    case "-ultrart-debris-glow": debrisGlow = On(); break;
                 }
             }
         }

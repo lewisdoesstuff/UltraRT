@@ -236,9 +236,11 @@ Shader "UltraRT/Vfx"
                 float s = _VfxWaterParams.z;
                 float a = _VfxNoise.SampleLevel(my_linear_repeat_sampler, xz * s + float2(t * 0.021, t * 0.013), 0).r;
                 float b = _VfxNoise.SampleLevel(my_linear_repeat_sampler, xz * s * 1.37 - float2(t * 0.017, -t * 0.019) + 0.5, 0).g;
-                float r = 1.0 - abs(a + b - 1.0) * 2.0;
-                r = saturate(r);
-                return r * r * r * r;
+                // Sparse: thin bright lines on a dark field (about a tenth of the area), so beams marched through it stay
+                // separate shafts instead of adding up to a veil.
+                float r = saturate(1.0 - abs(a + b - 1.0) * 3.5);
+                r *= r;
+                return r * r * r;
             }
 
             float2 SurfacePoint(float3 p)
@@ -260,7 +262,7 @@ Shader "UltraRT/Vfx"
                 // Caustics on what the camera looks at (below the surface only), fading with depth.
                 float below = _VfxWater.y - hit.y;
                 if (below > 0.0 && dist < 60.0)
-                    c *= 1.0 + _VfxWaterParams.x * (Caustic(SurfacePoint(hit)) - 0.25) * exp(-below * 0.12) * exp(-dist * sigma);
+                    c *= 1.0 + _VfxWaterParams.x * (Caustic(SurfacePoint(hit)) * 2.0 - 0.1) * exp(-below * 0.12) * exp(-dist * sigma);
                 // Shafts: the same pattern extruded along the light direction, marched through the water in front of the surface.
                 float shaft = 0;
                 float range = min(dist, _VfxWaterParams.y);
@@ -281,7 +283,7 @@ Shader "UltraRT/Vfx"
                 }
                 // Fog: distance fades into the water colour, which darkens with the camera's depth.
                 float dark = exp(-depthCam * _VfxWaterColor.w);
-                float3 fogC = _VfxWaterColor.rgb * (0.03 + 0.22 * dark);
+                float3 fogC = _VfxWaterColor.rgb * (0.02 + 0.12 * dark);
                 float vis = exp(-min(dist, 400.0) * sigma);
                 c = lerp(fogC, c, vis);
                 c += (_VfxWaterColor.rgb * 0.5 + 0.5) * shaft * dark;

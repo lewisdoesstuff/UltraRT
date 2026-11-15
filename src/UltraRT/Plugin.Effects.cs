@@ -62,7 +62,7 @@ namespace UltraRT
             }
             if (_effectSurveyEnabled && _effectSurvey == null) _effectSurvey = new EffectSurvey(Logger);
             EffectSpawns.Enabled = _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker || _effectSurvey != null ||
-                                   (_vfx != null && _vfxSettings.enabled && _vfxSettings.shockwaves);
+                                   (_vfx != null && _vfxSettings.enabled && (_vfxSettings.shockwaves || _vfxSettings.debrisGlow));
             // Without a traced frame (view off, menus) nothing updates the effect instances: tell the shaders there are none.
             if (!_viewEnabled && _effectGeometry != null && _effectGeometry.Active > 0) _effectGeometry.Update(null, null);
             _effectLights.ProcessSpawns(_effectSurvey);

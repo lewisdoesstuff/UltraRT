@@ -174,6 +174,7 @@ namespace UltraRT
             m.Float("ScreenEffects", "HeatHazeStrength", "Heat haze strength", 0f, 3f, 2, () => _vfxSettings.heatAmplitude / VfxSettings.HeatAmplitudeDefault, v => _vfxSettings.heatAmplitude = v * VfxSettings.HeatAmplitudeDefault, "-ultrart-heathaze-strength");
             m.Bool("ScreenEffects", "Shockwaves", "Explosion shockwaves", () => _vfxSettings.shockwaves, v => _vfxSettings.shockwaves = v, "-ultrart-shockwaves");
             m.Float("ScreenEffects", "ShockwaveStrength", "Shockwave strength", 0f, 3f, 2, () => _vfxSettings.shockAmplitude / VfxSettings.ShockAmplitudeDefault, v => _vfxSettings.shockAmplitude = v * VfxSettings.ShockAmplitudeDefault, "-ultrart-shockwave-strength");
+            m.Bool("ScreenEffects", "DebrisGlow", "Glowing explosion debris", () => _vfxSettings.debrisGlow, v => _vfxSettings.debrisGlow = v, "-ultrart-debris-glow");
             m.Bool("ScreenEffects", "Underwater", "Underwater shafts, fog and distortion", () => _vfxSettings.underwater, v => _vfxSettings.underwater = v, "-ultrart-underwater");
 
             m.Bool("Wet", "Rain", "Rain wetness and puddles", () => _wetSettings.rain, v => _wetSettings.rain = v, "-ultrart-wet-rain");

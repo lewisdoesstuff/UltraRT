@@ -66,6 +66,9 @@ Shader "UltraRT/Proxy"
         _DetailTex ("Detail (normal xy, roughness, valid)", 2D) = "black" {}
         _DetailParams ("Detail params", Vector) = (0,0,0,0)
         // The game's RAIN keyword (SceneProxies.Rain.cs, docs/materials.md "Rain"): mirrored from the source material.
+        // Explosion debris (docs/vfx.md, "Glowing debris"): the proxy material of the game's ExplosionChunk; it emits the
+        // global _UltraRTDebrisGlow, which cools after each explosion (Plugin.Vfx.cs).
+        _HotDebris ("Hot debris", Float) = 0
         _Rain ("Rain", Float) = 0
         _RainDrops ("Rain drops", 2D) = "black" {}
         _RainTrails ("Rain trails", 2D) = "black" {}
@@ -143,6 +146,8 @@ Shader "UltraRT/Proxy"
 
             Texture2D _RainDrops, _RainTrails;
             float4 _RainDarkening, _RainColor;
+            float _HotDebris;
+            float4 _UltraRTDebrisGlow; // global: rgb the glow of fresh explosion debris right now
             float _Rain, _RainSpeed, _RaindropsIntensity, _RainScale, _WarpDetail, _LocalOffsetRain, _RainCeilingToggle;
             float _UltraRTRainTime; // global: Time.timeSinceLevelLoad, the game shaders' _Time.y
 
@@ -511,6 +516,8 @@ Shader "UltraRT/Proxy"
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                     if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
                 }
+                // Fresh explosion debris glows and cools; the texture's light and dark texels stay readable.
+                if (_HotDebris > 0.5) emission += _UltraRTDebrisGlow.rgb * (0.4 + 1.2 * dot(albedo.rgb, float3(0.2126, 0.7152, 0.0722)));
                 // Pattern cubes (_GameCubeLit): the game's cube term C on top of the surface, game = lit k + C with C lit by
                 // lerp(1, lighting, _LightingContribution) -> albedo k + C lc (lit by RT) and C (1 - lc) as emission.
                 if (_GameCubeLit > 0.5 && _GameRefl.x > 0.5 && !wantGameCube)

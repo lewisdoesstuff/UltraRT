@@ -133,8 +133,53 @@ namespace UltraRT
 
         // An explosion spawned (EffectLights' spawn queue): a shock front for the distortion pass.
         private readonly List<Explosion> _vfxExplosions = new List<Explosion>(4);
+        // Glowing debris: the game's ExplosionChunk meshes waiting for their proxy, and when the last ones were thrown out.
+        private readonly List<(Renderer r, int frame)> _debrisPending = new List<(Renderer, int)>();
+        private float _debrisTime = -1e9f;
+        private int _debrisMarked, _debrisLogs;
+        private static readonly int DebrisGlowId = Shader.PropertyToID("_UltraRTDebrisGlow");
+
+        /// <summary>Every traced frame: flags the proxies of new debris (made a few frames after the spawn) and publishes the
+        /// glow, which cools from yellow-orange to dark red.</summary>
+        private void UpdateDebrisGlow()
+        {
+            var s = _vfxSettings;
+            float age = Time.time - _debrisTime;
+            Vector4 glow = Vector4.zero;
+            if (s.enabled && s.debrisGlow && age >= 0f && age < 6f * s.debrisCoolTime)
+            {
+                float k = Mathf.Max(0f, s.debrisIntensity) * Mathf.Pow(1f / 3f, age / Mathf.Max(0.05f, s.debrisCoolTime));
+                float cool = Mathf.Clamp01(age / (3f * Mathf.Max(0.05f, s.debrisCoolTime))); // hue: hot yellow-orange -> deep red
+                glow = new Vector4(k, k * Mathf.Lerp(0.55f, 0.12f, cool), k * Mathf.Lerp(0.12f, 0.01f, cool), 0f);
+            }
+            Shader.SetGlobalVector(DebrisGlowId, glow);
+            if (_proxies == null) { _debrisPending.Clear(); return; }
+            _proxies.PruneHotDebris();
+            for (int i = _debrisPending.Count - 1; i >= 0; i--)
+            {
+                var (r, frame) = _debrisPending[i];
+                bool done = r == null || Time.frameCount - frame > 90;
+                if (!done && _proxies.MarkHotDebris(r)) { done = true; _debrisMarked++; }
+                if (done) _debrisPending.RemoveAt(i);
+            }
+            if (_debrisMarked > 0 && _debrisPending.Count == 0 && _debrisLogs < 5)
+            {
+                _debrisLogs++;
+                Logger.LogInfo($"Screen effects: {_debrisMarked} explosion chunks glow");
+                _debrisMarked = 0;
+            }
+        }
+
         private void VfxOnSpawn(GameObject go)
         {
+            if (go.TryGetComponent<ExplosionChunk>(out _))
+            {
+                if (!_vfxSettings.enabled || !_vfxSettings.debrisGlow) return;
+                foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+                    if (r != null && _debrisPending.Count < 256) _debrisPending.Add((r, Time.frameCount));
+                _debrisTime = Time.time;
+                return;
+            }
             if (_vfx == null || !_vfxSettings.enabled || !_vfxSettings.shockwaves) return;
             go.GetComponentsInChildren(true, _vfxExplosions);
             if (_vfxExplosions.Count == 0) return;
@@ -190,6 +235,24 @@ namespace UltraRT
             return true;
         }
 
+        private SceneProxies _vfxWaterLogged;
+
+        /// <summary>Once per level (bench runs only): the level's water volumes, for placing underwater test poses.</summary>
+        private void VfxLogWater()
+        {
+            if (ReferenceEquals(_vfxWaterLogged, _proxies) || !Bench.BenchSafety.Active) return;
+            _vfxWaterLogged = _proxies;
+            int n = 0;
+            foreach (var w in FindObjectsOfType<Water>())
+            {
+                if (w == null || n++ >= 12) continue;
+                var b = new Bounds();
+                bool any = false;
+                foreach (var c in w.GetComponentsInChildren<Collider>()) { if (!any) { b = c.bounds; any = true; } else b.Encapsulate(c.bounds); }
+                Logger.LogInfo(FormattableString.Invariant($"Screen effects: water '{Bench.GameControl.PathOf(w.transform)}' {b.min}..{b.max} colour {w.clr}"));
+            }
+        }
+
         private void VfxGatherHeat(Vector3 cam)
         {
             if (Time.realtimeSinceStartup < _vfxNextHeat) return;
@@ -224,6 +287,7 @@ namespace UltraRT
             _vfxLastFrame = Time.frameCount;
             var camPos = _camera.transform.position;
             VfxGatherHeat(camPos);
+            VfxLogWater();
 
             var frame = new VfxFrame
             {
