@@ -293,7 +293,7 @@ Changes: `strength` 1 → **0.65**, and a cap on what the haze may add to a pixe
 
 The menu entry was renamed (`[Volumetrics] ShaftStrength`): config files keep the default they were first written with, so the old `Strength` key would have pinned 1. Old look: `vol.strength=1+vol.maxAdd=0`.
 
-### Dark rooms: 3-2 and 6-1 (2026-11-15, branch `t3/057903a8`)
+### Dark rooms: 3-2 and 6-1 (2026-11-15, branch `t3/relight-haze-match`)
 Report (lighting-overrides review sheet `20261115-032006_lights-verify`): mean screen luma (HUD and viewmodel masked)
 against the game, relight on master ee52438: **3-2 eye x4.40** (an orange haze filled the flesh cave, the eye's
 underside clipped to flat yellow), **3-2 wall edges x2.25** (a flat haze where the game is black, slab edges standing
