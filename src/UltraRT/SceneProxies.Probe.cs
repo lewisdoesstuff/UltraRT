@@ -45,7 +45,10 @@ namespace UltraRT
                 sb.Append($"'{GameControlPath(r.transform)}' {r.GetType().Name} L{r.gameObject.layer} d={dist:F1} size={r.bounds.size.magnitude:F1} static={r.isPartOfStaticBatch} " +
                           $"known={_known.Contains(r)}");
                 if (bySource.TryGetValue(r, out var dp))
-                    sb.Append($" proxy[visible={dp.Visible} mask=0x{dp.Mask:X} mats={string.Join(",", dp.Proxy != null ? dp.Proxy.sharedMaterials.Select(m => m != null ? m.name : "-") : new string[0])}]");
+                    sb.Append($" proxy[visible={dp.Visible} mask=0x{dp.Mask:X} twoSided={dp.TwoSided} det={r.transform.localToWorldMatrix.determinant:F2} scale={r.transform.lossyScale:F2} " +
+                              $"pos={r.transform.position:F2} proxyPos={(dp.Proxy != null ? dp.Proxy.transform.position : Vector3.zero):F2} " +
+                              $"mesh={(dp.Proxy != null && dp.Proxy.GetComponent<MeshFilter>() is MeshFilter pmf && pmf.sharedMesh != null ? pmf.sharedMesh.name + " readable=" + pmf.sharedMesh.isReadable : "-")} " +
+                              $"mats={string.Join(",", dp.Proxy != null ? dp.Proxy.sharedMaterials.Select(m => m != null ? m.name : "-") : new string[0])}]");
                 else if (r.isPartOfStaticBatch)
                 {
                     sb.Append(" (static slot)");

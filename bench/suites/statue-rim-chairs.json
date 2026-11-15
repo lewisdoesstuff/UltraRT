@@ -1,0 +1,14 @@
+{
+  "Name": "statue-rim-chairs",
+  "Note": "8-1 lobby armchairs trace behind the game's surface (up.debugView=3), view probe on them",
+  "Scenarios": [
+    {
+      "Name": "8-1 chairs",
+      "Scene": "Level 8-1",
+      "Path": { "Type": "static", "Approach": "../recordings/1115-8-1-statue.json", "Duration": 4, "Load": "checkpoint", "Position": [ 34.31, -1.0, 51.61 ], "Yaw": 15, "Pitch": 10 },
+      "Modes": [ "off", "instance", "relight+up.debugView=3", "relight" ],
+      "Screenshots": [ 2 ],
+      "ShotSettle": 1
+    }
+  ]
+}
