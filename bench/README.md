@@ -82,6 +82,24 @@ Each run launches the game on DX12 and plays every scenario in `bench/suites/<su
 
 `"PeriodicKinds"` (optional) are spawned on the `Every` timer instead of `Kinds`; `Kinds` still spawn at the screenshots. `bench/suites/lights-pm-throw.json` holds the torch along the user's 4-3 route and throws it on the whiplash only `ShotDelay` before each capture (one mode per scenario, so every capture gets a fresh throw). `melee` and `lightbrazier` were meant to light the brazier that opens the door ahead; neither lit it from the recorded pose, so the hook still lands on the closed door ~10 m away. Effects stay in the level: a pooled fire keeps burning in later scenarios, so put long-lived effects last. `bench/suites/effects.json` uses them (docs/emissive-lights.md, "Effect lights").
 
+## Cinematics
+A scenario with a `"Cinematic"` block plays and/or renders a saved camera path instead of measuring (docs/cinematics.md,
+"Bench: cinematic scenarios"). The level is loaded as for a pose (`Path.Approach` / `Areas` / `Load`); then `"Play": true`
+plays the path in real time in the scenario's first RT mode (frame times, a screenshot halfway) and `"Render": true`
+(the default) renders it offline into `<results>\cine_<scenario>\` (PNG frames, `render.json`, `encode.cmd`, and an MP4
+when ffmpeg is found). Every `[Cinematics]` setting can be overridden per scenario: `Mode`, `Fps`, `Samples`, `Aa`,
+`Paths`, `Bounces`, `CacheTail`, `OutputScale`, `MotionBlur`, `Shutter`, `Exposure`, `TimeScale`, `Png16`, `Encode`,
+`Crf`, plus `Start` / `Seconds` (part of the path) and `Preroll`. The summary gets a "Cinematics" table. Offline renders
+take seconds per frame: give long ones `-TimeoutSec`. Suites: `cine-test.json` (smoke test, ~1 min), `cine-test2.json`,
+`cine-demo.json` (the sample renders, ~25 min).
+
+```json
+{ "Name": "1-3 glide pathtrace", "Scene": "Level 1-3",
+  "Path": { "Type": "static", "Approach": "../recordings/1-3-start-water.json", "Duration": 1 },
+  "Modes": [ "pathtrace" ],
+  "Cinematic": { "File": "../cinematics/1-3-water-glide.json", "Play": true, "Start": 1, "Seconds": 3, "Samples": 16, "Aa": 4 } }
+```
+
 ## Recording a path
 1. Launch normally (`-force-d3d12`), load a level and play or fly around.
 2. Press **F10** to start and **F10** again to stop. Recordings are saved to `BepInEx\ultrart\recordings\<level>_<time>.json` in the game folder.

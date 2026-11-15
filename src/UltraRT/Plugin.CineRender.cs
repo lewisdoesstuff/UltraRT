@@ -39,6 +39,8 @@ namespace UltraRT
         private bool _cineMeterFrame;
         private float _cineMeterDt;
         private string _cineProgress;
+        /// <summary>Called with the path time whenever game time is stepped to it (bench recording replays move the player).</summary>
+        private Action<float> _cineOnTime;
 
         /// <summary>RunExposure: whether to measure this frame and with which clock (offline render only).</summary>
         private bool CineExposureGate(ref float dt)
@@ -138,12 +140,29 @@ namespace UltraRT
                 CineSetSpeed(g); // TimeController's modifier, so a hit stop ending mid-render restores this speed
                 _cineRendering = true;
 
-                // ---- preroll: the first pose, world frozen, exposure and radiance cache settle (and RayGenPT compiles)
+                // ---- replay lead-in (bench recording replays): play the route from its start up to t0 on the fixed time step,
+                //      one plain frame per step, so the game is where the run was at t0 (arenas started, enemies moving).
                 var pre = Stopwatch.StartNew();
                 _cinePreroll = true;
+                if (_cineOnTime != null && t0 > 0f)
+                {
+                    int steps = Mathf.CeilToInt(t0 * fps);
+                    for (int i = 0; i <= steps && !CineRenderAborted(scene); i++)
+                    {
+                        float t = Mathf.Min(t0, i * fdt);
+                        _cineCur = sp.Sample(t);
+                        _cineOnTime(t);
+                        Time.captureDeltaTime = fdt;
+                        Time.timeScale = i < steps ? g : 0f; // the frame after the last step is held
+                        _cineProgress = $"Render '{name}': replaying to {t0:F2}s ({t:F2}s)";
+                        yield return null;
+                    }
+                }
+                // ---- preroll: the first pose, world frozen, exposure and radiance cache settle (and RayGenPT compiles)
                 Time.captureDeltaTime = fdt;
                 Time.timeScale = 0f;
                 _cineCur = sp.Sample(t0);
+                _cineOnTime?.Invoke(t0);
                 _cineJitter = Vector2.zero;
                 CineCut();
                 for (int i = 0; i < Mathf.Max(o.preroll, 2) || (_proxies != null && _proxies.DeferredCount > 0 && i < 600); i++)
@@ -172,6 +191,7 @@ namespace UltraRT
                         // This frame's game time was stepped by the frame before (see below); pose the camera to match.
                         float camT = t0 + f * fdt + j * mbStep;
                         _cineCur = sp.Sample(Mathf.Min(camT, sp.Duration));
+                        _cineOnTime?.Invoke(camT);
                         _cineJitter = J > 1 ? CineHalton(j) : Vector2.zero;
                         // A new accumulation: the denoiser, the reflection filter and the light sampler start over.
                         _denoiser?.Reset();

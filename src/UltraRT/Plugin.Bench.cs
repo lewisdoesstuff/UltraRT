@@ -872,7 +872,7 @@ namespace UltraRT
                 ApplyBenchMode("off");
             }
 
-            if (sc.Cinematic != null) { yield return RunCinematicScenario(sc, sr, suiteDir, outDir); yield break; } // Plugin.Cinematics.Bench.cs
+            if (sc.Cinematic != null) { yield return RunCinematicScenario(sc, sr, suiteDir, outDir, path, arenas); yield break; } // Plugin.Cinematics.Bench.cs
 
             var frames = sc.Modes.ToDictionary(m => m, _ => new List<float>(8192));
             var gpuSum = sc.Modes.ToDictionary(m => m, _ => new double[SlotCount]);

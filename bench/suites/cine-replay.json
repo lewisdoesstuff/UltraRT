@@ -1,0 +1,26 @@
+{
+  "Name": "cine-replay",
+  "Note": "Recording replay through the offline renderer (docs/cinematics.md, 'Replaying a recorded run'): the 0-2 run from 4 s (first arena) to 6 s, twice from fresh loads, relight at low sample counts, to measure how repeatable a replay is",
+  "Scenarios": [
+    {
+      "Name": "0-2 run replay A",
+      "Scene": "Level 0-2",
+      "FreshLoad": true,
+      "Path": { "Type": "recording", "File": "../recordings/0-2-run.json", "End": 12 },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Modes": [ "relight" ],
+      "Cinematic": { "Mode": "relight", "Start": 4, "Seconds": 2, "Samples": 4, "Aa": 1, "Preroll": 20 }
+    },
+    {
+      "Name": "0-2 run replay B",
+      "Scene": "Level 0-2",
+      "FreshLoad": true,
+      "Path": { "Type": "recording", "File": "../recordings/0-2-run.json", "End": 12 },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Modes": [ "relight" ],
+      "Cinematic": { "Mode": "relight", "Start": 4, "Seconds": 2, "Samples": 4, "Aa": 1, "Preroll": 20 }
+    }
+  ]
+}

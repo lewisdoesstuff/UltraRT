@@ -17,11 +17,14 @@ namespace UltraRT
     /// </summary>
     public partial class Plugin
     {
-        private IEnumerator RunCinematicScenario(Scenario sc, ScenarioResult sr, string suiteDir, string outDir)
+        private IEnumerator RunCinematicScenario(Scenario sc, ScenarioResult sr, string suiteDir, string outDir, CameraPath route, List<Recording.ArenaEvent> arenas)
         {
             var spec = sc.Cinematic;
-            string file = Path.IsPathRooted(spec.File) ? spec.File : Path.Combine(suiteDir, spec.File ?? "");
-            var path = CinePathFile.Load(file);
+            bool replay = string.IsNullOrEmpty(spec.File);
+            if (replay && (sc.Path.Type ?? "").ToLowerInvariant() != "recording") throw new ArgumentException("Cinematic needs a File, or a Path of type recording to replay");
+            string file = replay ? Path.Combine(suiteDir, sc.Path.File) : Path.IsPathRooted(spec.File) ? spec.File : Path.Combine(suiteDir, spec.File);
+            // Recording replay: keys at 30 Hz along the recorded route (player feet + look angles; the camera rides at the eye).
+            var path = replay ? RouteAsPath(route, Path.GetFileNameWithoutExtension(file)) : CinePathFile.Load(file);
             var o = _cine.Clone();
             if (!string.IsNullOrEmpty(spec.Mode)) o.mode = (CineRenderMode)Enum.Parse(typeof(CineRenderMode), spec.Mode, true);
             if (spec.Fps.HasValue) o.fps = spec.Fps.Value;
@@ -46,6 +49,20 @@ namespace UltraRT
             ApplyBenchMode(live);
             CineEnter(bench: true);
             if (_cineState == CineState.Off) throw new InvalidOperationException("cinematic camera could not start (no player?)");
+            int nextArena = 0;
+            float nextKill = 0f;
+            if (replay)
+            {
+                // Game time and the route stay in step: the player goes where it was at that time, recorded arenas start.
+                _cineOnTime = t =>
+                {
+                    GameControl.SetPose(route.Sample(t));
+                    if (sc.ReplayArenas)
+                        while (nextArena < arenas.Count && arenas[nextArena].Time <= t) TriggerArena(arenas[nextArena++]);
+                    if (sc.KillEnemies && Time.time >= nextKill) { nextKill = Time.time + 0.25f; KillEnemies(); }
+                };
+                SceneProxies.TracePlayerModel = _cineSavedPlayerModel; // V1 is where the camera is again: keep its shadow
+            }
             try
             {
                 foreach (var k in path.Keys) k.Resolve(_cineEye);
@@ -74,6 +91,7 @@ namespace UltraRT
                     while (t <= sp.Duration)
                     {
                         _cineCur = sp.Sample(t);
+                        _cineOnTime?.Invoke(t);
                         if (!shot && t >= sp.Duration * 0.5f)
                         {
                             shot = true;
@@ -105,8 +123,28 @@ namespace UltraRT
             }
             finally
             {
+                _cineOnTime = null;
                 CineExit();
             }
+        }
+
+        private static CinePathFile RouteAsPath(CameraPath route, string name)
+        {
+            var f = new CinePathFile { Name = name, Scene = SafeCurrentScene() };
+            const float step = 1f / 30f;
+            int n = Mathf.Max(2, Mathf.CeilToInt(route.Duration / step) + 1);
+            for (int i = 0; i < n; i++)
+            {
+                float t = Mathf.Min(route.Duration, i * step);
+                var p = route.Sample(t);
+                float next = Mathf.Min(route.Duration, (i + 1) * step);
+                f.Keys.Add(new CineKey
+                {
+                    Player = new[] { p.Position.x, p.Position.y, p.Position.z }, Yaw = p.Yaw, Pitch = p.Pitch,
+                    Duration = Mathf.Max(next - t, 1e-3f), Ease = "linear",
+                });
+            }
+            return f;
         }
 
         private static void SummarizeCinematics(StringBuilder sb, SuiteResult r)

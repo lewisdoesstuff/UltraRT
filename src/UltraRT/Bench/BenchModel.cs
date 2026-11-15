@@ -103,7 +103,8 @@ namespace UltraRT.Bench
     /// <summary>A scenario's cinematic: the path file and overrides of the [Cinematics] settings (null = the config's).</summary>
     public sealed class CinematicSpec
     {
-        /// <summary>Saved path (BepInEx\ultrart\cinematics\...\*.json), relative to the suite.</summary>
+        /// <summary>Saved path (BepInEx\ultrart\cinematics\...\*.json), relative to the suite. Without it, a "recording"
+        /// Path is replayed: the camera follows the recorded eye, the player moves along it and its arenas trigger on time.</summary>
         public string File;
         /// <summary>Play the path once in real time first, in the scenario's first RT mode (frame times and a mid-path screenshot).</summary>
         public bool Play;
