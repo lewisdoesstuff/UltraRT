@@ -17,6 +17,21 @@ namespace UltraRT
     public partial class Plugin
     {
         private const float PlayerLightEye = 0.75f;
+        /// <summary>
+        /// A free-standing level fill light right beside V1 (horizontally within <see cref="BesideFar"/> of the model's
+        /// centre, not above its head) would cast V1's shadow as a magnified silhouette on the far wall, from a point in
+        /// mid-air where nothing glows: 5-2's cabin fill light (range 20, at chest height 1.2 m behind the player) put a
+        /// giant V1 on the fireplace. V1 skips that light's shadow with a probability rising from 0 at BesideFar to 1 at
+        /// BesideNear (flag 0..0.5; UltraRTLights.hlsl LightSkipsPlayer). Only the level's own lights with no visible body:
+        /// a light in or on a fixture (torch, lamp, candle: SceneProxies.FixtureBounds / StaticEnclosed), a statue orb's, one
+        /// placed by a light override, spawned lights (explosions) and lights above the head (the shadow lands at the feet:
+        /// 0-2's first room) keep V1's shadow. Off by default: 0-2's first-room light (0.9 m from the eye, at body height) is
+        /// exactly such a light and its V1 shadow is wanted there; 5-2's cabin is fixed by its light override instead.
+        /// -ultrart-beside / bench plugin._besideV1=1. docs/relight.md "V1 beside a light".
+        /// </summary>
+        private bool _besideV1 = false;
+        private const float BesideNear = 1.5f, BesideFar = 3f, BesideAbove = 0.25f;
+        public int BesideLightCount { get; private set; }
         private readonly Dictionary<Light, bool> _playerLightCache = new Dictionary<Light, bool>();
         private int _playerLightCacheVersion = -1;
         public int PlayerLightCount { get; private set; }
@@ -36,7 +51,8 @@ namespace UltraRT
             var camT = _camera.transform;
             var eye = camT.position;
             bool haveBox = _proxies != null && _proxies.PlayerShadowBox(eye, out _playerLightBox);
-            int n = 0;
+            var model = _besideV1 ? _proxies?.PlayerModelBounds : null;
+            int n = 0, beside = 0;
             for (int i = 0; i < _lightCount; i++)
             {
                 var l0 = _lightData[i * 4];
@@ -55,12 +71,30 @@ namespace UltraRT
                 // Spawned (or virtual: no Light) lights at the first-person gun / third-person weapon: muzzle flashes.
                 if (!owned && haveBox && (ReferenceEquals(l, null) || l == null || !_proxies.IsBuildLight(l)))
                     owned = _playerLightBox.Contains(new Vector3(l0.x, l0.y, l0.z));
+                float flag = owned ? 1f : 0f;
+                if (!owned && model.HasValue && !_lightPlaced[i] && FreeStandingLevelLight(l))
+                {
+                    var mb = model.Value;
+                    float dx = l0.x - mb.center.x, dz = l0.z - mb.center.z;
+                    float h = Mathf.Sqrt(dx * dx + dz * dz);
+                    if (h < BesideFar && l0.y < mb.max.y + BesideAbove && l0.y > mb.min.y - BesideAbove)
+                    {
+                        flag = 0.5f * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(BesideFar, BesideNear, h));
+                        if (flag > 0f) beside++;
+                    }
+                }
                 var c = _lightData[i * 4 + 1];
-                _lightData[i * 4 + 1] = new Vector4(c.x, c.y, c.z, owned ? 1f : 0f);
+                _lightData[i * 4 + 1] = new Vector4(c.x, c.y, c.z, flag);
                 if (owned) n++;
             }
             PlayerLightCount = n;
+            BesideLightCount = beside;
         }
+
+        /// <summary>A light the level placed at build with nothing around it: not in or on a fixture, not a statue orb's.</summary>
+        private bool FreeStandingLevelLight(Light l) =>
+            !ReferenceEquals(l, null) && l != null && _proxies != null && _proxies.IsBuildLight(l) &&
+            !_proxies.FixtureBounds.ContainsKey(l) && !_proxies.StaticEnclosed.Contains(l) && !_proxies.OrbLights.Contains(l);
 
         // ---------------------------------------------------------------- rain on surfaces (SceneProxies.Rain.cs)
 

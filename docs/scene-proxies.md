@@ -375,3 +375,46 @@ cutout submesh ever lost its material or flag). Ruled out by inventory: vertex d
 approach, none on grass). The audit shows 112 of 184 cutout submeshes' sources destroyed during the approach (the game
 replaces those objects), which is the one state change found. A bisect needs a reproduction: an F11 pose saved where it
 happens, with the mode in use, is the next step.
+
+## Statue orbs (2026-11-15, user notes 1 and 2)
+
+The cerberus statues (8-1's lobby, 1-3's water hall, the `StatueFake` cerberuses, 0-1) hold a ball, `Cerb_Apple` (the lit
+`Cerberus` material: `ENEMY VERTEX_LIGHTING`, albedo `T_Cerberus`, pale stone), with a point light (range 25, x5) at its
+centre and an `ExplosionSphere` glow around it (`Statue/Sphere_8/Point Light`). The game lights the statue per vertex
+without shadows, so every side that faces the orb is pale. With RT on (user's 8-1 pose 1) the statue was nearly black:
+- **Albedo was right** (the `albedo` view shows the pale stone); it was lighting.
+- **The ball blocked its own light.** It encloses the light, so it was a light fixture (`FixtureMask`), and fixtures shadow
+  their light past a 0.35 m clearance; the ball's radius is about 0.55 m.
+- **The hands and arms shadowed the body.** The statue cups the light in both hands, so even past the ball most of the body
+  was in the hands' shadow.
+
+Fix (`SceneProxies.Orbs.cs`, `SceneProxies.IsLightFixture` / `IsGlowing`):
+- An *orb fixture* is a ball (roughly as deep as wide) with the light in the middle third of every axis **and** hanging in an
+  additive glow shell that wraps it (the light's parent draws `TRANSPARENCY` with `DstBlend One`, swapped or not). It gets
+  `EmitterMask` (no shadow ray tests it). Without the shell test, altars, skulls, desk lamps and the player's `WallCheck`
+  counted as orbs (40 per level in 8-1).
+- The renderers that hold an orb (everything under the lowest common ancestor of the ball and its light, if that is at most
+  14 m across) get `FixtureMask`, which ordinary shadow rays still test (`0x05`), and the orb's light is packed with shadow
+  flag `l3.z = 0.25`: shadowed, but its rays skip fixtures (`UltraRTLights.hlsl`, `LightSkipsFixtures`). So the statue still
+  casts shadows from every other light and stays in the room's shadows, but its own orb lights it like the game.
+- Logs: `Orb fixtures (...): N: <paths>`, `Orb holders: N renderers hold M orb lights`, plus the holders' scales.
+- Off: `-ultrart-noorbemitters` (the ball is a fixture again), `-ultrart-noorbholders` (holders and housings).
+
+Note 2 (1-3: the orbs dark in the middle) was the **soft particle fade** (docs/vfx.md): the `ExplosionSphere` glow is swapped
+unlit for the fade, and in front of the ball the glow is within 0.6 m of the opaque scene, so it faded out there and the
+ball showed as a hollow rim. Glow renderers whose bounds hold an orb fixture's centre now get a property block
+`_PLNoSoft = 1` (`LitParticles.KeepOrbGlows`; log `N glow spheres around orb fixtures keep their hard edge`).
+
+Measured on the user's poses (`bench/suites/shade-1115g.json`; mean luma in a box on the statue / the orb, 0-255):
+
+| | game | relight before | relight after | pathtrace before | pathtrace after |
+|---|---|---|---|---|---|
+| 8-1 statue (torso and legs) | 64 | 50 | 111 | 48 | 111 |
+| 1-3 orb centre | 59 | 102 | 128 | 100 | 122 |
+
+**Left (taste call / open):** the 8-1 statue is now brighter than the game's (1.7x in that box: the orb light is a physical
+light right at the stone, the game's vertex lighting spreads it thinly), and a bright rim follows the statue's silhouette.
+The rim is not lighting: on 1-3 the upsampler's debug view (`up.debugView=1`) shows no depth-matching trace sample anywhere
+on the statue (blue = history only), so the composite keeps the game's own statue pixels inside and our pixels only at the
+edges. Our `CerberusStatic` skinned proxies do not land at the game's depth there (holders log a transform scale of 114.3
+and a root bone scale of 45); not resolved, worth a `-ultrart-motion-probe` look at the statues' skinned proxies.

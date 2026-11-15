@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "scene": "Level 5-2",
+  "note": "Hand-authored (docs/relight.md, V1 beside a light): the Ferryman cabin fill light stands for the fireplace glow; unshadowed like the game, so the hearth fire casts V1 shadow away from the fireplace.",
+  "lights": [
+    {
+      "path": "3 - Ferryman's Cabin/3 Nonstuff/Interior/Point Light",
+      "name": "Point Light",
+      "pos": [
+        -2.57,
+        -2.5,
+        858.0
+      ],
+      "type": "point",
+      "shadows": false,
+      "source": "hand",
+      "class": "fill:fireplace",
+      "note": "room fill at chest height in the middle of the cabin (range 20, x3, no visible source): shadowed, it threw a magnified V1 onto the fireplace whenever the player stood between it and the hearth. Moving it into the hearth glared the opening and darkened the fireplace front."
+    }
+  ]
+}

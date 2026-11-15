@@ -222,6 +222,9 @@ namespace UltraRT
                     case "-ultrart-light-radius": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _lightRadius); break;
                     case "-ultrart-nofixtureshadows": _fixtureShadows = false; break;
                     case "-ultrart-nofixturelift": _fixtureLift = false; break;
+                    case "-ultrart-noorbemitters": SceneProxies.OrbEmitters = false; break;
+                    case "-ultrart-beside": _besideV1 = true; break;
+                    case "-ultrart-noorbholders": SceneProxies.OrbHolders = false; break;
                     case "-ultrart-nolightoverrides": _lightOverrides = false; break; // per-level light overrides (docs/lighting-overrides.md)
                     case "-ultrart-classify-lights": _classifyLights = true; break;  // the light classifier, once per level (Plugin.LightClassifier.cs)
                     case "-ultrart-lights-preview": _lightsPreview = true; break;    // overrides from the classifier's output folder
@@ -528,6 +531,7 @@ namespace UltraRT
             }
             _lightCount = 0;
             BeginLightOverrides(); // per-level light overrides (Plugin.LightOverrides.cs; relight look only)
+            _proxies.UpdateOrbHolders(); // statue orbs: their lights pass through the statue holding them (SceneProxies.Orbs.cs)
             // The main sun: the brightest directional light from above the horizon (LowSideLight below).
             Light mainSun = null;
             float mainSunLum = -1f;
@@ -591,7 +595,10 @@ namespace UltraRT
                 _packedLights[_lightCount] = l;
                 _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, shadowRadius);
                 _lightData[i + 3] = l3;
+                // An orb's light: shadowed, but its rays skip fixtures (the statue holding it; SceneProxies.Orbs.cs).
+                if (l3.z == 0f && SceneProxies.OrbHolders && _proxies.OrbLights.Contains(l)) _lightData[i + 3].z = OrbLightShadowFlag;
                 if (ov != null) ApplyLightOverride(ov, l, _lightCount);
+                _lightPlaced[_lightCount] = ov != null && ov.OwnsGeometry;
                 _lightCount++;
             }
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
@@ -610,6 +617,8 @@ namespace UltraRT
         private SceneProxies _fixtureLiftSource;
         private int _fixtureLiftVersion = -1;
         private bool _fixtureLift = true; // -ultrart-nofixturelift
+        private const float OrbLightShadowFlag = 0.25f; // l3.z: shadowed, rays skip fixtures (UltraRTLights.hlsl LightShadowSetup)
+        private readonly bool[] _lightPlaced = new bool[MaxLights]; // packed light i is placed by a light override (offset / shape)
         private bool _logFixtures;        // -ultrart-logfixtures
         private float _nextLightDump;
         private const float EnclosedLightRadius = 0.03f; // soft-shadow radius of lights inside a static lamp housing / shade

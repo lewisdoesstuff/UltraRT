@@ -71,6 +71,9 @@ Two traps found on the way:
   `EffectSrcOne` answer for swapped and unswapped materials alike; the swapped shader declares `_TintColor`.
 
 Soft particles ride on the lit-particle material swap, so they are off when lit particles are (Shift+F7).
+Exception (2026-11-15): glow spheres around a statue orb (`ExplosionSphere` holding `Cerb_Apple`) keep a hard edge through a
+per-renderer property block (`_PLNoSoft`, `LitParticles.KeepOrbGlows`): the fade emptied the glow in front of the ball
+(1-3's "orbs dark in the middle"; docs/scene-proxies.md "Statue orbs").
 `pl.soft=0` restores the game's shaders for the three kinds (the materials are reclassified); `pl.softKinds` (1
 explosion spheres, 2 fire, 4 smoke) is the diagnostic switch.
 

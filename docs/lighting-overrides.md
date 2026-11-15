@@ -247,6 +247,7 @@ What moved:
 - **1-1 torch rooms**: `BigTorch/Fire` x0.6 and a little less saturated (linear transport saturates coloured lights:
   the game's torch rooms are less orange than relight's).
 - **0-1**: the statue-orb lights x0.6-0.9.
+- **5-2** (hand-written, 2026-11-15): the Ferryman's cabin fill light unshadowed (docs/relight.md, "V1 beside a light").
 - **2-2**: the blue street light is pushed purple (1.27, 0.53, 1.20): the frame-wide colour match does less work.
 - **3-2 and 6-1**: at the near pixels the fit lands on the game (3-2: 1.43 / 1.72 -> 1.01), but the screen barely moves:
   their excess is volumetric haze and far (fogged) pixels, not the lights. Next lever: volumetrics balance there.
