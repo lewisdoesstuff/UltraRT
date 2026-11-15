@@ -85,6 +85,25 @@ function Sync-Stage {
             Write-Warning "$($f.Name) not deployed (in use by a running game?): $($_.Exception.Message)"
         }
     }
+    # Shipped light overrides: lights\*.json mirrored (a level file dropped from the stage is removed). The user's own edits
+    # live in BepInEx\ultrart\lights and are never touched here.
+    $lightsFrom = Join-Path $From 'lights'
+    $lightsTo = Join-Path $dest 'lights'
+    if (Test-Path $lightsFrom) {
+        New-Item -ItemType Directory -Force $lightsTo | Out-Null
+        $want = @{}
+        foreach ($f in Get-ChildItem $lightsFrom -File -Filter *.json) {
+            $want[$f.Name] = $true
+            $d = Join-Path $lightsTo $f.Name
+            if ((Test-Path $d) -and (Get-Item $d).Length -eq $f.Length -and (Get-QuickHash $d) -eq (Get-QuickHash $f.FullName)) { continue }
+            Copy-Item $f.FullName $d -Force
+            $copied += "lights\$($f.Name)"
+        }
+        foreach ($f in Get-ChildItem $lightsTo -File -Filter *.json) { if (-not $want.ContainsKey($f.Name)) { Remove-Item $f.FullName -Force; $copied += "-lights\$($f.Name)" } }
+    } elseif (Test-Path $lightsTo) {
+        # A stage without shipped overrides (an older build): none of ours may linger.
+        foreach ($f in Get-ChildItem $lightsTo -File -Filter *.json) { Remove-Item $f.FullName -Force; $copied += "-lights\$($f.Name)" }
+    }
     return $copied
 }
 

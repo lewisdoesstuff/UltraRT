@@ -29,7 +29,8 @@ the relit direct light. Shader side: `_Relight` (float4, zero = the game's model
 `Denoise.compute`'s Composite. The tone curve itself is `UltraRTToneCurve.hlsl`, shared with the water/glass
 reflection overlay (`TransparentOverlay.shader`), so the two can't drift apart.
 
-Not done yet: per-level/per-light JSON overrides, emissive exposure, a hybrid variant. Per-area colour: see "Area colour".
+Per-level / per-light overrides, area lights and the light editor: docs/lighting-overrides.md. Not done yet: emissive
+exposure, a hybrid variant. Per-area colour: see "Area colour".
 
 ## Auto exposure
 Physical falloff plus a sun makes outdoor areas several times brighter than torch-lit rooms (mean scene luminance about

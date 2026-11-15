@@ -429,7 +429,7 @@ namespace UltraRT
                              $"virtual {(double)_logVirtual / _logFrames:F2}/frame (max {_logMaxVirtual}) from {_emitters.Count} emitters; " +
                              $"flickering lights {(double)_logFlicker / _logFrames:F1}/frame (x{(_flickerMax > 0 ? _flickerMin : 1):F2}..{(_flickerMax > 0 ? _flickerMax : 1):F2}); spawn queue drops {EffectSpawns.Dropped}" +
                              (_logs < 40 && _selected.Count > 0 ? $"; selected now: {string.Join(", ", _selected.Take(6).Select(e => $"{e.Kind} '{e.Name}' I {e.Smoothed * Settings.intensityScale:F1}"))}" : "") +
-                             (_logs < 40 && _flickers.Count > 0 ? $"; flicker now: {string.Join(", ", _flickers.Take(8).Select(e => $"{e.Kind} '{e.Go.name}'/'{e.Name}' r {e.Radius:F2} -> light '{(e.CoverLight != null ? e.CoverLight.name : "-")}'"))}" : ""));
+                             (_logs < 40 && _flickers.Count > 0 ? $"; flicker now: {string.Join(", ", _flickers.Take(8).Select(e => $"{e.Kind} '{(e.Go != null ? e.Go.name : "destroyed")}'/'{e.Name}' r {e.Radius:F2} -> light '{(e.CoverLight != null ? e.CoverLight.name : "-")}'"))}" : ""));
                 _logs++;
                 _cpuMs = 0; _logFrames = 0; _logAppended = 0; _logVirtual = 0; _logMaxVirtual = 0; _logFlicker = 0;
                 _flickerMin = float.MaxValue; _flickerMax = 0f;

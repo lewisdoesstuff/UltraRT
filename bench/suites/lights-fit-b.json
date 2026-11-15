@@ -1,0 +1,15 @@
+{
+  "Name": "lights-fit-b",
+  "Note": "Light fit, second half (sanity levels 1-1 and 0-1, and 3-2)",
+  "Scenarios": [
+    { "Name": "3-2 eye", "Scene": "Level 3-2", "Path": { "Type": "static", "Approach": "../recordings/late-3-2-eye.json", "Duration": 4, "Areas": "../recordings/late-3-2-eye-areas.json" }, "Modes": ["off", "relight"], "Screenshots": [2], "LightFit": true }
+,
+    { "Name": "3-2 wall edges", "Scene": "Level 3-2", "Path": { "Type": "static", "Approach": "../recordings/late-3-2-wall-edges.json", "Duration": 4, "Areas": "../recordings/late-3-2-wall-edges-areas.json" }, "Modes": ["off", "relight"], "Screenshots": [2], "LightFit": true }
+,
+    { "Name": "1-1 start", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 4 }, "Modes": ["off", "relight"], "Screenshots": [2], "LightFit": true }
+,
+    { "Name": "1-1 indoor a", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-a.json", "Duration": 4 }, "Modes": ["off", "relight"], "Screenshots": [2], "LightFit": true }
+,
+    { "Name": "0-1 metal", "Scene": "Level 0-1", "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 4 }, "Modes": ["off", "relight"], "Screenshots": [2], "LightFit": true }
+  ]
+}
