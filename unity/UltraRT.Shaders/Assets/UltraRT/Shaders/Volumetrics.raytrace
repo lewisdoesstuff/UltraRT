@@ -5,13 +5,16 @@
 //   lights   one point/spot light per pixel, picked by RIS over _VolLightCandidates candidates, one equiangular point
 //            on the ray (Kulla & Fajardo 2012) and one shadow ray: halos and shafts of torches, lamps, explosions.
 // Output: linear in-scattered radiance (unexposed, the game's light units ^2.2), already multiplied by the medium.
-// A separate .raytrace because PathTrace is at Unity's 8-UAV limit. One UAV here: _VolOut.
+//   beams    the beam channel (docs/volumetrics.md "Eye beams"): per beam mesh hull the ray crosses, the lit fraction of
+//            its part inside the hull (shadow rays to the beam's light) -> _VolBeamOut.
+// A separate .raytrace because PathTrace is at Unity's 8-UAV limit. Two UAVs here: _VolOut, _VolBeamOut.
 #pragma max_recursion_depth 1
 
 #include "UltraRTCommon.hlsl"
 
 RaytracingAccelerationStructure _Scene;
 RWTexture2D<float4> _VolOut;      // rgb in-scattered radiance (linear), a = 1
+RWTexture2D<float4> _VolBeamOut;  // beam channel: r sum of w x lit, g sum of w (w: the game's beam brightness on this ray), b 0, a 1
 Texture2D<float>    _VolDepth;    // radial distance of each low-res pixel's ray (Volumetrics.compute Depth); <= 0: none
 
 float4x4 _VolInvViewProj;         // unjittered screen viewProj, inverted (OpenGL-style clip space)
@@ -56,10 +59,11 @@ int      _EmissiveTriCount;
 float4   _EmissiveParams;   // y: EmissiveLightScale / pi, z: min squared distance
 float    _VolEmissive;      // emissive scattering multiplier (0 = off)
 float    _VolClamp;         // max luminance of the one-sample light + emissive estimate per pixel (linear, 0 = none)
-float4   _VolSamples;       // x light samples per pixel, y emissive samples per pixel
-// The game's beam meshes drawn by this pass (Plugin.Shafts.cs VolumetricsBeamBuffer; docs/volumetrics.md "Eye beams"),
-// _VolSamples.z of them, 3 float4 each: [0] apex (the light) + cos(half angle), [1] axis + far end (m along the axis),
-// [2] linear colour x density (per metre) + near end (m along the axis: where the meshes begin, past the light's housing).
+float4   _VolSamples;       // x light samples per pixel, y emissive samples per pixel, z beam hulls, w shadow rays per hull
+// The beam channel's hulls (Plugin.Shafts.cs VolumetricsBeamBuffer; docs/volumetrics.md "Eye beams"), _VolSamples.z of
+// them, 21 float4 each: [0] rgb added per face + flags (1 entry, 2 exit, 4 fog), [1] bounding sphere, [2] light position
+// + fade near, [3] beam axis + where the mesh begins (m along it), [4] x fade far, [5..12] planes (outward n, d),
+// [13..20] per plane the face's vertex colour brightness w + dot(xyz, x) (0: no face).
 StructuredBuffer<float4> _VolBeams;
 float4   _VolLightShape;    // x haze range (m; lights with a larger range scatter less, 0 = off), y soft core (x range)
 
@@ -362,40 +366,72 @@ float3 EmissiveSample(inout uint rng, float uT, float3 o, float3 dir, float tEnd
     return em;
 }
 
-// The beams: a constant-density glow of the game's beam colour inside each cone (as the game's layered meshes look,
-// whatever the spot's falloff), with one uniform point per beam on the part of the ray inside it and one shadow ray
-// toward the light, stopped at the beam's near end so the light's own housing (the eyeball) does not block it. A
-// profile thins the beam towards its edge like the game's nested meshes. Returns radiance (linear, unexposed).
-float3 BeamSamples(float3 o, float3 dir, float tEnd, float u, float sigmaT)
+// ---------------------------------------------------------------- beam channel
+
+#define BEAM_F4 21
+
+// The ray's interval inside hull h's planes (t0 may be negative: the camera is inside). False if it misses.
+bool BeamHullInterval(uint h, float3 o, float3 dir, out float t0, out float t1, out uint p0, out uint p1)
 {
-    float3 sum = 0;
-    int nb = clamp((int)_VolSamples.z, 0, 8);
-    for (int b = 0; b < nb; b++)
+    t0 = -1e30; t1 = 1e30; p0 = 0; p1 = 0;
+    float4 sph = _VolBeams[h * BEAM_F4 + 1];
+    float3 oc = o - sph.xyz;
+    float bq = dot(oc, dir), cq = dot(oc, oc) - sph.w * sph.w;
+    if (cq > 0.0 && (bq > 0.0 || bq * bq < cq)) return false; // misses the bounding sphere (no short-circuit needed: cheap)
+    [loop] for (uint p = 0; p < 8; p++)
     {
-        float4 b0 = _VolBeams[b * 3], b1 = _VolBeams[b * 3 + 1], b2 = _VolBeams[b * 3 + 2];
-        float tA = 0.0, tB = tEnd;
-        if (!ClipCone(b0.xyz, b1.xyz, b0.w, o, dir, tA, tB)) continue;
-        // between the near and far end along the axis
-        float da = dot(dir, b1.xyz), va = dot(o - b0.xyz, b1.xyz);
-        float t0 = (b2.w - va) / (abs(da) > 1e-6 ? da : 1e-6), t1 = (b1.w - va) / (abs(da) > 1e-6 ? da : 1e-6);
-        tA = max(tA, min(t0, t1));
-        tB = min(tB, max(t0, t1));
-        if (!(tB > tA)) continue;
-        float t = lerp(tA, tB, frac(u + 0.381966 * b));
-        float3 x = o + dir * t;
-        float3 toA = b0.xyz - x;
-        float dist = length(toA);
-        float3 L = toA / max(dist, 1e-4);
-        float ang = acos(clamp(dot(-L, b1.xyz), -1.0, 1.0)) / max(acos(clamp(b0.w, -1.0, 1.0)), 1e-3);
-        float edge = saturate(1.0 - ang);
-        float profile = edge * (2.0 - edge);
-        if (!(profile > 0.0)) continue;
-        float along = dot(-toA, b1.xyz);
-        // Geometry only: the beam's housing (the eye socket) is a fixture (SceneProxies.AddHousing).
-        if (!Unoccluded(x, L, dist * max(0.0, 1.0 - b2.w / max(along, 1e-3)), 0x01u)) continue; // nested: || does not short-circuit
-        sum += b2.rgb * (profile * (tB - tA) * exp(-sigmaT * t));
+        float4 pl = _VolBeams[h * BEAM_F4 + 5 + p];
+        if (pl.w == -1.0 && dot(pl.xyz, pl.xyz) == 0.0) break;
+        float dn = dot(pl.xyz, dir);
+        float dist = dot(pl.xyz, o) - pl.w; // > 0: outside this plane
+        if (abs(dn) < 1e-8) { if (dist > 0.0) return false; continue; }
+        float t = -dist / dn;
+        if (dn < 0.0) { if (t > t0) { t0 = t; p0 = p; } } else if (t < t1) { t1 = t; p1 = p; }
     }
-    return sum;
+    return t1 > max(t0, 0.0);
+}
+
+// The beam channel: for each hull the ray crosses, w = the game's brightness for this ray (faces drawn in front of the
+// visible surface) and one or more uniform points on the ray's part inside the hull, each with a shadow ray to the beam's
+// light, stopped where the mesh begins (the light's own housing, 3-1's eyeball, does not count). Geometry only (0x01).
+// Returns (sum w x lit fraction, sum w): the composite divides them.
+float2 BeamVisibility(float3 o, float3 dir, float tEnd, float u)
+{
+    float2 acc = 0;
+    int nb = clamp((int)_VolSamples.z, 0, 32);
+    int ns = clamp((int)_VolSamples.w, 1, 4);
+    for (int h = 0; h < nb; h++)
+    {
+        float t0, t1;
+        uint p0, p1;
+        if (!BeamHullInterval(h, o, dir, t0, t1, p0, p1)) continue;
+        float4 b0 = _VolBeams[h * BEAM_F4];
+        uint flags = (uint)b0.w;
+        float4 g0 = _VolBeams[h * BEAM_F4 + 13 + p0], g1 = _VolBeams[h * BEAM_F4 + 13 + p1];
+        float faces = 0.0;
+        if ((flags & 1u) != 0u && t0 > 0.0 && t0 < tEnd) faces += saturate(g0.w + dot(g0.xyz, o + dir * t0));
+        if ((flags & 2u) != 0u && t1 < tEnd) faces += saturate(g1.w + dot(g1.xyz, o + dir * t1));
+        float w = dot(b0.rgb, float3(0.2126, 0.7152, 0.0722)) * faces;
+        if (!(w > 0.0)) continue;
+        float a = max(t0, 0.0), b = min(t1, tEnd);
+        if (!(b > a)) continue;
+        float4 lp = _VolBeams[h * BEAM_F4 + 2];
+        float4 ax = _VolBeams[h * BEAM_F4 + 3];
+        float lit = 0.0;
+        for (int k = 0; k < ns; k++)
+        {
+            float t = lerp(a, b, frac(u + 0.381966 * h + (float)k / ns)); // stratified over the hull's samples
+            float3 x = o + dir * t;
+            float3 toL = lp.xyz - x;
+            float dist = length(toL);
+            float3 L = toL / max(dist, 1e-4);
+            float along = dot(-toL, ax.xyz);
+            float reach = dist * saturate(1.0 - ax.w / max(along, 1e-3));
+            if (Unoccluded(x, L, reach, 0x01u)) lit += 1.0;
+        }
+        acc += float2(w * lit / ns, w);
+    }
+    return acc;
 }
 
 // ---------------------------------------------------------------- ray generation
@@ -406,7 +442,8 @@ void VolumeRayGen()
     uint2 id = DispatchRaysIndex().xy;
     uint frame = (uint)_VolParams.w;
     float tEnd = _VolDepth[id];
-    if (tEnd <= 0.0) { _VolOut[id] = 0; return; }
+    if (tEnd <= 0.0) { _VolOut[id] = 0; _VolBeamOut[id] = 0; return; }
+    float tBeam = tEnd;
     tEnd = min(tEnd, _VolParams.y);
 
     float2 ndc = ((float2)id + 0.5) * _VolDim.zw * 2.0 - 1.0;
@@ -523,8 +560,9 @@ void VolumeRayGen()
     // Lighting units: a surface's lighting is irradiance / pi (displayed = albedo x lighting), so the medium's radiance
     // sigma_s x phase x irradiance is pi x (sigma_s x phase x lighting).
     sum *= kPi;
-    // The game's beam meshes (already radiance)
-    if (_VolSamples.z > 0.5) sum += BeamSamples(o, dir, tEnd, BlueOffset(id, frame + 53u), sigmaT);
+    float2 beam = _VolSamples.z > 0.5 ? BeamVisibility(o, dir, tBeam, BlueOffset(id, frame + 53u)) : float2(0, 0);
+    if (any(!(beam >= 0.0)) || any(isinf(beam))) beam = 0;
+    _VolBeamOut[id] = float4(beam, 0, 1);
     if (any(!(sum >= 0.0)) || any(isinf(sum))) sum = 0; // NaN / Inf guard: one bad sample would blank the history
     _VolOut[id] = float4(min(sum, 64.0), 1.0);
 }

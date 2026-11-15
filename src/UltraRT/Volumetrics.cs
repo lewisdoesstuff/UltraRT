@@ -138,8 +138,12 @@ namespace UltraRT
         public ComputeBuffer lights;
         public ComputeBuffer skip;         // one bit per light: skipped by the medium (attached to the player / camera)
         public ComputeBuffer cones;        // two float4 per light: cone override and scattering weight (LightShafts.cs)
-        public ComputeBuffer beams;        // three float4 per beam drawn by the pass (Plugin.Shafts.cs, VolumetricsBeamBuffer)
+        public ComputeBuffer beams;        // the beam channel's hulls (Plugin.Shafts.cs, VolumetricsBeamBuffer)
         public int beamCount;
+        public Vector4 beamParams;         // x shadow rays per hull, y a-trous passes, z shadowing (0..1), w brightness
+        public Action<CommandBuffer> drawBeamMeshes; // draws the game's beam meshes into the bound target (null: analytic colour)
+        public RenderTexture cameraDepth;  // the camera's depth (PostProcessV2_Handler.depthBuffer), for drawing the beam meshes
+        public RenderTargetIdentifier[] cameraTargets; // the camera's colour targets, bound again afterwards
         public int lightCount;
         public Vector4 sunDir;             // xyz towards the sun, w cos(angular radius); w = 0: no sun
         public Color sunColor;             // linear irradiance
@@ -177,6 +181,12 @@ namespace UltraRT
         private readonly RenderTexture[] _mom = new RenderTexture[2];
         private readonly RenderTexture[] _filt = new RenderTexture[2];
         private RenderTexture _sceneCopy;
+        // Beam channel (docs/volumetrics.md "Eye beams"): rg = (weighted lit fraction, weight) of the beam hulls along each ray
+        private RenderTexture _beamRaw, _beamDepthScratch, _beamColor;
+        private readonly RenderTexture[] _beamHist = new RenderTexture[2];
+        private readonly RenderTexture[] _beamMom = new RenderTexture[2];
+        private readonly RenderTexture[] _beamFilt = new RenderTexture[2];
+        private bool _beamHistoryValid;
         private int _cur;
         private bool _historyValid;
         private Matrix4x4 _prevVP;
@@ -206,7 +216,10 @@ namespace UltraRT
             IdVolMaxAdd = Shader.PropertyToID("_VolMaxAdd"), IdVolToe = Shader.PropertyToID("_VolToe"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
             IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
-            IdVolSkip = Shader.PropertyToID("_VolSkip"), IdVolLightCone = Shader.PropertyToID("_VolLightCone"), IdVolBeams = Shader.PropertyToID("_VolBeams"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
+            IdVolSkip = Shader.PropertyToID("_VolSkip"), IdVolLightCone = Shader.PropertyToID("_VolLightCone"), IdVolBeams = Shader.PropertyToID("_VolBeams"),
+            IdVolBeamOut = Shader.PropertyToID("_VolBeamOut"), IdVolBeamHist = Shader.PropertyToID("_VolBeamHist"),
+            IdVolBeamParams = Shader.PropertyToID("_VolBeamParams"), IdVolScreenInvVP = Shader.PropertyToID("_VolScreenInvViewProj"),
+            IdVolCamPosC = Shader.PropertyToID("_VolCamPosC"), IdVolBeamColor = Shader.PropertyToID("_VolBeamColor"), IdMomIn = Shader.PropertyToID("_MomIn"), IdMomOut = Shader.PropertyToID("_MomOut"),
             IdTemporalParams3 = Shader.PropertyToID("_TemporalParams3"), IdAtrousIn = Shader.PropertyToID("_AtrousIn"),
             IdAtrousMom = Shader.PropertyToID("_AtrousMom"), IdAtrousOut = Shader.PropertyToID("_AtrousOut"),
             IdAtrousParams = Shader.PropertyToID("_AtrousParams"), IdAtrousParams2 = Shader.PropertyToID("_AtrousParams2");
@@ -224,7 +237,7 @@ namespace UltraRT
             rt.SetShaderPass("UltraRTHit");
         }
 
-        public void Reset() => _historyValid = false;
+        public void Reset() { _historyValid = false; _beamHistoryValid = false; }
 
         /// <summary>
         /// The medium for the level's current fog (RenderSettings, which the game changes per area). x: extinction per metre.
@@ -324,8 +337,10 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(_rt, IdVolSunColor, new Vector4(f.sunColor.r * sunScale, f.sunColor.g * sunScale, f.sunColor.b * sunScale,
                 f.sunDir.w > 0f && sunScale > 0f ? 1f : 0f));
             cmd.SetRayTracingVectorParam(_rt, IdVolLightShape, new Vector4(Mathf.Max(0f, s.hazeRange), Mathf.Max(0f, s.core), 0, 0));
+            int beams = f.beams != null ? Mathf.Clamp(f.beamCount, 0, 32) : 0;
             cmd.SetRayTracingVectorParam(_rt, IdVolSamples, new Vector4(Mathf.Clamp(s.lightSamples, 1, 8), Mathf.Clamp(s.emissiveSamples, 1, 8),
-                f.beams != null ? Mathf.Clamp(f.beamCount, 0, 8) : 0, 0));
+                beams, Mathf.Clamp(f.beamParams.x, 1f, 4f)));
+            cmd.SetRayTracingTextureParam(_rt, IdVolBeamOut, _beamRaw);
             cmd.SetRayTracingVectorParam(_rt, IdVolLightParams, new Vector4(f.localLightCount, Mathf.Clamp(s.lightCandidates, 1, 32), Mathf.Max(0f, s.lights), 0.01f));
             cmd.SetRayTracingVectorParam(_rt, IdVolFalloff, f.falloff);
             cmd.SetRayTracingBufferParam(_rt, IdLights, f.lights);
@@ -337,40 +352,19 @@ namespace UltraRT
             _rt.SetShaderPass(Settings.shadowPass ? "UltraRTShadow" : "UltraRTHit");
             cmd.DispatchRays(_rt, "VolumeRayGen", (uint)w, (uint)h, 1);
 
-            // 3. temporal accumulation
+            // 3. temporal accumulation, 4. variance-guided a-trous passes (output only: the history keeps the unfiltered
+            // accumulation). The beam channel's visibility gets its own history (only while beams are drawn).
             int prev = _cur ^ 1;
-            cmd.SetComputeTextureParam(_cs, _kTemporal, IdVolIn, _raw);
-            cmd.SetComputeTextureParam(_cs, _kTemporal, IdVolDepth, _depth);
-            cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistIn, _hist[prev]);
-            cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistDepthIn, _histDepth[prev]);
-            cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistOut, _hist[_cur]);
-            cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistDepthOut, _histDepth[_cur]);
-            cmd.SetComputeTextureParam(_cs, _kTemporal, IdMomIn, _mom[prev]);
-            cmd.SetComputeTextureParam(_cs, _kTemporal, IdMomOut, _mom[_cur]);
-            cmd.SetComputeVectorParam(_cs, IdTemporalParams3, new Vector4(Mathf.Clamp01(s.momentsAlpha), 0, 0, 0));
-            cmd.SetComputeMatrixParam(_cs, IdInvViewProj, invVP * LowResToScreen(W, H, w, h, blk));
-            cmd.SetComputeMatrixParam(_cs, IdPrevViewProj, ScreenToLowRes(W, H, w, h, blk) * (_historyValid ? _prevVP : vp));
-            cmd.SetComputeVectorParam(_cs, IdCamPos, cam.transform.position);
-            cmd.SetComputeVectorParam(_cs, IdPrevCamPos, _historyValid ? _prevCamPos : cam.transform.position);
-            cmd.SetComputeVectorParam(_cs, IdTemporalParams, new Vector4(Mathf.Clamp01(s.alphaMin), Mathf.Max(1f, s.maxHistory), Mathf.Max(0.5f, s.clipSigma), _historyValid ? 1f : 0f));
-            cmd.SetComputeVectorParam(_cs, IdTemporalParams2, new Vector4(Mathf.Max(0.01f, s.depthTolerance), Mathf.Max(0.001f, s.spatialDepthSigma), 0.5f / Mathf.Max(0.1f, s.spatialSigma * s.spatialSigma), s.debugView == 2 ? 1f : 0f));
-            cmd.DispatchCompute(_cs, _kTemporal, (w + 7) / 8, (h + 7) / 8, 1);
-            Texture result = _hist[_cur];
-
-            // 4. variance-guided a-trous passes (output only: the history keeps the unfiltered accumulation)
-            int passes = s.debugView == 2 ? 0 : Mathf.Clamp(s.atrous, 0, 5);
-            for (int i = 0; i < passes; i++)
-            {
-                var dst = _filt[i & 1];
-                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousIn, result);
-                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousMom, _mom[_cur]);
-                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousOut, dst);
-                cmd.SetComputeTextureParam(_cs, _kAtrous, IdVolDepth, _depth);
-                cmd.SetComputeVectorParam(_cs, IdAtrousParams, new Vector4(1 << i, i == 0 ? 1f : 0f, Mathf.Max(0.1f, s.atrousLumSigma), Mathf.Max(0.01f, s.atrousDepthSigma)));
-                cmd.SetComputeVectorParam(_cs, IdAtrousParams2, new Vector4(Mathf.Max(1f, s.prefilterSamples), i == passes - 1 ? 1f : 0f, 0, 0));
-                cmd.DispatchCompute(_cs, _kAtrous, (w + 7) / 8, (h + 7) / 8, 1);
-                result = dst;
-            }
+            var invLow = invVP * LowResToScreen(W, H, w, h, blk);
+            var prevLow = ScreenToLowRes(W, H, w, h, blk) * (_historyValid ? _prevVP : vp);
+            var prevCam = _historyValid ? _prevCamPos : cam.transform.position;
+            Texture result = Filter(cmd, s, _raw, _hist, _histDepth, _mom, _filt, prev, invLow, prevLow, cam.transform.position, prevCam,
+                _historyValid, s.debugView == 2 ? 0 : Mathf.Clamp(s.atrous, 0, 5), w, h, true);
+            Texture beamResult = null;
+            if (beams > 0)
+                beamResult = Filter(cmd, s, _beamRaw, _beamHist, _histDepth, _beamMom, _beamFilt, prev, invLow, prevLow, cam.transform.position, prevCam,
+                    _historyValid && _beamHistoryValid, Mathf.Clamp((int)f.beamParams.y, 0, 5), w, h, false);
+            _beamHistoryValid = beams > 0;
             _cur = prev;
             _prevVP = vp;
             _prevCamPos = cam.transform.position;
@@ -399,9 +393,84 @@ namespace UltraRT
             if (f.applyGameFog && s.gameFog && fogMode > 0f && s.debugView == 0)
                 cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
             var late = lateCmd ?? cmd;
+            if (beamResult != null && s.debugView == 0)
+            {
+                // The beams, added as the game adds its beam meshes (display space, Blend One One), after the transparents
+                // like them and before the haze copy (the bloom sees them as it sees the game's transparents).
+                // The game's own beam meshes into a buffer (exactly its look), against its depth; then the camera's targets back.
+                bool meshes = f.drawBeamMeshes != null && f.cameraDepth != null && f.cameraTargets != null && EnsureBeamColor(f.cameraDepth);
+                if (meshes)
+                {
+                    late.SetRenderTarget(_beamColor, f.cameraDepth);
+                    late.ClearRenderTarget(false, true, Color.clear);
+                    f.drawBeamMeshes(late);
+                    late.SetRenderTarget(f.cameraTargets, f.cameraDepth);
+                }
+                m.SetTexture(IdVolBeamColor, meshes ? (Texture)_beamColor : Texture2D.blackTexture);
+                m.SetTexture(IdVolBeamHist, beamResult);
+                m.SetBuffer(IdVolBeams, f.beams);
+                m.SetVector(IdVolBeamParams, new Vector4(beams, Mathf.Clamp01(f.beamParams.z), meshes ? 1f : 0f, f.beamParams.w));
+                m.SetMatrix(IdVolScreenInvVP, invVP);
+                m.SetVector(IdVolCamPosC, cam.transform.position);
+                late.DrawProcedural(Matrix4x4.identity, m, 2, MeshTopology.Triangles, 3);
+            }
             late.CopyTexture(f.target, _sceneCopy);
             late.DrawProcedural(Matrix4x4.identity, m, 1, MeshTopology.Triangles, 3);
             if (lateCmd != null) PreHazeFrame = Time.frameCount;
+        }
+
+        /// <summary>The screen-size buffer the beam meshes are drawn into (same size and sample count as the camera's depth).</summary>
+        private bool EnsureBeamColor(RenderTexture depth)
+        {
+            if (depth.antiAliasing > 1) return false;
+            if (_beamColor == null || _beamColor.width != depth.width || _beamColor.height != depth.height || !_beamColor.IsCreated())
+            {
+                if (_beamColor != null) { _beamColor.Release(); Object.Destroy(_beamColor); }
+                _beamColor = new RenderTexture(depth.width, depth.height, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear)
+                    { name = "UltraRT Volumetrics Beam Colour", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+                _beamColor.Create();
+            }
+            return true;
+        }
+
+        /// <summary>Temporal accumulation (Volumetrics.compute Temporal) of <paramref name="raw"/> into hist[_cur] (history
+        /// from hist[prev]), then <paramref name="passes"/> a-trous passes; returns the filtered result. The beam channel
+        /// reprojects with the haze's ray-length history (written by the haze pass, once per frame: its own writes go to
+        /// a scratch target).</summary>
+        private Texture Filter(CommandBuffer cmd, VolumetricsSettings s, RenderTexture raw, RenderTexture[] hist, RenderTexture[] histDepth,
+            RenderTexture[] mom, RenderTexture[] filt, int prev, Matrix4x4 invLow, Matrix4x4 prevLow, Vector3 camPos, Vector3 prevCam,
+            bool valid, int passes, int w, int h, bool writeDepth)
+        {
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdVolIn, raw);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdVolDepth, _depth);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistIn, hist[prev]);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistDepthIn, histDepth[prev]);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistOut, hist[_cur]);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdHistDepthOut, writeDepth ? histDepth[_cur] : _beamDepthScratch);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdMomIn, mom[prev]);
+            cmd.SetComputeTextureParam(_cs, _kTemporal, IdMomOut, mom[_cur]);
+            cmd.SetComputeVectorParam(_cs, IdTemporalParams3, new Vector4(Mathf.Clamp01(s.momentsAlpha), 0, 0, 0));
+            cmd.SetComputeMatrixParam(_cs, IdInvViewProj, invLow);
+            cmd.SetComputeMatrixParam(_cs, IdPrevViewProj, prevLow);
+            cmd.SetComputeVectorParam(_cs, IdCamPos, camPos);
+            cmd.SetComputeVectorParam(_cs, IdPrevCamPos, prevCam);
+            cmd.SetComputeVectorParam(_cs, IdTemporalParams, new Vector4(Mathf.Clamp01(s.alphaMin), Mathf.Max(1f, s.maxHistory), Mathf.Max(0.5f, s.clipSigma), valid ? 1f : 0f));
+            cmd.SetComputeVectorParam(_cs, IdTemporalParams2, new Vector4(Mathf.Max(0.01f, s.depthTolerance), Mathf.Max(0.001f, s.spatialDepthSigma), 0.5f / Mathf.Max(0.1f, s.spatialSigma * s.spatialSigma), s.debugView == 2 ? 1f : 0f));
+            cmd.DispatchCompute(_cs, _kTemporal, (w + 7) / 8, (h + 7) / 8, 1);
+            Texture result = hist[_cur];
+            for (int i = 0; i < passes; i++)
+            {
+                var dst = filt[i & 1];
+                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousIn, result);
+                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousMom, mom[_cur]);
+                cmd.SetComputeTextureParam(_cs, _kAtrous, IdAtrousOut, dst);
+                cmd.SetComputeTextureParam(_cs, _kAtrous, IdVolDepth, _depth);
+                cmd.SetComputeVectorParam(_cs, IdAtrousParams, new Vector4(1 << i, i == 0 ? 1f : 0f, Mathf.Max(0.1f, s.atrousLumSigma), Mathf.Max(0.01f, s.atrousDepthSigma)));
+                cmd.SetComputeVectorParam(_cs, IdAtrousParams2, new Vector4(Mathf.Max(1f, s.prefilterSamples), i == passes - 1 ? 1f : 0f, 0, 0));
+                cmd.DispatchCompute(_cs, _kAtrous, (w + 7) / 8, (h + 7) / 8, 1);
+                result = dst;
+            }
+            return result;
         }
 
         /// <summary>The camera target after the game's transparents and before the in-scattering (the scatter pass's copy),
@@ -450,7 +519,13 @@ namespace UltraRT
                     _histDepth[i] = Create(w, h, RenderTextureFormat.RFloat, $"UltraRT Volumetrics History Depth {i}");
                     _mom[i] = Create(w, h, RenderTextureFormat.RGFloat, $"UltraRT Volumetrics Moments {i}");
                     _filt[i] = Create(w, h, RenderTextureFormat.ARGBHalf, $"UltraRT Volumetrics Filtered {i}");
+                    _beamHist[i] = Create(w, h, RenderTextureFormat.ARGBHalf, $"UltraRT Volumetrics Beam History {i}");
+                    _beamMom[i] = Create(w, h, RenderTextureFormat.RGFloat, $"UltraRT Volumetrics Beam Moments {i}");
+                    _beamFilt[i] = Create(w, h, RenderTextureFormat.ARGBHalf, $"UltraRT Volumetrics Beam Filtered {i}");
                 }
+                _beamRaw = Create(w, h, RenderTextureFormat.ARGBHalf, "UltraRT Volumetrics Beam Raw");
+                _beamDepthScratch = Create(w, h, RenderTextureFormat.RFloat, "UltraRT Volumetrics Beam Depth Scratch");
+                _beamHistoryValid = false;
                 _cur = 0;
                 _historyValid = false;
             }
@@ -486,13 +561,20 @@ namespace UltraRT
             void Rel(ref RenderTexture t) { if (t != null) { t.Release(); Object.Destroy(t); t = null; } }
             Rel(ref _raw);
             Rel(ref _depth);
-            for (int i = 0; i < 2; i++) { Rel(ref _hist[i]); Rel(ref _histDepth[i]); Rel(ref _mom[i]); Rel(ref _filt[i]); }
+            Rel(ref _beamRaw);
+            Rel(ref _beamDepthScratch);
+            for (int i = 0; i < 2; i++)
+            {
+                Rel(ref _hist[i]); Rel(ref _histDepth[i]); Rel(ref _mom[i]); Rel(ref _filt[i]);
+                Rel(ref _beamHist[i]); Rel(ref _beamMom[i]); Rel(ref _beamFilt[i]);
+            }
         }
 
         public void Dispose()
         {
             ReleaseLowRes();
             if (_sceneCopy != null) { _sceneCopy.Release(); Object.Destroy(_sceneCopy); _sceneCopy = null; }
+            if (_beamColor != null) { _beamColor.Release(); Object.Destroy(_beamColor); _beamColor = null; }
             _dummyExposure?.Release();
             _dummyExposure = null;
         }

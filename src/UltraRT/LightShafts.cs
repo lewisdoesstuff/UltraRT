@@ -23,12 +23,30 @@ namespace UltraRT
         /// Spot Light, whose narrow end does not reach the light) are matched to that spot: the cone is the widest of them,
         /// from the light. Off: only meshes whose apex is at a light (the original fit).</summary>
         public bool parentSpots = true;
-        /// <summary>Beams matched through their parent spot are drawn by the volumetric pass as the game draws them (a
-        /// constant-density glow of the meshes' colour inside the cone, not the spot's light falling off with distance)
-        /// with traced visibility to the light, so whatever stands in the beam shadows it (3-1's eye beams through the
-        /// ribs). Brightness relative to the game's layered meshes; 0 = off: the game's meshes stay (default, see
-        /// docs/volumetrics.md "Eye beams": an additive haze under the composite's soft cap can't reach their orange).</summary>
-        public float beamStrength = 0f;
+        /// <summary>Beam channel (docs/volumetrics.md "Eye beams"): beam meshes matched through their parent spot (3-1's eye
+        /// beams) are drawn by the volumetric pass instead of the game: each mesh's convex hull is intersected per screen
+        /// pixel and adds the game's colour once per face the game would draw (the same additive look, nested layers and
+        /// all), times a traced visibility: the lit fraction of the pixel's ray inside the beam, from shadow rays to the
+        /// light at low resolution, filtered over time. Whatever stands in the beam cuts shafts through it. Off: the game's
+        /// meshes stay.</summary>
+        public bool beams = true;
+        /// <summary>Beam channel brightness relative to the game's meshes (1 = the same).</summary>
+        public float beamStrength = 1f;
+        /// <summary>Beam channel shadowing: 1 = traced visibility, 0 = none (the game's look, for A/B), in between = a mix.</summary>
+        public float beamShadows = 1f;
+        /// <summary>A-trous passes over the beam visibility (0-5; sharper shafts with fewer, smoother with more).</summary>
+        public int beamAtrous = 2;
+        /// <summary>Shadow rays per beam mesh per low-res pixel and frame.</summary>
+        public int beamSamples = 1;
+        /// <summary>Most beam meshes drawn at once (nearest first; the rest keep the game's meshes). At most 32.</summary>
+        public int maxBeamHulls = 32;
+        /// <summary>The beam channel's colour: 1 = the game's own beam meshes drawn with their material into a buffer (against
+        /// the game's depth), exactly the game's look; 0 = the analytic hulls (vertex colours fitted per face; misses the
+        /// Master shader's distance fade: far faces up to 3x too bright).</summary>
+        public int beamMeshes = 1;
+        /// <summary>Diagnostics for the analytic colour: which faces it draws (0 = as the material says, 1 = entering only,
+        /// 2 = leaving only).</summary>
+        public int beamFaces = 0;
         /// <summary>The housing a parent-spot beam's light sits in (3-1's 39 m eyeball and its socket) stops blocking that
         /// light (SceneProxies.AddHousing): the eye lights the room, and the ribs cast shadows on the floor.</summary>
         public bool housings = true;
@@ -67,6 +85,36 @@ namespace UltraRT
             public float BeamAlpha;
             public bool InPlace => Light != null && (Parented || (Light.transform.position - Apex).sqrMagnitude <= 0.25f);
             public readonly List<Renderer> Fakes = new List<Renderer>();
+            /// <summary>Parent-spot beams: the convex hull of each beam mesh (the beam channel draws these).</summary>
+            public readonly List<BeamHull> Hulls = new List<BeamHull>();
+        }
+
+        /// <summary>
+        /// One beam mesh as the beam channel draws it: the convex hull of its vertices as planes (outward normal n, offset d:
+        /// inside where n.x &lt;= d) in its light's local space (it moves with the light) or in world space (static-batched
+        /// meshes cannot move), and how the game draws it: colour x alpha (display, additive), which faces (culling),
+        /// fog, and its near-camera distance fade.
+        /// </summary>
+        public sealed class BeamHull
+        {
+            public Renderer Renderer;
+            public Light Light;
+            public bool Local;                    // planes in the light's space
+            public Vector4[] Planes;              // xyz normal, w d
+            public Vector3 Center;                // bounding sphere (same space as the planes)
+            public float Radius;
+            public float Start;                   // m along the light's beam axis where the mesh begins (shadow rays stop there)
+            public Color Add;                     // rgb added per face drawn (display units: colour x alpha x vertex hue)
+            public Vector4[] FaceGrad;            // per plane, vertex colour brightness on that face at x (same space as the
+                                                  // planes): w + dot(xyz, x); zero: the mesh has no face there
+            public bool Entry = true, Exit = true; // faces the game draws: entering (front) and leaving (back) the hull
+            public bool Fog;
+            public float FadeNear, FadeFar;       // DISTANCE_FADE: invisible within FadeNear m of the camera, full at FadeFar (0, 0 = off)
+            public int LastDrawn = -100;          // frame the beam channel last drew it
+
+            /// <summary>Whether the game would draw it now (its object active; its renderer enabled, or hidden by us).</summary>
+            public bool Live(bool hiddenByUs) => Renderer != null && Light != null && Light.isActiveAndEnabled &&
+                                                 Renderer.gameObject.activeInHierarchy && (Renderer.enabled || hiddenByUs);
         }
 
         private static readonly PropertyInfo StaticBatchRoot =
@@ -81,7 +129,9 @@ namespace UltraRT
         private object _scene;
         private bool _hide;
         private float _nextStaleCheck;
-        private bool _hideBeams;
+        private readonly HashSet<Renderer> _hiddenBeams = new HashSet<Renderer>();
+        private readonly HashSet<Renderer> _beamKeep = new HashSet<Renderer>();
+        private readonly List<Renderer> _tmpShow = new List<Renderer>();
 
         public int Count => _cones.Count;
 
@@ -141,7 +191,7 @@ namespace UltraRT
             {
                 if (n++ >= 12) break;
                 _log.LogInfo($"Light shafts: '{c.Light.name}' at {c.Apex:F2} axis {c.Axis:F2} half angle {Mathf.Acos(c.CosHalf) * Mathf.Rad2Deg:F0} deg length {c.Length:F1} m, " +
-                             $"{(c.Parented ? $"parent spot (angle {c.Light.spotAngle:F0}, beam from {c.Start:F1} m, colour {c.BeamColor} alpha {c.BeamAlpha:F2}) " : "")}range {c.Light.range:F0} intensity {c.Light.intensity:F2} colour {c.Light.color}, " +
+                             $"{(c.Parented ? $"parent spot (angle {c.Light.spotAngle:F0}, beam from {c.Start:F1} m, colour {c.BeamColor} alpha {c.BeamAlpha:F2}, {c.Hulls.Count} hulls) " : "")}range {c.Light.range:F0} intensity {c.Light.intensity:F2} colour {c.Light.color}, " +
                              $"fakes {string.Join(", ", c.Fakes.ConvertAll(f => f.name))}");
             }
         }
@@ -279,7 +329,318 @@ namespace UltraRT
                 c.BeamAlpha = Mathf.Max(c.BeamAlpha, Mathf.Clamp01(col.a));
             }
             c.Fakes.Add(r);
+            try
+            {
+                var hull = FitHull(r, l, verts, axis);
+                if (hull != null) c.Hulls.Add(hull);
+            }
+            catch (Exception e) { _log.LogWarning($"Light shafts: beam hull of '{r.name}': {e.Message}"); }
             return true;
+        }
+
+        /// <summary>
+        /// The beam channel's description of a beam mesh (<see cref="BeamHull"/>): the convex hull of its vertices, and the
+        /// material's colour, culling, fog and distance fade. Null (the game keeps drawing the mesh) when the mesh is not
+        /// convex (a vertex inside its hull), has more than 8 hull planes, or more than 64 distinct vertices.
+        /// </summary>
+        private BeamHull FitHull(MeshRenderer r, Light l, List<Vector3> world, Vector3 axisWorld)
+        {
+            bool local = !r.isPartOfStaticBatch;
+            var toSpace = local ? l.transform.worldToLocalMatrix : Matrix4x4.identity;
+            var pts = new List<Vector3>();
+            Vector3 lo = Vector3.positiveInfinity, hi = Vector3.negativeInfinity;
+            var all = new List<Vector3>(world.Count);
+            foreach (var w in world)
+            {
+                var p = toSpace.MultiplyPoint3x4(w);
+                all.Add(p);
+                lo = Vector3.Min(lo, p); hi = Vector3.Max(hi, p);
+            }
+            float extent = (hi - lo).magnitude;
+            if (!(extent > 1e-4f)) return null;
+            float tol = 2e-3f * extent;
+            foreach (var p in all)
+            {
+                bool dup = false;
+                foreach (var q in pts) if ((q - p).sqrMagnitude < 0.25f * tol * tol) { dup = true; break; }
+                if (!dup) pts.Add(p);
+                if (pts.Count > 64) { _log.LogInfo($"Light shafts: beam '{r.name}' has over 64 distinct vertices: the game draws it"); return null; }
+            }
+            var planes = new List<Vector4>();
+            int n = pts.Count;
+            for (int i = 0; i < n; i++)
+            for (int j = i + 1; j < n; j++)
+            for (int k = j + 1; k < n; k++)
+            {
+                var e1 = pts[j] - pts[i];
+                var e2 = pts[k] - pts[i];
+                var nrm = Vector3.Cross(e1, e2);
+                float len = nrm.magnitude;
+                if (len < 1e-3f * e1.magnitude * e2.magnitude) continue; // (nearly) collinear
+                nrm /= len;
+                float d = Vector3.Dot(nrm, pts[i]);
+                bool allIn = true, allOut = true;
+                for (int m = 0; m < n && (allIn || allOut); m++)
+                {
+                    float s = Vector3.Dot(nrm, pts[m]) - d;
+                    if (s > tol) allIn = false;
+                    if (s < -tol) allOut = false;
+                }
+                if (!allIn && !allOut) continue;
+                if (!allIn) { nrm = -nrm; d = -d; }
+                bool seen = false;
+                foreach (var p in planes)
+                    if (Vector3.Dot(new Vector3(p.x, p.y, p.z), nrm) > 0.9999f && Mathf.Abs(p.w - d) < tol) { seen = true; break; }
+                if (!seen) planes.Add(new Vector4(nrm.x, nrm.y, nrm.z, d));
+            }
+            if (planes.Count < 4 || planes.Count > 8)
+            {
+                _log.LogInfo($"Light shafts: beam '{r.name}' hull has {planes.Count} planes: the game draws it");
+                return null;
+            }
+            // Convex: every vertex lies on the hull (a vertex inside it would be a dent the hull fills in).
+            foreach (var p in pts)
+            {
+                bool onHull = false;
+                foreach (var pl in planes) if (Mathf.Abs(Vector3.Dot(new Vector3(pl.x, pl.y, pl.z), p) - pl.w) <= tol) { onHull = true; break; }
+                if (!onHull) { _log.LogInfo($"Light shafts: beam '{r.name}' is not convex: the game draws it"); return null; }
+            }
+            Vector3 lo2 = Vector3.positiveInfinity, hi2 = Vector3.negativeInfinity;
+            foreach (var p in pts) { lo2 = Vector3.Min(lo2, p); hi2 = Vector3.Max(hi2, p); }
+            var center = 0.5f * (lo2 + hi2);
+            float radius = 0f;
+            foreach (var p in pts) radius = Mathf.Max(radius, (p - center).magnitude);
+            float start = float.MaxValue;
+            var lp = l.transform.position;
+            foreach (var w in world) start = Mathf.Min(start, Vector3.Dot(w - lp, axisWorld));
+
+            var h = new BeamHull { Renderer = r, Light = l, Local = local, Planes = planes.ToArray(), Center = center, Radius = radius,
+                                   Start = Mathf.Max(start, 0.35f) };
+            var m0 = r.sharedMaterial;
+            Color col = m0 != null && m0.HasProperty("_Color") ? m0.GetColor("_Color") : Color.white;
+            // SrcBlend SrcAlpha, DstBlend One (IsShaft checked the latter): dst += rgb x a x vertex colour (_VertexColors 1).
+            // The vertex colours are gradients (3-1: white at the eye end, black at the far end), interpolated across each
+            // face; ProBuilder gives every face its own vertices, so each hull face gets its own linear fit of the vertex
+            // brightness over the mesh triangles lying on it (exact for a colour interpolated linearly over the face). A hull
+            // face with no triangles on it is one the mesh does not have (an open end): brightness 0. Their mean hue goes
+            // into the colour.
+            float a = Mathf.Clamp01(col.a);
+            if (m0 != null && m0.HasProperty("_SrcBlend") && Mathf.RoundToInt(m0.GetFloat("_SrcBlend")) == (int)BlendMode.One) a = 1f;
+            var vcs = VertexColors(r);
+            Color vc = Color.white;
+            float[] sv = null;
+            if (vcs != null && vcs.Count == all.Count)
+            {
+                sv = new float[all.Count];
+                Color sum = Color.clear;
+                for (int i = 0; i < all.Count; i++) { sum += vcs[i]; sv[i] = (vcs[i].r + vcs[i].g + vcs[i].b) / 3f * vcs[i].a; }
+                vc = sum / all.Count;
+                float mean = (vc.r + vc.g + vc.b) / 3f;
+                if (mean > 1e-4f) { vc.r /= mean; vc.g /= mean; vc.b /= mean; } else vc = Color.white;
+            }
+            var tris = Triangles(r, all.Count);
+            h.FaceGrad = new Vector4[planes.Count];
+            var faceInfo = new System.Text.StringBuilder();
+            for (int f = 0; f < planes.Count; f++)
+            {
+                var pl = planes[f];
+                var nrm = new Vector3(pl.x, pl.y, pl.z);
+                if (tris == null)
+                {
+                    h.FaceGrad[f] = sv != null ? FitLinear(all, sv) : new Vector4(0, 0, 0, 1);
+                    continue;
+                }
+                var on = new List<int>();
+                int nt = 0;
+                for (int t = 0; t + 2 < tris.Count; t += 3)
+                {
+                    bool inPlane = true;
+                    for (int q = 0; q < 3; q++)
+                        if (Mathf.Abs(Vector3.Dot(nrm, all[tris[t + q]]) - pl.w) > tol) { inPlane = false; break; }
+                    if (!inPlane) continue;
+                    nt++;
+                    for (int q = 0; q < 3; q++) if (!on.Contains(tris[t + q])) on.Add(tris[t + q]);
+                }
+                if (nt == 0) { h.FaceGrad[f] = Vector4.zero; faceInfo.Append(" -"); continue; }
+                if (sv == null) { h.FaceGrad[f] = new Vector4(0, 0, 0, 1); faceInfo.Append($" {nt}t"); continue; }
+                var fp = new List<Vector3>(on.Count);
+                var fv = new float[on.Count];
+                float vmin = float.MaxValue, vmax = float.MinValue;
+                for (int q = 0; q < on.Count; q++) { fp.Add(all[on[q]]); fv[q] = sv[on[q]]; vmin = Mathf.Min(vmin, fv[q]); vmax = Mathf.Max(vmax, fv[q]); }
+                h.FaceGrad[f] = FitLinear(fp, fv);
+                faceInfo.Append($" {nt}t {vmin:F2}-{vmax:F2}");
+            }
+            h.Add = new Color(col.r * vc.r * a, col.g * vc.g * a, col.b * vc.b * a, 1f);
+            int cull = m0 != null && m0.HasProperty("_Cull") ? Mathf.RoundToInt(m0.GetFloat("_Cull")) : 0;
+            h.Entry = cull != (int)CullMode.Front;
+            h.Exit = cull != (int)CullMode.Back;
+            h.Fog = m0 != null && !m0.IsKeywordEnabled("_FOG_OFF");
+            if (m0 != null && m0.IsKeywordEnabled("DISTANCE_FADE") && m0.HasProperty("_CameraFadingEnabled") && m0.GetFloat("_CameraFadingEnabled") > 0.5f)
+            {
+                h.FadeNear = m0.HasProperty("_CameraNearFadeDistance") ? m0.GetFloat("_CameraNearFadeDistance") : 0f;
+                h.FadeFar = m0.HasProperty("_CameraFarFadeDistance") ? m0.GetFloat("_CameraFarFadeDistance") : 0f;
+            }
+            _log.LogInfo($"Light shafts: beam hull '{Bench.GameControl.PathOf(r.transform)}' material '{m0?.name}': {planes.Count} planes, {pts.Count} vertices, " +
+                         $"radius {radius:F1}, from {h.Start:F1} m, adds ({h.Add.r:F3}, {h.Add.g:F3}, {h.Add.b:F3}) per face x vertex brightness (faces:{faceInfo}) (colour {col}, vertex hue {vc}), " +
+                         $"cull {cull}, fog {h.Fog}, fade {h.FadeNear:F1}-{h.FadeFar:F1} m, {(local ? "follows its light" : "static")}");
+            return h;
+        }
+
+        /// <summary>Least squares s = w + dot(xyz, p) over the points (a constant where they span no gradient).</summary>
+        private static Vector4 FitLinear(List<Vector3> pts, float[] v)
+        {
+            int n = pts.Count;
+            Vector3 c = Vector3.zero;
+            float mv = 0f;
+            for (int i = 0; i < n; i++) { c += pts[i]; mv += v[i]; }
+            c /= n; mv /= n;
+            // Normal equations of the centred problem: (sum d d^T) g = sum d (v - mean)
+            var m = new double[3, 4];
+            double tr = 0;
+            for (int i = 0; i < n; i++)
+            {
+                var d = pts[i] - c;
+                double[] dv = { d.x, d.y, d.z };
+                for (int r = 0; r < 3; r++)
+                {
+                    for (int k = 0; k < 3; k++) m[r, k] += dv[r] * dv[k];
+                    m[r, 3] += dv[r] * (v[i] - mv);
+                }
+                tr += d.sqrMagnitude;
+            }
+            for (int r = 0; r < 3; r++) m[r, r] += 1e-6 * tr + 1e-12;
+            for (int col = 0; col < 3; col++)
+            {
+                int piv = col;
+                for (int r = col + 1; r < 3; r++) if (Math.Abs(m[r, col]) > Math.Abs(m[piv, col])) piv = r;
+                for (int k = 0; k < 4; k++) { var t = m[col, k]; m[col, k] = m[piv, k]; m[piv, k] = t; }
+                for (int r = 0; r < 3; r++)
+                {
+                    if (r == col) continue;
+                    double f = m[r, col] / m[col, col];
+                    for (int k = col; k < 4; k++) m[r, k] -= f * m[col, k];
+                }
+            }
+            var g = new Vector3((float)(m[0, 3] / m[0, 0]), (float)(m[1, 3] / m[1, 1]), (float)(m[2, 3] / m[2, 2]));
+            if (float.IsNaN(g.x) || float.IsNaN(g.y) || float.IsNaN(g.z)) g = Vector3.zero;
+            return new Vector4(g.x, g.y, g.z, mv - Vector3.Dot(g, c));
+        }
+
+        /// <summary>The renderer's triangles as indices into its vertex range (WorldVertices' order), or null if they can't
+        /// be read (GPU readback: the meshes are not readable).</summary>
+        private static List<int> Triangles(MeshRenderer r, int rangeCount)
+        {
+            var mf = r.GetComponent<MeshFilter>();
+            var mesh = mf != null ? mf.sharedMesh : null;
+            if (mesh == null) return null;
+            int first = 0, subFrom = 0, subTo = mesh.subMeshCount;
+            if (r.isPartOfStaticBatch)
+            {
+                subFrom = r.subMeshStartIndex;
+                subTo = subFrom + Math.Max(1, r.sharedMaterials.Length);
+                if (subFrom < 0 || subTo > mesh.subMeshCount) return null;
+                first = mesh.GetSubMesh(subFrom).firstVertex;
+            }
+            int[] idx;
+            try
+            {
+                if (mesh.isReadable)
+                {
+                    var l = new List<int>();
+                    for (int sm = subFrom; sm < subTo; sm++)
+                    {
+                        if (mesh.GetTopology(sm) != MeshTopology.Triangles) continue;
+                        foreach (var i in mesh.GetIndices(sm, true)) l.Add(i);
+                    }
+                    idx = l.ToArray();
+                }
+                else
+                {
+                    using (var ib = mesh.GetIndexBuffer())
+                    {
+                        int n = ib.count;
+                        var all = new int[n];
+                        if (mesh.indexFormat == IndexFormat.UInt16)
+                        {
+                            var u = new ushort[n];
+                            ib.GetData(u, 0, 0, n);
+                            for (int i = 0; i < n; i++) all[i] = u[i];
+                        }
+                        else
+                        {
+                            var u = new uint[n];
+                            ib.GetData(u, 0, 0, n);
+                            for (int i = 0; i < n; i++) all[i] = (int)u[i];
+                        }
+                        var l = new List<int>();
+                        for (int sm = subFrom; sm < subTo; sm++)
+                        {
+                            var d = mesh.GetSubMesh(sm);
+                            if (d.topology != MeshTopology.Triangles) continue;
+                            for (int i = d.indexStart; i < d.indexStart + d.indexCount && i < n; i++) l.Add(all[i] + d.baseVertex);
+                        }
+                        idx = l.ToArray();
+                    }
+                }
+            }
+            catch (Exception) { return null; }
+            var res = new List<int>(idx.Length);
+            foreach (var i in idx)
+            {
+                int k = i - first;
+                if (k < 0 || k >= rangeCount) return null;
+                res.Add(k);
+            }
+            return res.Count >= 3 ? res : null;
+        }
+
+        /// <summary>The vertex colours of the renderer's vertices (its range of a static batch), in WorldVertices' order;
+        /// null if the mesh has none or they can't be read.</summary>
+        private static List<Color> VertexColors(MeshRenderer r)
+        {
+            var mf = r.GetComponent<MeshFilter>();
+            var mesh = mf != null ? mf.sharedMesh : null;
+            if (mesh == null || !mesh.HasVertexAttribute(VertexAttribute.Color)) return null;
+            int first = 0, count = mesh.vertexCount;
+            if (r.isPartOfStaticBatch)
+            {
+                int sub = r.subMeshStartIndex;
+                if (sub < 0 || sub >= mesh.subMeshCount) return null;
+                var d = mesh.GetSubMesh(sub);
+                first = d.firstVertex;
+                count = d.vertexCount;
+            }
+            Color[] cols = null;
+            if (mesh.isReadable) cols = mesh.colors;
+            else
+            {
+                var fmt = mesh.GetVertexAttributeFormat(VertexAttribute.Color);
+                int dim = mesh.GetVertexAttributeDimension(VertexAttribute.Color);
+                if (dim != 4 || (fmt != VertexAttributeFormat.UNorm8 && fmt != VertexAttributeFormat.Float32)) return null;
+                int s = mesh.GetVertexAttributeStream(VertexAttribute.Color);
+                int off = mesh.GetVertexAttributeOffset(VertexAttribute.Color);
+                int stride = mesh.GetVertexBufferStride(s);
+                int n = mesh.vertexCount;
+                using (var vb = mesh.GetVertexBuffer(s))
+                {
+                    var words = new uint[(n * stride + 3) / 4];
+                    vb.GetData(words, 0, 0, words.Length);
+                    var bytes = new byte[n * stride];
+                    Buffer.BlockCopy(words, 0, bytes, 0, bytes.Length);
+                    cols = new Color[n];
+                    for (int i = 0; i < n; i++)
+                    {
+                        int o = i * stride + off;
+                        cols[i] = fmt == VertexAttributeFormat.UNorm8
+                            ? new Color(bytes[o] / 255f, bytes[o + 1] / 255f, bytes[o + 2] / 255f, bytes[o + 3] / 255f)
+                            : new Color(BitConverter.ToSingle(bytes, o), BitConverter.ToSingle(bytes, o + 4), BitConverter.ToSingle(bytes, o + 8), BitConverter.ToSingle(bytes, o + 12));
+                    }
+                }
+            }
+            if (cols == null || cols.Length == 0) return null;
+            var list = new List<Color>(count);
+            for (int i = first; i < first + count && i < cols.Length; i++) list.Add(cols[i]);
+            return list;
         }
 
         /// <summary>
@@ -381,26 +742,58 @@ namespace UltraRT
         public void UpdateFakes(bool active)
         {
             bool hide = active && Settings.enabled && !Settings.keepFakes;
-            bool beams = Settings.beamStrength > 0f;
-            if (hide == _hide && beams == _hideBeams) return;
-            if (_hide) ShowFakes();
+            UpdateBeamFakes(hide && Settings.beams);
+            if (hide == _hide) return;
+            if (_hide) ShowLampFakes();
             _hide = hide;
-            _hideBeams = beams;
             if (!hide) return;
             foreach (var c in _cones.Values)
             {
-                if (!c.InPlace) continue;
-                if (c.Parented && Settings.beamStrength <= 0f) continue; // the game's beam meshes stay (not drawn by the volumetric pass)
+                if (!c.InPlace || c.Parented) continue; // beam meshes: UpdateBeamFakes
                 foreach (var f in c.Fakes)
                     if (f != null && f.enabled) { f.enabled = false; _hidden.Add(f); }
             }
         }
 
-        private void ShowFakes()
+        /// <summary>Beam meshes the beam channel drew in the last frames are hidden (the channel draws them); every other one
+        /// is shown again (out of the hull budget, its light off, the channel off).</summary>
+        private void UpdateBeamFakes(bool on)
+        {
+            int frame = Time.frameCount;
+            _beamKeep.Clear();
+            if (on)
+                foreach (var c in _cones.Values)
+                {
+                    if (!c.Parented) continue;
+                    foreach (var h in c.Hulls)
+                        if (h.Renderer != null && frame - h.LastDrawn <= 2) _beamKeep.Add(h.Renderer);
+                }
+            _tmpShow.Clear();
+            foreach (var r in _hiddenBeams) if (!_beamKeep.Contains(r)) _tmpShow.Add(r);
+            foreach (var r in _tmpShow)
+            {
+                if (r != null) r.enabled = true;
+                _hiddenBeams.Remove(r);
+            }
+            foreach (var r in _beamKeep)
+                if (!_hiddenBeams.Contains(r) && r.enabled) { r.enabled = false; _hiddenBeams.Add(r); }
+        }
+
+        /// <summary>Whether the beam channel hid this renderer (the game would draw it otherwise).</summary>
+        public bool HiddenByBeams(Renderer r) => _hiddenBeams.Contains(r);
+
+        private void ShowLampFakes()
         {
             foreach (var f in _hidden) if (f != null) f.enabled = true;
             _hidden.Clear();
             _hide = false;
+        }
+
+        private void ShowFakes()
+        {
+            ShowLampFakes();
+            foreach (var r in _hiddenBeams) if (r != null) r.enabled = true;
+            _hiddenBeams.Clear();
         }
     }
 }
