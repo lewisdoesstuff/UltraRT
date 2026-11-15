@@ -222,6 +222,9 @@ namespace UltraRT
                     case "-ultrart-light-radius": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _lightRadius); break;
                     case "-ultrart-nofixtureshadows": _fixtureShadows = false; break;
                     case "-ultrart-nofixturelift": _fixtureLift = false; break;
+                    case "-ultrart-nolightoverrides": _lightOverrides = false; break; // per-level light overrides (docs/lighting-overrides.md)
+                    case "-ultrart-classify-lights": _classifyLights = true; break;  // the light classifier, once per level (Plugin.LightClassifier.cs)
+                    case "-ultrart-lights-preview": _lightsPreview = true; break;    // overrides from the classifier's output folder
                     case "-ultrart-logfixtures": _logFixtures = true; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-noportals": _portals = false; break;
@@ -395,6 +398,8 @@ namespace UltraRT
                     Toast($"Temporal upsampling {on} (F2)");
                 }
                 CacheHotkeys();
+                LightEditorUpdate(); // Insert + numpad (Plugin.LightOverrides.cs)
+                LightClassifierUpdate(); // -ultrart-classify-lights, Ctrl+Insert (Plugin.LightClassifier.cs)
                 DlssUpdate(); // Ctrl+F8, native RR log (Plugin.Dlss.cs)
             }
             catch (InvalidOperationException) { /* legacy input disabled */ }
@@ -442,6 +447,7 @@ namespace UltraRT
             _lightShafts?.Clear();
             _vfx?.Reset();
             ViewmodelReset();
+            LightOverridesReset(); // Plugin.LightOverrides.cs
         }
 
         private Denoiser _denoiser;
@@ -519,6 +525,7 @@ namespace UltraRT
                 if (_proxies != null) foreach (var line in _proxies.DescribeSkinnedNear(_camera.transform.position, 30f)) Logger.LogInfo($"skinned near camera: {line}");
             }
             _lightCount = 0;
+            BeginLightOverrides(); // per-level light overrides (Plugin.LightOverrides.cs; relight look only)
             // The main sun: the brightest directional light from above the horizon (LowSideLight below).
             Light mainSun = null;
             float mainSunLum = -1f;
@@ -532,12 +539,15 @@ namespace UltraRT
             {
                 if (_lightCount >= MaxLights) break;
                 if (l == null || !l.isActiveAndEnabled || l.intensity <= 0f) continue;
+                var ov = LightOverrideFor(l);
+                if ((ov != null && ov.Disabled == true) || SoloHides(l) || ReferenceEquals(l, _fitSkip)) continue;
                 var t = l.transform;
                 var fwd = t.forward;
                 var c = l.color * l.intensity;
                 var pos = t.position;
                 float shadowRadius = 0f; // 0: the global _LightRadius
-                if (_fixtureLifts.TryGetValue(l, out var lift))
+                if (ov != null && ov.OwnsGeometry) pos += LightOverrides.Vec(ov.Offset, Vector3.zero); // the entry places it: no lift
+                else if (_fixtureLifts.TryGetValue(l, out var lift))
                 {
                     pos.y += lift.y;
                     shadowRadius = lift.w;
@@ -579,9 +589,11 @@ namespace UltraRT
                 _packedLights[_lightCount] = l;
                 _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, shadowRadius);
                 _lightData[i + 3] = l3;
+                if (ov != null) ApplyLightOverride(ov, l, _lightCount);
                 _lightCount++;
             }
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
+            AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
             FlagPlayerLights();   // Plugin.PlayerLights.cs: V1 never shadows the player's own lights (flashlight, held torch)
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);

@@ -335,6 +335,46 @@ namespace UltraRT
         }
 
         /// <summary>Scene change / shader reload: forget everything (caches included: meshes and textures belong to the scene).</summary>
+        /// <summary>One emissive triangle in world space (the light classifier, LightClassifier.cs).</summary>
+        public struct WorldTriangle
+        {
+            public Vector3 P0, E1, E2, Normal;
+            public float Area, Lum;
+            public Color Le;
+            public bool Visible;
+            public Vector3 Centroid => P0 + (E1 + E2) / 3f;
+        }
+
+        /// <summary>Every live emissive triangle in world space, with its average emitted radiance (before lightScale).</summary>
+        public List<WorldTriangle> WorldTriangles()
+        {
+            var list = new List<WorldTriangle>(_triCount);
+            for (int t = 0; t < _triCount; t++)
+            {
+                var em = _emitters[_triEmitter[t]];
+                if (em.Dead) continue;
+                var ow = _owners[em.Owner];
+                var m = ow.World ? Matrix4x4.identity : ow.Matrix;
+                int b = t * TriStride;
+                var p0 = new Vector3(F(_triData[b]), F(_triData[b + 1]), F(_triData[b + 2]));
+                var e1 = new Vector3(F(_triData[b + 4]), F(_triData[b + 5]), F(_triData[b + 6]));
+                var e2 = new Vector3(F(_triData[b + 8]), F(_triData[b + 9]), F(_triData[b + 10]));
+                var w0 = m.MultiplyPoint3x4(p0);
+                var w1 = m.MultiplyVector(e1);
+                var w2 = m.MultiplyVector(e2);
+                var n = Vector3.Cross(w1, w2);
+                float a = 0.5f * n.magnitude;
+                if (a <= 0f) continue;
+                n.Normalize();
+                if ((m.determinant < 0f) != SceneProxies.FrontCounterClockwise) n = -n;
+                var le = new Color(Mathf.HalfToFloat((ushort)(_triData[b + 7] & 0xFFFF)), Mathf.HalfToFloat((ushort)(_triData[b + 7] >> 16)), Mathf.HalfToFloat((ushort)(_triData[b + 11] & 0xFFFF)));
+                list.Add(new WorldTriangle { P0 = w0, E1 = w1, E2 = w2, Normal = n, Area = a, Lum = _triLum[t], Le = le, Visible = em.Src.Visible == null || em.Src.Visible() });
+            }
+            return list;
+        }
+
+        private static float F(uint u) => BitConverter.Int32BitsToSingle(unchecked((int)u));
+
         public void Clear()
         {
             _emitters.Clear();

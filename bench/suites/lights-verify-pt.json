@@ -1,0 +1,9 @@
+{
+  "Name": "lights-verify-pt",
+  "Note": "Shipped light overrides in pathtrace (DLSS RR)",
+  "Scenarios": [
+    { "Name": "7-3 tree room tint", "Scene": "Level 7-3", "Path": { "Type": "static", "Approach": "../recordings/late-7-3-tree-room-tint.json", "Duration": 4, "Areas": "../recordings/late-7-3-tree-room-tint-areas.json" }, "Modes": ["off", "pathtrace", "pathtrace+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "1-1 indoor a", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-a.json", "Duration": 4 }, "Modes": ["off", "pathtrace", "pathtrace+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+  ]
+}

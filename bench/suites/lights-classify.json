@@ -1,0 +1,12 @@
+{
+  "Name": "lights-classify",
+  "Note": "Light classifier (docs/lighting-overrides.md): run with -Extra -ultrart-classify-lights; each level writes BepInEx\ultrart\lights\classified\<scene>.json + .report.md",
+  "Scenarios": [
+    { "Name": "1-1 spawn", "Scene": "Level 1-1", "Path": { "Type": "spawn", "Duration": 7 }, "Modes": ["relight"], "Screenshots": [] },
+    { "Name": "0-1 spawn", "Scene": "Level 0-1", "Path": { "Type": "spawn", "Duration": 7 }, "Modes": ["relight"], "Screenshots": [] },
+    { "Name": "2-2 spawn", "Scene": "Level 2-2", "Path": { "Type": "spawn", "Duration": 7 }, "Modes": ["relight"], "Screenshots": [] },
+    { "Name": "3-2 spawn", "Scene": "Level 3-2", "Path": { "Type": "spawn", "Duration": 7 }, "Modes": ["relight"], "Screenshots": [] },
+    { "Name": "6-1 spawn", "Scene": "Level 6-1", "Path": { "Type": "spawn", "Duration": 7 }, "Modes": ["relight"], "Screenshots": [] },
+    { "Name": "7-3 spawn", "Scene": "Level 7-3", "Path": { "Type": "spawn", "Duration": 7 }, "Modes": ["relight"], "Screenshots": [] }
+  ]
+}

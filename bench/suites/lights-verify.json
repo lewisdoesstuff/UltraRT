@@ -1,0 +1,21 @@
+{
+  "Name": "lights-verify",
+  "Note": "Shipped light overrides (data/lights): game / relight / relight without overrides (docs/lighting-overrides.md)",
+  "Scenarios": [
+    { "Name": "7-3 tree room tint", "Scene": "Level 7-3", "Path": { "Type": "static", "Approach": "../recordings/late-7-3-tree-room-tint.json", "Duration": 4, "Areas": "../recordings/late-7-3-tree-room-tint-areas.json" }, "Modes": ["off", "relight", "relight+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "7-3 tree a", "Scene": "Level 7-3", "Path": { "Type": "static", "Approach": "../recordings/7-3-tree-a.json", "Duration": 4 }, "Modes": ["off", "relight", "relight+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "6-1 coffins", "Scene": "Level 6-1", "Path": { "Type": "static", "Approach": "../recordings/late-6-1-coffins.json", "Duration": 4, "Areas": "../recordings/late-6-1-coffins-areas.json" }, "Modes": ["off", "relight", "relight+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "2-2 floor noise purple", "Scene": "Level 2-2", "Path": { "Type": "static", "Approach": "../recordings/late-2-2-floor-noise-purple.json", "Duration": 4, "Areas": "../recordings/late-2-2-floor-noise-purple-areas.json" }, "Modes": ["off", "relight", "relight+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "3-2 eye", "Scene": "Level 3-2", "Path": { "Type": "static", "Approach": "../recordings/late-3-2-eye.json", "Duration": 4, "Areas": "../recordings/late-3-2-eye-areas.json" }, "Modes": ["off", "relight", "relight+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "3-2 wall edges", "Scene": "Level 3-2", "Path": { "Type": "static", "Approach": "../recordings/late-3-2-wall-edges.json", "Duration": 4, "Areas": "../recordings/late-3-2-wall-edges-areas.json" }, "Modes": ["off", "relight", "relight+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "1-1 indoor a", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-indoor-a.json", "Duration": 4 }, "Modes": ["off", "relight", "relight+plugin._lightOverrides=0"], "Screenshots": [2], "ShotSettle": 1 }
+,
+    { "Name": "0-1 metal", "Scene": "Level 0-1", "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 4 }, "Modes": ["off", "relight", "relight+plugin._lightOverrides=0", "relight+plugin._editorOn=1+plugin._editorBenchShow=1"], "Screenshots": [2], "ShotSettle": 1 }
+  ]
+}

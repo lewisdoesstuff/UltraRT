@@ -47,7 +47,11 @@ float4 _GameFog;  // x 1 = fog on, y mode (1 linear, 2 exp, 3 exp2), z start (li
 float4 _Params5;  // x match strength up (RT darker than the game), y down, z dead band (EV), w max game fog factor
 // Colour match (docs/relight.md, "Area colour"): mean colour of the same near pixels, RT (pre-haze) and game, as fixed
 // point sums after the three histograms (_Hist[3 * BINS + 0..5]).
-float4 _Params6;  // x strength (0 = off), y dead band (log2 per channel), z max correction (log2 per channel)
+float4 _Params6;  // x strength (0 = off), y dead band (log2 per channel), z max correction (log2 per channel),
+                  // w 1 = light fit statistics: linear colour sums of RT and game at the near pixels (_Hist[3 * BINS + 6..11],
+                  // means in _Exposure[4] / [5]; docs/lighting-overrides.md, "Fit")
+#define LIN_FIXED 1024.0
+#define LIN_MAX 4.0
 #define COLOR_FIXED 256.0
 #define COLOR_MAX 4.0
 #define COLOR_MIN_SHARE 0.15 // channels below this share of the brightest one (in both images) are corrected proportionally less
@@ -66,12 +70,13 @@ groupshared uint gsBins[BINS];
 groupshared uint gsNear[BINS];
 groupshared uint gsGame[BINS];
 groupshared uint gsCol[6];
+groupshared uint gsLin[6];
 
 [numthreads(16, 16, 1)]
 void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 {
     if (gi < BINS) { gsBins[gi] = 0; gsNear[gi] = 0; gsGame[gi] = 0; }
-    if (gi < 6) gsCol[gi] = 0;
+    if (gi < 6) { gsCol[gi] = 0; gsLin[gi] = 0; }
     GroupMemoryBarrierWithGroupSync();
 
     uint2 p = id.xy * 2;
@@ -105,12 +110,24 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
                 float3 colGame = _GameColor[(uint2)(uv * float2(gw, gh))].rgb;
                 float lumRT = Luma(colRT);
                 float lumGame = Luma(colGame);
-                if (_Params6.x > 0.0)
+                if (_Params6.x > 0.0 || _Params6.w > 0.5) // colour match, or the light fit's display means
                 {
                     uint3 qr = (uint3)(clamp(colRT, 0.0, COLOR_MAX) * COLOR_FIXED + 0.5);
                     uint3 qg = (uint3)(clamp(colGame, 0.0, COLOR_MAX) * COLOR_FIXED + 0.5);
                     InterlockedAdd(gsCol[0], qr.r); InterlockedAdd(gsCol[1], qr.g); InterlockedAdd(gsCol[2], qr.b);
                     InterlockedAdd(gsCol[3], qg.r); InterlockedAdd(gsCol[4], qg.g); InterlockedAdd(gsCol[5], qg.b);
+                }
+                if (_Params6.w > 0.5)
+                {
+                    // Light fit: linear in every light's intensity (the albedo and keep factor in linear units, the lighting
+                    // as traced; reflections taken as they are). The game's colour decoded to linear.
+                    float3 litL = _UltraRTLinear > 0.5 ? max(_Filtered[p].rgb, 0.0) : pow(max(_Filtered[p].rgb, 0.0), 2.2);
+                    float3 linRT = pow(max(_Albedo[p].rgb * sp.a, 0.0), 2.2) * litL + pow(max(sp.rgb, 0.0), 2.2);
+                    float3 linGame = pow(max(colGame, 0.0), 2.2);
+                    uint3 lr = (uint3)(clamp(linRT, 0.0, LIN_MAX) * LIN_FIXED + 0.5);
+                    uint3 lg = (uint3)(clamp(linGame, 0.0, LIN_MAX) * LIN_FIXED + 0.5);
+                    InterlockedAdd(gsLin[0], lr.r); InterlockedAdd(gsLin[1], lr.g); InterlockedAdd(gsLin[2], lr.b);
+                    InterlockedAdd(gsLin[3], lg.r); InterlockedAdd(gsLin[4], lg.g); InterlockedAdd(gsLin[5], lg.b);
                 }
                 float bn = (log2(max(lumRT, 1e-8)) - _Range.x) * _Range.y;
                 float bg = (log2(max(lumGame, 1e-8)) - _Range.x) * _Range.y;
@@ -127,6 +144,7 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
         if (gsGame[gi] != 0u) InterlockedAdd(_Hist[2 * BINS + gi], gsGame[gi]);
     }
     if (gi < 6 && gsCol[gi] != 0u) InterlockedAdd(_Hist[3 * BINS + gi], gsCol[gi]);
+    if (gi < 6 && gsLin[gi] != 0u) InterlockedAdd(_Hist[3 * BINS + 6 + gi], gsLin[gi]);
 }
 
 // Mean log2 of the [lo, hi] percentile band of one histogram (offset `base` in gsAll).
@@ -154,13 +172,27 @@ void Adapt(uint gi : SV_GroupIndex)
     gsAll[gi] = gsBins[gi];
     gsAll[BINS + gi] = _Hist[BINS + gi];
     gsAll[2 * BINS + gi] = _Hist[2 * BINS + gi];
-    if (gi < 6) gsCol[gi] = _Hist[3 * BINS + gi];
+    if (gi < 6) { gsCol[gi] = _Hist[3 * BINS + gi]; gsLin[gi] = _Hist[3 * BINS + 6 + gi]; }
     GroupMemoryBarrierWithGroupSync();
     _Hist[gi] = 0u;
     _Hist[BINS + gi] = 0u;
     _Hist[2 * BINS + gi] = 0u;
-    if (gi < 6) _Hist[3 * BINS + gi] = 0u;
+    if (gi < 6) { _Hist[3 * BINS + gi] = 0u; _Hist[3 * BINS + 6 + gi] = 0u; }
     if (gi != 0u) return;
+
+    if (_Params6.w > 0.5)
+    {
+        // Light fit statistics (docs/lighting-overrides.md, "Fit"): linear mean colour of RT and game at the near pixels.
+        float n = 0.0;
+        for (uint q = 0; q < BINS; q++) n += (float)gsAll[BINS + q];
+        float inv = n > 0.0 ? 1.0 / (LIN_FIXED * n) : 0.0;
+        _Exposure[4] = float4(float3(gsLin[0], gsLin[1], gsLin[2]) * inv, n);
+        _Exposure[5] = float4(float3(gsLin[3], gsLin[4], gsLin[5]) * inv, n);
+        // ... and the display-unit means (the colour match's sums): the fit's target is the game's look, not its energy.
+        float invD = n > 0.0 ? 1.0 / (COLOR_FIXED * n) : 0.0;
+        _Exposure[6] = float4(float3(gsCol[0], gsCol[1], gsCol[2]) * invD, n);
+        _Exposure[7] = float4(float3(gsCol[3], gsCol[4], gsCol[5]) * invD, n);
+    }
 
     float total = 0.0;
     for (uint b = 0; b < BINS; b++) total += (float)gsBins[b];

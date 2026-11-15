@@ -1,0 +1,386 @@
+{
+  "version": 1,
+  "scene": "Level 6-1",
+  "note": "Shipped light overrides (docs/lighting-overrides.md): classifier fixes + per-light fit. Fitted 2026-11-15 on the lights-fit-a/b poses.",
+  "lights": [
+    {
+      "path": "13 - Hall of Sacreligious Remains/13 Nonstuff/Lighting/Point Light",
+      "name": "Point Light",
+      "pos": [
+        173.5,
+        -160.0,
+        -183.25
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "13 - Hall of Sacreligious Remains/13 Nonstuff/Lighting/Point Light (3)",
+      "name": "Point Light (3)",
+      "pos": [
+        173.5,
+        -160.0,
+        -294.5
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "13 - Hall of Sacreligious Remains/13 Nonstuff/Lighting/Point Light (5)",
+      "name": "Point Light (5)",
+      "pos": [
+        168.5,
+        -163.5,
+        -366.75
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "14 - Hall of Sacreligious Remains/14 Nonstuff/Lighting/Point Light",
+      "name": "Point Light",
+      "pos": [
+        143.5,
+        -135.0,
+        -458.0
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "14 - Hall of Sacreligious Remains/14 Nonstuff/Lighting/Point Light (1)",
+      "name": "Point Light (1)",
+      "pos": [
+        193.5,
+        -135.0,
+        -458.0
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "14 - Hall of Sacreligious Remains/14 Nonstuff/Lighting/Point Light (2)",
+      "name": "Point Light (2)",
+      "pos": [
+        168.5,
+        -135.0,
+        -413.0
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Checkpoint (1)/Quad",
+      "name": "Quad",
+      "pos": [
+        168.5,
+        -182.7,
+        201.0
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.729,
+      "note": "fill: intensity x0.50 (bounce covers it)"
+    },
+    {
+      "path": "Checkpoint (2)/Quad",
+      "name": "Quad",
+      "pos": [
+        168.5,
+        -162.7,
+        -382.0
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.729,
+      "note": "fill: intensity x0.50 (bounce covers it)"
+    },
+    {
+      "path": "Checkpoint/Quad",
+      "name": "Quad",
+      "pos": [
+        168.5,
+        -200.7,
+        332.0
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.729,
+      "note": "fill: intensity x0.50 (bounce covers it)"
+    },
+    {
+      "path": "Interiors/1 - Entryway/1 Nonstuff/Lighting/Point Light",
+      "name": "Point Light",
+      "pos": [
+        -5.0,
+        -5.0,
+        321.25
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/1 - Entryway/1 Nonstuff/Lighting/Point Light (1)",
+      "name": "Point Light (1)",
+      "pos": [
+        7.25,
+        -5.0,
+        328.75
+      ],
+      "type": "point",
+      "intensity": 0.505,
+      "class": "fill",
+      "source": "classifier+fit",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]; fit x1.01 (1.00, 1.00, 1.00) over 1 poses"
+    },
+    {
+      "path": "Interiors/1 - Entryway/1 Nonstuff/Lighting/Point Light (2)",
+      "name": "Point Light (2)",
+      "pos": [
+        0.0,
+        -2.5,
+        362.0
+      ],
+      "type": "point",
+      "intensity": 1.048,
+      "color": [
+        1.023,
+        0.988,
+        0.99
+      ],
+      "source": "fit",
+      "note": "fit x1.05 (1.02, 0.99, 0.99) over 1 poses"
+    },
+    {
+      "path": "Interiors/1 - Entryway/1 Nonstuff/Walls/GothicHallwaySplitter/WallLeft/FurnaceCoffin (1)/Light",
+      "name": "Light",
+      "pos": [
+        -7.0,
+        1.15,
+        341.25
+      ],
+      "type": "point",
+      "intensity": 0.998,
+      "source": "fit",
+      "note": "fit x1.00 (1.00, 1.00, 1.00) over 1 poses"
+    },
+    {
+      "path": "Interiors/1 - Entryway/1 Nonstuff/Walls/GothicHallwaySplitter/WallRight/FurnaceCoffin (2)/Light",
+      "name": "Light",
+      "pos": [
+        7.0,
+        1.15,
+        341.25
+      ],
+      "type": "point",
+      "intensity": 0.996,
+      "source": "fit",
+      "note": "fit x1.00 (1.00, 1.00, 1.00) over 1 poses"
+    },
+    {
+      "path": "Interiors/2 - Small Room/2 Nonstuff/Point Light",
+      "name": "Point Light",
+      "pos": [
+        0.0,
+        -3.25,
+        403.5
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 1.0,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/4 - Dark Hallway/4 Nonstuff/Spot Light",
+      "name": "Spot Light",
+      "pos": [
+        0.0,
+        10.0,
+        495.5
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.727,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/4 - Dark Hallway/4 Nonstuff/Spot Light (1)",
+      "name": "Spot Light (1)",
+      "pos": [
+        0.0,
+        10.0,
+        505.5
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.727,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/4 - Dark Hallway/4 Nonstuff/Spot Light (2)",
+      "name": "Spot Light (2)",
+      "pos": [
+        0.0,
+        10.0,
+        515.5
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.727,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/4 - Dark Hallway/4 Nonstuff/Spot Light (3)",
+      "name": "Spot Light (3)",
+      "pos": [
+        0.0,
+        10.0,
+        525.5
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.727,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/4 - Dark Hallway/4 Nonstuff/Spot Light (4)",
+      "name": "Spot Light (4)",
+      "pos": [
+        0.0,
+        10.0,
+        495.5
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.727,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/4 - Dark Hallway/4 Nonstuff/Spot Light (5)",
+      "name": "Spot Light (5)",
+      "pos": [
+        0.0,
+        10.0,
+        505.5
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.727,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/4 - Dark Hallway/4 Nonstuff/Spot Light (6)",
+      "name": "Spot Light (6)",
+      "pos": [
+        0.0,
+        10.0,
+        515.5
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.727,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/4 - Dark Hallway/4 Nonstuff/Spot Light (7)",
+      "name": "Spot Light (7)",
+      "pos": [
+        0.0,
+        10.0,
+        525.5
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.727,
+      "note": "fill: intensity x0.50 (bounce covers it) [off-at-load]"
+    },
+    {
+      "path": "Interiors/Checkpoint (4)/Quad",
+      "name": "Quad",
+      "pos": [
+        -40.0,
+        7.3,
+        539.5
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.729,
+      "note": "fill: intensity x0.50 (bounce covers it)"
+    },
+    {
+      "path": "Interiors/FirstRoom/Room/Shop/Point Light",
+      "name": "Point Light",
+      "pos": [
+        6.535,
+        2.612,
+        266.62
+      ],
+      "type": "point",
+      "offset": [
+        0.035,
+        0.035,
+        -0.337
+      ],
+      "class": "emissive",
+      "source": "classifier",
+      "confidence": 0.6,
+      "note": "wall: moved 0.34 m into the room [wall]"
+    }
+  ],
+  "added": []
+}

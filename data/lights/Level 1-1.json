@@ -1,0 +1,239 @@
+{
+  "version": 1,
+  "scene": "Level 1-1",
+  "note": "Shipped light overrides (docs/lighting-overrides.md): classifier fixes + per-light fit. Fitted 2026-11-15 on the lights-fit-a/b poses.",
+  "lights": [
+    {
+      "path": "1 - First Field/1 Nonstuff/FinalRoom SecretEntrance/Spot Light",
+      "name": "Spot Light",
+      "pos": [
+        0.0,
+        -0.1,
+        330.75
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "source": "fit",
+      "note": "fit x0.50 (1.00, 1.00, 1.00) over 2 poses"
+    },
+    {
+      "path": "11 - Blue Skull Room/11 Nonstuff/Altar (Blue Skull) Variant/Altars/Altar_Mercury/Mercury_Raise/Spot Light",
+      "name": "Spot Light",
+      "pos": [
+        -15.0,
+        28.63,
+        428.35
+      ],
+      "type": "spot",
+      "intensity": 0.945,
+      "color": [
+        0.989,
+        0.997,
+        1.014
+      ],
+      "source": "fit",
+      "note": "fit x0.94 (0.99, 1.00, 1.01) over 1 poses"
+    },
+    {
+      "path": "4 - Altar Field/Decorations/StatueOutside/Sphere_8/Point Light",
+      "name": "Point Light",
+      "pos": [
+        9.705,
+        7.484,
+        393.483
+      ],
+      "type": "point",
+      "intensity": 0.9,
+      "color": [
+        0.981,
+        0.992,
+        1.027
+      ],
+      "source": "fit",
+      "note": "fit x0.90 (0.98, 0.99, 1.03) over 1 poses"
+    },
+    {
+      "path": "5 - Corner Hallway/5 Nonstuff/Decorations/BigTorch (2)/Fire",
+      "name": "Fire",
+      "pos": [
+        49.75,
+        6.0,
+        391.0
+      ],
+      "type": "point",
+      "intensity": 0.623,
+      "color": [
+        0.832,
+        0.986,
+        1.181
+      ],
+      "source": "fit",
+      "note": "fit x0.62 (0.83, 0.99, 1.18) over 1 poses"
+    },
+    {
+      "path": "5 - Corner Hallway/5 Nonstuff/Decorations/BigTorch (3)/Fire",
+      "name": "Fire",
+      "pos": [
+        42.25,
+        6.0,
+        391.0
+      ],
+      "type": "point",
+      "intensity": 0.613,
+      "color": [
+        0.815,
+        0.993,
+        1.191
+      ],
+      "source": "fit",
+      "note": "fit x0.61 (0.82, 0.99, 1.19) over 1 poses"
+    },
+    {
+      "path": "5 - Corner Hallway/5 Nonstuff/Decorations/BigTorch (4)/Fire",
+      "name": "Fire",
+      "pos": [
+        32.25,
+        6.0,
+        377.25
+      ],
+      "type": "point",
+      "intensity": 0.873,
+      "color": [
+        0.97,
+        0.994,
+        1.036
+      ],
+      "source": "fit",
+      "note": "fit x0.87 (0.97, 0.99, 1.04) over 1 poses"
+    },
+    {
+      "path": "5 - Corner Hallway/5 Nonstuff/Decorations/BigTorch (5)/Fire",
+      "name": "Fire",
+      "pos": [
+        32.25,
+        6.0,
+        384.75
+      ],
+      "type": "point",
+      "intensity": 0.584,
+      "color": [
+        0.856,
+        0.924,
+        1.22
+      ],
+      "source": "fit",
+      "note": "fit x0.58 (0.86, 0.92, 1.22) over 1 poses"
+    },
+    {
+      "path": "6 - Waterfall Arena/6 Nonstuff/Decorations/StatueOutside/Sphere_8/Point Light",
+      "name": "Point Light",
+      "pos": [
+        53.996,
+        7.408,
+        451.096
+      ],
+      "type": "point",
+      "intensity": 0.963,
+      "source": "fit",
+      "note": "fit x0.96 (0.99, 1.00, 1.01) over 1 poses"
+    },
+    {
+      "path": "Checkpoint (1)/Quad",
+      "name": "Quad",
+      "pos": [
+        46.0,
+        13.8,
+        550.0
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.729,
+      "note": "fill: intensity x0.50 (bounce covers it)"
+    },
+    {
+      "path": "Checkpoint (2)/Quad",
+      "name": "Quad",
+      "pos": [
+        3.5,
+        22.8,
+        427.0
+      ],
+      "type": "point",
+      "intensity": 0.489,
+      "class": "fill",
+      "source": "classifier+fit",
+      "confidence": 0.729,
+      "note": "fill: intensity x0.50 (bounce covers it); fit x0.98 (1.00, 1.00, 1.01) over 1 poses"
+    },
+    {
+      "path": "Checkpoint (3)/Quad",
+      "name": "Quad",
+      "pos": [
+        81.0,
+        -3.7,
+        231.0
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.729,
+      "note": "fill: intensity x0.50 (bounce covers it)"
+    },
+    {
+      "path": "Checkpoint/Quad",
+      "name": "Quad",
+      "pos": [
+        46.0,
+        2.8,
+        388.5
+      ],
+      "type": "point",
+      "intensity": 0.5,
+      "class": "fill",
+      "source": "classifier",
+      "confidence": 0.729,
+      "note": "fill: intensity x0.50 (bounce covers it)"
+    },
+    {
+      "path": "FirstRoom/Room/FinalDoor/OpenedLight",
+      "name": "OpenedLight",
+      "pos": [
+        0.0,
+        -4.0,
+        303.0
+      ],
+      "type": "point",
+      "intensity": 0.565,
+      "color": [
+        0.884,
+        0.884,
+        1.231
+      ],
+      "source": "fit",
+      "note": "fit x0.57 (0.88, 0.88, 1.23) over 1 poses"
+    },
+    {
+      "path": "FirstRoom/Room/Shop/Point Light",
+      "name": "Point Light",
+      "pos": [
+        6.535,
+        2.612,
+        266.62
+      ],
+      "type": "point",
+      "offset": [
+        0.035,
+        0.035,
+        -0.337
+      ],
+      "class": "emissive",
+      "source": "classifier",
+      "confidence": 0.6,
+      "note": "wall: moved 0.34 m into the room [wall]"
+    }
+  ],
+  "added": []
+}
