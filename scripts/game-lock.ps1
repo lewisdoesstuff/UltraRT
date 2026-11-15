@@ -129,7 +129,11 @@ function Add-History($hold) {
     if (-not (Test-Path $history)) { 'end,owner,kind,slot,waited_s,hold_s' | Set-Content $history -Encoding ascii }
     $since = try { [datetime] $hold.since } catch { Get-Date }
     $line = '{0},{1},{2},{3},{4},{5}' -f (Get-Date).ToString('s'), $hold.owner, $hold.kind, $hold.slot, [int] $hold.waited, [int] ((Get-Date) - $since).TotalSeconds
-    Add-Content $history $line -Encoding ascii
+    # Two releases at once can collide on this file: retry, and never let the history abort a release.
+    for ($i = 0; $i -lt 10; $i++) {
+        try { Add-Content $history $line -Encoding ascii -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds (100 + 100 * $i) }
+    }
+    Write-Warning "Could not write lock history: $line"
 }
 
 # ---------------------------------------------------------------- main build cache
