@@ -66,7 +66,7 @@ namespace UltraRT
     public sealed class LightAddEntry
     {
         [JsonProperty("id")] public string Id;
-        /// <summary>area (default) or skyportal (colour follows the sky's mean colour times <see cref="Color"/>).</summary>
+        /// <summary>area (default). "skyportal" is reserved for window portals (not implemented: packed as a plain area light).</summary>
         [JsonProperty("kind", NullValueHandling = NullValueHandling.Ignore)] public string Kind;
         [JsonProperty("pos")] public float[] Pos;
         [JsonProperty("shape", NullValueHandling = NullValueHandling.Ignore)] public string Shape;
