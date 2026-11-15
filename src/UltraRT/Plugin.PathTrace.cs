@@ -52,9 +52,10 @@ namespace UltraRT
         public bool remodulate = true;
         /// <summary>With <see cref="remodulate"/> at trace scale 1/3 (or 1/5): the exact N x N jitter grid, as RR uses.</summary>
         public bool remodExactGrid = true;
-        /// <summary>The lighting upsampler's sample weight exp(-x d^2), d in screen px (the lighting is smooth: softer than textures').</summary>
-        public float remodSharpness = 0.5f;
-        public float remodMaxWeight = 4f;
+        /// <summary>The lighting upsampler's sample weight exp(-x d^2), d in screen px, and its history cap (exact hits). As the
+        /// plain upsampler: a softer weight (0.5) gave fresh samples more say and measured noisier at rest (0-1 metal 1.90 vs 1.05).</summary>
+        public float remodSharpness = 4f;
+        public float remodMaxWeight = 3f;
         /// <summary>Light sampling at the primary hit while RR denoises: -1 = as configured (F6), 1 = RIS without reuse,
         /// 2 = ReSTIR. RR wants uncorrelated samples (docs/dlss.md).</summary>
         public int lightsRR = 1;

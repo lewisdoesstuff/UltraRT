@@ -1,0 +1,106 @@
+// UltraRT: blood stains for reflection rays (docs/path-tracing.md, "Blood stains in reflections"). Driven by
+// src/UltraRT/Plugin.Stains.cs.
+//
+// The game keeps its stains in a GPU ring buffer (BloodsplatterManager.instanceBuffer: position, parent, normal, clip state
+// per slot; parentBuffer: the transform of what each stain sticks to) and draws them as screen-space decals, so no ray sees
+// them. Each frame this builds a world-space hash grid of the stains near the camera:
+//   Clear   empties the buckets;
+//   Insert  one thread per slot: the stain's box in world space (the same axes, size and atlas cell as the game's stamp
+//           shader, ported in BloodWet.shader), written as a record, and its slot appended to every grid cell the box
+//           touches (at most 8: cells are larger than a stain).
+// UltraRTStains.hlsl looks a hit point up in its cell.
+
+#pragma kernel Clear
+#pragma kernel Insert
+
+#include "UltraRTStainGrid.hlsl"
+
+struct Stain { float3 pos; int parent; float3 norm; int clip; };
+struct Parent { float4 c0, c1, c2, c3; }; // a Matrix4x4, column by column
+StructuredBuffer<Stain> instanceBuffer;
+StructuredBuffer<Parent> parentBuffer;
+StructuredBuffer<float> _BloodBirth;     // per slot: birth time (BloodWet.cs), or 1 element when wet blood is off
+RWStructuredBuffer<uint> _StainGridOut;  // buckets: [count, slot x STAIN_BUCKET]
+RWStructuredBuffer<StainRecord> _StainRecordsOut;
+float4 _StainBuild;   // x capacity (slots), y max distance from the camera (m), z _StainWarping, w now (s)
+float4 _StainBuild2;  // x seconds fully wet, y seconds until dry, z 1 = birth times bound, w mesh half extent (stain units)
+float4 _StainCam;     // xyz camera position
+
+[numthreads(64, 1, 1)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x < STAIN_BUCKETS) _StainGridOut[id.x * (STAIN_BUCKET + 1)] = 0;
+}
+
+[numthreads(64, 1, 1)]
+void Insert(uint3 id : SV_DispatchThreadID)
+{
+    uint slot = id.x;
+    if (slot >= (uint)_StainBuild.x) return;
+    Stain s = instanceBuffer[slot];
+    float3 N = s.norm;
+    if (all(N == 0.0)) return; // cleared or never written
+    Parent pm = parentBuffer[max(s.parent, 0)];
+    // As the game's stamp shader (BloodWet.shader's port): rotation and atlas cell from the slot, axes x 8.
+    float angle = (float)(slot % 359u);
+    float ca = cos(angle), sa = sin(angle);
+    float3 X, Y, Z;
+    float3 t = float3(-N.y, N.x, 0.0);
+    float l2 = dot(t.xy, t.xy);
+    if (l2 >= 1e-7)
+    {
+        t *= rsqrt(l2);
+        float3 b = cross(N, t);
+        X = (t * ca + b * sa) * 8.0;
+        Y = (b * ca - t * sa) * 8.0;
+        Z = N * 8.0;
+    }
+    else
+    {
+        float sg = sign(N.z);
+        X = float3(ca * 8.0, sa * 8.0, 0.0);
+        Y = float3(-sa * 8.0, sg * ca * 8.0, 0.0);
+        Z = float3(0.0, 0.0, 8.0);
+    }
+    float4 r0 = float4(pm.c0.x, pm.c1.x, pm.c2.x, pm.c3.x);
+    float4 r1 = float4(pm.c0.y, pm.c1.y, pm.c2.y, pm.c3.y);
+    float4 r2 = float4(pm.c0.z, pm.c1.z, pm.c2.z, pm.c3.z);
+    float4 p1 = float4(s.pos, 1.0);
+    float3 mx = float3(dot(r0.xyz, X), dot(r1.xyz, X), dot(r2.xyz, X));
+    float3 my = float3(dot(r0.xyz, Y), dot(r1.xyz, Y), dot(r2.xyz, Y));
+    float3 mz = float3(dot(r0.xyz, Z), dot(r1.xyz, Z), dot(r2.xyz, Z));
+    float3 c = float3(dot(r0, p1), dot(r1, p1), dot(r2, p1));
+    if (distance(c, _StainCam.xyz) > _StainBuild.y) return;
+
+    float wet = 0.0;
+    if (_StainBuild2.z > 0.5)
+    {
+        float age = _StainBuild.w - _BloodBirth[slot];
+        wet = age < -0.5 ? 0.0 : 1.0 - smoothstep(_StainBuild2.x, max(_StainBuild2.y, _StainBuild2.x + 0.01), age);
+    }
+    StainRecord rec;
+    rec.centre = c;
+    rec.halfZ = (_StainBuild.z + 1.0) * 0.26 * ((s.clip != 0 ? 0.0 : 5.0) + 1.0);
+    rec.ax = normalize(mx);
+    // The atlas shape spans the mesh's face: local position / (2 x half extent in metres) + 0.5 is the face's uv.
+    rec.uvScale = 0.5 / max(_StainBuild2.w * length(mx), 1e-3);
+    rec.ay = normalize(my);
+    rec.cell = (float)(slot % 5u) * 0.2;
+    rec.az = normalize(mz);
+    rec.flags = (s.clip != 0 ? 1.0 : 0.0) + saturate(wet) * 0.5;
+    _StainRecordsOut[slot] = rec;
+
+    // Every cell the stain's box (2 m half size in its plane, halfZ along the normal) touches.
+    float3 ext = abs(rec.ax) * 2.0 + abs(rec.ay) * 2.0 + abs(rec.az) * rec.halfZ;
+    int3 lo = (int3)floor((c - ext) / STAIN_CELL), hi = (int3)floor((c + ext) / STAIN_CELL);
+    hi = min(hi, lo + 1); // cells are larger than any stain: at most 2 per axis
+    for (int z = lo.z; z <= hi.z; z++)
+    for (int y = lo.y; y <= hi.y; y++)
+    for (int x = lo.x; x <= hi.x; x++)
+    {
+        uint b = StainBucket(int3(x, y, z));
+        uint n;
+        InterlockedAdd(_StainGridOut[b * (STAIN_BUCKET + 1)], 1u, n);
+        if (n < STAIN_BUCKET) _StainGridOut[b * (STAIN_BUCKET + 1) + 1 + n] = slot;
+    }
+}

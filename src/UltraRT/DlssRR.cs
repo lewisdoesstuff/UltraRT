@@ -191,8 +191,14 @@ namespace UltraRT
         /// output offset and the screen-to-trace map. Mirrors what Execute does.</summary>
         public void FeatureSizes(int tw, int th, Vector2Int guardPx, Vector2 guardScale, int Ws, int Hs, out int rw, out int rh, out int W, out int H,
                                  out bool exact, out Vector2Int outOffset, out Vector4 traceMap)
+            => FeatureSizes(tw, th, guardPx, guardScale, Ws, Hs, out rw, out rh, out W, out H, out exact, out outOffset, out traceMap, out _);
+
+        /// <param name="renderOffset">Where RR's input starts in the trace: the guard band, or 0 with <see cref="RenderGuard"/>.</param>
+        public void FeatureSizes(int tw, int th, Vector2Int guardPx, Vector2 guardScale, int Ws, int Hs, out int rw, out int rh, out int W, out int H,
+                                 out bool exact, out Vector2Int outOffset, out Vector4 traceMap, out Vector2Int renderOffset)
         {
             rw = tw - 2 * guardPx.x; rh = th - 2 * guardPx.y;
+            renderOffset = guardPx;
             float os = Mathf.Clamp(OutScale, 0.25f, 4f);
             W = Mathf.RoundToInt(Ws * os); H = Mathf.RoundToInt(Hs * os);
             // Exact grid (Plugin.ExactGridTrace sized the trace for it): one trace pixel is exactly N screen pixels, so RR's
@@ -204,11 +210,21 @@ namespace UltraRT
             traceMap = new Vector4((float)rw / Ws, (float)rh / Hs, guardPx.x, guardPx.y);
             if (exact)
             {
+                if (RenderGuard)
+                {
+                    // RR sees the whole trace, guard band included (history for what enters the screen while turning), and its
+                    // output overscans the screen by the guard band too. The screen-to-trace map is the same.
+                    rw = tw; rh = th;
+                    renderOffset = Vector2Int.zero;
+                }
                 W = rw * grid; H = rh * grid;
                 outOffset = new Vector2Int((W - Ws) / 2, (H - Hs) / 2);
-                traceMap = new Vector4(1f / grid, 1f / grid, guardPx.x + (float)outOffset.x / grid, guardPx.y + (float)outOffset.y / grid);
+                traceMap = new Vector4(1f / grid, 1f / grid, renderOffset.x + (float)outOffset.x / grid, renderOffset.y + (float)outOffset.y / grid);
             }
         }
+
+        /// <summary>Exact grid only: RR's input is the whole trace including the guard band (bench plugin._rrGuard=1).</summary>
+        public bool RenderGuard;
 
         /// <summary>Whether the feature for this trace exists. If not, starts creating it on the native worker thread (with NGX's
         /// init if that hasn't run) and returns false: the caller uses its own denoiser until it is ready, instead of the
@@ -284,7 +300,7 @@ namespace UltraRT
             int tw = i.radiance.width, th = i.radiance.height;
             int Ws = i.gameDepth.width, Hs = i.gameDepth.height;
             float os = Mathf.Clamp(OutScale, 0.25f, 4f);
-            FeatureSizes(tw, th, i.guardPx, i.guardScale, Ws, Hs, out int rw, out int rh, out int W, out int H, out bool exact, out var outOffset, out var traceMap);
+            FeatureSizes(tw, th, i.guardPx, i.guardScale, Ws, Hs, out int rw, out int rh, out int W, out int H, out bool exact, out var outOffset, out var traceMap, out var renderOffset);
             EnsureTargets(rw, rh, W, H, tw, th, Ws, Hs);
             var cs = _cs;
             var cam = i.camera;
@@ -326,7 +342,7 @@ namespace UltraRT
             cmd.SetComputeMatrixParam(cs, "_InvViewProj", i.viewProj.inverse);
             cmd.SetComputeMatrixParam(cs, "_PrevViewProj", _prevViewProj);
             cmd.SetComputeVectorParam(cs, "_Jitter", new Vector4(jitter.x, jitter.y, _prevJitter.x, _prevJitter.y));
-            cmd.SetComputeIntParams(cs, "_Guard", i.guardPx.x, i.guardPx.y, rw, rh);
+            cmd.SetComputeIntParams(cs, "_Guard", renderOffset.x, renderOffset.y, rw, rh);
             cmd.SetComputeVectorParam(cs, "_ReflParams", i.reflParams);
             cmd.SetComputeVectorParam(cs, "_RRParams", new Vector4(Linearize ? 1f : 0f, cam.farClipPlane, _historyValid ? 1f : 0f, SpecularHitDistance ? 1f : 0f));
             cmd.SetComputeTextureParam(cs, k, "_Radiance", i.radiance);

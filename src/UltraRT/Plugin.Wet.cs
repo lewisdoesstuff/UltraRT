@@ -29,6 +29,10 @@ namespace UltraRT
         public float bloodRoughness = 0.12f, bloodF0 = 0.12f, bloodWeight = 1f;
         /// <summary>At most this many of the newest stains are drawn into the wetness mask.</summary>
         public int bloodMaxStains = 4096;
+        /// <summary>Blood stains show in reflections (Plugin.Stains.cs): reflection hits get the game's blood composite.</summary>
+        public bool stainReflections = true;
+        /// <summary>Stains further than this from the camera (m) are left out of the reflection lookup.</summary>
+        public float stainDistance = 80f;
 
         public void ParseArgs()
         {
@@ -45,11 +49,12 @@ namespace UltraRT
                     case "-ultrart-wet-puddles": puddles = F(puddles); break;
                     case "-ultrart-wet-blood": blood = On(); break;
                     case "-ultrart-wet-blood-dry": bloodDryTime = F(bloodDryTime); break;
+                    case "-ultrart-stain-reflections": stainReflections = On(); break;
                 }
             }
         }
 
-        public override string ToString() => FormattableString.Invariant($"rain {(rain ? "on" : "off")} (wetness {rainWetness}, puddles {puddles}), blood {(blood ? "on" : "off")} (wet {bloodWetTime} s, dry after {bloodDryTime} s)");
+        public override string ToString() => FormattableString.Invariant($"rain {(rain ? "on" : "off")} (wetness {rainWetness}, puddles {puddles}), blood {(blood ? "on" : "off")} (wet {bloodWetTime} s, dry after {bloodDryTime} s), stains in reflections {(stainReflections ? "on" : "off")}");
     }
 
     /// <summary>

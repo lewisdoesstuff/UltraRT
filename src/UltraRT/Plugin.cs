@@ -333,6 +333,7 @@ namespace UltraRT
             LoadEffectShaders(shaders);
             LoadVfxShaders(bundle);
             LoadWetShaders(bundle);
+            LoadStainShader(bundle);
 
             _bundle = bundle;
             _debugShader = debug;
@@ -1242,6 +1243,7 @@ namespace UltraRT
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 BindTransparents(shader, denoised); // water and glass (Plugin.Transparent.cs)
                 BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
+                BindStains(shader, kind == Kind.Denoised || kind == Kind.Hybrid); // blood stains at reflection hits (Plugin.Stains.cs)
                 BindPathTrace(shader, full, rr);
                 PathTraceLightsEnd();
             }

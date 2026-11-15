@@ -382,7 +382,12 @@ namespace
         EnterCriticalSection(&s_NgxCs);
         double t0 = NowMs();
         bool ok = s_NgxInit || (!s_NgxFailed && InitNgx());
-        const WarmRequest w = s_Warm;
+        WarmRequest w = s_Warm;
+        // No sizes (the warm-up at plugin start): a small throw-away feature, evaluated once and released. NGX loads its
+        // kernels on the first evaluate of the process (measured 130-230 ms, and it stalls the render thread even when done
+        // here mid-game); at start-up nobody notices.
+        bool probe = w.renderW <= 0 && !s_Feature;
+        if (probe) w = { 320, 180, 960, 540, w.preset, 3 };
         if (ok && w.renderW > 0 && !FeatureMatches(w.renderW, w.renderH, w.outW, w.outH, w.preset, w.quality))
         {
             ID3D12CommandQueue* q = nullptr;
@@ -438,7 +443,8 @@ namespace
                 if (fence->GetCompletedValue() < 1 && SUCCEEDED(fence->SetEventOnCompletion(1, ev))) WaitForSingleObject(ev, 10000);
                 for (ID3D12Resource* t : tex) if (t) t->Release();
                 if (!created) AppendLog("warm-up: feature creation failed (it is retried on the render thread)");
-                else { char b[128]; snprintf(b, sizeof b, "warm-up: first evaluate %.0f ms (CPU + GPU, own queue)", NowMs() - tEval); AppendLog(b); }
+                else { char b[128]; snprintf(b, sizeof b, "warm-up: %sfirst evaluate %.0f ms (CPU + GPU, own queue)", probe ? "probe feature, " : "", NowMs() - tEval); AppendLog(b); }
+                if (probe && created) { s_LastFence = 0; ReleaseFeature(); }
             }
             else AppendLog("warm-up: could not create a command queue; the feature is created on the render thread");
             if (fence) fence->Release();

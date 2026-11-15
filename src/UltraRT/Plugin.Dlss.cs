@@ -38,6 +38,8 @@ namespace UltraRT
         /// <summary>At an integer upscale (trace scale 1/2, 1/3, 1/4) jitter on the exact screen-pixel pattern instead of Halton
         /// (DlssRR.ExactGrid). Bench plugin._rrExactJitter=0.</summary>
         private bool _rrExactJitter = true;
+        /// <summary>RR also sees the guard band (exact grid only; DlssRR.RenderGuard). Bench plugin._rrGuard=1.</summary>
+        private bool _rrGuard;
         private const int SlotRR = 17, SlotRREval = 18;
         /// <summary>NGX init at plugin start and the feature's creation on a native worker thread, so the first RR frame doesn't
         /// stall the game for seconds (docs/dlss.md, "Warm-up"). -ultrart-rr-nowarm, bench plugin._rrWarm=0: the old lazy
@@ -167,6 +169,7 @@ namespace UltraRT
                 float up = 1f / Mathf.Max(0.05f, name == PathTraceModeName ? _ptSettings.scaleRR : _scale);
                 int grid = Mathf.RoundToInt(up);
                 _rr.ExactGrid = _rrExactJitter && _rrRemodulate && grid >= 2 && grid <= 5 && Mathf.Abs(up - grid) < 0.02f ? grid : 0;
+                _rr.RenderGuard = _rrGuard;
                 _rr.DemodSharpness = _rrDemodSharpness;
                 _rr.DemodMaxWeight = _rrDemodMaxWeight;
                 // NVIDIA's rule: 8 x (output / render)^2 phases (72 at 3x); never fewer than the configured count.
