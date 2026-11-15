@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "1-3-water-glide",
+  "Scene": "Level 1-3",
+  "Note": "Sample path (docs/cinematics.md): a slow glide down the 1-3 start towards the water, along the route of bench/recordings/1-3-start-water.json. Keys give the player's feet (Player) and look angles; the camera goes to the eye.",
+  "Keys": [
+    { "Player": [0.0, 0.5, 257.0], "Yaw": -6, "Pitch": -2, "Fov": 0, "Duration": 2.0, "Ease": "in" },
+    { "Player": [0.4, -1.2, 272.0], "Yaw": 4, "Pitch": -6, "Fov": 0, "Duration": 2.0, "Ease": "linear" },
+    { "Player": [0.0, -5.0, 290.0], "Yaw": 8, "Pitch": -9, "Fov": 0, "Duration": 2.0, "Ease": "out" },
+    { "Player": [-0.3, -7.6, 303.0], "Yaw": -2, "Pitch": -6, "Fov": 0, "Duration": 2.0, "Ease": "linear" }
+  ]
+}

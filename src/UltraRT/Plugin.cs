@@ -179,6 +179,7 @@ namespace UltraRT
             SceneManager.activeSceneChanged += (_, to) =>
             {
                 Logger.LogInfo($"Scene -> {to.name} ({SafeCurrentScene()})");
+                CineOnSceneChanged(); // the cinematic camera puts back what it changed (Plugin.Cinematics.cs)
                 ResetScene();
                 _host.StartCoroutine(BuildWhenLoaded());
             };
@@ -376,6 +377,7 @@ namespace UltraRT
         private void OnUpdate()
         {
             UpdateRecorder();
+            CineUpdate(); // cinematic camera: Home, then its keys (Plugin.Cinematics.cs)
             UpdateEffects();
             UpdateShaftFakes(); // lamp cones: the game's fake cone meshes hide while ours draw (Plugin.Shafts.cs)
             UpdateParticles(); // lit particles (Plugin.Particles.cs)

@@ -152,6 +152,7 @@ namespace UltraRT
 
         private void DrawHud()
         {
+            if (_cineHideGui) return; // a frame the cinematic renderer captures (Plugin.CineRender.cs)
             if (BenchSafety.Active) { if (_editorBenchShow) DrawLightEditor(); return; } // the editor only when a bench variant asks (its screenshot)
             if (_hudStyle == null)
                 _hudStyle = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
@@ -166,6 +167,7 @@ namespace UltraRT
                 GUI.Label(new Rect(20, 60, 1200, 40), _toast, _hudStyle);
             }
             DrawLightEditor(); // Plugin.LightOverrides.cs
+            DrawCine(); // Plugin.Cinematics.cs
         }
 
         // ---------------------------------------------------------------- suite
@@ -381,6 +383,7 @@ namespace UltraRT
                     _level = null; GameControl.ReleaseControl();
                     // A failure inside a burst or a variant mode would otherwise leave its settings on for the rest of the run.
                     _benchModeVariant = null;
+                    CineExit(); // a cinematic scenario that failed: camera, HUD, time scale back (its render restored its own settings)
                     RestoreVariantState(variantDefaults);
                     Denoiser.FrameTimeOverride = 0f;
                     if (_autoExposure != null) _autoExposure.Trace = null;
@@ -869,6 +872,8 @@ namespace UltraRT
                 ApplyBenchMode("off");
             }
 
+            if (sc.Cinematic != null) { yield return RunCinematicScenario(sc, sr, suiteDir, outDir, path, arenas); yield break; } // Plugin.Cinematics.Bench.cs
+
             var frames = sc.Modes.ToDictionary(m => m, _ => new List<float>(8192));
             var gpuSum = sc.Modes.ToDictionary(m => m, _ => new double[SlotCount]);
             var gpuN = sc.Modes.ToDictionary(m => m, _ => new int[SlotCount]);
@@ -1186,6 +1191,7 @@ namespace UltraRT
                               $"{sc.Load}{(sc.LoadDetail != null ? $" ({sc.LoadDetail})" : "")} | {sc.LoadSeconds:F1} | {sc.WallSeconds:F1} |");
             SummarizeBursts(sb, r);
             SummarizeMotion(sb, r);
+            SummarizeCinematics(sb, r); // Plugin.Cinematics.Bench.cs
             return sb.ToString();
 
             string Get(Dictionary<string, float> d, string k) => d.TryGetValue(k, out var v) ? v.ToString("F3") : "-";

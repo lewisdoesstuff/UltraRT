@@ -1,0 +1,34 @@
+{
+  "Name": "cine-test2",
+  "Note": "Cinematic tool checks (docs/cinematics.md): 6-1 test path in live pathtrace, path tracing cost of 1 vs 2 paths per frame, motion blur, supersampled 16-bit output",
+  "Scenarios": [
+    {
+      "Name": "6-1 hall paths2",
+      "Scene": "Level 6-1",
+      "Path": { "Type": "static", "Approach": "../recordings/late-6-1-candles.json", "Duration": 1 },
+      "Modes": [ "pathtrace" ],
+      "Cinematic": { "File": "../cinematics/6-1-candle-hall.json", "Play": true, "Mode": "pathtrace", "Start": 4, "Seconds": 0.05, "Samples": 16, "Aa": 2, "Paths": 2, "Preroll": 30 }
+    },
+    {
+      "Name": "6-1 hall paths1",
+      "Scene": "Level 6-1",
+      "Path": { "Type": "static", "Approach": "../recordings/late-6-1-candles.json", "Duration": 1 },
+      "Modes": [ "pathtrace" ],
+      "Cinematic": { "File": "../cinematics/6-1-candle-hall.json", "Mode": "pathtrace", "Start": 4, "Seconds": 0.05, "Samples": 32, "Aa": 2, "Paths": 1, "Preroll": 30 }
+    },
+    {
+      "Name": "1-3 blur",
+      "Scene": "Level 1-3",
+      "Path": { "Type": "static", "Approach": "../recordings/1-3-start-water.json", "Duration": 1 },
+      "Modes": [ "relight" ],
+      "Cinematic": { "File": "../cinematics/1-3-water-glide.json", "Mode": "relight", "Start": 2.5, "Seconds": 0.1, "Samples": 8, "Aa": 4, "MotionBlur": true, "Shutter": 0.5, "Preroll": 30 }
+    },
+    {
+      "Name": "1-3 ss16",
+      "Scene": "Level 1-3",
+      "Path": { "Type": "static", "Approach": "../recordings/1-3-start-water.json", "Duration": 1 },
+      "Modes": [ "relight" ],
+      "Cinematic": { "File": "../cinematics/1-3-water-glide.json", "Mode": "relight", "Start": 2.5, "Seconds": 0.03, "Samples": 8, "Aa": 2, "OutputScale": 0.5, "Png16": true, "Encode": false, "Preroll": 30 }
+    }
+  ]
+}

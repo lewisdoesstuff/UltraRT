@@ -95,6 +95,27 @@ namespace UltraRT.Bench
         /// <summary>Weapon slot to hold (GunControl.SwitchWeapon: 1 revolver, 2 shotgun, 3 nailgun, 4 railcannon, 5 rocket
         /// launcher), switched to when the bench takes the player over; 0 = whatever the save holds.</summary>
         public int Weapon;
+        /// <summary>Cinematic camera path instead of the measurement (docs/cinematics.md, bench/README.md "Cinematics"): the
+        /// level is loaded as for a pose (Path.Approach / Areas / Load), then the path plays and/or renders offline.</summary>
+        public CinematicSpec Cinematic;
+    }
+
+    /// <summary>A scenario's cinematic: the path file and overrides of the [Cinematics] settings (null = the config's).</summary>
+    public sealed class CinematicSpec
+    {
+        /// <summary>Saved path (BepInEx\ultrart\cinematics\...\*.json), relative to the suite. Without it, a "recording"
+        /// Path is replayed: the camera follows the recorded eye, the player moves along it and its arenas trigger on time.</summary>
+        public string File;
+        /// <summary>Play the path once in real time first, in the scenario's first RT mode (frame times and a mid-path screenshot).</summary>
+        public bool Play;
+        public bool Render = true;
+        /// <summary>pathtrace | relight | current</summary>
+        public string Mode;
+        public float? Fps, OutputScale, Shutter, TimeScale, Seconds, Start;
+        public int? Samples, Aa, Paths, Bounces, Crf, Preroll;
+        public bool? CacheTail, MotionBlur, Png16, Encode;
+        /// <summary>auto | locked</summary>
+        public string Exposure;
     }
 
     /// <summary>
@@ -199,6 +220,9 @@ namespace UltraRT.Bench
         public List<string> Screenshots = new List<string>();
         public List<BurstStats> Bursts = new List<BurstStats>();
         public List<MotionStats> MotionNoise = new List<MotionStats>();
+        /// <summary>Scenario.Cinematic: the live playback's frame times and the offline render's result.</summary>
+        public ModeStats CinematicPlay;
+        public CineRenderResult Cinematic;
     }
 
     /// <summary>
