@@ -24,7 +24,7 @@ RWStructuredBuffer<uint> _StainGridOut;  // buckets: [count, slot x STAIN_BUCKET
 RWStructuredBuffer<StainRecord> _StainRecordsOut;
 float4 _StainBuild;   // x capacity (slots), y max distance from the camera (m), z _StainWarping, w now (s)
 float4 _StainBuild2;  // x seconds fully wet, y seconds until dry, z 1 = birth times bound, w mesh half extent (stain units)
-float4 _StainCam;     // xyz camera position
+float4 _StainCam;     // xyz camera position, w the sign of the stain mesh's normal z (the side a clipped stain shows on)
 
 [numthreads(64, 1, 1)]
 void Clear(uint3 id : SV_DispatchThreadID)
@@ -86,7 +86,9 @@ void Insert(uint3 id : SV_DispatchThreadID)
     rec.uvScale = 0.5 / max(_StainBuild2.w * length(mx), 1e-3);
     rec.ay = normalize(my);
     rec.cell = (float)(slot % 5u) * 0.2;
-    rec.az = normalize(mz);
+    // The game's clip test compares the surface with the quad's own normal (mz x the mesh normal's z), and the stored
+    // normal points into the surface ((0, -1, 0) for a floor stain): az is made the side the stain shows on.
+    rec.az = normalize(mz) * (_StainCam.w < 0.0 ? -1.0 : 1.0);
     rec.flags = (s.clip != 0 ? 1.0 : 0.0) + saturate(wet) * 0.5;
     _StainRecordsOut[slot] = rec;
 

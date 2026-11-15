@@ -33,6 +33,8 @@ namespace UltraRT
         public bool stainReflections = true;
         /// <summary>Stains further than this from the camera (m) are left out of the reflection lookup.</summary>
         public float stainDistance = 80f;
+        /// <summary>Debug (bench wet.stainDebug=1): stains found at reflection hits show bright green.</summary>
+        public bool stainDebug;
 
         public void ParseArgs()
         {

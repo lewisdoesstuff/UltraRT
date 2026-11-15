@@ -1,0 +1,30 @@
+{
+ "Name": "pt2-l",
+ "Scenarios": [
+  {
+   "Name": "0-1 metal stain debug",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 5
+   },
+   "Modes": [
+    "relight+wet.stainDebug=1",
+    "refl+wet.stainDebug=1",
+    "pathtrace+wet.stainDebug=1",
+    "refl"
+   ],
+   "Screenshots": [
+    3
+   ],
+   "Effects": {
+    "Kinds": [
+     "bloodstain"
+    ],
+    "Every": 0,
+    "ShotDelay": 0.5
+   }
+  }
+ ]
+}

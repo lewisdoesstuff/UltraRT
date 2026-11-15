@@ -433,6 +433,7 @@ void RayGenBody(bool full)
             }
         }
         emission = PayloadEmission(p) * _EmissionScale;
+        if (_StainParams.x > 1.5) { float sw; if (StainAt(pos, n, sw) > 0.0) emission += float3(0.0, 2.0, 0.0); } // debug: the lookup at camera hits (green), to line up with the game's decals
         float3 shown = LightToDisplay(lighting); // = lighting unless linear transport (_Radiance keeps lighting space)
         c = albedo * shown + emission;
 

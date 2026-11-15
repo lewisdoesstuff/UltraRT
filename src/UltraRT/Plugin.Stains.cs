@@ -66,7 +66,7 @@ namespace UltraRT
             var atlas = on && bsm.stainMat.HasProperty("_SplatterAtlas") ? bsm.stainMat.GetTexture("_SplatterAtlas") : null;
             _cmd.SetRayTracingTextureParam(shader, "_StainAtlas", atlas != null ? atlas : Texture2D.whiteTexture);
             Vector2 fog = StainFade();
-            _cmd.SetRayTracingVectorParam(shader, "_StainParams", new Vector4(on ? 1f : 0f, s.blood ? Mathf.Clamp01(s.bloodDarken) : 0f, fog.x, fog.y));
+            _cmd.SetRayTracingVectorParam(shader, "_StainParams", new Vector4(on ? (s.stainDebug ? 2f : 1f) : 0f, s.blood ? Mathf.Clamp01(s.bloodDarken) : 0f, fog.x, fog.y));
             _cmd.SetRayTracingVectorParam(shader, "_StainCamPos", _camera.transform.position);
         }
 
@@ -98,14 +98,84 @@ namespace UltraRT
             _cmd.SetComputeBufferParam(cs, k, "_StainRecordsOut", _stainRecords);
             _cmd.SetComputeVectorParam(cs, "_StainBuild", new Vector4(cap, Mathf.Max(1f, s.stainDistance), Shader.GetGlobalFloat("_StainWarping"), Time.time));
             _cmd.SetComputeVectorParam(cs, "_StainBuild2", new Vector4(Mathf.Max(0f, s.bloodWetTime), Mathf.Max(0.1f, s.bloodDryTime), haveBirth ? 1f : 0f, half));
-            _cmd.SetComputeVectorParam(cs, "_StainCam", _camera.transform.position);
+            var cp = _camera.transform.position;
+            _cmd.SetComputeVectorParam(cs, "_StainCam", new Vector4(cp.x, cp.y, cp.z, StainMeshSide(bsm.optimizedBloodMesh)));
             _cmd.DispatchCompute(cs, k, (cap + 63) / 64, 1, 1);
+            if (s.stainDebug && Time.realtimeSinceStartup >= _stainNextProbe) { _stainNextProbe = Time.realtimeSinceStartup + 2f; ProbeStains(bsm); }
             if (Time.realtimeSinceStartup >= _stainNextLog)
             {
                 _stainNextLog = Time.realtimeSinceStartup + 30f;
                 var fog = StainFade();
                 Logger.LogInfo($"Blood stains in reflections: {cap} slots, mesh bounds {bsm.optimizedBloodMesh.bounds}, fade {fog.x:F0}-{fog.y:F0} m, wet {(haveBirth ? "on" : "off")}");
             }
+        }
+
+        private float _stainNextProbe;
+        private Mesh _stainSideMesh;
+        private float _stainSide = -1f;
+
+        /// <summary>The sign of the stain quad's normal z: the game's clip test uses the quad's normal (the stored stain normal
+        /// points into the surface). -1 when the mesh isn't readable: a floor stain stores (0, -1, 0) and the game shows it on the floor.</summary>
+        private float StainMeshSide(Mesh m)
+        {
+            if (m == _stainSideMesh) return _stainSide;
+            _stainSideMesh = m;
+            _stainSide = -1f;
+            try { if (m.isReadable) { var n = m.normals; if (n.Length > 0 && n[0].z > 0f) _stainSide = 1f; } } catch (Exception) { }
+            Logger.LogInfo($"Blood stains in reflections: mesh '{m.name}' readable {m.isReadable}, side {_stainSide}");
+            return _stainSide;
+        }
+
+        /// <summary>Debug (wet.stainDebug=1): reads the game's stain slots, our records and the grid back and logs a few.</summary>
+        private void ProbeStains(BloodsplatterManager bsm)
+        {
+            var cam = _camera.transform.position;
+            var atlas = bsm.stainMat.HasProperty("_SplatterAtlas") ? bsm.stainMat.GetTexture("_SplatterAtlas") : null;
+            var inst = bsm.instanceBuffer;
+            var recs = _stainRecords;
+            var grid = _stainGrid;
+            var parents = bsm.parentBuffer;
+            _cmd.RequestAsyncReadback(inst, ri =>
+            {
+                if (ri.hasError) { Logger.LogWarning("Stain probe: instance readback failed"); return; }
+                var d = ri.GetData<float>();
+                var used = new System.Collections.Generic.List<int>();
+                for (int i = 0; i < inst.count; i++)
+                    if (d[i * 8 + 4] != 0f || d[i * 8 + 5] != 0f || d[i * 8 + 6] != 0f) used.Add(i);
+                var sb = new System.Text.StringBuilder($"Stain probe: camera {cam:F2}, {used.Count} stains in {inst.count} slots, parents {parents.count}, atlas {(atlas != null ? $"{atlas.name} {atlas.width}x{atlas.height} {atlas.graphicsFormat}" : "none")}");
+                var di = d.ToArray();
+                if (recs != null && grid != null)
+                    ProbeStainGrid(recs, grid, used, di, sb);
+                else Logger.LogInfo(sb.ToString());
+            });
+        }
+
+        private void ProbeStainGrid(ComputeBuffer recs, ComputeBuffer grid, System.Collections.Generic.List<int> used, float[] inst, System.Text.StringBuilder sb)
+        {
+            UnityEngine.Rendering.AsyncGPUReadback.Request(grid, rg =>
+            {
+                if (rg.hasError) { Logger.LogInfo(sb + " (grid readback failed)"); return; }
+                var g = rg.GetData<uint>();
+                long total = 0; int full = 0, nonEmpty = 0;
+                for (int b = 0; b < StainBuckets; b++) { uint c = g[b * (StainBucket + 1)]; total += c; if (c > 0) nonEmpty++; if (c >= StainBucket) full++; }
+                sb.Append($"; grid {total} entries in {nonEmpty} buckets ({full} full)");
+                UnityEngine.Rendering.AsyncGPUReadback.Request(recs, rr =>
+                {
+                    if (rr.hasError) { Logger.LogInfo(sb + " (record readback failed)"); return; }
+                    var r = rr.GetData<float>();
+                    int shown = 0;
+                    for (int k = used.Count - 1; k >= 0 && shown < 4; k--, shown++)
+                    {
+                        int i = used[k];
+                        int o = i * 16;
+                        sb.Append($"\n  slot {i}: pos ({inst[i * 8]:F2}, {inst[i * 8 + 1]:F2}, {inst[i * 8 + 2]:F2}) parent {BitConverter.ToInt32(BitConverter.GetBytes(inst[i * 8 + 3]), 0)} " +
+                                  $"norm ({inst[i * 8 + 4]:F2}, {inst[i * 8 + 5]:F2}, {inst[i * 8 + 6]:F2}) clip {BitConverter.ToInt32(BitConverter.GetBytes(inst[i * 8 + 7]), 0)} -> " +
+                                  $"centre ({r[o]:F2}, {r[o + 1]:F2}, {r[o + 2]:F2}) halfZ {r[o + 3]:F2} ax ({r[o + 4]:F2}, {r[o + 5]:F2}, {r[o + 6]:F2}) uvScale {r[o + 7]:F3} " +
+                                  $"az ({r[o + 12]:F2}, {r[o + 13]:F2}, {r[o + 14]:F2}) cell {r[o + 11]:F1} flags {r[o + 15]:F2}");
+                    }
+                    Logger.LogInfo(sb.ToString());
+                });
+            });
         }
 
         private void ReleaseStains()

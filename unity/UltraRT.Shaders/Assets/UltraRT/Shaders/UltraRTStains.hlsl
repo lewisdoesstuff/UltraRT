@@ -15,7 +15,7 @@ StructuredBuffer<uint> _StainGrid;
 StructuredBuffer<StainRecord> _StainRecords;
 Texture2D _StainAtlas;           // the game's stain shapes (_SplatterAtlas): 5 cells side by side, alpha = shape
 SamplerState my_point_repeat_sampler_StainAtlas;
-float4 _StainParams;             // x on (0/1), y darkening of a wet stain (0-1), z fog near, w fog far (m; the composite's fade)
+float4 _StainParams;             // x on (0/1; 2 = debug: stains bright green), y darkening of a wet stain (0-1), z fog near, w fog far (m; the composite's fade)
 float4 _StainCamPos;             // xyz camera position (the fade is by distance from it, as the game's)
 
 // Coverage (0/1) of the stain at world point p with surface normal n (either side), and that stain's wetness.
@@ -49,6 +49,7 @@ float3 StainTint(float3 p, float3 n)
     float wet;
     float c = StainAt(p, n, wet);
     if (c <= 0.0) return 1.0;
+    if (_StainParams.x > 1.5) return float3(0.0, 6.0, 0.0);
     float t = saturate((_StainParams.w - distance(p, _StainCamPos.xyz)) / max(_StainParams.w - _StainParams.z, 1e-3));
     return float3(1.0, 1.0 - t, 1.0 - t) * (1.0 - _StainParams.y * wet);
 }

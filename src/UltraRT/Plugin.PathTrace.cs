@@ -64,6 +64,10 @@ namespace UltraRT
         public int candidatesRR = 16;
         /// <summary>Light samples (one shadow ray each) at the primary hit while RR denoises with RIS, 1-4.</summary>
         public int directSamplesRR = 1;
+        /// <summary>Compile RayGenPT's ray tracing pipeline on the session's first trace (a 1x1 dispatch, usually at the main
+        /// menu): its first use after a new shader bundle took 16-33 s (the driver's shader cache misses; about 0.2 s on a hit),
+        /// which froze the first switch to pathtrace. Flag -ultrart-pt-noprewarm.</summary>
+        public bool prewarm = true;
     }
 
     public partial class Plugin
@@ -91,6 +95,7 @@ namespace UltraRT
                     case "-ultrart-pt-paths": s.paths = I(s.paths); break;
                     case "-ultrart-pt-bounces": s.bounces = I(s.bounces); break;
                     case "-ultrart-pt-nocache": s.cacheTail = false; break;
+                    case "-ultrart-pt-noprewarm": s.prewarm = false; break;
                     case "-ultrart-pt-roulette": s.roulette = F(s.roulette); break;
                     case "-ultrart-pt-clamp": s.maxRadiance = F(s.maxRadiance); break;
                     case "-ultrart-pt-scale": s.scaleRR = s.scale = F(s.scale); break;

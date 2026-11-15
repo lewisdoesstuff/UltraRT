@@ -179,21 +179,29 @@ on P-2, 194 ms on 8-3).
 
 Now (`UltraRT_Dlss_Warm`, `Dlss.cpp`; `DlssRR.WarmInit` / `EnsureFeatureAsync`; `Plugin.Dlss.cs`):
 - **At start** (frame 3, whenever RR could be used: the `pathtrace` denoiser is Auto or RR, or RR in relight is on), a
-  native worker thread initialises NGX (2.9-3.0 s, during the boot and the main menu) and creates a small throw-away
+  native worker thread initialises NGX (2.4-3.1 s, during the boot and the main menu) and creates a small throw-away
   feature (320x180 -> 960x540) that it evaluates once: NGX loads its kernels on the first evaluate of the process, and
-  that stalled the render thread even when the worker did it mid-game.
+  that stalled the render thread even when the worker did it mid-game. The C# side then releases that probe through the
+  render-thread event (`[RR] start-up probe released on the render thread`).
 - **Every frame that wants RR** first checks that the feature for this frame's exact sizes exists. If not, the worker
   creates it with its creation commands on a D3D12 queue of its own (31-82 ms), plus one evaluate on zero-filled inputs
-  of the right sizes (10-30 ms): NGX's per-feature lazy work. Meanwhile the frames use UltraRT's denoiser (the plain
-  upsampler, no remodulation targets to allocate): 94-216 ms of them, invisible in practice. The first real frame
-  resets RR's history.
+  of the right sizes (6-30 ms): NGX's per-feature lazy work. Any other feature is released first, by the render-thread
+  event: the worker releasing a feature it had created on its since-destroyed queue froze the render thread for 16 s
+  inside NGX's ReleaseFeature. Meanwhile the frames use UltraRT's denoiser (the plain upsampler, no remodulation targets
+  to allocate): 14-18 frames, 125-200 ms in all, at normal frame times (38.7, 14.4, 4.7, 8.4, 5.0, 6.8 ms after a
+  relight -> pathtrace switch; the first is any mode switch's). The first real frame resets RR's history.
 - A critical section serialises NGX between the worker and the render thread. A render event never waits for it: an
   evaluate that finds the worker busy is skipped (the C# side doesn't ask for one then), a release is done at the next
   event.
 - `-ultrart-rr-nowarm` (bench `plugin._rrWarm=0`): the old lazy behaviour. The bench waits for the feature after a mode
   switch before screenshots, bursts and motion passes (`WaitForRR`).
 - Log lines: `[RR] NGX ready ... (init N ms on the warm-up thread)`, `feature ... (created in N ms on the warm-up
-  thread)`, `warm-up: first evaluate N ms`, and `DLSS Ray Reconstruction: ready after N ms of warm-up`.
+  thread)`, `warm-up: first evaluate N ms`, and `DLSS Ray Reconstruction: ready after N ms of warm-up`; while it waits,
+  once a second, `still warming up ... (worker busy | releasing the old feature | warm-up requested)`. `View mode A -> B
+  at frame N: frame ms ...` logs the first six frame times after every mode switch.
+- The longest first-use freeze was not NGX at all: the `pathtrace` mode's ray tracing pipeline (RayGenPT) compiles on
+  its first dispatch, 16-32 s after a new shader bundle. It is now compiled on the session's first trace
+  ([path-tracing.md](path-tracing.md), "Warm-up").
 
 Trap: Windows' Smart App Control blocked one build of `UltraRT.Native.dll` (`LoadLibrary` error 4551, CodeIntegrity
 event 3077 "did not meet the Enterprise signing level requirements"), and every rebuild of that same source; the

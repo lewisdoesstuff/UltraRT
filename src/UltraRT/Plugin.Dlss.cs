@@ -98,6 +98,22 @@ namespace UltraRT
                 }
             }
             catch (InvalidOperationException) { /* legacy input disabled */ }
+            // Diagnostics: the frame times right after a view mode change (a first entry into a mode allocates its targets and
+            // builds its ray tracing pipeline; RR's feature is created in the background).
+            string modeNow = _viewEnabled ? Modes[_mode].name : "off";
+            if (modeNow != _switchLogMode)
+            {
+                if (_switchLogLeft > 0) Logger.LogInfo(_switchLogText + " (cut short)");
+                if (_switchLogMode != null) { _switchLogLeft = 6; _switchLogText = $"View mode {_switchLogMode} -> {modeNow} at frame {Time.frameCount}: frame ms"; }
+                _switchLogMode = modeNow;
+            }
+            else if (_switchLogLeft > 0)
+            {
+                _switchLogText += $" {Time.unscaledDeltaTime * 1000f:F1}";
+                if (--_switchLogLeft == 0) Logger.LogInfo(_switchLogText + (RRWarmingNow ? " (RR warming)" : ""));
+            }
+            if (Time.frameCount == _ptPrewarmFrame + 1) _switchLogText2 = $"Path tracing: RayGenPT pipeline compiled at frame {_ptPrewarmFrame} (Warm-up); frame ms {Time.unscaledDeltaTime * 1000f:F1}";
+            else if (Time.frameCount == _ptPrewarmFrame + 2) Logger.LogInfo($"{_switchLogText2} {Time.unscaledDeltaTime * 1000f:F1}");
             // Warm-up: start NGX's initialisation in the background as soon as the game runs, if anything may use RR.
             if (_rrWarm && !_rrInitTried && Time.frameCount > 2 && (_rrEnabled || _ptSettings.denoiser != PathTraceDenoiser.UltraRT) &&
                 SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Direct3D12 && EnsureRR())
@@ -106,7 +122,7 @@ namespace UltraRT
                 _rrProbe = true;
             }
             // The start-up probe has done its job (NGX's kernels are loaded): release it on the render thread.
-            if (_rrProbe && _rr != null && !_rr.Busy && _rr.HasFeature && !_rrWasActive) { _rr.ReleaseNow(); _rrProbe = false; }
+            if (_rrProbe && _rr != null && !_rr.Busy && _rr.HasFeature && !_rrWasActive) { _rr.ReleaseNow(); _rrProbe = false; Logger.LogInfo($"[RR] start-up probe released on the render thread (frame {Time.frameCount})"); }
             var log = _rr?.TakeLog();
             if (log != null) foreach (var line in log.Split('\n')) Logger.LogInfo($"[RR] {line}");
             if (_rr != null && Time.frameCount % 60 == 0)
@@ -119,6 +135,9 @@ namespace UltraRT
         /// <summary>Bench: RR is warming up this frame (the frame ran UltraRT's denoiser instead, or NGX is still starting).</summary>
         private bool RRWarmingNow => (_rrWarming && Time.frameCount - _rrWarmingFrame <= 1) || (_rr != null && _rr.Busy);
         private int _rrWarmingFrame;
+        private float _rrWarmNextLog;
+        private string _switchLogMode, _switchLogText, _switchLogText2;
+        private int _switchLogLeft;
 
         /// <summary>Bench: after a mode switch, wait until RR has its feature if the mode uses it (the warm-up creates it in the
         /// background and the frames meanwhile use UltraRT's denoiser), so screenshots, bursts and motion passes see RR.</summary>
@@ -126,7 +145,11 @@ namespace UltraRT
         {
             for (int f = 0; f < 2; f++) yield return null;
             float until = Time.realtimeSinceStartup + 20f;
+            float t0 = Time.realtimeSinceStartup;
+            int f0 = Time.frameCount;
             while (_rr != null && (_rr.Busy || _rrWarmSince >= 0f) && Time.realtimeSinceStartup < until) { Bench.GameControl.HideCheatPanels(); yield return null; }
+            float waited = Time.realtimeSinceStartup - t0;
+            if (waited > 0.05f) Logger.LogInfo($"Benchmark: waited {waited * 1000f:F0} ms ({Time.frameCount - f0} frames) for DLSS RR{(Time.realtimeSinceStartup >= until ? " (gave up)" : "")}");
         }
 
         /// <summary>Main thread, lazily on first use: load the native side and point NGX at nvngx_dlssd.dll.</summary>
@@ -199,7 +222,12 @@ namespace UltraRT
             {
                 _rrWarmingFrame = Time.frameCount;
                 if (_rrWarmSince < 0f) _rrWarmSince = Time.realtimeSinceStartup;
-                if (!_rrWarmLogged) { _rrWarmLogged = true; Logger.LogInfo("DLSS Ray Reconstruction: creating the feature in the background; UltraRT's denoiser until it is ready"); }
+                if (!_rrWarmLogged) { _rrWarmLogged = true; _rrWarmNextLog = Time.realtimeSinceStartup + 1f; Logger.LogInfo($"DLSS Ray Reconstruction: creating the feature in the background; UltraRT's denoiser until it is ready (frame {Time.frameCount}; {_rr.WaitReason})"); }
+                else if (Time.realtimeSinceStartup >= _rrWarmNextLog)
+                {
+                    _rrWarmNextLog = Time.realtimeSinceStartup + 1f;
+                    Logger.LogInfo($"DLSS Ray Reconstruction: still warming up after {(Time.realtimeSinceStartup - _rrWarmSince) * 1000f:F0} ms (frame {Time.frameCount}; {_rr.WaitReason})");
+                }
                 _rrLastUsed = Time.realtimeSinceStartup; // not released meanwhile
                 return false;
             }

@@ -93,6 +93,8 @@ namespace UltraRT
         private Matrix4x4 _lastViewProj;
         private int _lastMode = -1;
         private int _tracedFrames;
+        private bool _ptPrewarmed;
+        private int _ptPrewarmFrame = -10;
 
         private string _autoScene;
         private bool _capture, _quit;
@@ -1243,7 +1245,7 @@ namespace UltraRT
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 BindTransparents(shader, denoised); // water and glass (Plugin.Transparent.cs)
                 BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
-                BindStains(shader, kind == Kind.Denoised || kind == Kind.Hybrid); // blood stains at reflection hits (Plugin.Stains.cs)
+                BindStains(shader, kind == Kind.Denoised || kind == Kind.Hybrid || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
                 BindPathTrace(shader, full, rr);
                 PathTraceLightsEnd();
             }
@@ -1252,6 +1254,15 @@ namespace UltraRT
                 _cmd.SetRayTracingFloatParam(shader, "_DepthScale", 150f);
             }
 
+            if (pt && !full && !_ptPrewarmed && _ptSettings.prewarm)
+            {
+                // The pathtrace raygen's pipeline is compiled on its first dispatch (16-33 s after a shader change, docs/path-tracing.md,
+                // "Warm-up"): do it now, on the session's first trace, at one pixel. RayGen below rewrites that pixel.
+                _ptPrewarmed = true;
+                _ptPrewarmFrame = Time.frameCount;
+                _cmd.DispatchRays(shader, "RayGenPT", 1, 1, 1);
+            }
+            else if (full) _ptPrewarmed = true;
             _cmd.BeginSample(SampleTrace);
             _gpu?.Begin(_cmd, SlotDispatch);
             _cmd.DispatchRays(shader, pt && full ? "RayGenPT" : "RayGen", (uint)w, (uint)h, 1);

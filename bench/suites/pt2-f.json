@@ -1,0 +1,68 @@
+{
+ "Name": "pt2-f",
+ "Scenarios": [
+  {
+   "Name": "0-1 warm switch",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 10
+   },
+   "Modes": [
+    "relight",
+    "pathtrace"
+   ],
+   "Segment": 2.5
+  },
+  {
+   "Name": "0-1 metal blood refl",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 5
+   },
+   "Modes": [
+    "off",
+    "refl+wet.stainReflections=0",
+    "refl",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    3
+   ],
+   "Effects": {
+    "Kinds": [
+     "bloodstain"
+    ],
+    "Every": 0,
+    "ShotDelay": 0.5
+   }
+  },
+  {
+   "Name": "8-3 portals",
+   "Scene": "Level 8-3",
+   "RandomPicks": {
+    "False Starts": "1-1"
+   },
+   "Path": {
+    "Type": "static",
+    "Yaw": 631.03,
+    "Pitch": -4.38,
+    "Approach": "../recordings/8-3-approach.json",
+    "ApproachSpeed": 2,
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "motion",
+    "pathtrace",
+    "pathtrace+plugin._rrRemodulate=0",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

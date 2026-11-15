@@ -238,14 +238,18 @@ namespace UltraRT
             FeatureSizes(tw, th, guardPx, guardScale, Ws, Hs, out int rw, out int rh, out int W, out int H, out _, out _, out _);
             int q = QualityFor(rw, W);
             if (_featureReady(rw, rh, W, H, Preset, q) != 0) return true;
-            if (Busy) return false;
+            WaitReason = $"{rw}x{rh} -> {W}x{H} q{q}: ";
+            if (Busy) { WaitReason += "worker busy"; return false; }
             // Another feature exists (the start-up probe, other sizes): release it on the render thread first. The worker
             // releasing a feature it had created on its (since destroyed) queue froze the game for 16 s inside NGX's
             // ReleaseFeature (bench/results/20261115-020657_pt2-e_alt); render-thread releases never stalled.
-            if (_getState() == 2) { ReleaseNow(); return false; }
-            _warm(rw, rh, W, H, Preset, q);
+            if (_getState() == 2) { ReleaseNow(); WaitReason += "releasing the old feature"; return false; }
+            WaitReason += $"warm-up requested (state {_getState()}, returned {_warm(rw, rh, W, H, Preset, q)})";
             return false;
         }
+
+        /// <summary>Why the last EnsureFeatureAsync returned false (log).</summary>
+        public string WaitReason { get; private set; } = "";
 
         /// <summary>Whether a feature exists (any sizes).</summary>
         public bool HasFeature => !_disposed && _getState() == 2;
