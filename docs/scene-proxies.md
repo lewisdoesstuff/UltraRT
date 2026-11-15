@@ -57,7 +57,135 @@ Correctness never depends on the level. Visibility is always tracked per slot. A
 
 - **Vertex-shader motion (`VERTEX_DISPLACEMENT`)**: reproduced for dynamic proxies since 2026-11-15 (see [Vertex displacement](#vertex-displacement)). Static-batched and skinned renderers with the keyword still trace their rest pose.
 
-@@VD@@
+## Vertex displacement
+
+ULTRAKILL's Master shader moves vertices in its vertex shader when `VERTEX_DISPLACEMENT` is on. That covers 3-2's flesh walls, heart and eye, most of 3-1, P-1 and parts of 8-3 (the flesh, mouth and vein materials), water waves, lava, acid, tree leaves and seaweed. The transforms never move. So before 2026-11-15 the RTAS held the rest pose: traced walls, shadows and lighting sat where the walls rest while the game drew them displaced. In 3-2's flesh hallway (pose `3-2 moving walls`, bench/suites/user-1114-late.json) this showed as dark shards and seams on the moving walls.
+
+### The game's function
+
+Read from the compiled Master vertex shader, with UnityPy and `fxc /dumpbin` as for the other decompiled terms. The parameter blob names the constant buffer. Every `VERTEX_DISPLACEMENT` variant shares the function: `VERTEX_LIGHTING`, `VERTEX_WARPING` (screen snapping) and the other keywords only change what comes after it.
+
+Per vertex, in world space: `p` is the world position, `n` the world normal and `t = Time.timeSinceLevelLoad` (the game's `_Time.y`). `±` is `-` when `_ReverseFlow == 1`.
+
+| Step | Formula |
+|---|---|
+| origin | the object's position if `_LocalOffset != 0`, else 0 |
+| mode 0 (136 of the 142 materials) | `dir = normalize(max(_FlowDirection.xyz, 0)) * (_ReverseFlow == 1 ? 3 : -1)`; `s = dot(p - origin, dir) * _VertexNoiseScale * 0.1 + (t / 20) * _VertexNoiseSpeed`; `d = (tex(_VertexNoiseTex, (s, s)).r - 0.5) * _VertexNoiseAmplitude * dir`, times vertex colour g if `_VColStrength == 1` |
+| mode 2 | `w = (colour.r * 2 - 1) * sin(±_VertexNoiseSpeed * t) * 0.5 + 0.5`, times colour g if `_VColStrength == 1` |
+| mode 1 | `w = abs(frac(frac(uv.y * scale * 0.1) * scale ± speed * t) * 2 - 1)` |
+| mode 3 (nebulae, 7-S ocean, 5-4 vortex) | `w = (tex(_VertexNoiseTex, uv * _UVNoiseScale + _UVNoiseSpeed * t).r - 0.5) * amplitude * 0.1` |
+| modes 1-3 | `d = n * w * amplitude * 5`; any other mode: `d = 0` |
+| result | `p' = p + d`. With `_PreventClipping == 1` (the flesh family): `p' = lerp(p', p, saturate((5 - length(p' - camera)) / 3))`, so walls flatten within 2-5 m of the camera |
+| `_RecalculateNormals == 1` | Evaluate the same function at `p + T k` and `p + B k`, where `k = _NormalOffsetScale`, `T = normalize(-0.05 n.y / n.x, 0.05, 0)` and `B = normalize(cross(n, T))`. Their uv is offset by `T.xz k / 10` and `B.xz k / 10`. The normal is `normalize(cross(normalize(p'_T - p'), normalize(p'_B - p')))`. Where `n.x = 0`, the game's `T` is not finite (its guard tests `abs(n.x) < 0`, which is never true); we keep the rest normal there |
+
+Typical values:
+- The flesh family uses mode 0, amplitude 1-2, speed 10 (0.5 for the mouth blends) and flow (1, 1, 1); the veins use flow (0, 1, 0). `_VertexNoiseTex` is `BlackAndWhite` 16x16 (the mouths use `VerticalNoise` 1x32). Normals are recalculated and `_PreventClipping` is on.
+- Water is mode 0 with amplitude 0.13-1; lava uses 0.25.
+
+### Implementation
+
+The code is in `src/UltraRT/SceneProxies.Displaced.cs` and `Displace.compute`.
+
+- **Copy per renderer.** `AddDynamic` passes every MeshRenderer proxy whose source has the keyword on a submesh that proxy traces to `TryDisplace`. The proxy then gets its own copy of the mesh, with the same vertex layout. Readable meshes are copied with `Instantiate`. Others go through a GPU readback of every stream and of the index buffer. The copy gets `vertexBufferTarget |= Raw` and `rayTracingMode = DynamicGeometry`. The rest pose goes to a structured buffer once: object-space position, normal, colour, uv0 and the material slot. Opaque, water/glass and lava proxies all use this path, and each proxy of a renderer gets its own copy.
+- **Per frame, before the RTAS build** (`RecordDisplacement`, GPU slot `displace`). One dispatch per moving copy writes `p'` and the recalculated normal into the copy's vertex buffer, in object space. It uses the proxy's current `localToWorld`, inverted in the kernel. Material values (14 floats per material slot; the renderer's property block wins) are read at the first dispatch and then for 4 proxies per frame, so material swaps show within a few frames. The build that follows rebuilds the copy's BLAS (DynamicGeometry).
+- **Motion vectors.** Before overwriting, the kernel copies the old positions into the previous-pose buffer (`MotionVectors.PoseBuffer`, `_UltraRTPrevSkin`), in a region allocated as for a skinned proxy. The motion slot points at that region whenever the copy was displaced the frame before. `HitMotion` therefore returns per-vertex motion exactly as for skinned proxies, rigid motion of the transform included. No copy is needed after the trace.
+- **Distance freeze.** Unity 2022.3 rebuilds a DynamicGeometry BLAS every frame and has no refit or build-flag API. A copy whose bounds are more than `_displaceRange` from the camera (40 m, with 5 m hysteresis) switches to Static: it is removed and re-added, because the mode is read at `AddInstance`. It keeps its last pose and is no longer dispatched. At the moving-walls pose, 3-4 of the 43 copies in the RTAS move; in 3-1's noisy room, 1-2 of 42.
+- **Switches:**
+  - `-ultrart-nodisplace`: no copies are made at the build.
+  - `-ultrart-displace-range m`: sets the freeze distance.
+  - Bench variant `plugin._displaceRange=-1`: puts the original meshes back on the proxies. Use it as a true "master" baseline within one launch.
+  - `plugin._displaceRange=0`: freezes every copy.
+  - `plugin._displace=0`: the copies get the rest pose.
+  - `plugin._displaceMotion=0`: no per-vertex motion.
+- **Not covered:**
+  - Static-batched renderers keep the rest pose, because the static groups merge them into shared meshes. Counts: 3-1 21, 8-3 about 50, 5-S 23, 8-1 10. They are logged as `keeps the rest pose`.
+  - Skinned renderers keep the rest pose too. The only one is the `Puppet` prefab.
+  - The emitter table (emissive lights, lava) keeps the rest-pose triangles.
+  - Material keyword changes at run time are not followed.
+
+### Validation
+
+Suites:
+- `bench/suites/displace-check.json`: 3-2 moving walls, 3-2 eye and 3-1 noisy room. Modes: the game, the rest pose, displaced, the depth-match view and pathtrace.
+- `displace-regress.json`: 0-1 metal and 6-2 start.
+
+The depth-match view is the upsampler's `up.debugView=1`. Its red channel is the number of trace samples that lie at the game's own depth in that pixel, in the same frame.
+- With the rest pose, the moving walls show blue (no match) wherever they bulge. Displaced, they match the game except at silhouettes.
+- Pixels with no matching sample (red < 32, centre of the screen):
+
+  | Pose | Rest pose | Displaced | Notes |
+  |---|---|---|---|
+  | 3-2 moving walls | 36.0 % | 10.7 % | the remainder is the far hallway and the viewmodel |
+  | 3-2 eye | 7.9 % | 1.8 % | |
+
+- 3-1's noisy room matches everywhere (only edge lines).
+- 0-1 has no displaced renderer. 6-2's 8 water copies are out of the RTAS at its start pose.
+
+Motion noise (`3-2 walls motion`: relight, vol=0, static camera while the walls move). The run-to-run spread is about ±0.1 sigma.
+
+| Variant | Run 1 (all copies moving) | Run 2 (40 m range) |
+|---|---|---|
+| per-vertex motion | 3.00 | 2.86 |
+| no per-vertex motion | 2.90 | 2.92 |
+| rest pose / original meshes | 2.67 | 2.77 |
+
+At the bench's 1/360 s step the walls move too little per frame for per-vertex motion to matter: there is no measurable difference. Moving, re-lit surfaces cost up to 0.3 sigma over static ones.
+
+### Cost
+
+Measured with `bench/suites/displace-perf.json`: exclusive `-Perf` run, RTX 5070 Ti, 2560x1440, trace scale 0.5, modes interleaved with `plugin._displaceRange=-1` (original meshes) in the same launch. Results are in `20261115-034133_displace-perf` (not committed).
+
+| Pose | Mode | Frame ms (original → displaced) | GPU total | RTAS build | Ray dispatch | `displace` |
+|---|---|---|---|---|---|---|
+| 3-2 moving walls | relight | 5.81 → 6.14 | 5.09 → 5.45 | 0.16 → 0.33 | 3.27 → 3.39 | 0.025 |
+| 3-2 moving walls | pathtrace | 5.97 → 6.16 | 5.33 → 5.51 | 0.16 → 0.33 | 2.75 → 2.74 | 0.026 |
+| 3-2 eye | relight | 5.40 → 5.62 | 4.39 → 4.58 | 0.14 → 0.20 | 2.63 → 2.69 | 0.04 |
+| 3-2 eye | pathtrace | 5.83 → 5.94 | 4.78 → 4.94 | 0.14 → 0.20 | 2.25 → 2.30 | 0.04 |
+| 3-1 noisy room | relight | 5.11 → 5.01 | 4.25 → 4.21 | 0.157 → 0.157 | 2.55 → 2.50 | 0.005 |
+| 3-1 noisy room | pathtrace | 4.99 → 5.05 | 4.23 → 4.28 | 0.157 → 0.158 | 1.80 → 1.84 | 0.005 |
+
+- The kernel and its CPU recording are negligible. Record CPU is 0.02-0.05 ms per frame, down from 0.22-0.27 ms in the first version, which read every material every frame.
+- The cost is Unity's per-frame DynamicGeometry BLAS rebuild, plus a little ray traversal.
+  - With every copy moving (no range), 3-1's noisy room took 5.27 ms per frame against 4.86 ms with the 40 m range, in one launch (`20261115-033028_displace-perf-range`). Across launches, the walls pose cost +0.8 ms GPU. Writing the rest pose into the moving copies cost the same as displacing them. Displacement itself is not the expensive part; DynamicGeometry is.
+  - With the 40 m range, a pose pays only for the moving surfaces near the camera.
+- Comparisons across launches are unreliable here: the same pose's ray dispatch moved by ±0.2 ms between launches. Use the in-launch `_displaceRange=-1` baseline.
+- Runs whose game.log shows `UltraRT.Native.dll ... Win32 error 4551` (Smart App Control blocking a fresh native build) have no GPU timings and no RR. Discard their GPU and pathtrace numbers.
+
+### Inventory
+
+Logs:
+- At the scene build: `Vertex displacement: N displaced proxies (...)`, then the first 24 copies with their material values.
+- Every 600 frames: `Vertex displacement (on): ...`, with dispatches/frame, vertices/frame, frozen/frame, switches and record CPU.
+
+Seen in game:
+
+| Level | Copies | Notes |
+|---|---|---|
+| 3-2 | 127 | 126 opaque, 1 acid; 39,677 vertices |
+| 3-1 | 294 | 277 opaque, 13 water, 4 lava/acid; 21 static-batched renderers keep the rest pose |
+| 6-2 | 8 | water |
+
+Offline (UnityPy over the scene bundles, 2026-11-15), 142 materials carry the keyword. Renderers by level (static / dynamic):
+
+| Level | Static / dynamic | Main materials |
+|---|---|---|
+| 3-1 | 21 / 297 | flesh family |
+| 3-2 | 0 / 123 | flesh family |
+| 8-3 | 50 / 52 | flesh family |
+| P-1 | 0 / 75 | flesh family |
+| 5-S | 23 / 59 | |
+| 6-1 | 0 / 52 | `Corpses2Small Heresy` |
+| 8-2 | 0 / 46 | `M_TreeLeaves` |
+| 5-4 | 0 / 42 | corpses, the vortex |
+| 5-1 | 0 / 39 | seaweed, water |
+| 2-4 | 0 / 35 | water |
+| 2-3 | 0 / 21 | water |
+| 7-1, 7-2, 7-3 | about 20 each | water, gibs, leaves |
+| 5-3 | 15 in total | |
+| 0-5 | 14 in total | lava |
+| 8-1 | 10 / 1 | |
+
+0-E, 1-2, 1-3, 1-4, 1-E, 2-1, 4-1 to 4-4, 5-2, 6-2, 7-4, 8-4 and P-2 have 1-8 renderers each.
 
 ## Skinned meshes (enemies)
 
