@@ -1,0 +1,173 @@
+{
+  "Name": "normals-lod",
+  "Note": "Texture LOD for per-texel detail (ray cones + mips + Toksvig), docs/materials.md 'Texture LOD'. Strength set per mode (the user's config has 0.4). 8-2 a = the brick street after 8-2's start corridor.",
+  "Scenarios": [
+    {
+      "Name": "8-2 a",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0",
+        "relight+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=2+mat.lod=0",
+        "pathtrace+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0",
+        "pathtrace+mat.normalStrength=0.4"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0+vol=0",
+        "relight+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=2+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=0.4+vol=0"
+      ]
+    },
+    {
+      "Name": "8-2 wall",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Position": [
+          12.56897,
+          0.9243538,
+          -8.446154
+        ],
+        "Yaw": 250,
+        "Pitch": 5,
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0",
+        "relight+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=2+mat.lod=0",
+        "pathtrace+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0",
+        "pathtrace+mat.normalStrength=0.4"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0+vol=0",
+        "relight+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=2+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=0.4+vol=0"
+      ]
+    },
+    {
+      "Name": "1-1 start",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-approach.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0",
+        "relight+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=2+mat.lod=0",
+        "pathtrace+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0",
+        "pathtrace+mat.normalStrength=0.4"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0+vol=0",
+        "relight+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=2+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=0.4+vol=0"
+      ]
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0",
+        "relight+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=2+mat.lod=0",
+        "pathtrace+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0",
+        "pathtrace+mat.normalStrength=0.4"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0+vol=0",
+        "relight+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=2+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=0.4+vol=0"
+      ]
+    },
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0",
+        "relight+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=2+mat.lod=0",
+        "pathtrace+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0",
+        "pathtrace+mat.normalStrength=0.4"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "Burst": 48,
+      "BurstModes": [
+        "off",
+        "relight+mat.normalStrength=2+mat.lod=0+vol=0",
+        "relight+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=2+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=2+vol=0",
+        "pathtrace+mat.normalStrength=0.4+mat.lod=0+vol=0",
+        "pathtrace+mat.normalStrength=0.4+vol=0"
+      ]
+    }
+  ]
+}

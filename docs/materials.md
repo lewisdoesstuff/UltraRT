@@ -174,11 +174,17 @@ secondary set alone.
 | `-ultrart-materials-hybrid-normal F`, `[Materials] HybridNormalStrength` | 1 | the same in hybrid |
 | `-ultrart-materials-roughness F`, `[Materials] Roughness` | 1 | global multiplier on the roughness variation |
 | `-ultrart-materials-guided on\|off` | on | hybrid composite: albedo-guided trace texel pick |
-| bench variants `mat.enabled=0`, `mat.normalStrength=2`, `mat.hybridNormalStrength=1`, `mat.roughness=0`, `mat.guidedPick=0` | | e.g. `"relight+mat.enabled=0"` |
+| `-ultrart-materials-lod on\|off`, `[Materials] TextureLod` | on | ray-cone texture LOD for the detail maps (section 8), shader-side |
+| `-ultrart-materials-lod-bias F`, `[Materials] LodBias` | 0 | mips added to the cone's LOD (0 = a traced pixel's footprint) |
+| `-ultrart-materials-toksvig F` | 1 | share of the filtered-away slope variance that becomes roughness (0 = off) |
+| `-ultrart-materials-albedo-lod on\|off` | off | albedo/emission at the cone's mip on secondary hits (the game's textures mostly have no mips) |
+| bench variants `mat.enabled=0`, `mat.normalStrength=2`, `mat.hybridNormalStrength=1`, `mat.roughness=0`, `mat.guidedPick=0`, `mat.lod=0`, `mat.lodBias=-1.58`, `mat.lodAniso=1`, `mat.toksvig=0`, `mat.albedoLod=1`, `mat.lodDiffuse=0.3` | | e.g. `"relight+mat.enabled=0"` |
 
 Log lines: `Material maps: N textures in ...`, per atlas `Material maps: atlas '' WxH: cells with detail ...`,
 `Material maps: atlas slots mapped per original submesh ..., by dominant material ..., skipped ...`, and after the
-build `Material maps (settings): N proxy materials bound, M without maps, K textures loaded in T ms`.
+build `Material maps (settings): N proxy materials bound, M without maps, K textures loaded in T ms; game main textures
+with mips A, without B; decode / readback / mips / upload ms (cumulative)`. The atlas line also gives the game atlas's
+mip count and how many cells are aligned for mip 1/2/3/5.
 
 ## 5. Results
 
@@ -274,6 +280,7 @@ kept).
   lighting in the albedo misleads it). Per-texel normals on flat quads also can't self-shadow.
 - **Reflection, bounce and cache hits ignore detail** by design (cost); reflections are filtered and the indirect light
   is smooth anyway.
+- **Secondary-hit albedo LOD** needs mipped copies of the game's textures (section 8); not built.
 
 ## 7. Rain on surfaces (2026-11-14 pm, branch `lights-pm`)
 (Since 2026-11-15 rained-on surfaces are also wet: darker, glossier, with puddles and ripple normals from the same
@@ -302,3 +309,75 @@ P-2 at the vent pose: 1,245 of 1,427 rain-capable proxy sources raining. `-ultra
 turns it off. Screenshots `bench/results/20261114-185737_lights-pm-check2_alt/P-2_rain_floor_*` (relight with and
 without: the darkened floor and the animated drop texels, as in hybrid's game colour). Cost: two point texture reads per
 rainy hit; nothing on the CPU beyond the 4 Hz keyword check.
+
+## 8. Texture LOD (2026-11-15, branch `t3/normals-lod`)
+
+User report: "with RR the textures seem a bit too noisy", most in 8-2's starting area, "the brick textures seem far too
+bumpy, having bump details smaller than the pixels". The user set `NormalStrength` 0.4 to hide it.
+
+**Cause (confirmed, but the smaller part).** Every texture in the hit shader was read with `SampleLevel(point, uv, 0)`
+and the detail textures had no mips: there was no texture LOD at all. Beyond about 10 m at RR's 1/3 scale (a trace
+pixel's cone is about 3 mm per metre) a 3 cm brick texel is smaller than a traced pixel, so each trace sample picks one
+texel's normal and the jitter turns that into flicker. That is fixed below. The measurements say it was not most of
+what the user sees, though: the "too bumpy" look is the strength itself, at texel scale, where texels are resolved.
+
+**What it does.**
+- *Mips with variance.* `MaterialMaps.MakeDetailTexture` gives every detail texture (and the composed atlas) a full mip
+  chain at load: rg = mean slope, b = mean roughness offset, a = 255 - 85 sd, where sd is the standard deviation of
+  the level-0 slopes under the mip texel (a valid texel is >= 127; 0 still means "no detail"). Each level is built
+  from the one above with the second moment carried along. One buffer, one `LoadRawTextureData`; atlas levels of 64k
+  texels or more in parallel rows.
+- *Ray cones* (Akenine-Moller et al. 2021). `PathTrace.raytrace` computes one trace pixel's angle from the
+  neighbouring pixel's ray (it already did, for the reflection cache's footprint) and sends it with the primary ray:
+  with `ULTRART_PAYLOAD_CONE` the payload's `albedo.xy` carries (width at the ray origin, spread) into the hit, so the
+  payload stays 64 bytes; `TraceScene` adds the path length before each portal hop. The hit shader (`Proxy.shader`,
+  `ConeLodUv`) takes `0.5 log2(uv area / world area)` of the hit triangle, `log2(cone width)`, `-0.5 log2|cos|` (the
+  footprint's area; `mat.lodAniso=1` = its long axis, which blurs floors at grazing angles) and the bias; `TexMip`
+  adds `0.5 log2(W H)` and clamps to the chain. Detail is point sampled within the two nearest mips and blended
+  between them: close up it is the same per-texel facet as before, only sub-pixel detail is averaged.
+- *Atlas cells.* The atlas mips are box filters of the whole atlas, so a cell's mip k is its own only when its rect is
+  aligned to 2^k texels: `AtlasMaxLod` caps the LOD per cell from the rect (`firstbitlow` of offset and size). 1-1:
+  73/74 cells aligned for mip 5; 8-2 (2048^2): 132/143 for mip 3, 86 for mip 5.
+- *Toksvig / LEAN.* For glossy (`specular`) classes, `alpha^2 += toksvig x strength^2 x sd^2` (alpha = roughness^2):
+  bumps averaged away become a slightly wider lobe instead of sparkle. Diffuse shading uses the mean slope.
+- *RR guides.* RR's normal guide is `_NormalDepth` (the shading normal) and its roughness guide the material word, so
+  both now carry the filtered normal and the Toksvig roughness, consistent with the shading ([dlss.md](dlss.md)).
+- *Secondary hits.* Reflection rays (`TraceReflection`: the pixel's cone widened by the lobe, `2 r^2`) and bounce rays
+  (`mat.lodDiffuse`, 0.3 rad per diffuse vertex; path tracing's `PtPath` grows the cone per vertex) carry a cone too,
+  for the game's albedo and emission. It is off (`mat.albedoLod=0`): almost none of the game's textures have mips
+  (8-2: 12 of 370 bound proxy materials, 1-1: 1 of 121; the StaticSceneOptimizer atlases have one level), so it
+  changed nothing and would only cost the cone math at every secondary hit. Mipped copies of the game's textures would
+  be the next step if bounce/reflection texture noise ever matters.
+
+**Results** (`bench/suites/normals-final.json`, `normals-motion.json`, `normals-bias.json`, `normals-lod.json`;
+strengths set per mode since the user's config has 0.4; 2560x1440, pathtrace = RR at 1/3; alt slot). The 8-2 pose is
+`8-2 a`, the brick street right after the start corridor (`spawn` poses land in the generic start corridor):
+
+| 8-2 a | mip 0 (before) | LOD | strength 0.4, mip 0 |
+|---|---|---|---|
+| Motion noise, slow pan, relight (sigma, two runs) | 1.61 / 1.57 | 1.47 / 1.45 (-8 %) | |
+| Motion noise, slow pan, pathtrace (two runs) | 1.20 / 1.20 | 1.17 / 1.18 (-2 %) | 1.03 / 1.04 |
+| Held-pose burst, pathtrace (masked sigma, 3 runs) | 0.86, 0.92, 0.80 / 0.85 | 0.77, 0.80, 0.93 / 0.82 | 0.86, 0.80 |
+| Far facades region, pathtrace burst sigma | 1.26 / 1.33 | 1.42 / 1.20 | 1.17 |
+
+The held-pose burst varies by about +-0.07 between runs, so at a held pose LOD and strength are both within noise in
+pathtrace (RR's history averages the jittered texel picks). The motion metric (cross-replay with the same jitter: it
+sees sampling noise, not deterministic aliasing) improves a little. Detail survives close up (the 8-2 near wall and the
+mid-distance facades look the same with and without LOD); `mat.lodBias=3` visibly flattens the far facades, and the
+difference from mip 0 grows with the bias (2.6 / 3.2 / 4.7 luma for bias -1.58 / 0 / 3 in the far region), so the LOD
+is doing what it should. 0-1 metal with Toksvig on/off: burst sigma 1.06 / 1.07 pathtrace, 0.96 / 0.93 relight, within
+noise.
+
+The bumpiness at the 8-2 street is texel-scale relief (mortar lines and brick bevels 3-9 screen pixels wide), which the
+LOD rightly keeps: at strength 2 it reads as dark, dirty mortar; at 1 the courses still read with half the depth; 0.4
+is nearly flat (`normals-final` crops `8-2_a_2.0s_*`, `1-1_start_2.0s_*`). That is a taste call; **1** looks like the
+best balance under RR. The default stays 2 (and the user's config at 0.4) until the user decides.
+
+**Cost.** GPU (`normals-perf`, `-Perf`, exclusive hold, LOD off/on alternating in one pass): total +0.00 / +0.01 ms in
+8-2 a and 1-1 start (relight and pathtrace), +0.03 / +0.07 ms in 0-1 metal. Load: the mip build adds about 0.7 ms per
+texture plus the atlas (8-2: 323 textures and a 2048^2 atlas in 470 ms, of which 280 ms is the PNG decode that was
+already there; 1-1: 136 textures in 140 ms). The first version (float sums per level, a second texture per entry) took
+2.4 s in 8-2.
+
+**Bench note.** The alt install had no material-maps cache (`BepInEx\ultrart\materials` was left out of its copy), so
+per-texel detail was silently off in every alt-slot run before 2026-11-15 14:15. The `ai` cache was copied there then.

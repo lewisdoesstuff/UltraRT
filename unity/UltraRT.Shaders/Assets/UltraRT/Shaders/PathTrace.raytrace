@@ -168,6 +168,9 @@ float3 ReflectionHitLight(float3 hp, RayPayload h, float footprint, inout uint r
 // alpha); pixelAngle: one trace pixel's angle; t: primary hit distance (for the footprint).
 float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread, float pixelAngle, float t, inout uint rng, out float dist)
 {
+    // Ray cone for the hit's texture LOD (docs/materials.md, "Texture LOD"): the camera pixel's cone, widened by the
+    // glossy lobe; the same footprint as the cache test below.
+    float2 cone = float2(t * pixelAngle, pixelAngle + (glossy ? spread : 0.0));
     RayDesc r;
     r.Origin = pos + n * 0.02;
     r.Direction = L;
@@ -177,7 +180,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
     float travelled;
     // V1's third-person model shows in reflections (camera rays never see it). No per-texel detail at reflection hits
     // (docs/materials.md): measured +0.2 ms in metal rooms, invisible after the filter.
-    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_REFLECTION), r, h, travelled); // r: the last segment after portals
+    TraceSceneCone(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_REFLECTION), cone, r, h, travelled); // r: the last segment after portals
     float3 c;
     if (h.t < 0.0)
     {
@@ -240,6 +243,12 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, inout uint rng)
     return float4(lr, p.t);
 }
 
+// Texture LOD (docs/materials.md, "Texture LOD"; Plugin.Materials.cs): _UltraRTTexLod2.y = the spread angle a diffuse
+// bounce adds to the ray cone (its sample stands for a wide lobe: the hit's albedo is averaged accordingly).
+float4 _UltraRTTexLod2;
+float2 DiffuseCone(float2 cone) { return float2(cone.x, cone.y + _UltraRTTexLod2.y); }
+float2 GlossyCone(float2 cone, float roughness) { return float2(cone.x, cone.y + 2.0 * roughness * roughness); }
+
 #include "UltraRTPathTraceFull.hlsl" // the pathtrace mode's paths: PtIndirect, PtReflection (docs/path-tracing.md)
 
 // ---------------------------------------------------------------- ray generation
@@ -275,9 +284,15 @@ void RayGenBody(bool full)
     ray.TMax = 1.0e5;
 
     RayPayload p;
+    // One trace pixel's angle (from the neighbouring pixel's ray): the camera ray's cone for the hit's texture LOD
+    // (docs/materials.md, "Texture LOD"), and the reflection's cache footprint test.
+    float4 farN = mul(_InvViewProj, float4(ndc + float2(2.0 / (float)dim.x, 0.0), 1.0, 1.0));
+    float pixelAngle = length(normalize(farN.xyz / farN.w - _CamPos.xyz) - ray.Direction);
+    g_Cone = float2(0.0, pixelAngle);
     // Hybrid with reflections: ask the hit shader for the game's cubemap term (UltraRTMaterial.hlsl, game cubemap).
     bool wantGameCube = _Mode == 3 && _ReflParams.x > 0.5 && _ReflCache.z > 0.5;
-    uint inFlags = ULTRART_PAYLOAD_WANT_MOTION | ULTRART_FLAG_DETAIL; // the hit returns its motion in p.motion; per-texel detail
+    // The hit returns its motion in p.motion; per-texel detail at the cone's mip.
+    uint inFlags = ULTRART_PAYLOAD_WANT_MOTION | ULTRART_FLAG_DETAIL | ULTRART_PAYLOAD_CONE;
     if (wantGameCube) inFlags |= ULTRART_FLAG_GAMECUBE;
     // Portal mirrors: keep the game's own mirror view (it shows V1 and is sharper than a traced reflection). The ray stops
     // there and the pixel is written like sky, which every composite leaves to the game (docs/portals.md, "Mirrors").
@@ -351,10 +366,12 @@ void RayGenBody(bool full)
         // ray; mode 1 takes the lighting at the bounce hit from the cache (all further bounces, no shadow ray).
         float3 indirect = 0;
         bool cachedPrimary = false;
+        // Ray cone at the primary hit (texture LOD at secondary hits): this pixel's footprint there, and its angle.
+        float2 hitCone = float2(tTotal * pixelAngle, pixelAngle);
         if (full)
         {
             // Path tracing: N multi-bounce paths with next-event estimation at every vertex (UltraRTPathTraceFull.hlsl).
-            indirect = PtIndirect(pos, n, nv, rng);
+            indirect = PtIndirect(pos, n, nv, hitCone, rng);
             cachedPrimary = true;
         }
         else if (_CacheMode == 2)
@@ -372,7 +389,8 @@ void RayGenBody(bool full)
             b.TMax = 1.0e4;
             RayPayload h;
             float travelled;
-            TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_BOUNCE), b, h, travelled); // b: the last segment after portals
+            TraceSceneCone(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_BOUNCE),
+                           DiffuseCone(hitCone), b, h, travelled); // b: the last segment after portals
             if (h.t < 0.0)
             {
                 indirect = SkyLightRadiance(b.Direction) * SkyMissWeight(n, b.Direction); // MIS with SkyDirect below
@@ -454,11 +472,8 @@ void RayGenBody(bool full)
                 float3 L = ReflectionDirection(n, ray.Direction, mat.roughness, rng);
                 if (dot(L, nv) < 1e-3) L = reflect(ray.Direction, nv); // detail normal tilted the lobe below the surface
                 float dist;
-                // One trace pixel's angle, for the cache footprint test (from the neighbouring pixel's ray).
-                float4 farN = mul(_InvViewProj, float4(ndc + float2(2.0 / (float)dim.x, 0.0), 1.0, 1.0));
-                float pixelAngle = length(normalize(farN.xyz / farN.w - _CamPos.xyz) - camDir);
                 float3 lr;
-                if (full) lr = PtReflection(pos, nv, n, ray.Direction, mat.roughness, rng, dist); // specular paths
+                if (full) lr = PtReflection(pos, nv, n, ray.Direction, mat.roughness, hitCone, rng, dist); // specular paths
                 else lr = TraceReflection(pos, nv, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, tTotal, rng, dist);
                 refl = float4(lr, dist);
                 // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered

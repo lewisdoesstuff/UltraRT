@@ -1,0 +1,54 @@
+{
+  "Name": "normals-perf",
+  "Note": "GPU cost of texture LOD (docs/materials.md 'Texture LOD'): LOD off/on alternating in one pass, strength 2. Run with -Perf on an exclusive (perf) hold.",
+  "Scenarios": [
+    {
+      "Name": "8-2 a",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Duration": 10
+      },
+      "Modes": [
+        "relight+mat.normalStrength=2+mat.lod=0",
+        "relight+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=2+mat.lod=0",
+        "pathtrace+mat.normalStrength=2"
+      ],
+      "Segment": 1.25
+    },
+    {
+      "Name": "1-1 start",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-approach.json",
+        "Duration": 10
+      },
+      "Modes": [
+        "relight+mat.normalStrength=2+mat.lod=0",
+        "relight+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=2+mat.lod=0",
+        "pathtrace+mat.normalStrength=2"
+      ],
+      "Segment": 1.25
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 10
+      },
+      "Modes": [
+        "relight+mat.normalStrength=2+mat.lod=0",
+        "relight+mat.normalStrength=2",
+        "pathtrace+mat.normalStrength=2+mat.lod=0",
+        "pathtrace+mat.normalStrength=2"
+      ],
+      "Segment": 1.25
+    }
+  ]
+}
