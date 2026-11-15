@@ -89,6 +89,13 @@ if ($NoDeploy) {
         # DLSS Ray Reconstruction runtime (scripts\fetch-dlss.ps1; NVIDIA's file, never committed; docs/dlss.md)
         (Join-Path $root 'lib\dlss\bin\nvngx_dlssd.dll'))
     foreach ($f in $files) { if (Test-Path $f) { Copy-Item $f $StageDir -Force } }
+    # Shipped per-level light overrides (data\lights\<scene>.json -> plugin folder lights\; docs/lighting-overrides.md).
+    $lightsSrc = Join-Path $root 'data\lights'
+    if (Test-Path $lightsSrc) {
+        $lightsDst = Join-Path $StageDir 'lights'
+        New-Item -ItemType Directory -Force $lightsDst | Out-Null
+        Copy-Item (Join-Path $lightsSrc '*.json') $lightsDst -Force
+    }
     if (-not (Test-Path (Join-Path $StageDir 'UltraRT.dll'))) { throw "Nothing staged: UltraRT.dll missing (build skipped or failed?)" }
     $head = (git -C $root rev-parse --short HEAD 2>$null)
     @{ commit = $head; dirty = [bool](git -C $root status --porcelain 2>$null); built = (Get-Date).ToString('s') } | ConvertTo-Json -Compress |

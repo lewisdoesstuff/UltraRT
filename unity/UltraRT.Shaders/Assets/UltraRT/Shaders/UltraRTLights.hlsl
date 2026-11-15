@@ -24,6 +24,13 @@
 //   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light),
 //       hybrid weight: > 0 for lights the game doesn't draw (EffectLights' virtual lights for glowing effects); hybrid
 //       adds that much of their shadowed light on top of the game's image, like emissive surfaces
+// Area lights (per-level light overrides, LightOverrides.cs; docs/lighting-overrides.md) keep this layout:
+//   [2] xyz the emission normal (rect/disc emit to its side only), w half-size x (sphere/disc: radius)
+//   [3] x = -2 - half-size y (<= -2 marks an area light; every spot test sees "no cone"), y = shape | octahedral tangent
+//       << 2 (shape 1 sphere, 2 rect, 3 disc; tangent 2 x 10 bits; an exact integer in a float)
+//   They are evaluated at the point of the shape closest to the receiver (the game's falloff from there, times the
+//   emitter cosine for rect/disc), so every sampler treats them as a deterministic light, and their shadow rays aim at a
+//   uniform random point on the shape (soft shadows the size of the emitter).
 StructuredBuffer<float4> _Lights;
 StructuredBuffer<uint>   _LightMasks; // per-light culling mask (separate: masks like ~0 are NaN bit patterns as floats)
 int      _LightCount;
@@ -195,8 +202,100 @@ float _LightRadius;      // soft-shadow light size (m); 0 = point lights
 float _FixtureShadows;   // 1: light fixtures (torch bowls etc.) shadow their own lights
 static uint g_ShadowRng; // seeded per pixel by each ray-generation shader
 
+// ---------------------------------------------------------------- area lights (docs/lighting-overrides.md)
+
+bool LightIsArea(float4 l3) { return l3.x < -1.5; }
+uint LightAreaCode(float4 l3) { return (uint)(max(l3.y, 0.0) + 0.5); }
+
+// Octahedral 2 x 10-bit tangent from the packed code (LightOverrides.PackArea).
+float3 LightAreaTangent(uint code)
+{
+    uint oct = code >> 2;
+    float2 e = (float2(oct & 1023u, (oct >> 10) & 1023u) + 0.5) * (2.0 / 1024.0) - 1.0;
+    float3 v = float3(e.x, e.y, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0) v.xy = (1.0 - abs(v.yx)) * float2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0);
+    return normalize(v);
+}
+
+// The tangent frame of a rect/disc: t, b in the emitter's plane, orthogonal to the normal nrm.
+void LightAreaFrame(float3 nrm, uint code, out float3 t, out float3 b)
+{
+    t = LightAreaTangent(code);
+    t = t - nrm * dot(t, nrm);
+    float tl = length(t);
+    t = tl > 1e-4 ? t / tl : (abs(nrm.y) < 0.99 ? normalize(cross(nrm, float3(0, 1, 0))) : float3(1, 0, 0));
+    b = cross(nrm, t);
+}
+
+// The point of the light's shape closest to p (p itself inside a sphere). emit: the emitter-side cosine factor.
+float3 LightAreaClosest(float4 l0, float4 l2, float4 l3, float3 p)
+{
+    uint code = LightAreaCode(l3);
+    uint shape = code & 3u;
+    float3 c = l0.xyz;
+    float hx = max(l2.w, 0.0), hy = max(-l3.x - 2.0, 0.0);
+    float3 v = p - c;
+    if (shape <= 1u)
+    {
+        float d = length(v);
+        return d > hx ? c + v * (hx / d) : c;
+    }
+    float3 t, b;
+    LightAreaFrame(l2.xyz, code, t, b);
+    float x = dot(v, t), y = dot(v, b);
+    if (shape == 2u) { x = clamp(x, -hx, hx); y = clamp(y, -hy, hy); }
+    else
+    {
+        float r = sqrt(x * x + y * y);
+        if (r > hx) { float k = hx / r; x *= k; y *= k; }
+    }
+    return c + t * x + b * y;
+}
+
+// A uniform random point on the light's shape (shadow rays). Spheres: on the surface half that faces p.
+float3 LightAreaSample(float4 l0, float4 l2, float4 l3, float3 p, float u1, float u2)
+{
+    uint code = LightAreaCode(l3);
+    uint shape = code & 3u;
+    float3 c = l0.xyz;
+    float hx = max(l2.w, 0.0), hy = max(-l3.x - 2.0, 0.0);
+    if (shape <= 1u)
+    {
+        float z = u1 * 2.0 - 1.0, phi = u2 * 6.28318530718, rr = sqrt(max(0.0, 1.0 - z * z));
+        float3 o = float3(rr * cos(phi), z, rr * sin(phi));
+        if (dot(o, p - c) < 0.0) o = -o;
+        return c + o * hx;
+    }
+    float3 t, b;
+    LightAreaFrame(l2.xyz, code, t, b);
+    if (shape == 2u) return c + t * ((u1 * 2.0 - 1.0) * hx) + b * ((u2 * 2.0 - 1.0) * hy);
+    float r = hx * sqrt(u1), phi = u2 * 6.28318530718;
+    return c + t * (r * cos(phi)) + b * (r * sin(phi));
+}
+
 bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
 {
+    float4 al3 = _Lights[i * 4 + 3];
+    if (LightIsArea(al3) && dist < 1.0e3)
+    {
+        // Area light: a uniform point on the emitter, so the shadow is as soft as the emitter is large.
+        float u1 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+        float u2 = (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0;
+        float3 lp = LightAreaSample(_Lights[i * 4], _Lights[i * 4 + 2], al3, p, u1, u2);
+        float3 d = lp - p;
+        dist = length(d);
+        if (dist < 1e-4) return true;
+        L = d / dist;
+#ifndef ULTRART_LIGHT_ISOTROPIC
+        if (dot(L, n) <= 0.0) return false;
+#endif
+        uint amask = _FixtureShadows > 0.5 ? 0x05u : 0x01u;
+        uint aplayer = g_ShadowPlayerMask;
+        if (_Lights[i * 4 + 1].w > 0.5) g_ShadowPlayerMask = 0u;
+        bool avis = VisibleMasked(p, n, L, dist - min(kLightFixtureClearance, 0.5 * dist), amask);
+        g_ShadowPlayerMask = aplayer;
+        return avis;
+    }
     // Soft shadows: aim at a random point within the light's radius (a point light becomes a small sphere).
     // Per-light radius: > 0 a sphere; < 0 the upper half-sphere only (a flame sitting on its bowl: samples never dip
     // below the rim, where the bowl itself would block them).
@@ -282,15 +381,21 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
 {
     L = 0; dist = 0; c = 0;
     bool local = l0.w != 0.0;
-    float3 toL = local ? l0.xyz - p : l0.xyz;
+    bool area = local && LightIsArea(l3);
+    float3 toL = local ? (area ? LightAreaClosest(l0, l2, l3, p) : l0.xyz) - p : l0.xyz;
     float d2 = max(dot(toL, toL), 1e-6);
     float d = sqrt(d2);
     L = toL / d;
+    // Rect and disc emitters light their front side only, with a cosine lobe (sphere: every direction).
+    float emit = area && (LightAreaCode(l3) & 3u) >= 2u ? dot(l2.xyz, -L) : 1.0;
+    if (area && d2 <= 1e-6) emit = 1.0; // on the emitter itself
+    if (emit <= 0.0) return false;
 #ifdef ULTRART_LIGHT_ISOTROPIC
-    float ndl = 1.0; // a point in the air (lit particles): no surface orientation
+    float ndl = emit; // a point in the air (lit particles): no surface orientation
 #else
     float ndl = dot(n, L);
     if (ndl <= 0.0) return false;
+    ndl *= emit;
 #endif
 
     float atten = 1.0;

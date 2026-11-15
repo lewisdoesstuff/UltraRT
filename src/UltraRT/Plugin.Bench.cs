@@ -165,6 +165,7 @@ namespace UltraRT
                 _hudStyle.normal.textColor = Color.white;
                 GUI.Label(new Rect(20, 60, 1200, 40), _toast, _hudStyle);
             }
+            DrawLightEditor(); // Plugin.LightOverrides.cs
         }
 
         // ---------------------------------------------------------------- suite

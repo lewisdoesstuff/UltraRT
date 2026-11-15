@@ -196,10 +196,11 @@ namespace UltraRT
             _kAdapt = shader.FindKernel("Adapt");
             // Three histograms: the whole exposed image (the meter), and for the game match the near RT pixels and the
             // game's own colour at the same pixels.
-            _hist = new ComputeBuffer(3 * Bins + 6, 4) { name = "UltraRT Exposure Histogram" };
-            _hist.SetData(new uint[3 * Bins]);
-            _exposure = new ComputeBuffer(4, 16) { name = "UltraRT Exposure" };
-            _exposure.SetData(new[] { new Vector4(1f, 0f, 0f, 0f), Vector4.zero, Vector4.zero });
+            // + 6 colour-match sums + 6 light-fit sums (linear RT and game colour; docs/lighting-overrides.md, "Fit").
+            _hist = new ComputeBuffer(3 * Bins + 12, 4) { name = "UltraRT Exposure Histogram" };
+            _hist.SetData(new uint[3 * Bins + 12]);
+            _exposure = new ComputeBuffer(6, 16) { name = "UltraRT Exposure" };
+            _exposure.SetData(new[] { new Vector4(1f, 0f, 0f, 0f), Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero });
         }
 
         /// <summary>Jump straight to the measured exposure next frame (scene load, teleport, mode switch).</summary>
@@ -207,6 +208,10 @@ namespace UltraRT
 
         /// <summary>Bench: when non-null, every frame's state is read back and appended here (exposure state, info).</summary>
         public List<(Vector4 state, Vector4 info)> Trace;
+
+        /// <summary>Light fit (Plugin.LightFit.cs): when non-null, the linear mean colour of RT and game at the near pixels
+        /// is measured and every frame's pair is read back and appended here (rgb, w = near pixels).</summary>
+        public List<(Vector4 rt, Vector4 game)> FitTrace;
 
         /// <summary>
         /// Binds the exposure buffer and the lit-weight texture on the denoiser's Composite kernel. Needed every frame the
@@ -242,7 +247,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdGameFog, GameFog);
             cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.gameMatchDown) : 0f,
                 Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
-            cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), 0f));
+            cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), FitTrace != null ? 1f : 0f));
             // Every second pixel in x and y: 16x16 threads cover 32x32 pixels.
             cmd.DispatchCompute(cs, _kHistogram, Mathf.CeilToInt(w / 32f), Mathf.CeilToInt(h / 32f), 1);
 
@@ -260,7 +265,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.key, 1e-4f)), 2f), 0, 0, 0));
             cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.gameMatchDown) : 0f,
                 Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
-            cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), 0f));
+            cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), FitTrace != null ? 1f : 0f));
             cmd.SetComputeBufferParam(cs, _kAdapt, IdHist, _hist);
             cmd.SetComputeBufferParam(cs, _kAdapt, IdExposure, _exposure);
             cmd.DispatchCompute(cs, _kAdapt, 1, 1, 1);
@@ -274,6 +279,16 @@ namespace UltraRT
                     if (r.hasError) return;
                     var d = r.GetData<Vector4>();
                     trace.Add((d[0], d[1]));
+                });
+            }
+            if (FitTrace != null)
+            {
+                var fit = FitTrace;
+                cmd.RequestAsyncReadback(_exposure, r =>
+                {
+                    if (r.hasError) return;
+                    var d = r.GetData<Vector4>();
+                    if (d.Length > 5 && d[4].w > 0f) fit.Add((d[4], d[5]));
                 });
             }
             if (!_readbackPending && Time.realtimeSinceStartup >= _nextReadback)
