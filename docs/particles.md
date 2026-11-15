@@ -124,7 +124,7 @@ or more and whose particles do too (renderer bounds; the bonus orbs' blood drops
 gather in 12 m) keep the game's shader: their renderer gets a private copy of each swapped material, restored to the
 original shader, queue and keywords (`LitParticles.ScanAtmosphere`, every scan; the shared material stays lit for
 vents and debris trails). The log names each one (`Lit particles: '<path>' keeps the game's look (atmosphere: ...)`).
-Seen so far: 3-2 `HeatWaves (2)` and a 44 m cone of dust `Dot`s, 8-2 `Rain/Mist`, P-2 street / idol arena `Mist`s,
+Seen so far: 3-2 `HeatWaves (2)` and a 44 m cone of dust `Dot`s, 0-5 `Lava Foundry/Lava/HeatWaves (2)`, 8-2 `Rain/Mist`, P-2 street / idol arena `Mist`s,
 `1 - Opener/Mist`. `pl.atmosphereSize=0` (or `-ultrart-particles-atmosphere 0`) relights them as before.
 
 ## Settings
