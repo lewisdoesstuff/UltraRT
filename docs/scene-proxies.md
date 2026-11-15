@@ -227,9 +227,32 @@ determinant is added with the opposite front-face winding. Logged as `Mirrored s
 front winding flipped` (first 8 per scene). `-ultrart-nomirrorfix` turns it off. Shading is unaffected: the hit shader already
 flips the geometric normal to face the ray.
 
-The 8-1 lobby's armchairs (`3 Stuff(Clone)/HotelChair`) also show red in that view, but for another reason: they are not in
-the RT scene at all (the `instance` view shows the wall behind them) although their proxy is in the RTAS (mask 0x1, not
-mirrored, readable mesh). The composite keeps the game's chairs, so they only lack RT light and shadows. Not resolved.
+The 8-1 lobby's armchairs (`3 Stuff(Clone)/HotelChair`) also showed red in that view, for another reason: see "Instances
+added too early" below.
+
+### Instances added too early (2026-11-15)
+
+8-1's lobby armchairs (`3 Stuff/HotelChair`, four props sharing the mesh `HotelChair`, used by nothing else) were missing
+from the RT scene: the `instance` view showed the wall behind them and `up.debugView=3` showed them red, so the composite
+kept the game's chairs without RT light or shadows. Everything the CPU can see about them was right: the proxy was in the
+RTAS (`Trace` and view-probe lines: visible, mask 0x1, one entry, not mirrored, opaque submesh flags, a readable float3
+triangle mesh, placed exactly where the chair is, `hasChanged` handled).
+
+What told it apart: removing and re-adding the instances (diagnostic `plugin._readdDynamic=1`) brought them back, and the
+bench applies every variant of a scenario right after loading, so suites with that variant showed the chairs even in their
+plain modes. Without a re-add they missed on 7 of 7 loads (fresh `approach-fast` loads and checkpoint loads, `chairs-repeat`
+/ `chairs-diag` / `statue-rim-chairs`); with one they were hit on 8 of 8. This is the fault the portal quads had (docs/portals.md,
+"Portal quads added too early"): an instance added in the frame its proxy renderer was made can stay in the RTAS for the whole
+level without ever being hit, until it is removed and added again. Hundreds of other proxies are made and added in the same
+frames and are fine, so it seems to need something more (here: the first instance of a mesh nothing else used); that part is a
+guess about Unity's internals. Re-sending the transform or uploading the mesh first (`UploadMeshData`) was not what fixed it.
+
+Fix (`SceneProxies.QueueReAdd` / `ProcessReAdds`): the first `AddInstance` of every rigid dynamic instance is followed by a
+remove and add 2 frames later (`NewInstanceReAddDelay`). Skinned instances (DynamicGeometry, rebuilt every frame) are left
+alone. The 600-frame scene-sync line counts them: `N new rigid instances re-added (M with a mesh new to the RTAS; scene
+total)`, M being the ones whose mesh no earlier dynamic instance used (the chairs' kind). `-ultrart-noreadd` turns it off;
+`-ultrart-trace-proxies <text>` logs every add and remove of the matching proxies. The cost is one extra remove and add per
+new proxy, spread over the frames the proxies are made in.
 
 ## New objects
 
@@ -440,6 +463,26 @@ Measured on the user's poses (`bench/suites/shade-1115g.json`; mean luma in a bo
 | 8-1 statue (torso and legs) | 64 | 50 | 111 | 48 | 111 |
 | 1-3 orb centre | 59 | 102 | 128 | 100 | 122 |
 
-**Left (taste call):** the 8-1 statue is now brighter than the game's (1.7x in that box: the orb light is a physical
-light right at the stone, the game's vertex lighting spreads it thinly). The bright rim that followed the silhouette of
-some statues was mirrored skinning, fixed in "Mirrored skinned meshes" below.
+**Orb light x0.5 (user, 2026-11-15: "i'd make the cerberus's orb light a touch weaker").** The 8-1 statue was 1.8x the
+game's luma in that box: the orb light is a physical light right at the stone, the game's vertex lighting spreads it thinly.
+The statue orbs' own lights (`SceneProxies.OrbFixtureLights`: the lights of orb fixtures whose holder was found, not the 3-1
+eye housings) are packed at half intensity (`Plugin._orbLightScale` 0.5, `-ultrart-orb-light F`, bench
+`plugin._orbLightScale`), after any light override. Falloff and shadows are unchanged, and the orb itself and its glow are
+not lit by it (the ball's outer surface faces away from the light inside it), so they keep their brightness.
+Mean luma (0-255) in a box on the statue's torso and on the room beside it, x1 / x0.5 (`bench/results/20261115-145139_orb-dim`
+and `20261115-145614_orb-dim-final_alt`; auto-exposure on, as played):
+
+| | game | relight x1 / x0.5 | pathtrace x1 / x0.5 |
+|---|---|---|---|
+| 8-1 torso | 62 | 113 / 83 | 114 / 84 |
+| 8-1 room (floor and wall to the left) | 31 | 42 / 37 | 42 / 37 |
+| 1-3 torso | 91 | 135 / 124 | 134 / 125 |
+| 1-3 room (wall to the right) | 78 | 91 / 105 | 91 / 104 |
+| 1-3 orb ball (yellow pixels only) | 161 | 213 / 207 | 212 / 209 |
+| 0-1 torso | 122 | 151 / 135 | 169 / 143 |
+| 0-1 room (gun room wall) | 35 | 70 / 36 | 55 / 37 |
+
+The 1-3 room gets brighter: the orb lit little of it, and auto-exposure lifts the frame when the statue dims. 0-1's gun room is
+lit mostly by its four statue orbs and drops to the game's level (it was twice the game's).
+
+The bright rim that followed the silhouette of some statues was mirrored skinning, fixed in "Mirrored skinned meshes" above.

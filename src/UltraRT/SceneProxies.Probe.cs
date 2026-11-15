@@ -48,7 +48,8 @@ namespace UltraRT
                     sb.Append($" proxy[visible={dp.Visible} mask=0x{dp.Mask:X} twoSided={dp.TwoSided} det={r.transform.localToWorldMatrix.determinant:F2} scale={r.transform.lossyScale:F2} " +
                               $"pos={r.transform.position:F2} proxyPos={(dp.Proxy != null ? dp.Proxy.transform.position : Vector3.zero):F2} " +
                               $"mesh={(dp.Proxy != null && dp.Proxy.GetComponent<MeshFilter>() is MeshFilter pmf && pmf.sharedMesh != null ? pmf.sharedMesh.name + " readable=" + pmf.sharedMesh.isReadable : "-")} " +
-                              $"mats={string.Join(",", dp.Proxy != null ? dp.Proxy.sharedMaterials.Select(m => m != null ? m.name : "-") : new string[0])}]");
+                              $"mats={string.Join(",", dp.Proxy != null ? dp.Proxy.sharedMaterials.Select(m => m != null ? m.name : "-") : new string[0])} " +
+                              $"{DescribeProxyState(dp)}]");
                 else if (r.isPartOfStaticBatch)
                 {
                     sb.Append(" (static slot)");
@@ -86,6 +87,24 @@ namespace UltraRT
                 if (!ProbeBlock.isEmpty && mats.Length > 0 && mats[0] != null) sb.Append("\n      mpb{" + DescribeProps(mats[0], ProbeBlock) + "}");
                 yield return sb.ToString();
             }
+        }
+
+        /// <summary>The proxy's own state and its mesh's layout (what the RTAS needs to accept the instance).</summary>
+        private string DescribeProxyState(DynamicProxy dp)
+        {
+            var p = dp.Proxy;
+            if (p == null) return "proxy=null";
+            int entries = _dynamic.Count(x => x.Source == dp.Source);
+            var sb = new StringBuilder($"entries={entries} active={p.gameObject.activeInHierarchy} enabled={p.enabled} rt={p.rayTracingMode} layer={p.gameObject.layer} " +
+                                       $"placedAt={(Vector3)dp.CurM.GetColumn(3):F2} hasChanged={dp.SourceTransform.hasChanged} " +
+                                       $"parentIsSource={p.transform.parent == dp.Source.transform} flags=[{string.Join(",", dp.Flags.Select(f => ((int)f).ToString()))}]");
+            var mesh = p is SkinnedMeshRenderer ps ? ps.sharedMesh : p.GetComponent<MeshFilter>()?.sharedMesh;
+            if (mesh != null)
+            {
+                sb.Append($" verts={mesh.vertexCount} idx={mesh.indexFormat} sub={mesh.subMeshCount} pos={(mesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.Position) ? mesh.GetVertexAttributeFormat(UnityEngine.Rendering.VertexAttribute.Position) + "x" + mesh.GetVertexAttributeDimension(UnityEngine.Rendering.VertexAttribute.Position) : "none")} " +
+                          $"streams={mesh.vertexBufferCount} topo=[{string.Join(",", Enumerable.Range(0, mesh.subMeshCount).Select(s => mesh.GetTopology(s) + ":" + mesh.GetSubMesh(s).indexCount))}]");
+            }
+            return sb.ToString();
         }
 
         /// <summary>Non-default-looking values of a material's shader properties, or the ones a property block overrides.</summary>

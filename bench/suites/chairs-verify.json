@@ -1,0 +1,130 @@
+{
+  "Name": "chairs-verify",
+  "Note": "8-1 armchairs in the RTAS on fresh and checkpoint loads (new rigid instances re-added after 2 frames; -ultrart-noreadd = before), 8-1 statue, 0-3 ghosts",
+  "Scenarios": [
+    {
+      "Name": "8-1 chairs fresh 1",
+      "Scene": "Level 8-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-8-1-statue.json",
+        "Duration": 4,
+        "Load": "approach-fast",
+        "Position": [
+          34.31,
+          -1.0,
+          51.61
+        ],
+        "Yaw": 15,
+        "Pitch": 10
+      },
+      "Modes": [
+        "off",
+        "instance",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "FreshLoad": true
+    },
+    {
+      "Name": "8-1 chairs fresh 2",
+      "Scene": "Level 8-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-8-1-statue.json",
+        "Duration": 4,
+        "Load": "approach-fast",
+        "Position": [
+          34.31,
+          -1.0,
+          51.61
+        ],
+        "Yaw": 15,
+        "Pitch": 10
+      },
+      "Modes": [
+        "off",
+        "instance",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "FreshLoad": true
+    },
+    {
+      "Name": "8-1 chairs checkpoint 1",
+      "Scene": "Level 8-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-8-1-statue.json",
+        "Duration": 4,
+        "Load": "checkpoint",
+        "Position": [
+          34.31,
+          -1.0,
+          51.61
+        ],
+        "Yaw": 15,
+        "Pitch": 10
+      },
+      "Modes": [
+        "off",
+        "instance",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-1 statue",
+      "Scene": "Level 8-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-8-1-statue.json",
+        "Duration": 4,
+        "Load": "checkpoint"
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "0-3 ghosts",
+      "Scene": "Level 0-3",
+      "Enemies": "active",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-3-ghosts.json",
+        "Duration": 10,
+        "ApproachKillEnemies": false
+      },
+      "Modes": [
+        "relight",
+        "albedo",
+        "off"
+      ],
+      "Segment": 2.5,
+      "Screenshots": [
+        2,
+        5,
+        8
+      ]
+    }
+  ]
+}

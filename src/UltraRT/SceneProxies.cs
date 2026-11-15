@@ -100,6 +100,8 @@ namespace UltraRT
             public bool TwoSided;
             public uint Mask = GeometryMask;
             public bool Visible;
+            public int CreatedFrame;
+            public bool EverAdded, NewMesh; // QueueReAdd
 
             // Motion vectors (MotionVectors.cs). CurM / PrevM: the matrix that drives the instance this frame and last
             // frame (rigid: the proxy's localToWorld; skinned: the root bone's position and rotation).
@@ -562,6 +564,7 @@ namespace UltraRT
                 TwoSided = twoSided ?? mats.Any(m => Traceable(m) && SourceTwoSided(m)),
                 Mask = mask ?? OrbHolderMask(source, mats.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask),
             };
+            entry.CreatedFrame = Time.frameCount;
             _dynamic.Add(entry);
             TryDisplace(entry, mats); // VERTEX_DISPLACEMENT sources: a displaced mesh copy (SceneProxies.Displaced.cs)
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
@@ -663,6 +666,7 @@ namespace UltraRT
                 foreach (var d in _dirty) Evaluate(d);
                 _dirty.Clear();
             }
+            if (_reAddQueue.Count > 0) ProcessReAdds();
             long tActive = Perf.Now;
             DirtyTicks += tActive - td;
 
@@ -743,13 +747,72 @@ namespace UltraRT
         /// <summary>Skinned instance transform updates since the last reset (Plugin's 600-frame scene-sync log).</summary>
         public int SkinnedTransformUpdateCount;
 
+        /// <summary>-ultrart-trace-proxies &lt;text&gt;: log every RTAS add/remove of dynamic proxies whose path contains it.</summary>
+        public static string TraceFilter;
+
+        /// <summary>
+        /// New rigid instances are removed and added again <see cref="NewInstanceReAddDelay"/> frames after their first
+        /// AddInstance. An instance added in the frame its proxy renderer was made can stay in the RTAS without ever being
+        /// hit, for the whole level, until it is removed and re-added: 8-1's lobby armchairs (HotelChair, a mesh no other
+        /// renderer uses, added with the "3 Stuff" hierarchy) missed on 7 of 7 loads without a re-add and were hit on
+        /// 8 of 8 with one; the portal quads had the same fault (docs/portals.md, "Portal quads added too early";
+        /// docs/scene-proxies.md, "Instances added too early"). Skinned instances (DynamicGeometry, rebuilt every frame)
+        /// are left alone. -ultrart-noreadd turns it off.
+        /// </summary>
+        public static bool NewInstanceReAdd = true;
+        public const int NewInstanceReAddDelay = 2;
+        private readonly Queue<(DynamicProxy d, int frame)> _reAddQueue = new Queue<(DynamicProxy, int)>();
+        private readonly HashSet<Mesh> _meshesInRtas = new HashSet<Mesh>();
+        /// <summary>Cumulative per scene: new rigid instances re-added, and how many of them brought a mesh no earlier instance used.</summary>
+        public int NewInstancesReAdded, NewMeshInstancesReAdded;
+
+        private void QueueReAdd(DynamicProxy d)
+        {
+            if (!NewInstanceReAdd || d.EverAdded || d.SkinnedProxy != null) { d.EverAdded = true; return; }
+            d.EverAdded = true;
+            var mesh = d.Proxy.GetComponent<MeshFilter>()?.sharedMesh;
+            d.NewMesh = mesh != null && _meshesInRtas.Add(mesh);
+            _reAddQueue.Enqueue((d, Time.frameCount + NewInstanceReAddDelay));
+        }
+
+        private void ProcessReAdds()
+        {
+            while (_reAddQueue.Count > 0 && _reAddQueue.Peek().frame <= Time.frameCount)
+            {
+                var d = _reAddQueue.Dequeue().d;
+                if (!d.Visible || d.Proxy == null) continue; // left the RTAS meanwhile: its next add is a plain one
+                Rtas.RemoveInstance(d.Proxy);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                NewInstancesReAdded++;
+                if (d.NewMesh) NewMeshInstancesReAdded++;
+            }
+        }
+
+        /// <summary>Diagnostic (bench plugin._readdDynamic=1): remove and re-add every active dynamic instance.</summary>
+        public int ReAddDynamic()
+        {
+            int n = 0;
+            foreach (var d in _active)
+            {
+                if (d.Proxy == null) continue;
+                Rtas.RemoveInstance(d.Proxy);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                n++;
+            }
+            return n;
+        }
+
         private void Evaluate(DynamicProxy d)
         {
             bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d) && !FrostedHidden(d);
             if (visible == d.Visible) return;
+            if (!string.IsNullOrEmpty(TraceFilter) && d.Source != null && GameControlPath(d.Source.transform).IndexOf(TraceFilter, StringComparison.OrdinalIgnoreCase) >= 0)
+                _log.LogInfo($"Trace '{GameControlPath(d.Source.transform)}': {(visible ? "add" : "remove")} at frame {Time.frameCount} (proxy made {d.CreatedFrame}), pos {d.SourceTransform.position:F2}, " +
+                             $"source visible {d.Source.isVisible}, mesh {(d.Proxy != null && d.Proxy.GetComponent<MeshFilter>() is MeshFilter tmf && tmf.sharedMesh != null ? tmf.sharedMesh.GetInstanceID().ToString() : "-")}");
             if (visible)
             {
                 Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                QueueReAdd(d); // first add of a rigid instance: add it again in 2 frames (NewInstanceReAdd)
                 d.SourceTransform.hasChanged = false;
                 _active.Add(d);
                 // Newly in the RTAS: no motion history (it appears where it is).
