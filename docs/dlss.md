@@ -80,7 +80,7 @@ resolution: the visible part of the trace, with the guard band cropped, so DLSS 
 | Color (RGBA16F) | The composite's terms per trace pixel | See "Colour space" |
 | Diffuse albedo | `_Albedo * keep` (linearised) | Sky 0.5 |
 | Specular albedo | `SpecularTerms(material)` = F * weight, the same factor the reflection resolve applies | 0 where reflections are off |
-| Normals + roughness (RGBA16F) | `_NormalDepth.xyz` (world), `SurfaceMat.roughness` | Sky 0 |
+| Normals + roughness (RGBA16F) | `_NormalDepth.xyz` (world), `SurfaceMat.roughness` | Sky 0. Per-texel detail at the ray cone's mip, with its Toksvig roughness ([materials.md](materials.md), "Texture LOD"): sub-pixel bumps arrive averaged, not as per-frame texel picks |
 | Depth (R32F, linear) | `t * dot(dir, camForward)` | Sky = far plane |
 | Motion (RG16F) | World position + `UnpackMotion(_InstanceId.y)`, projected with last frame's jittered viewProj, last jitter removed, minus the unjittered pixel centre (trace px, previous - current) | Sky: direction only |
 | Specular hit distance (R16F) | Raw `_Reflection.a` | Sky 65504; with the world-to-view / view-to-clip matrices (row vectors, view +z forward) |

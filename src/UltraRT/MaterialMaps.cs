@@ -40,8 +40,10 @@ namespace UltraRT
         /// (glossy classes; alpha^2 += F x variance, LEAN/Toksvig). 0 = off.</summary>
         public float toksvig = 1f;
         /// <summary>-ultrart-materials-albedo-lod on|off: secondary hits (reflection and bounce rays) sample the game's albedo
-        /// and emission at the ray cone's mip where the texture has mips. Primary albedo stays mip 0 (point, the game's look).</summary>
-        public bool albedoLod = true;
+        /// and emission at the ray cone's mip where the texture has mips. Primary albedo stays mip 0 (point, the game's look).
+        /// Off by default: almost none of the game's textures have mips (8-2: 12 of 370, 1-1: 1 of 121), so it changes next
+        /// to nothing and would only cost the cone math at every secondary hit.</summary>
+        public bool albedoLod = false;
         /// <summary>Spread angle (radians) a diffuse bounce adds to the ray cone for the albedo LOD at the next hit: one sample
         /// stands for a wide lobe, so its hit's texture is averaged over a matching area.</summary>
         public float lodDiffuse = 0.3f;
@@ -89,6 +91,8 @@ namespace UltraRT
         public double LoadMs;
         // The game's own textures at bound proxies: how many have a mip chain (secondary-hit albedo LOD needs one).
         public int MainMipped, MainFlat;
+        // Where the load time goes (ms): PNG decode, CPU readback, mip chain build, texture create + upload.
+        public static double MsDecode, MsRead, MsMips, MsUpload;
 
         public MaterialMaps(ManualLogSource log, string root)
         {
@@ -185,10 +189,14 @@ namespace UltraRT
                 {
                     name = e.Key + " [UltraRT detail]", hideFlags = HideFlags.HideAndDontSave,
                 };
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 if (!t.LoadImage(File.ReadAllBytes(Path.Combine(_dir, e.Key + "_d.png")), false)) throw new Exception("bad image");
+                long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                MsDecode += (t1 - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 // Decoded once on the CPU: the mip chain (with slope variance) is built from it, and atlas composition
                 // reads it later. The GPU texture is a fresh one with mips.
                 e.Pixels = t.GetPixels32();
+                MsRead += (System.Diagnostics.Stopwatch.GetTimestamp() - t1) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 int w = t.width, h = t.height;
                 UnityEngine.Object.Destroy(t);
                 t = null;
@@ -213,68 +221,75 @@ namespace UltraRT
         /// deviation sd of the texel slopes (rg * 2 - 1, at strength 1) under the mip texel, as a = 255 - 85 sd (sd &lt;= 1.5),
         /// so a valid texel is always &gt;= 127 and 0 stays "no detail". Level 0 has sd = 0 (a = 255). The hit shader turns
         /// sd^2 x strength^2 into GGX roughness (alpha^2 += variance), so detail lost to filtering becomes gloss loss, not
-        /// flicker. Sums carry through the levels, so each level's variance is over all level-0 texels beneath it.
+        /// flicker. Each level is built from the one above with the second moment carried along, so its variance is over
+        /// all level-0 texels beneath it (to 8-bit precision per level).
         /// </summary>
         internal static Texture2D MakeDetailTexture(Color32[] px, int w, int h, string name)
         {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             var t = new Texture2D(w, h, TextureFormat.RGBA32, true, true)
             {
                 name = name, filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat, hideFlags = HideFlags.HideAndDontSave,
             };
-            t.SetPixels32(px, 0);
             int levels = t.mipmapCount;
-            if (levels > 1)
+            // The whole chain in one buffer (RGBA bytes, level 0 first), uploaded with one LoadRawTextureData.
+            int total = 0;
+            for (int l = 0, lw = w, lh = h; l < levels; l++, lw = Math.Max(1, lw / 2), lh = Math.Max(1, lh / 2)) total += lw * lh;
+            var buf = new byte[total * 4];
+            for (int i = 0, o = 0; i < px.Length; i++, o += 4) { var c = px[i]; buf[o] = c.r; buf[o + 1] = c.g; buf[o + 2] = c.b; buf[o + 3] = c.a; }
+            // Each level from the one above: children's means average into the mean, and E[x^2 + y^2] = sd^2 + |mean|^2 of
+            // each child carries the second moment down the chain (8-bit quantised per level).
+            int src = 0, sw = w, sh = h;
+            for (int level = 1; level < levels; level++)
             {
-                // Per texel: sums of x, y, x^2 + y^2 and b over the valid level-0 texels beneath it, and their count.
-                int n = w * h;
-                var sx = new float[n]; var sy = new float[n]; var s2 = new float[n]; var sb = new float[n]; var sn = new float[n];
-                for (int i = 0; i < n; i++)
+                int nw = Math.Max(1, sw / 2), nh = Math.Max(1, sh / 2);
+                int dst = src + sw * sh * 4;
+                int s0 = src, w0 = sw, h0 = sh;
+                Action<int> row = y =>
                 {
-                    var c = px[i];
-                    if (c.a <= 127) continue;
-                    float x = c.r / 127.5f - 1f, y = c.g / 127.5f - 1f;
-                    sx[i] = x; sy[i] = y; s2[i] = x * x + y * y; sb[i] = c.b; sn[i] = 1f;
-                }
-                int lw = w, lh = h;
-                for (int level = 1; level < levels; level++)
-                {
-                    int nw = Math.Max(1, lw / 2), nh = Math.Max(1, lh / 2);
-                    var tx = new float[nw * nh]; var ty = new float[nw * nh]; var t2 = new float[nw * nh]; var tb = new float[nw * nh]; var tn = new float[nw * nh];
-                    var outPx = new Color32[nw * nh];
-                    for (int y = 0; y < nh; y++)
+                    // Odd sizes: the last parent row/column also takes the leftover child row/column.
+                    int y0 = Math.Min(2 * y, h0 - 1), y1 = y == nh - 1 ? h0 : Math.Min(2 * y + 2, h0);
+                    for (int x = 0; x < nw; x++)
                     {
-                        // Odd sizes: the last parent row/column also takes the leftover child row/column.
-                        int y0 = Math.Min(2 * y, lh - 1), y1 = y == nh - 1 ? lh : Math.Min(2 * y + 2, lh);
-                        for (int x = 0; x < nw; x++)
-                        {
-                            int x0 = Math.Min(2 * x, lw - 1), x1 = x == nw - 1 ? lw : Math.Min(2 * x + 2, lw);
-                            float ax = 0, ay = 0, a2 = 0, ab = 0, an = 0;
-                            for (int cy = y0; cy < y1; cy++)
-                                for (int cx = x0; cx < x1; cx++)
-                                {
-                                    int ci = cy * lw + cx;
-                                    ax += sx[ci]; ay += sy[ci]; a2 += s2[ci]; ab += sb[ci]; an += sn[ci];
-                                }
-                            int o = y * nw + x;
-                            tx[o] = ax; ty[o] = ay; t2[o] = a2; tb[o] = ab; tn[o] = an;
-                            if (an <= 0f) { outPx[o] = new Color32(128, 128, 128, 0); continue; }
-                            float mx = ax / an, my = ay / an;
-                            float sd = Mathf.Sqrt(Mathf.Max(0f, a2 / an - mx * mx - my * my));
-                            outPx[o] = new Color32(
-                                (byte)Mathf.Clamp(Mathf.RoundToInt((mx + 1f) * 127.5f), 0, 255),
-                                (byte)Mathf.Clamp(Mathf.RoundToInt((my + 1f) * 127.5f), 0, 255),
-                                (byte)Mathf.Clamp(Mathf.RoundToInt(ab / an), 0, 255),
-                                (byte)Mathf.Clamp(Mathf.RoundToInt(255f - 85f * Mathf.Min(sd, 1.5f)), 127, 255));
-                        }
+                        int x0 = Math.Min(2 * x, w0 - 1), x1 = x == nw - 1 ? w0 : Math.Min(2 * x + 2, w0);
+                        float ax = 0, ay = 0, a2 = 0, ab = 0;
+                        int an = 0;
+                        for (int cy = y0; cy < y1; cy++)
+                            for (int cx = x0; cx < x1; cx++)
+                            {
+                                int ci = s0 + (cy * w0 + cx) * 4;
+                                byte ca = buf[ci + 3];
+                                if (ca <= 127) continue;
+                                float cxs = SlopeLut[buf[ci]], cys = SlopeLut[buf[ci + 1]];
+                                ax += cxs; ay += cys; a2 += cxs * cxs + cys * cys + VarLut[ca]; ab += buf[ci + 2]; an++;
+                            }
+                        int o = dst + (y * nw + x) * 4;
+                        if (an == 0) { buf[o] = 128; buf[o + 1] = 128; buf[o + 2] = 128; buf[o + 3] = 0; continue; }
+                        float inv = 1f / an, mx = ax * inv, my = ay * inv;
+                        float sd = (float)Math.Sqrt(Math.Max(0f, a2 * inv - mx * mx - my * my));
+                        buf[o] = (byte)Mathf.Clamp((int)((mx + 1f) * 127.5f + 0.5f), 0, 255);
+                        buf[o + 1] = (byte)Mathf.Clamp((int)((my + 1f) * 127.5f + 0.5f), 0, 255);
+                        buf[o + 2] = (byte)Mathf.Clamp((int)(ab * inv + 0.5f), 0, 255);
+                        buf[o + 3] = (byte)Mathf.Clamp((int)(255f - 85f * Math.Min(sd, 1.5f) + 0.5f), 127, 255);
                     }
-                    t.SetPixels32(outPx, level);
-                    sx = tx; sy = ty; s2 = t2; sb = tb; sn = tn;
-                    lw = nw; lh = nh;
-                }
+                };
+                // Atlases (2048^2 in 8-2) in parallel rows; level textures are small enough for one thread.
+                if (nw * nh >= 65536) System.Threading.Tasks.Parallel.For(0, nh, row);
+                else for (int y = 0; y < nh; y++) row(y);
+                src = dst; sw = nw; sh = nh;
             }
+            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+            t.LoadRawTextureData(buf);
             t.Apply(false, true); // GPU only from here on (Entry.Pixels keeps level 0 for atlas composition)
+            long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+            MsMips += (t1 - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            MsUpload += (t2 - t1) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             return t;
         }
+
+        // Detail texel decoding for the mip build: rg byte -> slope (rg * 2 - 1); a byte -> sd^2 (a = 255 - 85 sd).
+        private static readonly float[] SlopeLut = Enumerable.Range(0, 256).Select(i => i / 127.5f - 1f).ToArray();
+        private static readonly float[] VarLut = Enumerable.Range(0, 256).Select(i => { float sd = (255 - i) / 85f; return sd * sd; }).ToArray();
 
         /// <summary>Binds the detail texture of <paramref name="src"/>'s main texture to a (non-atlas) proxy material.</summary>
         public void Bind(Material proxy, Material src, MaterialParams p)

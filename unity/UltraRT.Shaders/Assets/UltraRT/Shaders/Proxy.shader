@@ -565,7 +565,8 @@ Shader "UltraRT/Proxy"
                 // for the detail maps only (their albedo stays the game's point-sampled mip 0); secondary rays for albedo and
                 // emission where the game's textures have mips.
                 float lodUv = -64.0, lodCap = 64.0;
-                if (wantCone && _UltraRTTexLod.x + _UltraRTTexLod.w > 0.5)
+                bool lodHere = wantCone && (wantDetail ? _UltraRTTexLod.x > 0.5 : _UltraRTTexLod.w > 0.5);
+                if (lodHere)
                 {
                     float2 st = _MainTex_ST.xy;
                     if (_AtlasMode > 0.5)

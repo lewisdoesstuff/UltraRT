@@ -1,12 +1,13 @@
 {
   "Name": "normals-motion",
-  "Note": "8-2 start slow pan: motion noise of per-texel detail with and without texture LOD (docs/materials.md 'Texture LOD').",
+  "Note": "8-2 brick street slow pan: motion noise of per-texel detail with and without texture LOD (docs/materials.md 'Texture LOD').",
   "Scenarios": [
     {
-      "Name": "8-2 start pan",
+      "Name": "8-2 a pan",
       "Scene": "Level 8-2",
       "Path": {
         "Type": "sweep",
+        "Approach": "../recordings/8-2-a.json",
         "YawSpeed": 15,
         "PitchAmplitude": 0,
         "Duration": 6

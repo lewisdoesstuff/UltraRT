@@ -1,12 +1,13 @@
 {
   "Name": "normals-lod",
-  "Note": "Texture LOD for per-texel detail (ray cones + mips + Toksvig), docs/materials.md 'Texture LOD'. Strength set per mode (the user's config has 0.4).",
+  "Note": "Texture LOD for per-texel detail (ray cones + mips + Toksvig), docs/materials.md 'Texture LOD'. Strength set per mode (the user's config has 0.4). 8-2 a = the brick street after 8-2's start corridor.",
   "Scenarios": [
     {
-      "Name": "8-2 start",
+      "Name": "8-2 a",
       "Scene": "Level 8-2",
       "Path": {
-        "Type": "spawn",
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
         "Duration": 4
       },
       "Modes": [
@@ -34,11 +35,18 @@
       ]
     },
     {
-      "Name": "8-2 a",
+      "Name": "8-2 wall",
       "Scene": "Level 8-2",
       "Path": {
         "Type": "static",
         "Approach": "../recordings/8-2-a.json",
+        "Position": [
+          12.56897,
+          0.9243538,
+          -8.446154
+        ],
+        "Yaw": 250,
+        "Pitch": 5,
         "Duration": 4
       },
       "Modes": [
@@ -133,7 +141,8 @@
       "Name": "6-2 start",
       "Scene": "Level 6-2",
       "Path": {
-        "Type": "spawn",
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
         "Duration": 4
       },
       "Modes": [
