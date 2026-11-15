@@ -53,6 +53,10 @@ struct PortalPath
 // The camera-side ("virtual") version of a direction or normal at the hit: rot is orthonormal.
 float3 PortalToVirtual(PortalPath path, float3 d) { return mul(d, path.rot); }
 
+// Ray cone of the next TraceScene with ULTRART_PAYLOAD_CONE in inFlags (docs/materials.md, "Texture LOD"): x its width at
+// ray.Origin, y its spread angle. Each segment's hit gets the width at that segment's origin.
+static float2 g_Cone = 0;
+
 // TraceRay that follows portals. On return `ray` is the last segment, so the hit point is ray.Origin + ray.Direction * p.t
 // as before, and the full path length is path.travelled + p.t. inFlags: request bits for the hit shader (re-sent each hop).
 void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout RayPayload p, out PortalPath path)
@@ -73,7 +77,9 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         p = (RayPayload)0;
         p.t = -1.0;
         p.flags = inFlags | (i > 0u ? ULTRART_PORTAL_IN_RECURSION : 0u);
+        if ((inFlags & ULTRART_PAYLOAD_CONE) != 0u) p.albedo = float3(g_Cone.x + g_Cone.y * path.travelled, g_Cone.y, 0.0);
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
+        if (p.t < 0.0) p.albedo = 0; // a miss leaves the cone input there
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
         if (path.firstT < 0.0) path.firstT = p.t; // first segment: travelled is 0
         if (stopAtMirror && (p.material & 2u) != 0u)
@@ -90,7 +96,9 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
             p.t = -1.0;
             p.flags = inFlags | ULTRART_PORTAL_IN_RECURSION;
             mask &= ~ULTRART_MASK_PORTAL;
+            if ((inFlags & ULTRART_PAYLOAD_CONE) != 0u) p.albedo = float3(g_Cone.x + g_Cone.y * path.travelled, g_Cone.y, 0.0);
             TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
+            if (p.t < 0.0) p.albedo = 0;
             return;
         }
         uint s = p.instance * 3u;
@@ -114,6 +122,15 @@ void TraceScene(uint rayFlags, uint mask, inout RayDesc ray, inout RayPayload p,
 {
     PortalPath path;
     TraceScene(rayFlags, mask, 0u, ray, p, path);
+    travelled = path.travelled;
+}
+
+// Same with a ray cone (width at ray.Origin, spread angle) for the hit's texture LOD; (0, 0) = none (mip 0).
+void TraceSceneCone(uint rayFlags, uint mask, float2 cone, inout RayDesc ray, inout RayPayload p, out float travelled)
+{
+    PortalPath path;
+    g_Cone = cone;
+    TraceScene(rayFlags, mask, any(cone > 0.0) ? ULTRART_PAYLOAD_CONE : 0u, ray, p, path);
     travelled = path.travelled;
 }
 

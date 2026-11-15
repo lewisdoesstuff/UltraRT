@@ -25,8 +25,29 @@ namespace UltraRT
         /// <summary>-ultrart-materials-guided on|off: hybrid composite picks the trace texel by albedo as well as depth
         /// (Composite.shader), so per-texel shading follows texel edges instead of the half-resolution trace grid.</summary>
         public bool guidedPick = true;
+        /// <summary>-ultrart-materials-lod on|off ([Materials] TextureLod): ray-cone texture LOD for the detail maps
+        /// (docs/materials.md, "Texture LOD"). Primary hits pick the detail mip whose texels match the traced pixel's
+        /// footprint, so normal detail smaller than a pixel is averaged instead of aliasing (RR at 1/3 scale: noise).
+        /// Off = mip 0 everywhere, as before. Shader-side, instant.</summary>
+        public bool lod = true;
+        /// <summary>-ultrart-materials-lod-bias F ([Materials] LodBias): mips added to the cone's LOD. 0 = texels the size of
+        /// a traced pixel; -1.58 (log2 1/3) = texels the size of a screen pixel at RR's 1/3 scale (sharper, more aliasing).</summary>
+        public float lodBias = 0f;
+        /// <summary>Footprint stretch at grazing angles: lod += -aniso * log2(cos). 1 = the long axis (isotropic hardware
+        /// filtering, blurs floors seen at grazing angles), 0.5 = the footprint's area (geometric mean of both axes).</summary>
+        public float lodAniso = 0.5f;
+        /// <summary>-ultrart-materials-toksvig F: how much of the slope variance that filtering removed becomes roughness
+        /// (glossy classes; alpha^2 += F x variance, LEAN/Toksvig). 0 = off.</summary>
+        public float toksvig = 1f;
+        /// <summary>-ultrart-materials-albedo-lod on|off: secondary hits (reflection and bounce rays) sample the game's albedo
+        /// and emission at the ray cone's mip where the texture has mips. Primary albedo stays mip 0 (point, the game's look).</summary>
+        public bool albedoLod = true;
+        /// <summary>Spread angle (radians) a diffuse bounce adds to the ray cone for the albedo LOD at the next hit: one sample
+        /// stands for a wide lobe, so its hit's texture is averaged over a matching area.</summary>
+        public float lodDiffuse = 0.3f;
 
-        public override string ToString() => $"{(enabled ? "on" : "off")}, source {source}, normal x{normalStrength:0.##} (hybrid x{hybridNormalStrength:0.##}), roughness x{roughness:0.##}, guided pick {(guidedPick ? "on" : "off")}";
+        public override string ToString() => $"{(enabled ? "on" : "off")}, source {source}, normal x{normalStrength:0.##} (hybrid x{hybridNormalStrength:0.##}), roughness x{roughness:0.##}, guided pick {(guidedPick ? "on" : "off")}, " +
+                                             $"lod {(lod ? "on" : "off")} (bias {lodBias:0.##}, aniso {lodAniso:0.##}, toksvig {toksvig:0.##}, albedo {(albedoLod ? "on" : "off")})";
     }
 
     /// <summary>
@@ -46,6 +67,8 @@ namespace UltraRT
         public static readonly int DetailTexId = Shader.PropertyToID("_DetailTex");
         public static readonly int DetailParamsId = Shader.PropertyToID("_DetailParams");
         public static readonly int GlobalId = Shader.PropertyToID("_UltraRTDetail");
+        public static readonly int LodId = Shader.PropertyToID("_UltraRTTexLod");
+        public static readonly int Lod2Id = Shader.PropertyToID("_UltraRTTexLod2");
 
         private sealed class Entry
         {
@@ -64,6 +87,8 @@ namespace UltraRT
         public bool Available { get; }
         public int Bound, Missing, Loaded;
         public double LoadMs;
+        // The game's own textures at bound proxies: how many have a mip chain (secondary-hit albedo LOD needs one).
+        public int MainMipped, MainFlat;
 
         public MaterialMaps(ManualLogSource log, string root)
         {
@@ -161,10 +186,14 @@ namespace UltraRT
                     name = e.Key + " [UltraRT detail]", hideFlags = HideFlags.HideAndDontSave,
                 };
                 if (!t.LoadImage(File.ReadAllBytes(Path.Combine(_dir, e.Key + "_d.png")), false)) throw new Exception("bad image");
-                t.filterMode = FilterMode.Point;
-                t.wrapMode = TextureWrapMode.Repeat;
-                e.Tex = t;
-                _owned.Add(t);
+                // Decoded once on the CPU: the mip chain (with slope variance) is built from it, and atlas composition
+                // reads it later. The GPU texture is a fresh one with mips.
+                e.Pixels = t.GetPixels32();
+                int w = t.width, h = t.height;
+                UnityEngine.Object.Destroy(t);
+                t = null;
+                e.Tex = MakeDetailTexture(e.Pixels, w, h, e.Key + " [UltraRT detail]");
+                _owned.Add(e.Tex);
                 Loaded++;
             }
             catch (Exception ex)
@@ -176,16 +205,87 @@ namespace UltraRT
             finally { LoadMs += sw.Elapsed.TotalMilliseconds; }
         }
 
-        private static Color32[] PixelsOf(Entry e) => e.Pixels ?? (e.Pixels = e.Tex.GetPixels32());
+        private static Color32[] PixelsOf(Entry e) => e.Pixels;
+
+        /// <summary>
+        /// A detail texture with its mip chain (docs/materials.md, "Texture LOD"). Mips are box filtered over the valid
+        /// texels (a &gt; 127): rg the mean slope, b the mean roughness offset. a carries what the average loses: the standard
+        /// deviation sd of the texel slopes (rg * 2 - 1, at strength 1) under the mip texel, as a = 255 - 85 sd (sd &lt;= 1.5),
+        /// so a valid texel is always &gt;= 127 and 0 stays "no detail". Level 0 has sd = 0 (a = 255). The hit shader turns
+        /// sd^2 x strength^2 into GGX roughness (alpha^2 += variance), so detail lost to filtering becomes gloss loss, not
+        /// flicker. Sums carry through the levels, so each level's variance is over all level-0 texels beneath it.
+        /// </summary>
+        internal static Texture2D MakeDetailTexture(Color32[] px, int w, int h, string name)
+        {
+            var t = new Texture2D(w, h, TextureFormat.RGBA32, true, true)
+            {
+                name = name, filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat, hideFlags = HideFlags.HideAndDontSave,
+            };
+            t.SetPixels32(px, 0);
+            int levels = t.mipmapCount;
+            if (levels > 1)
+            {
+                // Per texel: sums of x, y, x^2 + y^2 and b over the valid level-0 texels beneath it, and their count.
+                int n = w * h;
+                var sx = new float[n]; var sy = new float[n]; var s2 = new float[n]; var sb = new float[n]; var sn = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    var c = px[i];
+                    if (c.a <= 127) continue;
+                    float x = c.r / 127.5f - 1f, y = c.g / 127.5f - 1f;
+                    sx[i] = x; sy[i] = y; s2[i] = x * x + y * y; sb[i] = c.b; sn[i] = 1f;
+                }
+                int lw = w, lh = h;
+                for (int level = 1; level < levels; level++)
+                {
+                    int nw = Math.Max(1, lw / 2), nh = Math.Max(1, lh / 2);
+                    var tx = new float[nw * nh]; var ty = new float[nw * nh]; var t2 = new float[nw * nh]; var tb = new float[nw * nh]; var tn = new float[nw * nh];
+                    var outPx = new Color32[nw * nh];
+                    for (int y = 0; y < nh; y++)
+                    {
+                        // Odd sizes: the last parent row/column also takes the leftover child row/column.
+                        int y0 = Math.Min(2 * y, lh - 1), y1 = y == nh - 1 ? lh : Math.Min(2 * y + 2, lh);
+                        for (int x = 0; x < nw; x++)
+                        {
+                            int x0 = Math.Min(2 * x, lw - 1), x1 = x == nw - 1 ? lw : Math.Min(2 * x + 2, lw);
+                            float ax = 0, ay = 0, a2 = 0, ab = 0, an = 0;
+                            for (int cy = y0; cy < y1; cy++)
+                                for (int cx = x0; cx < x1; cx++)
+                                {
+                                    int ci = cy * lw + cx;
+                                    ax += sx[ci]; ay += sy[ci]; a2 += s2[ci]; ab += sb[ci]; an += sn[ci];
+                                }
+                            int o = y * nw + x;
+                            tx[o] = ax; ty[o] = ay; t2[o] = a2; tb[o] = ab; tn[o] = an;
+                            if (an <= 0f) { outPx[o] = new Color32(128, 128, 128, 0); continue; }
+                            float mx = ax / an, my = ay / an;
+                            float sd = Mathf.Sqrt(Mathf.Max(0f, a2 / an - mx * mx - my * my));
+                            outPx[o] = new Color32(
+                                (byte)Mathf.Clamp(Mathf.RoundToInt((mx + 1f) * 127.5f), 0, 255),
+                                (byte)Mathf.Clamp(Mathf.RoundToInt((my + 1f) * 127.5f), 0, 255),
+                                (byte)Mathf.Clamp(Mathf.RoundToInt(ab / an), 0, 255),
+                                (byte)Mathf.Clamp(Mathf.RoundToInt(255f - 85f * Mathf.Min(sd, 1.5f)), 127, 255));
+                        }
+                    }
+                    t.SetPixels32(outPx, level);
+                    sx = tx; sy = ty; s2 = t2; sb = tb; sn = tn;
+                    lw = nw; lh = nh;
+                }
+            }
+            t.Apply(false, true); // GPU only from here on (Entry.Pixels keeps level 0 for atlas composition)
+            return t;
+        }
 
         /// <summary>Binds the detail texture of <paramref name="src"/>'s main texture to a (non-atlas) proxy material.</summary>
         public void Bind(Material proxy, Material src, MaterialParams p)
         {
             proxy.SetVector(DetailParamsId, Vector4.zero);
             if (src == null || !src.HasProperty("_MainTex")) return;
+            var main = src.GetTexture("_MainTex");
+            if (main != null) { if (main.mipmapCount > 1) MainMipped++; else MainFlat++; }
             var (sn, sr) = Strengths(p);
             if (sn <= 0f && sr <= 0f) return;
-            var e = Find(src.GetTexture("_MainTex"));
+            var e = Find(main);
             if (e == null) { Missing++; return; }
             proxy.SetTexture(DetailTexId, e.Tex);
             proxy.SetVector(DetailParamsId, new Vector4(sn, sr, 0f, 1f));
@@ -288,12 +388,19 @@ namespace UltraRT
                     filled++;
                 }
                 if (filled == 0) continue;
-                var t = new Texture2D(w, h, TextureFormat.RGBA32, false, true)
+                // Mips of the whole atlas: a cell's mip k is its own only where the cell is aligned to 2^k texels, so the hit
+                // shader caps the LOD per cell from its rect (Proxy.shader, AtlasMaxLod). Alignment histogram for the log.
+                var t = MakeDetailTexture(px, w, h, b.Atlas.name + " [UltraRT detail atlas]");
+                var align = new int[4]; // cells whose rect allows mip >= 1, 2, 3, 5
+                foreach (var cell in b.Cells.Keys)
                 {
-                    name = b.Atlas.name + " [UltraRT detail atlas]", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat, hideFlags = HideFlags.HideAndDontSave,
-                };
-                t.SetPixels32(px);
-                t.Apply(false, true); // GPU only from here on
+                    int v = cell.Item1 | cell.Item2 | (cell.Item3 - cell.Item1) | (cell.Item4 - cell.Item2);
+                    int k = v == 0 ? 31 : TrailingZeros(v);
+                    if (k >= 1) align[0]++;
+                    if (k >= 2) align[1]++;
+                    if (k >= 3) align[2]++;
+                    if (k >= 5) align[3]++;
+                }
                 _owned.Add(t);
                 foreach (var m in b.Materials)
                 {
@@ -301,10 +408,18 @@ namespace UltraRT
                     m.SetTexture(DetailTexId, t);
                     m.SetVector(DetailParamsId, new Vector4(1f, 1f, 1f, 1f));
                 }
-                _log.LogInfo($"Material maps: atlas '{b.Atlas.name}' {w}x{h}: {filled}/{b.Cells.Count} cells with detail " +
-                             $"({b.Unmapped} rects without a known source, {b.Conflicts} conflicting votes), {b.Materials.Count} materials, {sw.Elapsed.TotalMilliseconds:F1} ms");
+                _log.LogInfo($"Material maps: atlas '{b.Atlas.name}' {w}x{h} (game atlas mips {b.Atlas.mipmapCount}): {filled}/{b.Cells.Count} cells with detail " +
+                             $"({b.Unmapped} rects without a known source, {b.Conflicts} conflicting votes), {b.Materials.Count} materials, " +
+                             $"cells aligned for mip 1/2/3/5: {align[0]}/{align[1]}/{align[2]}/{align[3]}, {sw.Elapsed.TotalMilliseconds:F1} ms");
             }
             _atlases.Clear();
+        }
+
+        private static int TrailingZeros(int v)
+        {
+            int k = 0;
+            while ((v & 1) == 0 && k < 31) { v >>= 1; k++; }
+            return k;
         }
 
         public void Dispose()

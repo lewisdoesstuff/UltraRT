@@ -150,6 +150,11 @@ Shader "UltraRT/Proxy"
             float4 _DetailParams;
             // Global (Plugin, MaterialMaps): x enabled, y normal strength multiplier, z roughness amount multiplier.
             float4 _UltraRTDetail;
+            // Texture LOD (globals, Plugin.Materials.cs; docs/materials.md "Texture LOD"): x 1 = detail at the ray cone's mip,
+            // y LOD bias (mips), z grazing-angle stretch exponent, w 1 = albedo and emission at the cone's mip on secondary
+            // hits. _UltraRTTexLod2.x: share of the filtered-away slope variance that becomes roughness.
+            float4 _UltraRTTexLod;
+            float4 _UltraRTTexLod2;
 
             Texture2D _RainDrops, _RainTrails;
             float4 _RainDarkening, _RainColor;
@@ -339,6 +344,43 @@ Shader "UltraRT/Proxy"
                 return mul((float3x3)ObjectToWorld3x4(), tu * duv.x + tv * duv.y); // previous position of the feature - current
             }
 
+            // ---------------------------------------------------------------- texture LOD (ray cones)
+
+            // log2 of the ray cone's footprint in texture uv units (1 = the whole texture) at this hit (Akenine-Moller et al.
+            // 2021): half the log2 ratio of the triangle's uv area to its world area, plus log2 of the cone's width here,
+            // stretched by the angle to the surface (-z log2 |cos|: 0.5 = the footprint's area, 1 = its long axis). A texture
+            // of W x H texels is then at mip lodUv + 0.5 log2(W H) (TexMip). st: texture uv per mesh uv. -64 = no cone.
+            float ConeLodUv(float2 u0, float2 u1, float2 u2, float3 p0, float3 p1, float3 p2, float2 st, float coneW)
+            {
+                float2 d1 = (u1 - u0) * st, d2 = (u2 - u0) * st;
+                float uvArea = abs(d1.x * d2.y - d1.y * d2.x);
+                float3x3 o2w = (float3x3)ObjectToWorld3x4();
+                float3 g = cross(mul(o2w, p1 - p0), mul(o2w, p2 - p0));
+                float wArea = length(g);
+                if (!(uvArea > 1e-20 && wArea > 1e-20 && coneW > 1e-9)) return -64.0;
+                float cosT = abs(dot(g, WorldRayDirection())) / wArea;
+                return 0.5 * log2(uvArea / wArea) + log2(coneW) - _UltraRTTexLod.z * log2(max(cosT, 0.02)) + _UltraRTTexLod.y;
+            }
+
+            // A texture's mip for a cone LOD, within its chain and under cap (atlas cells: AtlasMaxLod).
+            float TexMip(Texture2D t, float lodUv, float cap)
+            {
+                uint w, h, levels;
+                t.GetDimensions(0, w, h, levels);
+                return clamp(lodUv + 0.5 * log2((float)max(w * h, 1u)), 0.0, min((float)levels - 1.0, cap));
+            }
+
+            // The deepest mip at which an atlas cell's texels stay inside the cell: its rect's offset and size in texels must
+            // be multiples of 2^k (the atlas mips are box filters of the whole atlas).
+            float AtlasMaxLod(float4 rect, Texture2D atlas)
+            {
+                uint w, h, levels;
+                atlas.GetDimensions(0, w, h, levels);
+                uint4 r = (uint4)round(saturate(rect) * float4(w, h, w, h));
+                uint v = r.x | r.y | (r.z - r.x) | (r.w - r.y);
+                return v == 0u ? 64.0 : (float)firstbitlow(v);
+            }
+
             float2 FetchUV(uint3 tri, float3 b)
             {
                 float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
@@ -370,8 +412,8 @@ Shader "UltraRT/Proxy"
 
             // Surface colour (alpha = coverage) at a hit; litWeight 0 = fullbright.
             // blendWeight: < 0.5 selects the secondary material (VERTEX_BLENDING); 1 when the surface doesn't blend.
-            // texUV: where _MainTex (and _DetailTex) was sampled.
-            float4 SampleAlbedo(uint3 tri, float3 b, float2 uv, out float litWeight, out float blendWeight, out float2 texUV)
+            // texUV: where _MainTex (and _DetailTex) was sampled. lodUv, cap: the ray cone's LOD (ConeLodUv; -64 = mip 0).
+            float4 SampleAlbedo(uint3 tri, float3 b, float2 uv, float lodUv, float cap, out float litWeight, out float blendWeight, out float2 texUV)
             {
                 float4 albedo;
                 litWeight = 1.0; // 0 = fullbright (game: lerp(1, lighting, vertexColor.a))
@@ -382,7 +424,7 @@ Shader "UltraRT/Proxy"
                     float2 f = frac(uv);
                     float4 rect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord1);
                     texUV = lerp(rect.xy, rect.zw, f);
-                    float4 mainTex = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, 0);
+                    float4 mainTex = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_MainTex, lodUv, cap));
 
                     // Vertex blending: texture = lerp(blendAtlas, mainAtlas, |normal.w| - 1).
                     float nw = abs(UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeNormal).w) * b.x
@@ -393,7 +435,7 @@ Shader "UltraRT/Proxy"
                     float4 tex = mainTex;
                     if (any(blendRect != 0) && blendW < 0.999)
                     {
-                        float4 blendTex = _BlendTex.SampleLevel(my_point_repeat_sampler, lerp(blendRect.xy, blendRect.zw, f), 0);
+                        float4 blendTex = _BlendTex.SampleLevel(my_point_repeat_sampler, lerp(blendRect.xy, blendRect.zw, f), TexMip(_BlendTex, lodUv, cap));
                         tex = lerp(blendTex, mainTex, blendW);
                         blendWeight = blendW;
                     }
@@ -408,7 +450,7 @@ Shader "UltraRT/Proxy"
                 {
                     texUV = uv * _MainTex_ST.xy + _MainTex_ST.zw;
                     if (_Scrolling * _UltraRTTexScroll > 0.5) texUV += _ScrollOffset.xy + _ScrollSpeed.xy * _UltraRTRainTime;
-                    albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, 0) * _Color;
+                    albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_MainTex, lodUv, cap)) * _Color;
                     litWeight = 1.0 - _Unlit;
                     if (_BloodFill > 0.0) albedo.rgb *= BloodFillTint(tri, b);
                     // ULTRAKILL VERTEX_BLENDING: vertex colour r < 0.5 is the secondary surface. Missing colours read as white.
@@ -422,13 +464,26 @@ Shader "UltraRT/Proxy"
 
             // ---------------------------------------------------------------- per-texel detail (docs/materials.md)
 
-            // The texel's detail (point sampled, like the albedo), or false where there is none.
-            bool DetailSample(float2 texUV, out float4 d)
+            // The texel's detail (point sampled, like the albedo), or false where there is none. With a ray cone (lodUv >
+            // -64) at the mip whose texels match the footprint: point sampled within each of the two nearest mips and blended
+            // between them, so nothing smaller than a traced pixel aliases and close-up texels stay the game's grid.
+            // var: the slope variance the mip averaged away (MaterialMaps.MakeDetailTexture: a = 1 - sd / 3), at strength 1.
+            bool DetailSample(float2 texUV, float lodUv, float cap, out float4 d, out float var)
             {
                 d = 0;
+                var = 0.0;
                 if (_DetailParams.w < 0.5 || _UltraRTDetail.x < 0.5) return false;
-                d = _DetailTex.SampleLevel(my_point_repeat_sampler, texUV, 0);
-                return d.a > 0.5;
+                float m = TexMip(_DetailTex, lodUv, cap);
+                float m0 = floor(m);
+                d = _DetailTex.SampleLevel(my_point_repeat_sampler, texUV, m0);
+                if (m > m0)
+                {
+                    float4 d1 = _DetailTex.SampleLevel(my_point_repeat_sampler, texUV, m0 + 1.0);
+                    if (d.a > 0.25 && d1.a > 0.25) d = lerp(d, d1, m - m0);
+                }
+                float sd = (1.0 - d.a) * 3.0;
+                var = sd * sd;
+                return d.a > 0.25;
             }
 
             // Shading normal n tilted by the tangent-space slope xy. The tangent frame comes from the triangle's positions
@@ -468,7 +523,7 @@ Shader "UltraRT/Proxy"
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
                 float litWeight, blendWeight;
                 float2 texUV;
-                if (SampleAlbedo(tri, b, FetchUV(tri, b), litWeight, blendWeight, texUV).a < _Cutoff) IgnoreHit();
+                if (SampleAlbedo(tri, b, FetchUV(tri, b), -64.0, 64.0, litWeight, blendWeight, texUV).a < _Cutoff) IgnoreHit();
             }
 
             [shader("closesthit")]
@@ -476,6 +531,8 @@ Shader "UltraRT/Proxy"
             {
                 bool wantGameCube = (p.flags & ULTRART_FLAG_GAMECUBE) != 0u; // request from the ray gen (hybrid primary rays)
                 bool wantDetail = (p.flags & ULTRART_FLAG_DETAIL) != 0u;     // primary rays only
+                bool wantCone = (p.flags & ULTRART_PAYLOAD_CONE) != 0u;      // p.albedo.xy: the ray cone (texture LOD)
+                float2 cone = p.albedo.xy;
                 // The game draws these as the sky (by view direction): the ray "escapes" here.
                 if (_SkyWall > 0.5) { p.t = -1.0; return; }
                 bool wantMotion = (p.flags & ULTRART_PAYLOAD_WANT_MOTION) != 0u;
@@ -504,9 +561,26 @@ Shader "UltraRT/Proxy"
                 float2 u1 = UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0);
                 float2 u2 = UnityRayTracingFetchVertexAttribute2(tri.z, kVertexAttributeTexCoord0);
                 float2 uv = u0 * b.x + u1 * b.y + u2 * b.z;
+                // Texture LOD (docs/materials.md, "Texture LOD"): the cone's footprint here in texture uv. Primary rays use it
+                // for the detail maps only (their albedo stays the game's point-sampled mip 0); secondary rays for albedo and
+                // emission where the game's textures have mips.
+                float lodUv = -64.0, lodCap = 64.0;
+                if (wantCone && _UltraRTTexLod.x + _UltraRTTexLod.w > 0.5)
+                {
+                    float2 st = _MainTex_ST.xy;
+                    if (_AtlasMode > 0.5)
+                    {
+                        float4 rect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord1);
+                        st = rect.zw - rect.xy;
+                        lodCap = AtlasMaxLod(rect, _MainTex);
+                    }
+                    lodUv = ConeLodUv(u0, u1, u2, p0, p1, p2, st, cone.x + cone.y * RayTCurrent());
+                }
+                float lodAlbedo = -64.0;
+                if (!wantDetail && _UltraRTTexLod.w > 0.5) lodAlbedo = lodUv;
                 float litWeight, blendWeight;
                 float2 texUV;
-                float4 albedo = SampleAlbedo(tri, b, uv, litWeight, blendWeight, texUV);
+                float4 albedo = SampleAlbedo(tri, b, uv, lodAlbedo, lodCap, litWeight, blendWeight, texUV);
                 float wet = 0.0, puddle = 0.0;
                 float2 wetSlope = 0.0;
                 if (_Rain > 0.5)
@@ -525,12 +599,16 @@ Shader "UltraRT/Proxy"
                 // (packed in `primitive`) for the hybrid shadow ratio's denominator (the game lights with it).
                 float4 detail;
                 detail = 0;
+                float detailVar = 0.0;
                 bool hasDetail = false;
-                if (wantDetail) hasDetail = DetailSample(texUV, detail); // not &&: HLSL 2018 doesn't short-circuit (a texture read per hit)
+                float lodDetail = -64.0;
+                if (_UltraRTTexLod.x > 0.5) lodDetail = lodUv;
+                if (wantDetail) hasDetail = DetailSample(texUV, lodDetail, lodCap, detail, detailVar); // not &&: HLSL 2018 doesn't short-circuit (a texture read per hit)
                 float3 nVertex = n;
+                float detailStrength = _DetailParams.x * _UltraRTDetail.y;
                 if (hasDetail)
                 {
-                    float2 xy = (detail.rg * 2.0 - 1.0) * (_DetailParams.x * _UltraRTDetail.y);
+                    float2 xy = (detail.rg * 2.0 - 1.0) * detailStrength;
                     n = DetailNormal(u0, u1, u2, p0, p1, p2, n, xy);
                     flags |= ULTRART_FLAG_DETAIL;
                 }
@@ -548,7 +626,7 @@ Shader "UltraRT/Proxy"
                     // (uv0 * _MainTex_ST), not with _EmissiveTex_ST: materials that share one texture and pick a band of it
                     // by _MainTex offset (0-2's FinalFrameL 2/3 strips) otherwise glow one band off.
                     float3 e = albedo.rgb;
-                    if (_UseAlbedoAsEmissive < 0.5) e = _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, 0).rgb; // not ?: (both sides run)
+                    if (_UseAlbedoAsEmissive < 0.5) e = _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_EmissiveTex, lodAlbedo, lodCap)).rgb; // not ?: (both sides run)
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                     if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
                 }
@@ -591,7 +669,13 @@ Shader "UltraRT/Proxy"
                 float rough = second ? _Roughness2 : _Roughness;
                 // Per-texel roughness around the class value (glossy classes only; REFLECTION keeps the game's strength).
                 if (hasDetail && mode == ULTRART_REFL_SPECULAR)
+                {
                     rough = saturate(rough + (detail.b * 2.0 - 1.0) * (_DetailParams.y * _UltraRTDetail.z));
+                    // The slope variance the detail mip averaged away widens the lobe instead (LEAN / Toksvig: GGX
+                    // alpha^2 += slope variance, alpha = roughness^2), so sub-pixel bumps read as a rougher surface.
+                    float sv = detailVar * detailStrength * detailStrength * _UltraRTTexLod2.x;
+                    if (sv > 0.0) { float a = rough * rough; rough = saturate(sqrt(sqrt(a * a + sv))); }
+                }
                 float metal = second ? _Metalness2 : _Metalness;
                 float f0 = second ? _F02 : _F0;
                 if (wet > 0.0 && mode != ULTRART_REFL_BLEND && mode != ULTRART_REFL_ADD)

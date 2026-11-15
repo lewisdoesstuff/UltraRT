@@ -249,7 +249,7 @@ namespace UltraRT
             LogTransparents();
             LogMirrorSurfaces();
             _log.LogInfo($"Material maps ({MaterialMaps.Settings}): {Maps.Bound} proxy materials bound, {Maps.Missing} without maps, " +
-                         $"{Maps.Loaded} textures loaded in {Maps.LoadMs:F0} ms");
+                         $"{Maps.Loaded} textures loaded in {Maps.LoadMs:F0} ms; game main textures with mips {Maps.MainMipped}, without {Maps.MainFlat}");
             LogLava();
         }
 

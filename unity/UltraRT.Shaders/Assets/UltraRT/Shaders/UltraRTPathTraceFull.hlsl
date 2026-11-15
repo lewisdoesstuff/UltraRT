@@ -14,7 +14,7 @@
 // The last vertex of a path takes its lighting from the radiance cache (direct + every further bounce) when the tail
 // is on and its cell is valid; that is the only place the cache enters a path.
 //
-// Needs, from the includer: Rand, CosineHemisphere, ReflectionDirection, TraceScene, DirectOne, SkyDirect,
+// Needs, from the includer: Rand, CosineHemisphere, ReflectionDirection, TraceSceneCone, DiffuseCone, GlossyCone, DirectOne, SkyDirect,
 // SkyMissWeight, CacheQueryTotal, EffectsAlong, StainTint, SpecularTerms, _ReflParams, _ReflMaxRadiance, _Ambient, _BounceAmbient,
 // _EmissionScale.
 
@@ -37,7 +37,8 @@ float PtLuma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 //   nPrev      the normal the first direction was cosine-sampled around (the sky MIS weight of a diffuse miss)
 //   firstDist  path length to the first hit (through portals); 1000 for the sky
 //   effectW    the weight of glowing effects on the first segment when it is specular (EffectLobeWeight of its lobe)
-float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces, inout uint rng, out float firstDist)
+//   cone       ray cone at r.Origin (width, spread angle) for the hits' texture LOD (docs/materials.md, "Texture LOD")
+float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone, int bounces, inout uint rng, out float firstDist)
 {
     float3 L = 0;
     float3 T = 1;
@@ -53,8 +54,8 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces
     {
         RayPayload h;
         float travelled;
-        TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-                   surfaces | PlayerRayMask(specular ? ULTRART_PLAYER_REFLECTION : ULTRART_PLAYER_BOUNCE), r, h, travelled); // r: the last segment after portals
+        TraceSceneCone(RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+                       surfaces | PlayerRayMask(specular ? ULTRART_PLAYER_REFLECTION : ULTRART_PLAYER_BOUNCE), cone, r, h, travelled); // r: the last segment after portals
         // Glowing effects in front of what a specular lobe sees (UltraRTEffects.hlsl). Cosine bounces get their light
         // from the effects' point lights instead.
         if (specular) L += T * ToLight(EffectsAlong(r.Origin, r.Direction, h.t < 0.0 ? 1.0e4 : h.t) * effectW);
@@ -68,6 +69,7 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces
         }
         float3 hp = r.Origin + r.Direction * h.t;
         float3 hn = h.normal; // faces the ray; no per-texel detail on path vertices (docs/materials.md)
+        cone.x += cone.y * (travelled + h.t);
         uint transparent = (h.flags >> ULTRART_FLAG_TRANSPARENT_SHIFT) & 3u;
         if (transparent != 0u)
         {
@@ -136,6 +138,7 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces
         {
             T *= specT / pSpec;
             r.Direction = ReflectionDirection(hn, r.Direction, mat.roughness, rng);
+            cone = GlossyCone(cone, mat.roughness);
             specular = true;
             effectW = EffectLobeWeight(mat.roughness);
         }
@@ -143,6 +146,7 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, int bounces
         {
             T *= diffT / (1.0 - pSpec);
             r.Direction = CosineHemisphere(hn, Rand(rng), Rand(rng));
+            cone = DiffuseCone(cone);
             specular = false;
             nPrev = hn;
             skyMis = skyNee;
@@ -187,8 +191,9 @@ int PtPaths() { return clamp((int)_PtParams.x, 1, 4); }
 int PtBounces() { return clamp((int)_PtParams.y, 1, 4); }
 
 // Indirect light at a primary hit: the mean of N cosine-sampled paths (the cosine pdf cancels Lambert's cos / pi).
-// n: shading normal (per-texel detail); nv: vertex normal (ray offset, hemisphere test).
-float3 PtIndirect(float3 pos, float3 n, float3 nv, inout uint rng)
+// n: shading normal (per-texel detail); nv: vertex normal (ray offset, hemisphere test); cone: the camera pixel's ray cone
+// at the hit (width, spread angle).
+float3 PtIndirect(float3 pos, float3 n, float3 nv, float2 cone, inout uint rng)
 {
     int paths = PtPaths();
     int bounces = PtBounces();
@@ -203,7 +208,7 @@ float3 PtIndirect(float3 pos, float3 n, float3 nv, inout uint rng)
         b.TMin = 0.0;
         b.TMax = 1.0e4;
         float dist;
-        float3 L = PtPath(b, false, n, 1.0, bounces, rng, dist);
+        float3 L = PtPath(b, false, n, 1.0, DiffuseCone(cone), bounces, rng, dist);
         float l = PtLuma(L);
         if (_PtParams2.x > 0.0 && l > _PtParams2.x) L *= _PtParams2.x / l;
         sum += L;
@@ -214,7 +219,7 @@ float3 PtIndirect(float3 pos, float3 n, float3 nv, inout uint rng)
 // Radiance along the reflection direction(s) of a primary hit, as TraceReflection returns it (display units: every
 // sample is converted on its own, the reflection filter works on displayed values). dist: the first path's hit
 // distance (1000 = sky). pos, nv, n as PtIndirect; dir: the camera ray's direction at the hit.
-float3 PtReflection(float3 pos, float3 nv, float3 n, float3 dir, float roughness, inout uint rng, out float dist)
+float3 PtReflection(float3 pos, float3 nv, float3 n, float3 dir, float roughness, float2 cone, inout uint rng, out float dist)
 {
     int paths = PtPaths();
     int bounces = PtBounces();
@@ -231,7 +236,7 @@ float3 PtReflection(float3 pos, float3 nv, float3 n, float3 dir, float roughness
         r.TMin = 0.0;
         r.TMax = 1.0e4;
         float d;
-        float3 c = LightToDisplay(PtPath(r, true, n, EffectLobeWeight(roughness), bounces, rng, d));
+        float3 c = LightToDisplay(PtPath(r, true, n, EffectLobeWeight(roughness), GlossyCone(cone, glossy ? roughness : 0.0), bounces, rng, d));
         if (s == 0) dist = d;
         if (glossy)
         {

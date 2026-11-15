@@ -8,7 +8,9 @@ namespace UltraRT
     /// Per-texel material detail wiring (docs/materials.md, MaterialMaps.cs). Plugin.cs only has one-line hooks:
     /// ParseMaterialArgs (Awake) and MaterialsUpdate (OnUpdate).
     ///   -ultrart-materials on|off (config [Materials] Enabled), -ultrart-materials-source ai|proc (config [Materials] Source),
-    ///   -ultrart-materials-normal F, -ultrart-materials-hybrid-normal F, -ultrart-materials-roughness F, -ultrart-materials-guided on|off. Ctrl+F1 toggles in game.
+    ///   -ultrart-materials-normal F, -ultrart-materials-hybrid-normal F, -ultrart-materials-roughness F, -ultrart-materials-guided on|off,
+    ///   -ultrart-materials-lod on|off (config [Materials] TextureLod), -ultrart-materials-lod-bias F (config [Materials] LodBias),
+    ///   -ultrart-materials-toksvig F, -ultrart-materials-albedo-lod on|off. Ctrl+F1 toggles in game.
     /// </summary>
     public partial class Plugin
     {
@@ -23,6 +25,12 @@ namespace UltraRT
             s.normalStrength = Config.Bind("Materials", "NormalStrength", 2f, "Multiplier on the per-class normal strength (relight, pt-dn, pt).").Value;
             s.hybridNormalStrength = Config.Bind("Materials", "HybridNormalStrength", 1f, "Multiplier on the per-class normal strength in hybrid.").Value;
             s.roughness = Config.Bind("Materials", "Roughness", 1f, "Multiplier on the per-class roughness variation.").Value;
+            s.lod = Config.Bind("Materials", "TextureLod", true,
+                "Ray-cone texture LOD for the per-texel detail (docs/materials.md, \"Texture LOD\"): normal detail smaller than a " +
+                "traced pixel is averaged (and turned into roughness) instead of aliasing into noise. Overridden by -ultrart-materials-lod on|off.").Value;
+            s.lodBias = Config.Bind("Materials", "LodBias", 0f,
+                "Mips added to the detail LOD: 0 = detail texels the size of a traced pixel, negative = sharper (more aliasing). " +
+                "Overridden by -ultrart-materials-lod-bias.").Value;
             var args = Environment.GetCommandLineArgs();
             for (int i = 0; i < args.Length; i++)
             {
@@ -36,6 +44,10 @@ namespace UltraRT
                     case "-ultrart-materials-hybrid-normal": s.hybridNormalStrength = F(s.hybridNormalStrength); break;
                     case "-ultrart-materials-roughness": s.roughness = F(s.roughness); break;
                     case "-ultrart-materials-guided": s.guidedPick = Next() != "off"; break;
+                    case "-ultrart-materials-lod": s.lod = Next() != "off"; break;
+                    case "-ultrart-materials-lod-bias": s.lodBias = F(s.lodBias); break;
+                    case "-ultrart-materials-toksvig": s.toksvig = F(s.toksvig); break;
+                    case "-ultrart-materials-albedo-lod": s.albedoLod = Next() != "off"; break;
                 }
             }
             Logger.LogInfo($"Material maps: {s}");
@@ -56,6 +68,11 @@ namespace UltraRT
             catch (InvalidOperationException) { /* legacy input disabled */ }
             float normal = Modes[_mode].kind == Kind.Hybrid ? s.hybridNormalStrength : s.normalStrength;
             Shader.SetGlobalVector(MaterialMaps.GlobalId, new Vector4(s.enabled ? 1f : 0f, normal, s.roughness, s.enabled && s.guidedPick ? 1f : 0f));
+            // Texture LOD (Proxy.shader, PathTrace.raytrace; docs/materials.md "Texture LOD"): x detail LOD on, y bias
+            // (mips), z grazing-angle stretch exponent, w secondary-hit albedo LOD on; _UltraRTTexLod2.x the slope variance
+            // that becomes roughness (0 with LOD off), y the cone spread a diffuse bounce adds.
+            Shader.SetGlobalVector(MaterialMaps.LodId, new Vector4(s.lod ? 1f : 0f, s.lodBias, s.lodAniso, s.lod && s.albedoLod ? 1f : 0f));
+            Shader.SetGlobalVector(MaterialMaps.Lod2Id, new Vector4(s.lod ? s.toksvig : 0f, s.lodDiffuse, 0f, 0f));
         }
     }
 }
