@@ -1,91 +1,93 @@
-{
-  "Scenarios": [
-    {
-      "Name": "0-1 metal",
-      "Scene": "Level 0-1",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/0-1-metal.json",
-        "Duration": 6
-      },
-      "Modes": [
-        "off",
-        "hybrid",
-        "relight",
-        "pt-dn"
-      ],
-      "Screenshots": [
-        4
-      ]
-    },
-    {
-      "Name": "1-4 lamps",
-      "Scene": "Level 1-4",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/1-4-lamps.json",
-        "Duration": 6
-      },
-      "Modes": [
-        "off",
-        "relight",
-        "pt-direct"
-      ],
-      "Screenshots": [
-        4
-      ]
-    },
-    {
-      "Name": "0-3 ghosts",
-      "Scene": "Level 0-3",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/0-3-ghosts.json",
-        "Duration": 6
-      },
-      "Modes": [
-        "off",
-        "relight",
-        "albedo"
-      ],
-      "Screenshots": [
-        4
-      ]
-    },
-    {
-      "Name": "6-2 start",
-      "Scene": "Level 6-2",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/6-2-start.json",
-        "Duration": 4
-      },
-      "Modes": [
-        "off",
-        "relight",
-        "hybrid"
-      ],
-      "Screenshots": [
-        2
-      ]
-    },
-    {
-      "Name": "0-5 lava",
-      "Scene": "Level 0-5",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/0-5-approach.json",
-        "Duration": 6
-      },
-      "Modes": [
-        "off",
-        "relight",
-        "hybrid"
-      ],
-      "Screenshots": [
-        4
-      ]
-    }
-  ],
-  "Name": "merge-regress"
+﻿{
+    "Scenarios":  [
+                      {
+                          "Name":  "0-1 metal",
+                          "Scene":  "Level 0-1",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/0-1-metal.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "hybrid",
+                                        "relight",
+                                        "pt-dn",
+                                        "pathtrace"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
+                          "Name":  "1-4 lamps",
+                          "Scene":  "Level 1-4",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/1-4-lamps.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight",
+                                        "pt-direct"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
+                          "Name":  "0-3 ghosts",
+                          "Scene":  "Level 0-3",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/0-3-ghosts.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight",
+                                        "albedo"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      },
+                      {
+                          "Name":  "6-2 start",
+                          "Scene":  "Level 6-2",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/6-2-start.json",
+                                       "Duration":  4
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight",
+                                        "hybrid",
+                                        "pathtrace"
+                                    ],
+                          "Screenshots":  [
+                                              2
+                                          ]
+                      },
+                      {
+                          "Name":  "0-5 lava",
+                          "Scene":  "Level 0-5",
+                          "Path":  {
+                                       "Type":  "static",
+                                       "Approach":  "../recordings/0-5-approach.json",
+                                       "Duration":  6
+                                   },
+                          "Modes":  [
+                                        "off",
+                                        "relight",
+                                        "hybrid"
+                                    ],
+                          "Screenshots":  [
+                                              4
+                                          ]
+                      }
+                  ],
+    "Name":  "merge-regress"
 }

@@ -142,6 +142,9 @@ namespace UltraRT
         private int _logFrames, _logAppended, _logVirtual, _logMaxVirtual, _logFlicker, _logs;
         private float _flickerMin = float.MaxValue, _flickerMax, _nextLog;
 
+        /// <summary>Called for every renderer found to glow (scene scan and spawns), before any virtual-light filtering.</summary>
+        public Action<Renderer> GlowSink;
+
         public EffectLights(ManualLogSource log) { _log = log; }
 
         public void Clear()
@@ -227,11 +230,13 @@ namespace UltraRT
             else if (r is TrailRenderer) kind = Kind.Trail;
             else if (r is MeshRenderer) kind = Kind.Mesh;
             else return;
-            if (!Settings.virtualTrailsAndMeshes && kind != Kind.Sprite && kind != Kind.Particles) return; // see the setting
             var m = r.sharedMaterial;
             if (m == null) return;
             var info = Analyse(m);
             if (!info.Glows) return;
+            // Effects in reflections (EffectGeometry.cs): every glowing renderer, trails and lines included.
+            if (kind != Kind.Mesh) GlowSink?.Invoke(r);
+            if (!Settings.virtualTrailsAndMeshes && kind != Kind.Sprite && kind != Kind.Particles) return; // see the setting
             var col = info.Color;
             if (kind == Kind.Particles)
             {

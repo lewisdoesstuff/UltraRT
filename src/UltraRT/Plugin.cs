@@ -31,6 +31,7 @@ namespace UltraRT
             ("hybrid", Kind.Hybrid, (int)DenoiserDebugView.Final),
             ("pt-dn", Kind.Denoised, (int)DenoiserDebugView.Final),
             ("relight", Kind.Denoised, (int)DenoiserDebugView.Final), // full RT with physical falloff (docs/relight.md)
+            ("pathtrace", Kind.Denoised, (int)DenoiserDebugView.Final), // multi-bounce path tracing, relight's light model (docs/path-tracing.md)
             ("dn-lighting", Kind.Denoised, (int)DenoiserDebugView.FilteredLighting),
             ("dn-variance", Kind.Denoised, (int)DenoiserDebugView.Variance),
             ("dn-history", Kind.Denoised, (int)DenoiserDebugView.HistoryLength),
@@ -109,6 +110,7 @@ namespace UltraRT
             ParseCacheArgs();
             ParseExposureArgs();
             ParseDlssArgs(); // DLSS Ray Reconstruction (Plugin.Dlss.cs)
+            ParsePathTraceArgs(); // the pathtrace mode (Plugin.PathTrace.cs)
             ParseTransparentArgs();
             ParseSkyArgs();
             ParseVolumetricsArgs();
@@ -326,6 +328,7 @@ namespace UltraRT
             LoadVolumetricsShaders(bundle);
             LoadViewmodelShaders(bundle);
             LoadDlssShader(bundle);
+            LoadEffectShaders(shaders);
             LoadVfxShaders(bundle);
 
             _bundle = bundle;
@@ -399,6 +402,7 @@ namespace UltraRT
 
         private void ResetScene()
         {
+            _effectGeometry?.SceneReset(); // its instances go with the RT scene
             if (_proxies != null)
             {
                 var sw = Stopwatch.StartNew();
@@ -1029,6 +1033,7 @@ namespace UltraRT
         private double _cpuMs;
         private int _cpuFrames;
         private bool _spawnTest;
+        private float _lastTraceScale = -1f;
 
         private void Trace()
         {
@@ -1042,14 +1047,17 @@ namespace UltraRT
             if (resolve && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid && _lastKind != Kind.Reflection) _reflFilter.Reset();
             _lastKind = kind;
             if (resolve) _accumulate = false; // the denoiser and the reflection filter need unjittered primary rays
-            int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * (pt ? _scale : 1f)));
-            int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * (pt ? _scale : 1f)));
-            // Temporal upsampling (pt-dn, relight, dn-*): jitter the trace grid over the screen pixels; Upsample.compute
-            // accumulates the result at screen resolution using the game's depth buffer.
+            // Temporal upsampling (pt-dn, relight, pathtrace, dn-*): jitter the trace grid over the screen pixels;
+            // Upsample.compute accumulates the result at screen resolution using the game's depth buffer.
             var depthBuf = pt && !_noDepthMatch ? MonoSingleton<PostProcessV2_Handler>.Instance?.depthBuffer : null;
+            bool full = PathTraceActive; // the pathtrace mode: RayGenPT, its own trace scale (Plugin.PathTrace.cs)
+            bool rr = RayReconstructionFor(kind, depthBuf); // DLSS RR replaces the denoiser and the upsampler (Plugin.Dlss.cs)
+            float scale = pt ? TraceScaleFor(full, rr) : 1f;
+            if (scale != _lastTraceScale) { _lastTraceScale = scale; _lightSampling.Reset(); } // reservoirs are per trace pixel
+            int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * scale));
+            int h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * scale));
             bool taau = kind == Kind.Denoised && _upsampler != null && _upsampler.Settings.enabled && depthBuf != null;
             _jitter = taau && _upsampler.Settings.jitter ? _upsampler.NextJitter(depthBuf.width, depthBuf.height, w, h) : Vector2.zero;
-            bool rr = RayReconstructionFor(kind, depthBuf); // DLSS RR replaces the denoiser and the upsampler (Plugin.Dlss.cs)
             if (rr) _jitter = _rr.NextJitter();
             // Guard band (docs/denoiser.md): trace a slightly wider view than the screen, so surfaces entering the screen
             // while turning already have denoiser/ReSTIR history and warm cache cells. The visible part keeps its pixel grid.
@@ -1058,6 +1066,7 @@ namespace UltraRT
             _guardScale = new Vector2((float)(w + 2 * gxPx) / w, (float)(h + 2 * gyPx) / h);
             w += 2 * gxPx;
             h += 2 * gyPx;
+            if (rr) ExactGridTrace(depthBuf.width, depthBuf.height, gxPx, gyPx, ref w, ref h); // RR at an integer upscale (Plugin.Dlss.cs)
             EnsureTargets(w, h);
 
             long traceStart = Perf.Now;
@@ -1113,6 +1122,7 @@ namespace UltraRT
                 Shader.SetGlobalVector(PlayerBoxMaxId, Vector4.zero);
             }
             UpdateMovers(); // moving occluders: fast-responding shadows of the player and enemies (Plugin.Noise.cs)
+            UpdateEffectGeometry(pt); // glowing effects as billboards for reflection rays (Plugin.Effects.cs)
             long te = Perf.Now;
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
@@ -1170,7 +1180,7 @@ namespace UltraRT
             _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : resolve || mode >= CacheDebugModeBase ? 0 : mode);
             _cmd.SetRayTracingFloatParam(shader, "_GIStrength", _giStrength);
             _cmd.SetRayTracingFloatParam(shader, "_LightRadius", _lightRadius);
-            _relightActive = Modes[_mode].name == "relight" || _relightForce;
+            _relightActive = RelightLook(Modes[_mode].name) || _relightForce;
             _cmd.SetRayTracingVectorParam(shader, "_Relight", RelightParams);
             _cmd.SetGlobalFloat("_UltraRTTonemapWhite", _relightActive ? _relightWhite : 0f); // BindExposure refines this for denoised modes
             SkyGlobals(); // relight linear transport flag (Plugin.SkyGI.cs)
@@ -1187,6 +1197,7 @@ namespace UltraRT
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
                 long tls = Perf.Now;
+                PathTraceLightsBegin(full, rr); // RR may want another light sampling mode (restored below)
                 _proxies.PortalViewpoints(_camera.transform.position, _lightSampling.ViewPoints); // portal-aware importance
                 _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged, kind == Kind.Hybrid);
                 Perf.Add(Perf.Sec.LightSampling, tls);
@@ -1212,6 +1223,8 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 BindTransparents(shader, denoised); // water and glass (Plugin.Transparent.cs)
+                BindPathTrace(shader, full, rr);
+                PathTraceLightsEnd();
             }
             else
             {
@@ -1220,7 +1233,7 @@ namespace UltraRT
 
             _cmd.BeginSample(SampleTrace);
             _gpu?.Begin(_cmd, SlotDispatch);
-            _cmd.DispatchRays(shader, "RayGen", (uint)w, (uint)h, 1);
+            _cmd.DispatchRays(shader, pt && full ? "RayGenPT" : "RayGen", (uint)w, (uint)h, 1);
             _gpu?.End(_cmd, SlotDispatch);
             _cmd.EndSample(SampleTrace);
             _proxies.RecordMotionCopies(_cmd); // this frame's skinned poses become next frame's previous poses

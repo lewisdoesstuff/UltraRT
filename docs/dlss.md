@@ -1,8 +1,12 @@
 # DLSS Ray Reconstruction (prototype)
 
 NVIDIA DLSS Ray Reconstruction (RR, NGX feature "DLSS-D") can replace UltraRT's denoiser ([denoiser.md](denoiser.md)) and
-temporal upsampler in `relight` and `pt-dn`. We call the NGX SDK directly from our native plugin. The Unity DLSS package
+temporal upsampler in `relight` and `pt-dn`, and it is the default denoiser of the path tracing mode
+([path-tracing.md](path-tracing.md)). We call the NGX SDK directly from our native plugin. The Unity DLSS package
 is HDRP-only and has no RR. Hybrid keeps our own path.
+
+The first half of this document is the prototype on relight's signal (2026-11-14, where RR lost to our denoiser); the
+section "RR for path tracing" is what changed for the `pathtrace` mode, where it wins.
 
 | File | Role |
 |---|---|
@@ -21,7 +25,10 @@ is HDRP-only and has no RR. Hybrid keeps our own path.
   reports itself unavailable. `build.ps1 -NoDeploy` stages `nvngx_dlssd.dll`, and `deploy.ps1` copies it next to
   `UltraRT.Native.dll` in `BepInEx\plugins\UltraRT\`. Nothing goes into the game's own folders.
 - Config `[DLSS] RayReconstruction` (default **off**), `-ultrart-rr` / `-ultrart-norr`, and **Ctrl+F8** in game (plain F8
-  opens the game's console). RR only applies in `relight` and `pt-dn`. Every other mode keeps our denoiser.
+  opens the game's console): RR in `relight` and `pt-dn`. `pathtrace` has its own choice (`[PathTrace] Denoiser`, default
+  Auto = RR when it can run). Every other mode keeps our denoiser.
+- `-ultrart-rr-noremod` (bench `plugin._rrRemodulate=0`) turns remodulation off, `plugin._rrExactJitter=0` the exact
+  jitter grid (both below, "RR for path tracing").
 - Flags: `-ultrart-rr-preset N` (0 = default, 4 = D, 5 = E, 6 = F), `-ultrart-rr-unitylist` (record into Unity's command
   list instead of our own), `-ultrart-rr-jitter-sign S`, `-ultrart-rr-nohitdist`, `-ultrart-rr-gamma`.
 - Bench variants: `relight+plugin._rrEnabled=1`, plus `plugin._rrPreset`, `_rrOwnList`, `_rrJitterSign`, `_rrSpecHit`,
@@ -97,7 +104,72 @@ ignores exposure parameters).
   the unexposed lit part of the RR result at trace resolution, `(RR - emission) / e`, with albedo 1 and no specular.
   It measures the same quantity as before, one frame behind as before.
 
-## Evaluation
+## RR for path tracing
+
+Four changes made RR the better denoiser for the `pathtrace` mode. The measurements behind them are in
+[pt-plan.md](pt-plan.md), section 6.1, and in [path-tracing.md](path-tracing.md).
+
+### Independent samples
+
+RR measured 1.1-2x noisier than our denoiser on relight's signal (below). The cause is ReSTIR's temporal reuse: with
+plain RIS (`lights=ris`) or a short history (`ls.historyLimit=2`) the same RR bursts are 35-45% quieter and match
+"no light-selection noise at all" (`lights=ref`); the radiance cache makes no difference. `pathtrace` therefore
+samples lights at the primary hit with RIS and no reservoirs while RR denoises (`ptx.lightsRR`, `candidatesRR`,
+`directSamplesRR`). Relight under RR (Ctrl+F8) keeps whatever F6 selects; `-ultrart-lights ris` is the setting to
+pair with it.
+
+### Remodulation
+
+RR reconstructs texture detail from a half to a ninth of the screen's pixels. On ULTRAKILL's point-sampled art that
+smears the texel grid, clearly so at 1/3 scale. So RR no longer sees textures:
+
+- `Demod` (trace res) computes what each surface shows under white light, **D = albedo x keep + specular weight +
+  emission** (the diffuse and specular reflectance the composite uses, plus what the surface emits; sky: 1).
+- `Prepare` gives RR the image divided by it, **X = c / D**: an "effective lighting" with no texture in it. The
+  albedo guides become each lobe's share of D (they sum to 1 where nothing is emitted), so RR has no texture to
+  reconstruct. Fullbright art and pure emitters become X = 1.
+- D is noise-free, so it is accumulated to screen resolution by a second instance of the temporal upsampler
+  (`TemporalUpsampler` in `DlssRR.cs`; the game's full-resolution depth is the geometry). Weights are sharp
+  (`exp(-30 d^2)`, d = distance from the pixel centre in screen px): the sample nearest a pixel's centre wins. There is
+  no clip box (it would cut texels the 9 samples of a frame happen to miss); instead a sample on the pixel centre that
+  differs from the history replaces it, which follows animated textures and re-sharpens history that reprojection
+  blurred.
+- `Finish` multiplies RR's output by the screen-resolution D (the nearest matching trace sample's where the upsampler
+  has nothing yet), then tone maps as before. Auto exposure's input is remodulated at trace resolution.
+
+Textures and silhouettes converge to the game's own texel grid at any render scale, and RR only reconstructs
+lighting, which is smooth. Cost: 0.25 ms at 1440p (the `rr` slot goes from 1.32 to 1.57 ms at 1/3 scale). It is on
+for relight and pt-dn under RR too.
+
+### Exact jitter grid
+
+With Halton jitter a screen pixel rarely gets a sample on its centre at 3x. At an integer upscale N (trace scale 1/2,
+1/3, 1/4) the jitter is the N x N pattern that puts the trace samples on the screen pixel centres in turn
+(`DlssRR.ExactGrid`), so every screen pixel gets its own texel once per N^2 frames. The screen is rarely a multiple of
+N (2560 / 3), so the trace is sized to a whole number of trace pixels of exactly N screen pixels each, overscanning the
+screen by a fraction of a trace pixel per side (`Plugin.ExactGridTrace`: `_guardScale` carries the exact ratio), and
+RR's output is N x its render size, cropped to the screen by a whole number of pixels in `Finish`. RR itself measured
+quieter on the 9-phase grid than on 72 Halton phases (0-1 metal: masked sigma 0.56 against 0.74).
+
+### Area colour and game match
+
+`Prepare` now applies the area colour match gain like the denoiser's Composite does, and the RR path binds the game's
+frame for auto exposure (`BindGameMatch`), so the game match and the colour match work as without RR (7-3's floor was
+grey-white under RR, the room's tint without).
+
+### Presets, guides, the "first burst"
+
+- NGX's default preset is **F** for every quality mode (its log says so). D and E are never better and up to 2x
+  noisier (0-1 metal 1.62 default / 1.62 E / 2.12 D; 8-2 portal 0.70-0.79 / 1.37-1.44 / 1.23-1.38). The default stays.
+- `ColorBeforeTransparency` and the particle guides have no source here: RR runs at the injection point, before the
+  game draws transparents and particles at output resolution on top of its result. Nothing transparent is in RR's
+  input (the water/glass reflection overlay is applied by the game's own transparent draw, later).
+- The "first RR burst after another mode is noisier" effect did not reproduce in balanced lists (first and last RR
+  bursts within 10% either way; identical with a 480-frame settle). What does happen once per process: NGX
+  initialises on the first RR frame, which takes seconds; a bench scenario that triggers it loses its captures, so
+  suites that use RR begin with a warm-up scenario.
+
+## Evaluation (relight's signal, the prototype)
 
 All runs were on the RTX 5070 Ti. The installs ran at 1920x1080 during this work: their display prefs had been
 overwritten, and master now restores them. So "1080p" below means 960x540 -> 1920x1080.
@@ -201,18 +273,17 @@ Sigma heat maps are `_burst_<mode>_sigma.png`.
 **Feasible, and it works.** NGX runs on Unity's D3D12 device from a BepInEx plugin, with no files in the game's own
 folders and no resource-state or binding problems. Ctrl+F8 switches it live.
 
-**It is not a win today.** For the current relight signal our denoiser + TAAU is equal or quieter, about three times
-cheaper, and closer to the game's pixel-art look. That signal is 1 spp, ReSTIR-correlated, and already low-noise
-thanks to the radiance cache.
+**For relight as it was, it is not a win.** For the relight signal our denoiser + TAAU is equal or quieter, about
+three times cheaper, and closer to the game's pixel-art look. That signal is 1 spp, ReSTIR-correlated, and already
+low-noise thanks to the radiance cache.
 
-RR's case is a heavier, noisier signal, such as the path-tracing mode in (c), where our SVGF would struggle. Before
-that, try RR with decorrelated ReSTIR (randomised or no spatial reuse) and the `ColorBeforeTransparency` / particle
-guides. Keep RR as an option, off by default.
+**For path tracing it is** (see "RR for path tracing" above and [path-tracing.md](path-tracing.md)): with independent
+samples, remodulation and the exact grid, `pathtrace` under RR at 1/3 scale is quieter than relight at a held pose
+and costs the same GPU time. RR in relight stays an option, off by default.
 
 Problems and limits:
 - Hybrid is untouched: RR would need the game's colour as input. Not attempted.
-- The first RR burst after another mode measures noisier (see above). Real play doesn't toggle modes, but bench
-  comparisons must allow for it.
+- NGX initialises on the first RR frame of a session (seconds). Bench suites warm it up first.
 - Unity-list mode needs `ModifiesCommandBuffersState`. It worked here, but given the GPU timer's history with that flag
   the own-list mode stays the default.
 - Licensing blocks redistribution without NVIDIA's involvement (see "License").

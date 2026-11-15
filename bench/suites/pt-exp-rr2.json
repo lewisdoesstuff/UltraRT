@@ -1,0 +1,84 @@
+{
+ "Name": "pt-exp-rr2",
+ "Scenarios": [
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+plugin._rrEnabled=1"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Burst": 48,
+   "BurstModes": [
+    "off",
+    "relight+plugin._rrEnabled=1",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=5",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=4",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=4",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=5",
+    "relight+plugin._rrEnabled=1"
+   ]
+  },
+  {
+   "Name": "0-1 metal settle 480",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Burst": 48,
+   "BurstModes": [
+    "off",
+    "relight+plugin._rrEnabled=1",
+    "relight+plugin._rrEnabled=1",
+    "relight",
+    "relight+plugin._rrEnabled=1"
+   ],
+   "BurstSettle": 480
+  },
+  {
+   "Name": "8-2 portal side 1",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-2-portal-side1.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+plugin._rrEnabled=1"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "Burst": 48,
+   "BurstModes": [
+    "off",
+    "relight+plugin._rrEnabled=1",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=5",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=4",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=4",
+    "relight+plugin._rrEnabled=1+plugin._rrPreset=5",
+    "relight+plugin._rrEnabled=1"
+   ]
+  }
+ ]
+}

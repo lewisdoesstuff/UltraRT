@@ -158,7 +158,7 @@ model, and the game-unlit or emissive Master materials in view with their fog an
    `(albedo x lighting x keep + spec) x exposure` by it, weighted by the lit weight (`UltraRTPixelBalance`,
    UltraRTExposure.hlsl). Emission, fullbright art, the sky and the game's own pixels are never touched. Flags:
    `-ultrart-ae-color STRENGTH[,BAND[,MAX]]` (0 = off); bench `ae.colorMatch`, `ae.colorMatchBand`, `ae.colorMatchMax`.
-   Bench exposure lines end with `colour match gain (r, g, b)`. The DLSS-RR path doesn't apply it yet.
+   Bench exposure lines end with `colour match gain (r, g, b)`. The DLSS-RR path applies it too (docs/dlss.md).
 2. *Lit albedo-as-emissive and emissive masks*, drawn as the game draws them (docs/scene-proxies.md).
 3. *Sky.* `ULTRAKILL/Skybox/Panoramic` and `ULTRAKILL/Skybox/Skybox` in cubemap mode (cubemap x `_SkyColor`) now count as
    skies (`IsSkyMaterial`). A cubemap is converted once into a 1024x512 lat-long target (`Hidden/UltraRT/SkyConvert`), one

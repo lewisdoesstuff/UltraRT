@@ -99,7 +99,7 @@ namespace UltraRT
 
         /// <summary>Whether auto exposure applies to a view mode name.</summary>
         private bool AutoExposureFor(string mode) =>
-            _autoExposure != null && _aeSettings.enabled && (mode == "relight" || (_aeSettings.ptDn && mode == "pt-dn"));
+            _autoExposure != null && _aeSettings.enabled && (RelightLook(mode) || (_aeSettings.ptDn && mode == "pt-dn"));
 
         /// <summary>Before the denoiser: bind the exposure on its Composite kernel and set the tone map globals.</summary>
         private void BindExposure()

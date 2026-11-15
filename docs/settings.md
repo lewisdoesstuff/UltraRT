@@ -16,11 +16,12 @@ The log says which case applies (`BepInEx/LogOutput.log`):
 
 | Section | Settings |
 |---|---|
-| View | Ray tracing on/off (F7), view mode (Page Up / Down: hybrid, relight, pt-dn, and the debug views) |
+| View | Ray tracing on/off (F7), view mode (Page Up / Down: hybrid, relight, pathtrace, pt-dn, and the debug views) |
 | Quality and performance | Trace resolution (Performance 0.5x, Balanced 0.67x, Quality 1x), temporal upsampler (F2), denoiser preset (Ctrl+F3), radiance cache mode (F3), light sampling (F6) |
+| Path tracing (view mode pathtrace) | Denoiser (Auto = DLSS RR when available, UltraRT, DLSS RR), render resolution with RR (1/3, 1/2, 0.67x), paths per pixel, bounces per path, light samples per pixel, radiance cache after the last bounce, sky sample at every bounce; DLSS RR in relight / pt-dn (Ctrl+F8) and its exact-texel remodulation (docs/path-tracing.md, docs/dlss.md) |
 | Lighting | Light reference, light exposure, fill light cut, sky + linear light (Ctrl+F5), sky sampling, sky light, emissive lighting (F5: glowing surfaces as lights) and its brightness |
 | Auto exposure | On/off (Ctrl+F4), target brightness, darkest and brightest exposure (EV) |
-| Effects | Volumetric light and fog (Ctrl+F6), fog density, light shaft strength; surface detail maps (Ctrl+F1), detail strength in relight/pt-dn and in hybrid, roughness variation; reflections (F4) and their strength, V1 in reflections, ray-traced mirrors; effect lights (muzzle flashes, explosions, fire); lava and acid |
+| Effects | Volumetric light and fog (Ctrl+F6), fog density, light shaft strength; surface detail maps (Ctrl+F1), detail strength in relight/pt-dn and in hybrid, roughness variation; reflections (F4) and their strength, V1 in reflections, ray-traced mirrors; effect lights (muzzle flashes, explosions, fire); fire and explosions in reflections; lava and acid |
 | Tools | Reload shaders (F9), reset all UltraRT settings |
 | Keybinds (sub page) | A read-only list of the hotkeys |
 

@@ -43,7 +43,10 @@ float4 _CamFwd;
 float4 _Params;    // x exact-hit sharpness (exp(-x d^2), d in screen px), y max history weight, z spatial falloff (exp(-z d^2)), w history valid
 float4 _Params2;   // x depth match tolerance (relative), y (absolute, m), z clip box padding (fraction of its size), w min matching samples to clip
 float4 _Params3;   // x reprojection depth tolerance (relative), y Catmull-Rom history (0/1), z weight added by the spatial estimate, w debug view
-float4 _Params4;   // x min history weight to hold a pixel without a sample, y hold decay per frame
+float4 _Params4;   // x min history weight to hold a pixel without a sample, y hold decay per frame, z 1 = values above 1 are kept (not a displayed colour),
+                   // w > 0: noise-free input (DLSS RR's demodulation colour). No clip box; instead a sample on the pixel centre that
+                   // differs from the history by more than this (relative) replaces it: the texture changed, or the history was
+                   // blurred by reprojection
 
 #define TILE 11 // 8 screen px span at most 8 trace px (scale <= 1) + the 3x3 neighbourhood
 #define TILE_N (TILE * TILE)
@@ -122,6 +125,8 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
     float tol = zg * _Params2.x + _Params2.y;
     float3 sumE = 0, sumS = 0, mn = 1e5, mx = -1e5;
     float wE = 0, wS = 0, bestErr = 1e30;
+    float wNear = 0;   // the sample nearest the pixel centre: its exact-hit weight and colour
+    float3 cNear = 0;
     uint motion = 0;
     float zRepro = zg; // depth of the point to reproject: the game's surface, or the far side of a portal
     int n = 0;
@@ -137,6 +142,7 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
         float we = exp(-_Params.x * d2);
         float ws = exp(-_Params.z * d2);
         sumE += cz.rgb * we; wE += we;
+        if (we > wNear) { wNear = we; cNear = cz.rgb; }
         sumS += cz.rgb * ws; wS += ws;
         mn = min(mn, cz.rgb); mx = max(mx, cz.rgb);
         n++;
@@ -197,7 +203,15 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
     else
     {
         float3 spatial = sumS / wS; // edge-aware fallback: depth-matched Gaussian of the nearby samples
-        if (h > 0.0 && n >= (int)_Params2.w)
+        if (_Params4.w > 0.0)
+        {
+            // Noise-free input: a clip box would cut texels the 9 samples of this frame happen to miss. An exact hit is
+            // the truth for this pixel instead.
+            float3 dv = abs(cNear - hist);
+            float ref = max(max(cNear.r, cNear.g), max(cNear.b, max(hist.r, max(hist.g, hist.b))));
+            if (h > 0.0 && wNear > 0.5 && max(dv.r, max(dv.g, dv.b)) > _Params4.w * ref + 2.0 / 255.0) h = 0.0;
+        }
+        else if (h > 0.0 && n >= (int)_Params2.w)
         {
             float3 pad = (mx - mn) * _Params2.z + 2.0 / 255.0;
             hist = clamp(hist, mn - pad, mx + pad);
@@ -205,7 +219,7 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
         float ws = _Params3.z;
         float wsum = h + wE + ws;
         float3 c = (hist * h + sumE + spatial * ws) / wsum;
-        result = float4(saturate(c), min(wsum, _Params.y));
+        result = float4(_Params4.z > 0.5 ? max(c, 0.0) : saturate(c), min(wsum, _Params.y));
     }
     if (_Params3.w > 0.5)
     {

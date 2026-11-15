@@ -29,7 +29,14 @@ namespace UltraRT
         private float _rrLastUsed;
         private string _rrStatusLogged;
         private uint _rrFrame = uint.MaxValue - 1;
-        private ComputeShader _rrShader;
+        private ComputeShader _rrShader, _rrUpsampleShader;
+        /// <summary>RR reconstructs lighting; textures come back from exact texel hits at screen resolution (docs/dlss.md,
+        /// "Remodulation"). -ultrart-rr-noremod, bench plugin._rrRemodulate=0.</summary>
+        private bool _rrRemodulate = true;
+        private float _rrDemodSharpness = 30f, _rrDemodMaxWeight = 4f;
+        /// <summary>At an integer upscale (trace scale 1/2, 1/3, 1/4) jitter on the exact screen-pixel pattern instead of Halton
+        /// (DlssRR.ExactGrid). Bench plugin._rrExactJitter=0.</summary>
+        private bool _rrExactJitter = true;
         private const int SlotRR = 17, SlotRREval = 18;
 
         private void ParseDlssArgs()
@@ -49,6 +56,7 @@ namespace UltraRT
                     case "-ultrart-rr-unitylist": _rrOwnList = false; break;
                     case "-ultrart-rr-nohitdist": _rrSpecHit = false; break;
                     case "-ultrart-rr-gamma": _rrLinear = false; break;
+                    case "-ultrart-rr-noremod": _rrRemodulate = false; break;
                     case "-ultrart-rr-jitter-sign":
                         float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _rrJitterSign);
                         break;
@@ -60,8 +68,9 @@ namespace UltraRT
         private void LoadDlssShader(AssetBundle bundle)
         {
             _rrShader = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "RayReconstruction");
+            _rrUpsampleShader = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Upsample"); // remodulation
             if (_rrShader == null) Logger.LogWarning("RayReconstruction compute shader missing from bundle: DLSS RR unavailable");
-            _rr?.SetShader(_rrShader);
+            _rr?.SetShader(_rrShader, _rrUpsampleShader);
         }
 
         private void DlssUpdate()
@@ -100,7 +109,7 @@ namespace UltraRT
                 _rr = null;
                 return false;
             }
-            _rr.SetShader(_rrShader);
+            _rr.SetShader(_rrShader, _rrUpsampleShader);
             Logger.LogInfo($"DLSS Ray Reconstruction: native side loaded ({_rr.Status}); NGX initialises on the first frame");
             return true;
         }
@@ -108,12 +117,11 @@ namespace UltraRT
         /// <summary>Trace(): whether RR replaces the denoiser and upsampler this frame.</summary>
         private bool RayReconstructionFor(Kind kind, RenderTexture depthBuf)
         {
-            bool want = _rrEnabled && kind == Kind.Denoised && depthBuf != null && _rrShader != null;
-            if (want)
-            {
-                string name = Modes[_mode].name;
-                want = (name == "relight" || name == "pt-dn") && EnsureRR() && _rr.HasShader;
-            }
+            // relight / pt-dn: the [DLSS] switch (Ctrl+F8). pathtrace: its own denoiser choice (RR when available by default).
+            string name = Modes[_mode].name;
+            bool asked = name == PathTraceModeName ? PathTraceWantsRR : _rrEnabled && (name == "relight" || name == "pt-dn");
+            bool want = asked && kind == Kind.Denoised && depthBuf != null && _rrShader != null;
+            if (want) want = EnsureRR() && _rr.HasShader;
             // Unused for a few seconds (mode switch, Ctrl+F8): release the feature, ~200 MB of RR history at 1440p. Not at once,
             // so the bench's alternating modes don't recreate it every segment.
             if (want) { _rrWasActive = true; _rrLastUsed = Time.realtimeSinceStartup; }
@@ -133,9 +141,36 @@ namespace UltraRT
                 _rr.SpecularHitDistance = _rrSpecHit;
                 _rr.Linearize = _rrLinear;
                 _rr.OutScale = _rrOutScale;
-                _rr.JitterPhases = _rrJitterPhases;
+                _rr.Remodulate = _rrRemodulate;
+                float up = 1f / Mathf.Max(0.05f, name == PathTraceModeName ? _ptSettings.scaleRR : _scale);
+                int grid = Mathf.RoundToInt(up);
+                _rr.ExactGrid = _rrExactJitter && _rrRemodulate && grid >= 2 && grid <= 5 && Mathf.Abs(up - grid) < 0.02f ? grid : 0;
+                _rr.DemodSharpness = _rrDemodSharpness;
+                _rr.DemodMaxWeight = _rrDemodMaxWeight;
+                // NVIDIA's rule: 8 x (output / render)^2 phases (72 at 3x); never fewer than the configured count.
+                _rr.JitterPhases = name == PathTraceModeName ? Mathf.Max(_rrJitterPhases, Mathf.CeilToInt(8f / Mathf.Max(0.04f, _ptSettings.scaleRR * _ptSettings.scaleRR))) : _rrJitterPhases;
             }
             return want;
+        }
+
+        /// <summary>
+        /// RR at an integer upscale N (DlssRR.ExactGrid): size the trace so that one trace pixel is exactly N screen pixels
+        /// and the jitter pattern lands on screen pixel centres. The screen is rarely a multiple of N (2560 / 3), so the
+        /// visible part of the trace becomes a whole number of trace pixels that overscans the screen by a fraction of one on
+        /// each side, on top of the guard band; _guardScale carries the exact ratio to everything downstream.
+        /// </summary>
+        private void ExactGridTrace(int screenW, int screenH, int gx, int gy, ref int w, ref int h)
+        {
+            int n = _rr != null ? _rr.ExactGrid : 0;
+            if (n <= 2) return;
+            int vw = Mathf.CeilToInt((float)screenW / n), vh = Mathf.CeilToInt((float)screenH / n);
+            // The overscan must be an even number of screen pixels, so the screen sits centred on the grid.
+            if ((vw * n - screenW) % 2 != 0) vw++;
+            if ((vh * n - screenH) % 2 != 0) vh++;
+            if ((vw * n - screenW) % 2 != 0 || (vh * n - screenH) % 2 != 0) return; // even N on an odd screen size: keep the plain trace
+            w = vw + 2 * gx;
+            h = vh + 2 * gy;
+            _guardScale = new Vector2((float)w * n / screenW, (float)h * n / screenH);
         }
 
         /// <summary>Trace(), after BindGameDepth: RR, then the composite reads _UltraRTUpsampled. False = nothing recorded.</summary>
@@ -168,6 +203,7 @@ namespace UltraRT
                 _gpu?.Begin(_cmd, SlotExposure);
                 _rr.ExposureInput(_cmd, inputs, out var filtered, out var albedo);
                 float dt = _aeBenchClock && Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
+                BindGameMatch(); // the game's frame before our composite: game match and area colour match, as without RR
                 _autoExposure.Execute(_cmd, _aeSettings, filtered, albedo, null, _gNormalDepth, _gHybrid, w, h, dt);
                 _gpu?.End(_cmd, SlotExposure);
             }

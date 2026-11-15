@@ -20,6 +20,9 @@ Shader "UltraRT/Proxy"
         // Frosted transparents (ice) also traced as scene geometry (SceneProxies.Transparent.cs): camera rays pass through
         // (the game draws the surface), every other ray sees it. Needs a non-opaque submesh so the any-hit runs.
         _CameraSkip ("Camera rays pass through", Float) = 0
+        // Water / glass / blood proxies (mask 0x10, SceneProxies.Transparent.cs): the kind, reported in the payload flags so
+        // the path tracing mode can reflect or pass through them (UltraRTPathTraceFull.hlsl). 0 = an ordinary surface.
+        _Transparent ("Transparent kind (1 glass, 2 water, 3 blood)", Float) = 0
         // ULTRAKILL/Master without VERTEX_LIGHTING is fullbright in game: the lit weight is 1 - _Unlit (enemies: a partial
         // value, SceneProxies.UnlitEnemyLitWeight). Non-atlas only; atlas geometry carries it in the vertex colour alpha.
         _Unlit ("Unlit (0 lit, 1 fullbright)", Float) = 0
@@ -121,6 +124,7 @@ Shader "UltraRT/Proxy"
             float _SkyWall;
             float _AlphaTest;
             float _CameraSkip;
+            float _Transparent;
             float _Unlit;
             float _BloodFill, _BloodScale;
             Texture2D _BloodNoiseTex;
@@ -465,7 +469,8 @@ Shader "UltraRT/Proxy"
                 p.material = second ? PackMaterialWord(rough, _Metalness2, _F02, specWeight)
                                     : PackMaterialWord(rough, _Metalness, _F0, specWeight);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
-                p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls);
+                p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls)
+                        | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT);
 
                 // Hybrid primary hits: the game's cubemap term for the composite to remove. uvHalf / primitive are debug-only
                 // otherwise; PathTrace's primary rays never read them.

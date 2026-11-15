@@ -190,7 +190,7 @@ namespace UltraRT
 
         private bool ViewmodelWanted() =>
             _vmEnabled && _vmRt != null && _vmTraceFrame == Time.frameCount && _proxies?.Rtas != null && _radianceCache != null &&
-            (_vmTraceMode == "relight" || _vmTraceMode == "pt-dn" || (_vmTraceKind == Kind.Hybrid && _vmHybrid));
+            (RelightLook(_vmTraceMode) || _vmTraceMode == "pt-dn" || (_vmTraceKind == Kind.Hybrid && _vmHybrid));
 
         /// <summary>Camera.onPreRender for every camera other than Main Camera: record the pass on the HUD camera.</summary>
         private void ViewmodelPreRender(Camera cam)
