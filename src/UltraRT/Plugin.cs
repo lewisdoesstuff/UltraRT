@@ -234,6 +234,8 @@ namespace UltraRT
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
                     case "-ultrart-norain": _rainOn = false; break;
+                    case "-ultrart-notexscroll": _texScroll = false; break;
+                    case "-ultrart-notexscroll-motion": _texScrollMotion = false; break;
                     case "-ultrart-player-noanimate": SceneProxies.PlayerAlwaysAnimate = false; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
@@ -1194,6 +1196,9 @@ namespace UltraRT
                                $"(swap checks {_proxies.SyncSwapTicks * Perf.TickMs / _cpuFrames:F4}, blocks {_proxies.SyncHotTicks * Perf.TickMs / _cpuFrames:F4}, re-copies {_proxies.SyncCopyTicks * Perf.TickMs / _cpuFrames:F4}, static {_proxies.SyncStaticTicks * Perf.TickMs / _cpuFrames:F4})");
                 _proxies.SyncSwaps = _proxies.SyncStaticSwaps = _proxies.SyncBlockUpdates = _proxies.SyncPropertyUpdates = 0;
                 _proxies.SyncTicks = _proxies.SyncSwapTicks = _proxies.SyncHotTicks = _proxies.SyncCopyTicks = _proxies.SyncStaticTicks = 0;
+                Logger.LogInfo(_proxies.CutoutAudit());
+                var scrollLine = _proxies.DescribeScrolling();
+                if (scrollLine != null) Logger.LogInfo(scrollLine);
                 if (_proxies.PlayerProxiesTotal > 0) Logger.LogInfo(_proxies.DescribePlayerModel(_camera.transform.position));
                 if (_proxies.DisplacedCount > 0)
                     Logger.LogInfo($"Vertex displacement ({(_displace ? "on" : "off")}): {_proxies.DisplacedCount} displaced proxies, {(double)_proxies.DisplaceDispatches / _cpuFrames:F1} dispatches/frame, " +

@@ -92,6 +92,8 @@ namespace UltraRT
         public bool Remodulate = true;
         /// <summary>Accumulation of the demodulation colour: the best (nearest) sample of each screen pixel wins.</summary>
         public float DemodSharpness = 30f, DemodMaxWeight = 4f;
+        /// <summary>V1's shadow factor gets a 3x3 same-surface filter before RR (RayReconstruction.compute, PlayerShadowFactor).</summary>
+        public bool PlayerFilter = true;
 
         public RenderTexture Final => _final;
         /// <summary>Set before Execute: Finish also writes the HDR bloom source into it (must be the output size; null = not
@@ -335,7 +337,7 @@ namespace UltraRT
 
             int k;
             cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(tw, th, 1f / tw, 1f / th));
-            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, 0f, 0f, 0f));
+            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, PlayerFilter ? 1f : 0f, 0f, 0f));
             cmd.SetComputeVectorParam(cs, "_CamPos", cam.transform.position);
             cmd.SetComputeMatrixParam(cs, "_InvViewProj", i.viewProj.inverse);
             cmd.SetComputeVectorParam(cs, "_ReflParams", i.reflParams);

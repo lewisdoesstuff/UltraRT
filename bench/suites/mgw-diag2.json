@@ -1,0 +1,19 @@
+{
+  "Name": "mgw-diag2",
+  "Note": "1-1 shimmer in pathtrace (bursts), grass close-up sweep, 5-2 scrolling sea (t3/motion-grass-water)",
+  "Scenarios": [
+    { "Name": "1-1 user 1115", "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-user-1115.json", "Duration": 4 },
+      "Modes": ["off", "pathtrace", "relight"],
+      "Screenshots": [2], "ShotSettle": 1,
+      "Burst": 72, "BurstModes": ["off", "pathtrace", "pathtrace+plugin._rrExactJitter=0", "relight"] },
+    { "Name": "1-1 grass sweep", "Scene": "Level 1-1",
+      "Path": { "Type": "sweep", "Approach": "../recordings/1-1-grass-approach.json", "Position": [2.89, -8.21, 311.23], "YawSpeed": 30, "PitchAmplitude": 0, "Duration": 12 },
+      "Modes": ["off", "pathtrace", "albedo"],
+      "Screenshots": [1, 4, 7, 10] },
+    { "Name": "5-2 water 1115", "Scene": "Level 5-2",
+      "Path": { "Type": "static", "Approach": "../recordings/5-2-water-1115.json", "Duration": 4 },
+      "Modes": ["off", "relight", "relight+plugin._texScroll=0", "pathtrace"],
+      "Screenshots": [1, 1.25, 1.5], "ShotSettle": 1 }
+  ]
+}

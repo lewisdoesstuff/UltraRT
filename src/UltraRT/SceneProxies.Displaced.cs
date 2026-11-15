@@ -165,7 +165,7 @@ namespace UltraRT
             var tex = m.HasProperty(PNoiseTex) ? m.GetTexture(PNoiseTex) : null;
             return $"{m.name} mode {F(PMode)} amp {F(PAmplitude)} speed {F(PNoiseSpeed)} scale {F(PNoiseScale)} flow {V(PFlow)} reverse {F(PReverse)} " +
                    $"uv {V(PUvScale).x},{V(PUvScale).y} / {V(PUvSpeed).x},{V(PUvSpeed).y} local {F(PLocalOffset)} recalc {F(PRecalc)} normalOffset {F(PNormalOffset)} " +
-                   $"preventClip {F(PPreventClip)} vcol {F(PVColStrength)} tex {(tex != null ? $"{tex.name} {tex.width}x{tex.height} {tex.wrapMode}" : "none")}";
+                   $"preventClip {F(PPreventClip)} vcol {F(PVColStrength)} tex {(tex != null ? $"{tex.name} {tex.width}x{tex.height} {tex.wrapMode}" : "none")} kw [{string.Join(" ", m.shaderKeywords)}]";
         }
 
         private struct RestVertex

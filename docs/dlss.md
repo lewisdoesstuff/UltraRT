@@ -151,6 +151,30 @@ screen by a fraction of a trace pixel per side (`Plugin.ExactGridTrace`: `_guard
 RR's output is N x its render size, cropped to the screen by a whole number of pixels in `Finish`. RR itself measured
 quieter on the 9-phase grid than on 72 Halton phases (0-1 metal: masked sigma 0.56 against 0.74).
 
+### V1's shadow before RR (2026-11-15)
+
+User report (1-1, pathtrace): "strange shifting on things, a slight flicker in the x direction; it depends exactly where
+I'm standing; in some positions none, in some it flickers more to one side". Bursts at the user's pose
+(`bench/suites/mgw-check5.json`, 72 frames, masked sigma / p95): pathtrace 0.75 / 2.25, relight 0.41, pathtrace with V1
+out of the shadow rays (`plugin._playerRays=11`) 0.53 / 1.43. The flicker map (`*_burst_pathtrace_sigma.png`) is V1's
+shadow outline on the floor. It is where V1's shadow falls, so it depends on where the player stands and which side the
+light is on.
+
+Cause: with the player shadow split (docs/denoiser.md, "Moving shadows") V1's shadow is a factor in `_Radiance.a`, one
+shadow ray per trace pixel. Our denoiser filters it (5x5 same-surface mean plus history) before relight's composite;
+`Prepare` multiplied it raw into RR's input. At 1/3 scale on the exact 3x3 jitter grid the shadow edge is a 0/1 step
+that lands on different screen pixels every frame, and RR shows it as a shifting outline. Not the cause (all measured at
+the same pose): the trace-to-screen mapping (the RT frame lines up with the game's to within 0.01 px in x and y at the
+left and centre of the screen), material normal strength (x2 / x0 / maps off: 0.75 / 0.74 / 0.79), the exact grid
+(Halton 0.91).
+
+Now `Prepare` gives RR a 3x3 same-surface tent of the factor (`PlayerShadowFactor`; neighbours within 5 % depth and
+normal dot 0.9), and RR's history does the temporal part: 0.55 / 1.74, about the same as with no V1 shadow at all. Cost:
+9 loads per trace pixel at 1/3 scale; GPU total 4.204 against 4.205 ms without (`bench/suites/mgw-perf.json`, `-Perf`,
+exclusive slots, 2560x1440). Switch:
+`DlssRR.PlayerFilter`, bench `plugin._rrPlayerFilter=0` (raw, as before). The rest of pathtrace's extra flicker over
+relight (0.55 vs 0.41) is on silhouettes and texel edges at 1/3 scale, which RR reconstructs from every 9th frame.
+
 ### Area colour and game match
 
 `Prepare` now applies the area colour match gain like the denoiser's Composite does, and the RR path binds the game's

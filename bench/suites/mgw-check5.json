@@ -1,0 +1,11 @@
+{
+  "Name": "mgw-check5",
+  "Note": "1-1 pathtrace shimmer: V1 shadow factor filtered before RR (t3/motion-grass-water)",
+  "Scenarios": [
+    { "Name": "1-1 user 1115", "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-user-1115.json", "Duration": 4 },
+      "Modes": ["off", "relight", "pathtrace", "pathtrace+plugin._rrPlayerFilter=0"],
+      "Screenshots": [2], "ShotSettle": 1,
+      "Burst": 72, "BurstModes": ["off", "pathtrace", "pathtrace+plugin._rrPlayerFilter=0", "pathtrace+plugin._playerRays=11", "relight"] }
+  ]
+}
