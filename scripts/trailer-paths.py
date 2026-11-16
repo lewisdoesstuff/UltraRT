@@ -51,7 +51,7 @@ def keys_of(spec, scout=False):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("spec", help="JSON: a list of { Name, Scene, Base: { Player, Yaw, Pitch }, Keys, [LookAt], [Fov], [Note], [Path] }")
+    ap.add_argument("spec", help="JSON: a list of { Name, Scene, Base: { Player, Yaw, Pitch }, Keys, [LookAt], [Fov], [Seconds], [Note], [Path] }")
     ap.add_argument("--out", help="folder for the path files (default: bench/cinematics next to the repo's scripts)")
     ap.add_argument("--scout", help="write this suite file: one frame per key (needs Path, a bench scenario Path block, per spec)")
     ap.add_argument("--mode", default="pathtrace", help="scout render mode (default pathtrace)")
@@ -65,6 +65,11 @@ def main():
     for s in specs:
         name = ("scout-" if a.scout else "") + s["Name"]
         keys = keys_of(s, scout=bool(a.scout))
+        if s.get("Seconds") and not a.scout:
+            # "Seconds": the whole move takes this long (every segment is stretched by the same factor).
+            k = float(s["Seconds"]) / max(1e-6, sum(x["Duration"] for x in keys[:-1]))
+            for x in keys:
+                x["Duration"] = round(x["Duration"] * k, 3)
         doc = {"Version": 1, "Name": name, "Scene": s["Scene"]}
         if s.get("Note"):
             doc["Note"] = s["Note"]

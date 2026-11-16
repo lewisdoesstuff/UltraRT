@@ -16,6 +16,9 @@ namespace UltraRT
         public string Path, Scene, Dir, Video, EncodeCommand, Error, Mode;
         public bool Cancelled;
         public int Frames, Written, Width, Height, SamplesPerFrame, SubframesPerFrame;
+        /// <summary>Paired capture: the folder of the ray-tracing-off frames and how many were written.</summary>
+        public string PairedOffDir;
+        public int PairedOffWritten;
         public float Fps, PathSeconds, RenderSeconds, PrerollSeconds, SecondsPerFrame, MsPerSubframe, EncodeSeconds, WriterMsPerFrame;
         public CineSettings Settings;
     }
@@ -35,6 +38,10 @@ namespace UltraRT
     /// their histories untouched), one rendered frame per output frame on the fixed time step: footage of what players see.
     /// Exposure is either locked (as at the start) or metered once per output frame on the converged image with a 1 / fps
     /// clock, so it moves exactly as it would at that frame rate. Everything changed is put back in a finally block.
+    /// Paired capture (CineSettings.pairOffDir, accumulating modes): before each AA sample's accumulation, one frame is
+    /// rendered with ray tracing off and grabbed into a second sink, the world held as for every other sub-frame. Both
+    /// image sequences then show the same world state in every frame while game time runs between frames: a before /
+    /// after pair of a living world (flames, particles, flicker, enemies), not of a frozen one.
     /// </summary>
     public partial class Plugin
     {
@@ -91,6 +98,9 @@ namespace UltraRT
             bool off = o.mode == CineRenderMode.Off, live = o.mode == CineRenderMode.Live, accumulate = !off && !live;
             r.Mode = off ? "off" : live ? Modes[modeIndex].name + " (live)" : Modes[modeIndex].name;
             int J = live ? 1 : Mathf.Clamp(o.aa, 1, 64), S = accumulate ? Mathf.Clamp(o.samples, 1, 255) : 1;
+            bool paired = accumulate && !string.IsNullOrEmpty(o.pairOffDir);
+            if (!accumulate && !string.IsNullOrEmpty(o.pairOffDir)) Logger.LogWarning("Cinematic render: paired capture needs an accumulating mode (pathtrace, relight, current); ignored");
+            FrameSink sinkOff = null;
             float fps = Mathf.Clamp(o.fps, 1f, 240f), fdt = 1f / fps;
             float mbStep = o.motionBlur && J > 1 ? Mathf.Clamp01(o.shutter) * fdt / J : 0f;
             float g = Mathf.Max(0f, o.timeScale);
@@ -190,6 +200,7 @@ namespace UltraRT
                 // ---- frames
                 sink = new FrameSink(dir, Screen.width, Screen.height, o.outputScale, J, o.png16);
                 r.Width = sink.OutW; r.Height = sink.OutH;
+                if (paired) { sinkOff = new FrameSink(o.pairOffDir, Screen.width, Screen.height, o.outputScale, J, o.png16); r.PairedOffDir = o.pairOffDir; }
                 var loop = Stopwatch.StartNew();
                 long subframes = 0;
                 for (int f = 0; f < frames && !CineRenderAborted(scene); f++)
@@ -205,7 +216,54 @@ namespace UltraRT
                     // Single-sample frames queue as one RGBA32 screen each, so more of them may wait for the writer.
                     while (sink.Pending >= (live ? LivePending + 4 : J == 1 ? LivePending : FrameSink.MaxPending) && sink.LastError == null) { Time.timeScale = 0f; yield return null; }
                     if (sink.LastError != null) throw new IOException("frame writer: " + sink.LastError);
-                    sink.BeginFrame(f);
+                    // Paired windows: which of the two images this output frame needs.
+                    float frameT = t0 + f * fdt;
+                    bool offNow = sinkOff != null && frameT <= o.pairOffUntil + 1e-4f;
+                    bool onNow = sinkOff == null || frameT >= o.pairOnFrom - 1e-4f;
+                    if (offNow)
+                    {
+                        while (sinkOff.Pending >= (J == 1 ? LivePending : FrameSink.MaxPending) && sinkOff.LastError == null) { Time.timeScale = 0f; yield return null; }
+                        if (sinkOff.LastError != null) throw new IOException("frame writer (off): " + sinkOff.LastError);
+                        sinkOff.BeginFrame(f);
+                    }
+                    if (onNow) sink.BeginFrame(f);
+                    int Sf = onNow ? S : 1; // off-only frames: one traced frame keeps exposure and the cache going
+                    if (offNow)
+                    {
+                        // Paired capture: the game's own image of this instant, all AA samples, before the traced ones;
+                        // the world is held throughout. Lit particles, lamp cones and other swaps follow the view switch
+                        // in Update, a frame late: one uncaptured frame after switching the view off, two after
+                        // switching it back on, so neither image has the other's shaders.
+                        _cineCur = sp.Sample(Mathf.Min(frameT, sp.Duration));
+                        _cineOnTime?.Invoke(frameT);
+                        _cineJitter = J > 1 ? CineHalton(0) : Vector2.zero;
+                        _viewEnabled = false;
+                        Time.captureDeltaTime = fdt;
+                        Time.timeScale = 0f;
+                        yield return null;
+                        subframes++;
+                        for (int j = 0; j < J && !_cineCancel; j++)
+                        {
+                            _cineJitter = J > 1 ? CineHalton(j) : Vector2.zero;
+                            _cineHideGui = true;
+                            Time.captureDeltaTime = fdt;
+                            Time.timeScale = 0f;
+                            yield return new WaitForEndOfFrame();
+                            if (CineGamePaused() || CineRenderAborted(scene)) { _cineCancel = true; break; }
+                            sinkOff.CaptureSample();
+                            _cineHideGui = false;
+                            yield return null;
+                            subframes++;
+                        }
+                        _viewEnabled = true;
+                        for (int k = 0; k < 2 && !_cineCancel; k++)
+                        {
+                            Time.captureDeltaTime = fdt;
+                            Time.timeScale = 0f;
+                            yield return null;
+                            subframes++;
+                        }
+                    }
                     for (int j = 0; j < J && !_cineCancel; j++)
                     {
                         // This frame's game time was stepped by the frame before (see below); pose the camera to match.
@@ -221,9 +279,9 @@ namespace UltraRT
                             _reflFilter?.Reset();
                             _lightSampling?.Reset();
                         }
-                        for (int s = 0; s < S && !_cineCancel; s++)
+                        for (int s = 0; s < Sf && !_cineCancel; s++)
                         {
-                            bool last = s == S - 1;
+                            bool last = s == Sf - 1;
                             _cineMeterFrame = o.exposure == CineExposure.Auto && last && j == J - 1;
                             _cineMeterDt = fdt;
                             _cineHideGui = last;
@@ -239,7 +297,7 @@ namespace UltraRT
                             yield return new WaitForEndOfFrame();
                             // Paused (Esc) or cancelled meanwhile: the pause menu may be on screen; this frame is dropped.
                             if (CineGamePaused() || CineRenderAborted(scene)) { _cineCancel = true; break; }
-                            sink.CaptureSample();
+                            if (onNow) sink.CaptureSample();
                             _cineHideGui = false;
                             yield return null;
                             subframes++;
@@ -249,14 +307,15 @@ namespace UltraRT
                         Logger.LogInfo($"Cinematic render: frame {f + 1}/{frames}, {loop.Elapsed.TotalSeconds / (f + 1):F3} s/frame, {loop.Elapsed.TotalMilliseconds / Math.Max(1, subframes):F2} ms/subframe, writer {sink.Written} written, {sink.Pending} pending");
                 }
                 r.Cancelled = _cineCancel || CineRenderAborted(scene);
-                if (r.Cancelled) sink.AbandonFrame();
+                if (r.Cancelled) { sink.AbandonFrame(); sinkOff?.AbandonFrame(); }
                 r.RenderSeconds = (float)loop.Elapsed.TotalSeconds;
                 r.MsPerSubframe = (float)(loop.Elapsed.TotalMilliseconds / Math.Max(1, subframes));
                 // The last readbacks and PNGs.
                 Time.timeScale = 0f;
                 float drainUntil = Time.realtimeSinceStartup + 120f;
-                while (sink.Pending > 0 && sink.LastError == null && Time.realtimeSinceStartup < drainUntil) { _cineProgress = $"Render '{name}': writing {sink.Pending} frame(s)"; yield return null; }
+                while ((sink.Pending > 0 || (sinkOff != null && sinkOff.Pending > 0)) && sink.LastError == null && Time.realtimeSinceStartup < drainUntil) { _cineProgress = $"Render '{name}': writing {sink.Pending + (sinkOff?.Pending ?? 0)} frame(s)"; yield return null; }
                 r.Written = sink.Written;
+                if (sinkOff != null) { r.PairedOffWritten = sinkOff.Written; if (sinkOff.LastError != null) r.Error = "off frames: " + sinkOff.LastError; }
                 r.SecondsPerFrame = r.Written > 0 ? r.RenderSeconds / r.Written : 0f;
                 r.WriterMsPerFrame = r.Written > 0 ? (float)sink.EncodeMs / r.Written : 0f;
                 if (sink.LastError != null) r.Error = sink.LastError;
@@ -269,6 +328,7 @@ namespace UltraRT
                 _cineHideGui = false;
                 _cineJitter = Vector2.zero;
                 try { sink?.Dispose(); } catch (Exception e) { Logger.LogWarning($"Cinematic render: writer shutdown: {e.Message}"); }
+                try { sinkOff?.Dispose(); } catch (Exception e) { Logger.LogWarning($"Cinematic render: off writer shutdown: {e.Message}"); }
                 Time.captureDeltaTime = savedCapture;
                 Denoiser.FrameTimeOverride = savedFrameTime;
                 var tc = MonoSingleton<TimeController>.Instance;

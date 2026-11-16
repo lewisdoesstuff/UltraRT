@@ -115,6 +115,14 @@ namespace UltraRT.Bench
         /// cine_&lt;scenario&gt;_&lt;mode&gt;. With TimeScale 0 the world stays frozen from the first take to the last, so the takes
         /// show the same instant (particles included) and line up exactly: before / after pairs.</summary>
         public List<string> Modes;
+        /// <summary>Paired capture (accumulating modes): one take that writes two folders, cine_&lt;scenario&gt;_&lt;mode&gt;
+        /// and cine_&lt;scenario&gt;_off. Per output frame the world is stepped once and held while the game's own image and
+        /// the traced image are rendered, so both show the same world state in every frame with the world running
+        /// (TimeScale 1): a before / after pair that needs no frozen world.</summary>
+        public bool Paired;
+        /// <summary>Paired capture windows (path seconds): the traced image is only rendered from OnFrom, the game's
+        /// image only until OffUntil (default: both for the whole path). Frame numbers stay the path's.</summary>
+        public float? OnFrom, OffUntil;
         public float? Fps, OutputScale, Shutter, TimeScale, Seconds, Start;
         public int? Samples, Aa, Paths, Bounces, Crf, Preroll;
         public bool? CacheTail, MotionBlur, Png16, Encode;

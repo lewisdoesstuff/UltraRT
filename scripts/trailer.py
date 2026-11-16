@@ -114,8 +114,15 @@ class Builder:
             frames = sorted(glob.glob(os.path.join(p, "frame_*.png")))
             if not frames:
                 sys.exit(f"no frame_*.png in {p}")
-            first = int(re.search(r"frame_(\d+)\.png$", frames[0]).group(1)) + int(round(t_in * sfps))
-            have = (len(frames) - int(round(t_in * sfps))) / sfps
+            # Frame numbers are the path's: frame N is path time N / fps. A folder may start late or end early (paired
+            # renders write only the frames their window needs).
+            lo = int(re.search(r"frame_(\d+)\.png$", frames[0]).group(1))
+            hi = int(re.search(r"frame_(\d+)\.png$", frames[-1]).group(1))
+            first = int(round(t_in * sfps))
+            if first < lo:
+                print(f"  warning: {os.path.basename(p)} starts at {lo / sfps:.2f}s, the clip wants {t_in:.2f}s (starting late)")
+                first = lo
+            have = (hi - first + 1) / sfps
             if have + 0.5 / sfps < need:
                 print(f"  warning: {os.path.basename(p)} has {have:.2f}s from {t_in:.2f}s, the clip wants {need:.2f}s (last frame held)")
             return ["-framerate", num(sfps), "-start_number", str(first), "-i", os.path.join(p, "frame_%05d.png")], p
@@ -178,7 +185,7 @@ class Builder:
 
     def encode(self, inputs, graph, dur, out):
         run(inputs + ["-filter_complex", graph, "-map", "[v]", "-t", num(dur), "-r", num(self.fps), "-an",
-                      "-c:v", "libx264", "-preset", "fast", "-crf", "12", "-pix_fmt", "yuv420p", out], self.work, self.log)
+                      "-c:v", "libx264", "-preset", "fast", "-crf", str(int(self.e.get("ClipCrf", 12))), "-pix_fmt", "yuv420p", out], self.work, self.log)
 
     # ------------------------------------------------------------ clip types
 
@@ -222,8 +229,6 @@ class Builder:
         hard switch; keys that stay between 0 and 1 a split screen."""
         dur = self.clip_duration(c)
         t_in, speed = float(c.get("In", 0)), float(c.get("Speed", 1))
-        a_args, a_src = self.source_args(c["After"], t_in + float(c.get("AfterOffset", 0)), dur, speed)
-        b_args, b_src = self.source_args(c["Before"], t_in, dur, speed)
         w = c.get("Wipe", {})
         keys = w.get("Keys", [[0, 0], [dur * 0.3, 0], [dur * 0.7, 1], [dur, 1]])
         slant = float(w.get("Slant", 0.18))
@@ -236,14 +241,52 @@ class Builder:
         left_x, right_x = f"{int(self.W * 0.04)}", f"w-text_w-{int(self.W * 0.04)}"
         before_label = [self.drawtext(labels[0], 0.036, left_x if flip else right_x, y, 0.0, dur + 1, fade=0.3, box=True)] if labels and labels[0] else []
         after_label = [self.drawtext(labels[1], 0.036, right_x if flip else left_x, y, 0.0, dur + 1, fade=0.3, box=True)] if labels and len(labels) > 1 and labels[1] else []
-        pos = self.wipe_position(keys, slant)
+        # The clip in three parts: "before" alone until the divider enters (ta), the wipe, "after" alone once it has
+        # left (tb). Only the middle needs both pictures (and the slow per-pixel blend); a hard switch has no middle.
+        okeys = [[float(t), float(q)] for t, q in (w.get("Keys") or keys)]
+        fr = 1.0 / self.fps
+        ta = max([t for t, q in okeys if q <= 0 and all(q2 <= 0 for t2, q2 in okeys if t2 <= t)] or [0.0])
+        tb = min([t for t, q in okeys if q >= 1 and all(q2 >= 1 for t2, q2 in okeys if t2 >= t)] or [dur])
+        ta, tb = max(0.0, round(ta * self.fps) * fr), min(dur, round(tb * self.fps) * fr)
+        if speed != 1 or c.get("AfterOffset") or c.get("Whole"):
+            ta, tb = 0.0, dur
+        if tb - ta < 1.5 * fr:
+            ta = tb
+        a_args, a_src = self.source_args(c["After"], t_in + ta + float(c.get("AfterOffset", 0)), dur - ta, speed)
+        b_args, b_src = self.source_args(c["Before"], t_in, max(tb, fr), speed)
+
+        def chain(label_in, length, extra):
+            ch = [self.fit(), f"fps={num(self.fps)}", f"tpad=stop_mode=clone:stop_duration={num(length)}", f"trim=duration={num(length)}", "setpts=PTS-STARTPTS"]
+            return f"[{label_in}]" + ",".join(ch + list(extra))
+
+        pos = self.wipe_position(keys, slant).replace("T", f"(T+{num(ta)})")
         # D < 0: left of the divider. gbrp: every plane is full size, so one expression draws the white line in all three.
         d = f"(X-W*({pos})-(Y-H/2)*{num(slant)})"
         blend = f"blend=all_expr='if(lt(abs({d}),{num(line)}),255,if(lt({d},0),{'B' if flip else 'A'},{'A' if flip else 'B'}))'"
-        graph = (self.base_chain(c, dur, "0:v", after_label) + ",format=gbrp[a];" +
-                 self.base_chain(c, dur, "1:v", before_label) + ",format=gbrp[b];" +
-                 "[a][b]" + blend + "," + ",".join(["format=yuv420p"] + self.caption_filters(c, dur) + self.fades(c, dur)) + "[v]")
-        self.encode(a_args + b_args, graph, dur, out)
+        parts, segs = [], []
+        parts.append(chain("0:v", dur - ta, after_label) + ",format=gbrp,split=2[a0][a1]")
+        parts.append(chain("1:v", max(tb, fr), before_label) + ",format=gbrp,split=2[b0][b1]")
+        if ta > 0:
+            parts.append(f"[b0]trim=duration={num(ta)},setpts=PTS-STARTPTS[s0]")
+            segs.append("[s0]")
+        else:
+            parts.append("[b0]nullsink")
+        if tb > ta:
+            parts.append(f"[a0]trim=duration={num(tb - ta)},setpts=PTS-STARTPTS[am]")
+            parts.append(f"[b1]trim=start={num(ta)}:duration={num(tb - ta)},setpts=PTS-STARTPTS[bm]")
+            parts.append(f"[am][bm]{blend}[s1]")
+            segs.append("[s1]")
+        else:
+            parts.append("[a0]nullsink")
+            parts.append("[b1]nullsink")
+        if dur > tb:
+            parts.append(f"[a1]trim=start={num(tb - ta)},setpts=PTS-STARTPTS[s2]")
+            segs.append("[s2]")
+        else:
+            parts.append("[a1]nullsink")
+        tail = ",".join(["format=yuv420p"] + self.caption_filters(c, dur) + self.fades(c, dur))
+        parts.append("".join(segs) + (f"concat=n={len(segs)}:v=1:a=0," if len(segs) > 1 else "") + tail + "[v]")
+        self.encode(a_args + b_args, ";".join(parts), dur, out)
         return dur, f"{b_src} | {a_src}"
 
     def build_title(self, c, out):
@@ -259,6 +302,11 @@ class Builder:
             text.append(self.drawtext(c["Sub"], float(c.get("SubSize", 0.042)), "(w-text_w)/2", f"{int(cy + self.H * 0.13)}", t0 + 0.3, t1, fade, color="white@0.9"))
         if c.get("Small"):
             text.append(self.drawtext(c["Small"], 0.026, "(w-text_w)/2", f"{int(self.H * 0.9)}", t0 + 0.6, t1, fade, color="white@0.6"))
+        # "Lines": any number of centred lines: { Text, Y (fraction of the height), Size, Color, At, End, Fade, Title (font) }
+        for ln in c.get("Lines", []):
+            text.append(self.drawtext(ln["Text"], float(ln.get("Size", 0.03)), "(w-text_w)/2", f"{int(self.H * float(ln.get('Y', 0.5)))}-text_h/2",
+                                      float(ln.get("At", t0)), dur - float(ln.get("End", dur - t1)), float(ln.get("Fade", fade)),
+                                      color=ln.get("Color", "white"), font=self.font_title if ln.get("Title") else None, shadow=False))
         if c.get("Source"):
             args, src = self.source_args(c["Source"], float(c.get("In", 0)), dur, float(c.get("Speed", 1)))
             dim = [f"eq=brightness={num(-float(c.get('Dim', 0.25)))}:saturation={num(float(c.get('Saturation', 0.8)))}"]
@@ -319,7 +367,31 @@ class Builder:
         args = inputs + []
         maps = ["-map", f"[{acc}]"]
         music = self.e.get("Music")
-        if music and music.get("File"):
+        if music and music.get("Tracks"):
+            # Several pieces on the trailer's timeline: { File, Start (seconds into the file), At (trailer time it comes in),
+            # Until (trailer time it has gone), FadeIn, FadeOut (lengths, ending at Until), Volume }. Layers of one song
+            # (ULTRAKILL's clean / battle versions) cross-fade when one's Until fade overlaps the next one's At fade.
+            mix = []
+            for k, tr in enumerate(music["Tracks"]):
+                mfile = tr["File"] if os.path.isabs(tr["File"]) else os.path.join(self.root, tr["File"])
+                if not os.path.isfile(mfile):
+                    print(f"warning: music not found ({mfile})")
+                    continue
+                at, until = float(tr.get("At", 0)), min(total, float(tr.get("Until", total)))
+                length = max(0.1, until - at)
+                fi, fo = float(tr.get("FadeIn", 0.02)), float(tr.get("FadeOut", 0.02))
+                args += ["-stream_loop", "-1", "-ss", num(float(tr.get("Start", 0))), "-i", mfile]
+                af = [f"atrim=duration={num(length)}", "asetpts=PTS-STARTPTS", f"volume={num(float(tr.get('Volume', 1)))}",
+                      f"afade=t=in:st=0:d={num(fi)}", f"afade=t=out:st={num(max(0, length - fo))}:d={num(fo)}",
+                      f"adelay={int(round(at * 1000))}:all=1"]
+                parts.append(f"[{len(clips) + len(mix)}:a]" + ",".join(af) + f"[m{k}]")
+                mix.append(f"[m{k}]")
+            if mix:
+                fo = float(music.get("FadeOut", 2.0))
+                parts.append("".join(mix) + f"amix=inputs={len(mix)}:normalize=0:duration=longest,volume={num(float(music.get('Volume', 1)))},"
+                             f"afade=t=out:st={num(max(0, total - fo))}:d={num(fo)},atrim=duration={num(total)}[a]")
+                maps += ["-map", "[a]", "-c:a", "aac", "-b:a", "320k"]
+        elif music and music.get("File"):
             mfile = music["File"] if os.path.isabs(music["File"]) else os.path.join(self.root, music["File"])
             if any(ch in mfile for ch in "*?["):
                 hits = sorted(glob.glob(mfile))
@@ -336,6 +408,14 @@ class Builder:
         run(args + ["-filter_complex", ";".join(parts)] + maps + ["-t", num(total), "-r", num(self.fps), "-c:v", "libx264", "-preset", "slow",
                     "-crf", str(self.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", final], self.work, self.log)
         print(f"trailer {total:.2f}s -> {final}")
+        # "Exports": smaller copies of the finished trailer: { Suffix, Height, Crf }.
+        for ex in self.e.get("Exports", []):
+            h = int(ex["Height"])
+            w = int(round(self.W * h / self.H / 2)) * 2
+            path = os.path.join(self.out, slug(self.e.get("Name", "trailer")) + ex.get("Suffix", f"-{h}p") + ".mp4")
+            run(["-i", final, "-vf", f"scale={w}:{h}:flags=lanczos", "-c:v", "libx264", "-preset", "slow", "-crf", str(int(ex.get("Crf", 16))),
+                 "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", path], self.work, self.log)
+            print(f"export -> {path}")
         return final
 
 

@@ -57,6 +57,15 @@ namespace UltraRT
         /// water, metal) and its shadow stay where the player stands. Camera rays still never see the model itself, so
         /// frame it from near the player's eye, or only through the reflection.</summary>
         public bool tracePlayer = false;
+        /// <summary>Paired capture (accumulating modes; bench "Paired"): every output frame is also rendered with ray
+        /// tracing off, into this folder, while the world is held, so the game's image and the traced image show the
+        /// identical world state frame for frame although the world runs. Null: off.</summary>
+        [Newtonsoft.Json.JsonIgnore] public string pairOffDir;
+        /// <summary>Paired capture windows (path seconds): the traced image is rendered from pairOnFrom on, the game's
+        /// image until pairOffUntil. An edit that switches or sweeps from one to the other only needs both in between;
+        /// before pairOnFrom one traced frame per output frame still runs (uncaptured), so exposure and the radiance
+        /// cache are where they would be.</summary>
+        public float pairOnFrom = float.NegativeInfinity, pairOffUntil = float.PositiveInfinity;
         public CineSettings Clone() => (CineSettings)MemberwiseClone();
     }
 
