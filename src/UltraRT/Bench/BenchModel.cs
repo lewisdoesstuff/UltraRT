@@ -109,8 +109,12 @@ namespace UltraRT.Bench
         /// <summary>Play the path once in real time first, in the scenario's first RT mode (frame times and a mid-path screenshot).</summary>
         public bool Play;
         public bool Render = true;
-        /// <summary>pathtrace | relight | current</summary>
+        /// <summary>pathtrace | relight | current | off (the game's image) | live (the scenario's first RT mode as played)</summary>
         public string Mode;
+        /// <summary>Several takes of the path in one scenario, one per mode (e.g. ["off", "live"]), each into
+        /// cine_&lt;scenario&gt;_&lt;mode&gt;. With TimeScale 0 the world stays frozen from the first take to the last, so the takes
+        /// show the same instant (particles included) and line up exactly: before / after pairs.</summary>
+        public List<string> Modes;
         public float? Fps, OutputScale, Shutter, TimeScale, Seconds, Start;
         public int? Samples, Aa, Paths, Bounces, Crf, Preroll;
         public bool? CacheTail, MotionBlur, Png16, Encode;
@@ -223,6 +227,8 @@ namespace UltraRT.Bench
         /// <summary>Scenario.Cinematic: the live playback's frame times and the offline render's result.</summary>
         public ModeStats CinematicPlay;
         public CineRenderResult Cinematic;
+        /// <summary>Cinematic.Modes: every take (Cinematic is the last one).</summary>
+        public List<CineRenderResult> CinematicTakes;
     }
 
     /// <summary>

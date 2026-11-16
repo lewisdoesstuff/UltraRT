@@ -114,11 +114,21 @@ namespace UltraRT
 
                 if (spec.Render)
                 {
-                    var r = new CineRenderResult();
-                    sr.Cinematic = r;
-                    string dir = Path.Combine(outDir, $"cine_{Sanitize(sc.Name)}");
-                    yield return CineRender(sp, o, dir, _cineName, r, bench: true);
-                    if (r.Error != null) sr.Error = "cinematic render: " + r.Error;
+                    // One take, or one per entry of Modes. The game speed set by the first take (CineSetSpeed) stays until the
+                    // camera is left, so with TimeScale 0 nothing in the world moves between the takes either.
+                    var takes = spec.Modes != null && spec.Modes.Count > 0 ? spec.Modes : new List<string> { null };
+                    foreach (var take in takes)
+                    {
+                        var ot = o.Clone();
+                        if (take != null) ot.mode = (CineRenderMode)Enum.Parse(typeof(CineRenderMode), take, true);
+                        var r = new CineRenderResult();
+                        sr.Cinematic = r;
+                        if (takes.Count > 1) (sr.CinematicTakes ?? (sr.CinematicTakes = new List<CineRenderResult>())).Add(r);
+                        string dir = Path.Combine(outDir, $"cine_{Sanitize(sc.Name)}" + (take != null ? "_" + Sanitize(take.ToLowerInvariant()) : ""));
+                        yield return CineRender(sp, ot, dir, _cineName, r, bench: true);
+                        if (r.Error != null) { sr.Error = "cinematic render: " + r.Error; break; }
+                        _cineState = CineState.Free;
+                    }
                 }
             }
             finally
@@ -160,11 +170,11 @@ namespace UltraRT
             foreach (var s in list)
             {
                 var p = s.CinematicPlay;
-                var c = s.Cinematic;
                 string play = p != null ? $"{p.AvgMs:F2} / {p.P99Ms:F2}" : "-";
-                if (c == null) { sb.AppendLine($"| {s.Name} | {play} | - | | | | | | | | |"); continue; }
-                sb.AppendLine($"| {s.Name} | {play} | {c.Mode} | {c.Written}/{c.Frames}{(c.Cancelled ? " (cancelled)" : "")} | {c.Width}x{c.Height} | {c.SubframesPerFrame} | " +
-                              $"{c.SecondsPerFrame:F2} | {c.MsPerSubframe:F1} | {c.PrerollSeconds:F1} | {c.WriterMsPerFrame:F0} | {(c.Video != null ? Path.GetFileName(c.Video) : c.Error ?? "frames only")} |");
+                if (s.Cinematic == null) { sb.AppendLine($"| {s.Name} | {play} | - | | | | | | | | |"); continue; }
+                foreach (var c in s.CinematicTakes ?? new List<CineRenderResult> { s.Cinematic })
+                    sb.AppendLine($"| {s.Name} | {play} | {c.Mode} | {c.Written}/{c.Frames}{(c.Cancelled ? " (cancelled)" : "")} | {c.Width}x{c.Height} | {c.SubframesPerFrame} | " +
+                                  $"{c.SecondsPerFrame:F2} | {c.MsPerSubframe:F1} | {c.PrerollSeconds:F1} | {c.WriterMsPerFrame:F0} | {(c.Video != null ? Path.GetFileName(c.Video) : c.Error ?? "frames only")} |");
             }
         }
     }

@@ -133,6 +133,14 @@ How a frame is made (`Plugin.CineRender.cs`):
 - **Encode.** If ffmpeg is found (PATH, WinGet's Links folder, `C:\ffmpeg\bin`, scoop, chocolatey), the frames are encoded
   to `<path>.mp4` (H.264, CRF from the menu, yuv420p, faststart) next to them; `encode.cmd` always has the command.
   `render.json` records the settings and timings.
+- **Off and live.** Two view modes skip the accumulation. `off` renders the game's own image (ray tracing off) along the
+  same path: the "before" of a before / after pair (its AA samples still supersample the game's raster; `Aa` 1 is the
+  game as it looks). `live` renders the current view mode **as played**: trace scale, denoiser, DLSS Ray Reconstruction
+  or the upsampler and all their histories run exactly as in play, one rendered frame per output frame on the fixed time
+  step, and every temporal filter blends as at the output frame rate (`Denoiser.FrameTimeOverride`). It is honest footage
+  of what players see and costs a frame per frame (the PNG writer paces it: the render sleeps instead of rendering
+  extra frames, which would add temporal history the player never gets). `Samples`, `Aa`, `Paths`, `Bounces` and motion
+  blur do not apply to `live`. In a bench scenario `live` uses the scenario's first RT mode (`"Modes": ["pathtrace"]`).
 - **Restore.** A `finally` block puts back every setting it changed (view mode, trace scale, denoiser / reflection /
   light-sampling / pathtrace settings, guard band, RR, upsampler, time step, time scale, vsync, frame limit, audio,
   background running), also on an error, a cancel, or a level change. Nothing is written to the game's settings.
@@ -141,7 +149,7 @@ How a frame is made (`Plugin.CineRender.cs`):
 
 | Setting | Default | |
 |---|---|---|
-| view mode (`Mode`) | pathtrace | pathtrace, relight, or the current mode |
+| view mode (`Mode`) | pathtrace | pathtrace, relight, the current mode (`current`), `off` (the game's image), `live` (the current mode as played) |
 | frames per second (`Fps`) | 60 | |
 | accumulated frames per AA sample (`Samples`) | 32 | samples per pixel = AA x this x paths; 16 for quick takes, not below (see below) |
 | AA / motion-blur samples (`Aa`) | 4 | sub-pixel jitter positions, or time steps with motion blur |
@@ -235,6 +243,16 @@ moved along with it (`GameControl`, as a recording benchmark does), the recorded
 `Start` on the fixed time step (one plain frame per step), so the run is in its state there instead of teleported. V1 is
 traced in replays (the camera is where the player is). `bench/suites/cine-replay.json` replays 2 s of the 0-2 run twice
 from fresh loads; see "Determinism" below.
+
+## Before / after pairs and trailers
+
+Render the same path twice, once with `"Mode": "off"` and once with `"Mode": "live"` (or an accumulating mode), both with
+`"TimeScale": 0`: the path is a pure function of time and the world is frozen, so the two takes line up pixel for pixel
+and can be wiped or split against each other. In a bench scenario, `"Modes": ["off", "live"]` in the `Cinematic` block
+renders both takes back to back into `cine_<scenario>_off` and `cine_<scenario>_live` and keeps the world frozen from the
+first take to the last, so particles (falling leaves, smoke) are at the same instant in both; two separate scenarios
+line up in camera and geometry only. `scripts/trailer.py` does the wipe and the rest of an edit (title cards,
+captions, cross-fades, music) from an edit-list JSON: see docs/trailer.md.
 
 ## Limitations
 

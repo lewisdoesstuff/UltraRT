@@ -12,7 +12,10 @@ using UnityEngine;
 
 namespace UltraRT
 {
-    public enum CineRenderMode { Pathtrace = 0, Relight = 1, Current = 2 }
+    /// <summary>Offline render view mode. Pathtrace / Relight / Current accumulate to convergence at full resolution.
+    /// Off: the game's own image (ray tracing off), for before / after pairs. Live: the current view mode exactly as played
+    /// (the real-time pipeline: trace scale, denoiser, DLSS RR / upsampler), one rendered frame per output frame.</summary>
+    public enum CineRenderMode { Pathtrace = 0, Relight = 1, Current = 2, Off = 3, Live = 4 }
     public enum CineExposure { Auto = 0, Locked = 1 }
 
     /// <summary>Cinematic camera and offline render settings (docs/cinematics.md). Config section [Cinematics]; a bench
@@ -117,7 +120,8 @@ namespace UltraRT
         {
             m.Group = "Cinematics (camera paths and offline render: docs/cinematics.md)";
             m.Choice("Cinematics", "Mode", "Render: view mode", () => _cine.mode, v => _cine.mode = v, v => v.ToString(),
-                v => v == CineRenderMode.Pathtrace ? "pathtrace" : v == CineRenderMode.Relight ? "relight" : "the current view mode");
+                v => v == CineRenderMode.Pathtrace ? "pathtrace" : v == CineRenderMode.Relight ? "relight" : v == CineRenderMode.Off ? "ray tracing off (the game's image)"
+                    : v == CineRenderMode.Live ? "as played (the current view mode, real-time pipeline)" : "the current view mode");
             m.Float("Cinematics", "Fps", "Render: frames per second", 12f, 120f, 0, () => _cine.fps, v => _cine.fps = Mathf.Round(v));
             m.Float("Cinematics", "Samples", "Render: accumulated frames per AA sample (spp)", 1f, 256f, 0, () => _cine.samples, v => _cine.samples = Mathf.Clamp(Mathf.RoundToInt(v), 1, 255));
             m.Float("Cinematics", "AA", "Render: anti-aliasing / motion-blur samples per frame", 1f, 16f, 0, () => _cine.aa, v => _cine.aa = Mathf.Clamp(Mathf.RoundToInt(v), 1, 64));
