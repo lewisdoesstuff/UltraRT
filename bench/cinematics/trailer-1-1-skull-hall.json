@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "trailer-1-1-skull-hall",
+  "Scene": "Level 1-1",
+  "Note": "Trailer: low glide between the torches of the hallway that leads to the red skull (1-1 '2 - Indoors'; base = a pose on its centre line, floor y -4.62; approach bench/recordings/1-1-red-skull-hall.json).",
+  "Keys": [
+    {"Player": [37.0, -5.32, 329.4], "Yaw": 88, "Pitch": 5, "Fov": 80, "Duration": 1.7, "Ease": "in"},
+    {"Player": [43.0, -5.02, 329.8], "Yaw": 90, "Pitch": 3, "Fov": 80, "Duration": 1.7, "Ease": "linear"},
+    {"Player": [49.0, -4.62, 330.2], "Yaw": 91, "Pitch": 1, "Fov": 80, "Duration": 1.7, "Ease": "out"},
+    {"Player": [54.0, -4.22, 330.4], "Yaw": 92, "Pitch": 0, "Fov": 80, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

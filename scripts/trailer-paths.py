@@ -83,7 +83,8 @@ def main():
             scenarios.append({
                 "Name": name, "Scene": s["Scene"], "Path": s["Path"], "Modes": ["pathtrace"], **s.get("Scenario", {}),
                 "Cinematic": {"File": os.path.relpath(path, suite_dir).replace("\\", "/"), "Mode": a.mode, "Fps": 1, "Seconds": len(keys) - 1,
-                              "Samples": a.samples, "Aa": 1, "OutputScale": 0.25, "Encode": False, "Preroll": 30, "TimeScale": 0},
+                              "Samples": a.samples, "Aa": 1, "OutputScale": 0.25, "Encode": False, "Preroll": 30, "TimeScale": 0,
+                              **s.get("Cinematic", {})},
             })
     if a.scout:
         with open(a.scout, "w", encoding="utf-8", newline="\r\n") as f:

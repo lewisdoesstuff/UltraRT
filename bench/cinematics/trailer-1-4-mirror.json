@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Name": "trailer-1-4-mirror",
+  "Scene": "Level 1-4",
+  "Note": "Trailer: the bedroom's vanity mirror with V1 standing in front of it (player at [14.5, 2, 502.5], Cinematic.TracePlayer; closer than about x 14 the game blacks the room out). The camera is ahead of V1, aims at V1's mirror image (LookAt is 4.5 m behind the mirror plane) and zooms in, so V1 shows only in the mirror.",
+  "Keys": [
+    {"Player": [12.3, 2.2, 502.9], "Yaw": 266.63, "Pitch": -6.7, "Fov": 58, "Duration": 2.5, "Ease": "in"},
+    {"Player": [11.9, 2.3, 502.3], "Yaw": 271.79, "Pitch": -8.0, "Fov": 52, "Duration": 2.5, "Ease": "out"},
+    {"Player": [11.6, 2.5, 502.0], "Yaw": 274.69, "Pitch": -10.19, "Fov": 46, "Duration": 2, "Ease": "linear"}
+  ]
+}

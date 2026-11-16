@@ -217,7 +217,9 @@ class Builder:
 
     def build_wipe(self, c, out):
         """Before / after: two renders of the same camera path, an animated (slanted) divider between them. Left of the
-        divider is "After". Each side's label is burned into its own picture, so the wipe reveals and hides it."""
+        divider is "After" (right of it with "Flip": the wipe then comes in from the right). Each side's label is burned
+        into its own picture, so the wipe reveals and hides it. Keys that jump (two keys a millisecond apart) make a
+        hard switch; keys that stay between 0 and 1 a split screen."""
         dur = self.clip_duration(c)
         t_in, speed = float(c.get("In", 0)), float(c.get("Speed", 1))
         a_args, a_src = self.source_args(c["After"], t_in + float(c.get("AfterOffset", 0)), dur, speed)
@@ -225,15 +227,19 @@ class Builder:
         w = c.get("Wipe", {})
         keys = w.get("Keys", [[0, 0], [dur * 0.3, 0], [dur * 0.7, 1], [dur, 1]])
         slant = float(w.get("Slant", 0.18))
+        flip = bool(w.get("Flip", False))
+        if flip:
+            keys = [[t, 1 - float(p)] for t, p in keys]
         line = float(w.get("Line", 2.0)) * self.H / 720.0
         labels = c.get("Labels", ["RT OFF", "PATH TRACED"])
         y = f"{int(self.H * 0.06)}"
-        before_label = [self.drawtext(labels[0], 0.036, f"w-text_w-{int(self.W * 0.04)}", y, 0.0, dur + 1, fade=0.3, box=True)] if labels and labels[0] else []
-        after_label = [self.drawtext(labels[1], 0.036, f"{int(self.W * 0.04)}", y, 0.0, dur + 1, fade=0.3, box=True)] if labels and len(labels) > 1 and labels[1] else []
+        left_x, right_x = f"{int(self.W * 0.04)}", f"w-text_w-{int(self.W * 0.04)}"
+        before_label = [self.drawtext(labels[0], 0.036, left_x if flip else right_x, y, 0.0, dur + 1, fade=0.3, box=True)] if labels and labels[0] else []
+        after_label = [self.drawtext(labels[1], 0.036, right_x if flip else left_x, y, 0.0, dur + 1, fade=0.3, box=True)] if labels and len(labels) > 1 and labels[1] else []
         pos = self.wipe_position(keys, slant)
         # D < 0: left of the divider. gbrp: every plane is full size, so one expression draws the white line in all three.
         d = f"(X-W*({pos})-(Y-H/2)*{num(slant)})"
-        blend = f"blend=all_expr='if(lt(abs({d}),{num(line)}),255,if(lt({d},0),A,B))'"
+        blend = f"blend=all_expr='if(lt(abs({d}),{num(line)}),255,if(lt({d},0),{'B' if flip else 'A'},{'A' if flip else 'B'}))'"
         graph = (self.base_chain(c, dur, "0:v", after_label) + ",format=gbrp[a];" +
                  self.base_chain(c, dur, "1:v", before_label) + ",format=gbrp[b];" +
                  "[a][b]" + blend + "," + ",".join(["format=yuv420p"] + self.caption_filters(c, dur) + self.fades(c, dur)) + "[v]")
