@@ -491,6 +491,7 @@ Every renderer under `PlayerAnimations` (except layer 13) gets a normal dynamic 
 |---|---|---|
 | Camera (primary) rays, all modes and debug views | **never** before a portal hop | the camera sits inside V1's head and the third-person gun arm reaches in front of it (`v1_mdl`'s bounds contain the camera) |
 | Camera rays after a hop through a portal with `canSeePortalLayer` | yes (bit 8) | what the game's portal views draw: 8-x mirrors |
+| Camera rays in a third-person cinematic shot | yes (bit 16, set only by the bench's `ShowPlayer`: docs/cinematics.md) | the camera is outside the model there |
 | Reflection rays (incl. the water/glass pass) | yes (bit 1) | the point of the feature |
 | Bounce rays (PathTrace) | yes (bit 2) | V1 occludes and reflects bounce light near the player |
 | Shadow rays (PathTrace: direct light, sky, emissive, reflection hits) | yes (bit 4) | V1 casts a shadow, as in Quake II RTX |

@@ -108,6 +108,14 @@ namespace UltraRT
         private object _cineSavedBlind, _cineSavedInvincible;
         private bool _cineCheatsSet;
         private Vector3 _cineEye = new Vector3(0f, 1f, 0f);
+        // A take that moves the player (bench "Player"): its velocity for V1's walk animation; and third-person shots.
+        private bool _cinePlayerDriven, _cineShowPlayer, _cineShowPlayerMask, _cinePlayerRestart;
+        private Vector3 _cinePlayerVel;
+        private float _cinePlayerLastT = float.MaxValue;
+        private readonly List<Collider> _cineShopTriggers = new List<Collider>();
+        private readonly List<GameObject> _cineShopCanvases = new List<GameObject>();
+        private Animator _cinePlayerAnimator;
+        private const int PlayerModelLayer = 30;
 
         /// <summary>The overlay is not drawn on frames the offline renderer captures.</summary>
         private bool _cineHideGui;
@@ -237,6 +245,11 @@ namespace UltraRT
             catch (Exception e) { Logger.LogWarning($"Cinematic camera: restoring the camera failed: {e.Message}"); }
             if (_cineOwnsControl) { GameControl.ReleaseControl(); _cineOwnsControl = false; }
             SceneProxies.TracePlayerModel = _cineSavedPlayerModel;
+            CineShowPlayer(false);
+            CineShopScreensOff(false);
+            _cinePlayerDriven = false;
+            _cinePlayerLastT = float.MaxValue;
+            _cinePlayerAnimator = null;
             _vmEnabled = _cineSavedVm;
             CineHideHud(false);
             CineProtect(false);
@@ -328,6 +341,87 @@ namespace UltraRT
             catch (Exception e) { Logger.LogWarning($"Cinematic camera: player protection failed: {e.Message}"); _cineCheatsSet = false; }
         }
 
+        /// <summary>Third-person shots: the camera sees V1's model. Traced: camera rays include its instance mask (bit 16 of
+        /// _UltraRTPlayerRays, Plugin.cs). The game's own image ("off" takes): the main camera draws layer 30, which is
+        /// otherwise only drawn in portal views.</summary>
+        private void CineShowPlayer(bool show)
+        {
+            _cineShowPlayer = show;
+            var cc = GameControl.Cam;
+            var cam = cc != null ? cc.cam : null;
+            if (cam == null) { _cineShowPlayerMask = false; return; }
+            if (show && (cam.cullingMask & (1 << PlayerModelLayer)) == 0) { cam.cullingMask |= 1 << PlayerModelLayer; _cineShowPlayerMask = true; }
+            else if (!show && _cineShowPlayerMask) { cam.cullingMask &= ~(1 << PlayerModelLayer); _cineShowPlayerMask = false; }
+        }
+
+        /// <summary>Shop terminals stay dark (bench "ShopScreensOff"): ShopZone switches its world-space canvas on when the
+        /// player enters its trigger, and the UI then covers the CRT glass (the reflective part). The triggers are off
+        /// while the camera is on, and the canvases are kept inactive; leaving the camera puts the triggers back, which
+        /// turns a screen on again if the player stands in front of it.</summary>
+        private void CineShopScreensOff(bool off)
+        {
+            if (!off)
+            {
+                foreach (var c in _cineShopTriggers) if (c != null) c.enabled = true;
+                _cineShopTriggers.Clear();
+                _cineShopCanvases.Clear();
+                return;
+            }
+            if (_cineShopTriggers.Count > 0 || _cineShopCanvases.Count > 0) return;
+            foreach (var z in FindObjectsOfType<ShopZone>())
+            {
+                foreach (var c in z.GetComponents<Collider>())
+                    if (c.enabled && c.isTrigger) { c.enabled = false; _cineShopTriggers.Add(c); }
+                var cv = z.GetComponentInChildren<Canvas>(true);
+                if (cv != null) { _cineShopCanvases.Add(cv.gameObject); cv.gameObject.SetActive(false); }
+            }
+            Logger.LogInfo($"Cinematic camera: {_cineShopCanvases.Count} shop screen(s) kept off ({_cineShopTriggers.Count} trigger(s))");
+        }
+
+        /// <summary>A take that moves the player: the pose at path time <paramref name="t"/> of <paramref name="route"/>
+        /// (camera positions: the player's eye) goes to GameControl, which applies it after the LateUpdates.</summary>
+        private void CineDrivePlayer(CineSpline route, float t)
+        {
+            float d = route.Duration, tt = Mathf.Clamp(t, 0f, d);
+            var s = route.Sample(tt);
+            var e = s.Rotation.eulerAngles;
+            GameControl.SetPose(new CamPose(s.Position - _cineEye, e.y, -Mathf.DeltaAngle(0f, e.x)));
+            const float h = 1f / 120f;
+            float a = Mathf.Max(0f, tt - h), b = Mathf.Min(d, tt + h);
+            _cinePlayerVel = b - a > 1e-4f ? (route.Sample(b).Position - route.Sample(a).Position) / (b - a) : Vector3.zero;
+            _cinePlayerDriven = true;
+            // A new take (the path time went back): the walk cycle starts over, so every take of a pair animates alike.
+            if (t < _cinePlayerLastT - 0.25f) _cinePlayerRestart = true;
+            _cinePlayerLastT = t;
+        }
+
+        /// <summary>V1's model walks at the route's speed. PlayerAnimations.LateUpdate sets these parameters from
+        /// NewMovement (velocity / 15 in the player's frame, on the ground or not), which the bench has switched off (a
+        /// kinematic body has no velocity); this runs after it (onBeforeRender), and the Animator reads them next frame.</summary>
+        private void CineAnimatePlayer()
+        {
+            var nm = GameControl.Player;
+            if (nm == null) return;
+            if (_cinePlayerAnimator == null)
+            {
+                var pa = nm.GetComponentInChildren<PlayerAnimations>(true);
+                _cinePlayerAnimator = pa != null ? pa.GetComponent<Animator>() : null;
+                if (_cinePlayerAnimator == null) return;
+            }
+            var v = nm.transform.InverseTransformVector(_cinePlayerVel / 15f);
+            var an = _cinePlayerAnimator;
+            if (_cinePlayerRestart)
+            {
+                _cinePlayerRestart = false;
+                an.Play(an.GetCurrentAnimatorStateInfo(0).fullPathHash, 0, 0f);
+            }
+            an.SetBool("Dodging", false);
+            an.SetBool("InAir", false);
+            an.SetBool("Sliding", false);
+            an.SetFloat("VelX", v.x);
+            an.SetFloat("VelY", v.z);
+        }
+
         /// <summary>Game speed through TimeController (as the bench's fast-forward); s &lt; 0 restores what it was.</summary>
         private void CineSetSpeed(float s)
         {
@@ -402,6 +496,8 @@ namespace UltraRT
                 _cineProjSet = true;
             }
             else if (_cineProjSet) { cam.ResetProjectionMatrix(); _cineProjSet = false; }
+            if (_cinePlayerDriven) CineAnimatePlayer();
+            foreach (var g in _cineShopCanvases) if (g != null && g.activeSelf) g.SetActive(false);
             if (_cineState == CineState.Play)
             {
                 // Live playback: a jump (Cut segment, a long hop) starts the temporal filters over instead of smearing.
@@ -424,6 +520,10 @@ namespace UltraRT
                     return;
                 }
                 if (!CineInLevel()) { CineExit(); return; }
+                // V1's head, chest and gun arm follow CameraController's transform (PlayerAnimations.LateUpdate), which
+                // still has the free camera's rotation from the last frame: give it the player's own view back before the
+                // LateUpdates run, so V1 looks where the player looks, not where the camera does.
+                if (SceneProxies.TracePlayerModel && GameControl.Cam != null) GameControl.Cam.ApplyRotations();
                 if (CineGamePaused())
                 {
                     if (_cineState == CineState.Render) { _cineCancel = true; if (!_cineBench) Toast("Render cancelled (paused)"); }

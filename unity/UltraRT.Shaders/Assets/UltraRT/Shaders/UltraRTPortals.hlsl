@@ -32,13 +32,15 @@ int _UltraRTMirrors;
 
 // V1's third-person model (instance mask ULTRART_MASK_PLAYER, SceneProxies.Player.cs). Which rays see it (Plugin's
 // _playerRays, global, set every frame; 0 = none): 1 reflection rays, 2 bounce rays, 4 shadow rays, 8 camera rays after
-// a hop through a portal whose canSeePortalLayer is set (the game draws V1, layer 30, in those views: 8-x mirrors).
-// Camera rays never see it before a hop.
+// a hop through a portal whose canSeePortalLayer is set (the game draws V1, layer 30, in those views: 8-x mirrors),
+// 16 camera rays before a hop (only a third-person cinematic shot sets it: docs/cinematics.md; in play the camera sits
+// in V1's head).
 int _UltraRTPlayerRays;
 #define ULTRART_PLAYER_REFLECTION 1
 #define ULTRART_PLAYER_BOUNCE     2
 #define ULTRART_PLAYER_SHADOW     4
 #define ULTRART_PLAYER_PORTAL     8
+#define ULTRART_PLAYER_CAMERA     16
 uint PlayerRayMask(int kind) { return (_UltraRTPlayerRays & kind) != 0 ? ULTRART_MASK_PLAYER : 0u; }
 
 struct PortalPath

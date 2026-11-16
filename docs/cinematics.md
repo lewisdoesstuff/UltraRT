@@ -101,7 +101,8 @@ the HUD canvases and the gun (HUD camera, and the viewmodel RT pass) are hidden;
 shadow and reflection would hang where the player stands), unless "V1's reflection and shadow stay" is on (`TracePlayer`,
 default off; bench `"TracePlayer": true` in the `Cinematic` block): for a mirror shot, stand the player in front of the
 mirror and put the camera ahead of it, so V1 shows only in the reflection (camera rays never see V1's model itself:
-docs/reflections.md, section 13). "Enemies ignore the player" (menu, default on) makes enemies
+docs/reflections.md, section 13; a bench scenario can ask for it, see "A moving player, third-person shots, lamps").
+"Enemies ignore the player" (menu, default on) makes enemies
 blind and the player invincible by swapping only the cheats' static state (not the cheat menu: nothing is saved and
 the level is not marked as cheated). "Game speed during playback / render" (default 1) slows or freezes the world (0 =
 frozen: animations, particles, enemies and effects stop, the camera still moves); it applies while the camera is on.
@@ -246,6 +247,27 @@ moved along with it (`GameControl`, as a recording benchmark does), the recorded
 `Start` on the fixed time step (one plain frame per step), so the run is in its state there instead of teleported. V1 is
 traced in replays (the camera is where the player is). `bench/suites/cine-replay.json` replays 2 s of the 0-2 run twice
 from fresh loads; see "Determinism" below.
+
+### A moving player, third-person shots, lamps
+
+Four more fields of the `Cinematic` block, for shots where V1 itself matters (bench only; `bench/suites/trailer-test3.json`
+uses all of them):
+
+| Field | |
+|---|---|
+| `"Player": "camera"` | The player rides the camera path: the camera is the player's eye, as in play, so V1's shadow and its reflection (puddles, metal) move with the shot. A first-person walk without recording one. |
+| `"Player": "<path file>"` | The player walks a second path (same format as a camera path: each key is the player's position and view direction) while the camera flies `File`. V1 is kept in the traced scene, its walk animation follows the route's speed (the parameters `PlayerAnimations` would set from `NewMovement`, which the bench has switched off), and its head and gun arm follow the route's view direction, not the camera's. The walk cycle restarts with every take, so the takes of a pair animate alike. |
+| `"ShowPlayer": true` | The camera sees V1's model: a third-person shot. Traced modes: camera rays include V1's instance mask (bit 16 of `_UltraRTPlayerRays`, set only here). `off` takes: the main camera draws layer 30, where the model lives. Default: on when `Player` is a path file. |
+| `"ShopScreensOff": true` | Shop terminals stay dark. A terminal's screen switches on when the player enters its zone, and the shop UI then covers the glass, which is the part that reflects. The zone's trigger is off while the camera is on. |
+| `"Flickers": [ { "Light": "Metro Light/Spot Light", "From": 3.6, "To": 4.95, "On": true }, ... ]` | Lamp timing. `Light` is the end of a light's hierarchy path. A lamp with the game's `Flicker` component (fully on / off at random intervals) is held in that phase with its own `On()` / `Off()` for the stretch of path time and flickers by itself outside the stretches. A steady light is switched (the `Light` component only; its lamp mesh keeps glowing) and put back afterwards. The log lists the level's nearest flickering lamps and what each entry matched. |
+
+Use `"TimeScale": 1` with a moving player: the walk animation needs game time, and so do flickering lamps. The two
+takes of a pair then differ in whatever the game randomises (particles, untimed flicker), which a hard switch hides and
+a sweep mostly does. With `Player`, `Start` > 0 plays the route up to `Start` first, as a replay does.
+
+What the model looks like: in `off` takes V1 is fullbright, as in the game's own mirrors; path traced it is lit by the
+room (a blue body in an orange room reads grey; the wings keep their yellow glow). The bench's weapon is the default
+revolver in default colours; the user's alternate gun colours live in the main install's save.
 
 ## Before / after pairs and trailers
 

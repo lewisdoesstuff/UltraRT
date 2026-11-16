@@ -50,6 +50,18 @@ namespace UltraRT
             CineEnter(bench: true);
             if (_cineState == CineState.Off) throw new InvalidOperationException("cinematic camera could not start (no player?)");
             if (spec.TracePlayer == true) SceneProxies.TracePlayerModel = _cineSavedPlayerModel; // V1 stands at the scenario's pose
+            if (spec.ShowPlayer == true) CineShowPlayer(true);
+            if (spec.ShopScreensOff == true) CineShopScreensOff(true);
+            bool ride = !replay && string.Equals(spec.Player, "camera", StringComparison.OrdinalIgnoreCase);
+            CineSpline walk = null;
+            if (!replay && !ride && !string.IsNullOrEmpty(spec.Player))
+            {
+                // The player's own route: a path file whose keys are the player's position and view direction.
+                var pf = CinePathFile.Load(Path.IsPathRooted(spec.Player) ? spec.Player : Path.Combine(suiteDir, spec.Player));
+                foreach (var k in pf.Keys) k.Resolve(_cineEye);
+                walk = new CineSpline(pf.Keys, CineDefaultFov());
+                if (walk.Count < 2) throw new InvalidOperationException($"player path {spec.Player} has {walk.Count} key(s)");
+            }
             int nextArena = 0;
             float nextKill = 0f;
             if (replay)
@@ -64,6 +76,8 @@ namespace UltraRT
                 };
                 SceneProxies.TracePlayerModel = _cineSavedPlayerModel; // V1 is where the camera is again: keep its shadow
             }
+            var flickers = new List<(Flicker lamp, FlickerHold hold)>();
+            var steady = new List<(Light light, FlickerHold hold, bool was)>();
             try
             {
                 foreach (var k in path.Keys) k.Resolve(_cineEye);
@@ -75,6 +89,65 @@ namespace UltraRT
                 var sp = CineSplineNow();
                 if (sp.Count < 2) throw new InvalidOperationException($"path {file} has {sp.Count} key(s)");
                 Logger.LogInfo($"Benchmark: cinematic '{_cineName}' ({sp.Count} keys, {sp.Duration:F2}s, eye offset {_cineEye}) from {file}");
+                if (ride || walk != null)
+                {
+                    // The player follows a route in step with the path time: the camera's own (a first-person walk), or
+                    // its own while the camera watches (third person). V1 stays in the traced scene and walks.
+                    var playerRoute = ride ? sp : walk;
+                    _cineOnTime = t => CineDrivePlayer(playerRoute, t);
+                    SceneProxies.TracePlayerModel = _cineSavedPlayerModel;
+                    if (spec.ShowPlayer ?? !ride) CineShowPlayer(true);
+                    CineDrivePlayer(playerRoute, 0f);
+                    Logger.LogInfo($"Benchmark: the player {(ride ? "rides the camera path" : $"walks {spec.Player} ({walk.Duration:F2}s)")}, shown to the camera: {_cineShowPlayer}");
+                }
+
+                if (spec.Flickers != null && spec.Flickers.Count > 0)
+                {
+                    // Flicker timing: a lamp is put into (and kept in) the wanted phase with the game's own On() / Off()
+                    // while a hold covers the path time, and flickers by itself again after it.
+                    var all = FindObjectsOfType<Flicker>();
+                    foreach (var f in all.OrderBy(f => (f.transform.position - GameControl.Player.transform.position).sqrMagnitude).Take(12))
+                        Logger.LogInfo($"Benchmark: flickering lamp '{GameControl.PathOf(f.transform)}' at {f.transform.position:F1}, delay {f.delay:F2} +- {f.timeRandomizer:F2}s, quick {f.quickFlicker}");
+                    foreach (var h in spec.Flickers)
+                    {
+                        var lamps = all.Where(f => GameControl.PathOf(f.transform).EndsWith(h.Light ?? "?", StringComparison.OrdinalIgnoreCase)).ToList();
+                        foreach (var f in lamps) flickers.Add((f, h));
+                        int n = 0;
+                        if (lamps.Count == 0) // not a flickering lamp: a steady light, switched for the stretch
+                            foreach (var li in FindObjectsOfType<Light>().Where(l => GameControl.PathOf(l.transform).EndsWith(h.Light ?? "?", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                steady.Add((li, h, li.enabled));
+                                n++;
+                            }
+                        Logger.LogInfo($"Benchmark: lamp hold '{h.Light}' {(h.On ? "on" : "off")} {h.From:F2}..{h.To:F2}s: {lamps.Count} flickering lamp(s), {n} steady light(s)");
+                    }
+                    var before = _cineOnTime;
+                    var held = new HashSet<Flicker>();
+                    _cineOnTime = t =>
+                    {
+                        before?.Invoke(t);
+                        foreach (var (light, hold, was) in steady)
+                            if (light != null) light.enabled = t >= hold.From && t < hold.To ? hold.On : was;
+                        var now = new Dictionary<Flicker, bool>();
+                        foreach (var (lamp, hold) in flickers)
+                            if (lamp != null && t >= hold.From && t < hold.To) now[lamp] = hold.On;
+                        foreach (var kv in now)
+                        {
+                            var li = kv.Key.GetComponent<Light>();
+                            bool on = li != null && li.intensity != 0f;
+                            if (held.Add(kv.Key) || on != kv.Value)
+                            {
+                                kv.Key.CancelInvoke();
+                                if (kv.Value) kv.Key.On(); else kv.Key.Off();
+                            }
+                        }
+                        foreach (var lamp in held.Where(l => !now.ContainsKey(l)).ToList())
+                        {
+                            held.Remove(lamp);
+                            if (lamp != null && lamp.isActiveAndEnabled) lamp.Invoke("Flickering", 0.05f); // on its own again
+                        }
+                    };
+                }
 
                 if (spec.Play)
                 {
@@ -135,6 +208,10 @@ namespace UltraRT
             finally
             {
                 _cineOnTime = null;
+                // Lamps a hold stopped flicker by themselves again; steady lights go back to what they were.
+                foreach (var (light, _, was) in steady) if (light != null) light.enabled = was;
+                foreach (var lamp in flickers.Select(f => f.lamp).Distinct())
+                    if (lamp != null && lamp.isActiveAndEnabled && !lamp.IsInvoking("Flickering")) lamp.Invoke("Flickering", 0.05f);
                 CineExit();
             }
         }

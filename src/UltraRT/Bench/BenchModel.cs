@@ -120,8 +120,36 @@ namespace UltraRT.Bench
         public bool? CacheTail, MotionBlur, Png16, Encode;
         /// <summary>Keep V1's model in the traced scene (reflections, shadow) at the scenario's pose while the camera flies.</summary>
         public bool? TracePlayer;
+        /// <summary>The player moves during the take (V1's shadow and reflections with it): "camera" = it rides the camera
+        /// path (a first-person walk: the camera is the player's eye), or a second path file, relative to the suite, that
+        /// the player walks while the camera flies <see cref="File"/> (its keys are the player's position and view
+        /// direction). V1 is kept in the traced scene, walks at the route's speed and looks where the route looks. Use
+        /// TimeScale 1: the walk animation needs game time.</summary>
+        public string Player;
+        /// <summary>The camera sees V1's model (a third-person shot), in the traced image and in the game's ("off" takes).
+        /// Default: on when <see cref="Player"/> is a path file, off otherwise (the camera would be inside the model).</summary>
+        public bool? ShowPlayer;
+        /// <summary>Shop terminals keep their screens off during the take: the shop UI that switches on when the player
+        /// comes near covers the glass, which is what reflects.</summary>
+        public bool? ShopScreensOff;
+        /// <summary>Timing for the level's lamps. A flickering lamp (the game's Flicker component switches a light fully on
+        /// and off at random intervals) is held in its on or its off phase for a stretch of the path, so a shot can land
+        /// on the phase it needs; outside the stretches it flickers by itself. A steady light named here is switched
+        /// on or off for the stretch (the Light component only: its lamp mesh keeps glowing) and put back after it.</summary>
+        public List<FlickerHold> Flickers;
         /// <summary>auto | locked</summary>
         public string Exposure;
+    }
+
+    /// <summary>One lamp held in a flicker phase (see <see cref="CinematicSpec.Flickers"/>).</summary>
+    public sealed class FlickerHold
+    {
+        /// <summary>The end of the light's hierarchy path, e.g. "Metro Light/Spot Light" (case-insensitive).</summary>
+        public string Light;
+        /// <summary>Path seconds.</summary>
+        public float From, To = 1e9f;
+        /// <summary>true: held on; false (default): held off.</summary>
+        public bool On;
     }
 
     /// <summary>

@@ -778,7 +778,7 @@ namespace UltraRT
         private bool _rtMirrors;      // -ultrart-rtmirrors (bench: plugin._rtMirrors=1): camera rays reflect off portal mirrors instead of keeping the game's mirror view
         // Which rays see V1's third-person model (SceneProxies.PlayerMask; docs/reflections.md, "The player in reflections"):
         // 1 reflection rays (incl. water/glass), 2 bounce rays, 4 shadow rays, 8 camera rays after a portal hop (8-x
-        // mirrors, as the game's portal views). Camera rays never see it directly. -ultrart-player-rays N, bench plugin._playerRays=N.
+        // mirrors, as the game's portal views). Camera rays never see it directly (bit 16 does that; only a third-person cinematic shot sets it: _cineShowPlayer). -ultrart-player-rays N, bench plugin._playerRays=N.
         private int _playerRays = 15;
         private static readonly int PlayerRaysId = Shader.PropertyToID("_UltraRTPlayerRays");
         private static readonly int PlayerBoxMinId = Shader.PropertyToID("_UltraRTPlayerBoxMin"), PlayerBoxMaxId = Shader.PropertyToID("_UltraRTPlayerBoxMax");
@@ -1186,7 +1186,7 @@ namespace UltraRT
             SceneProxies.PortalHops = _portalHops;
             SceneProxies.TraceMirrors = _rtMirrors;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
-            Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? _playerRays & 15 : 0);
+            Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? (_playerRays & 15) | (_cineShowPlayer ? 16 : 0) : 0); // 16: third-person cinematic shots
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))
             {
                 Shader.SetGlobalVector(PlayerBoxMinId, playerBox.min);
