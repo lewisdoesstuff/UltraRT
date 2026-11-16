@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Name": "trailer-4-4-hall",
+  "Scene": "Level 4-4",
+  "Note": "Trailer: low arc across the 4-4 boss hall floor around the pedestal (base = end of bench/recordings/4-4-v2-chair.json).",
+  "Keys": [
+    {"Player": [123.104, 660.89, 272.843], "Yaw": 210.89, "Pitch": 7.37, "Fov": 80, "Duration": 2.5, "Ease": "in"},
+    {"Player": [116.989, 661.29, 275.047], "Yaw": 177.2, "Pitch": 4.97, "Fov": 80, "Duration": 2.5, "Ease": "out"},
+    {"Player": [111.118, 662.39, 272.256], "Yaw": 143.51, "Pitch": -0.53, "Fov": 80, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

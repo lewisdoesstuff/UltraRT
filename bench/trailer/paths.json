@@ -1,0 +1,22 @@
+[
+  { "Name": "trailer-7-3-tree-orbit", "Scene": "Level 7-3",
+    "Note": "Trailer: quarter orbit around the 7-3 tree, low on the left rising to the right (scripts/trailer-paths.py from bench/trailer/paths.json; base = end of bench/recordings/7-3-tree-b.json).",
+    "Base": { "Player": [-129.86, -14.40, 483.61], "Yaw": 271.1, "Pitch": 10 }, "LookAt": [15, 0, 5.2], "Fov": 80,
+    "Keys": [ [8.3, -6.7, -0.9, 0, 0, 2.2, "in"], [5.6, -3.4, 0.0, 0, 0, 2.2, "linear"], [5.0, 0.9, 1.2, 0, 0, 2.2, "out"], [6.3, 5.0, 2.6] ] },
+  { "Name": "trailer-3-1-eye-beams", "Scene": "Level 3-1",
+    "Note": "Trailer: along the bone walkway and up into the eye's beam (base = the 3-1 beams sweep pose of bench/suites/beams-3-1.json).",
+    "Base": { "Player": [-173.63, -101.0, 452.42], "Yaw": 278.85, "Pitch": 21 }, "Fov": 90,
+    "Keys": [ [-6, 0, 0.3, 0, -19, 2.0, "in"], [0, 0, 0.5, 2, 3, 1.8, "linear"], [5, 0, 2, 4, 15, 1.7, "out"], [8, 0, 3, 6, 23] ] },
+  { "Name": "trailer-4-4-hall", "Scene": "Level 4-4",
+    "Note": "Trailer: low arc across the 4-4 boss hall floor around the pedestal (base = end of bench/recordings/4-4-v2-chair.json).",
+    "Base": { "Player": [116.72, 661.79, 280.54], "Yaw": 177.2, "Pitch": -9.5 }, "LookAt": [17, 0, 0.5], "Fov": 80,
+    "Keys": [ [8, -6, -0.9, 0, 0, 2.5, "in"], [5.5, 0, -0.5, 0, 0, 2.5, "out"], [8, 6, 0.6] ] },
+  { "Name": "trailer-p-2-hall-reveal", "Scene": "Level P-2",
+    "Note": "Trailer: crane down from the stained-glass windows into the P-2 entrance hall (base = end of bench/recordings/p-2-vent-smoke.json).",
+    "Base": { "Player": [1.83, -18.5, 31.58], "Yaw": -35.8, "Pitch": 6 }, "Fov": 85,
+    "Keys": [ [-5, 0, 5, 6, 42, 2.0, "in"], [-2, 0, 3.6, 10, 14, 2.0, "linear"], [3, 0, 1.6, 13, -2, 2.0, "out"], [8, 0, 1.0, 14, -3] ] },
+  { "Name": "trailer-1-1-statue-push", "Scene": "Level 1-1",
+    "Note": "Trailer: down between the pillars towards the 1-1 statue in daylight (base = end of bench/recordings/1-1-user-1115.json).",
+    "Base": { "Player": [5.07, -8.51, 315.19], "Yaw": -23.4, "Pitch": -3.6 }, "LookAt": [12.5, 0, 1.6], "Fov": 80,
+    "Keys": [ [-4, -0.8, 3, 0, 0, 2.0, "in"], [0, -0.3, 0.4, 0, 0, 2.0, "linear"], [3, 0.2, -0.7, 0, 0, 2.0, "out"], [5.5, 0.5, 0.1] ] }
+]
