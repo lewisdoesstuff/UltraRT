@@ -98,7 +98,10 @@ resets the temporal histories instead of smearing.
 
 While the camera is free: the player is frozen where it stood (kinematic, input locked, as the bench takes it over);
 the HUD canvases and the gun (HUD camera, and the viewmodel RT pass) are hidden; V1 is kept out of the traced scene (its
-shadow and reflection would hang where the player stands). "Enemies ignore the player" (menu, default on) makes enemies
+shadow and reflection would hang where the player stands), unless "V1's reflection and shadow stay" is on (`TracePlayer`,
+default off; bench `"TracePlayer": true` in the `Cinematic` block): for a mirror shot, stand the player in front of the
+mirror and put the camera ahead of it, so V1 shows only in the reflection (camera rays never see V1's model itself:
+docs/reflections.md, section 13). "Enemies ignore the player" (menu, default on) makes enemies
 blind and the player invincible by swapping only the cheats' static state (not the cheat menu: nothing is saved and
 the level is not marked as cheated). "Game speed during playback / render" (default 1) slows or freezes the world (0 =
 frozen: animations, particles, enemies and effects stop, the camera still moves); it applies while the camera is on.

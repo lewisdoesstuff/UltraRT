@@ -118,6 +118,8 @@ namespace UltraRT.Bench
         public float? Fps, OutputScale, Shutter, TimeScale, Seconds, Start;
         public int? Samples, Aa, Paths, Bounces, Crf, Preroll;
         public bool? CacheTail, MotionBlur, Png16, Encode;
+        /// <summary>Keep V1's model in the traced scene (reflections, shadow) at the scenario's pose while the camera flies.</summary>
+        public bool? TracePlayer;
         /// <summary>auto | locked</summary>
         public string Exposure;
     }

@@ -202,7 +202,8 @@ namespace UltraRT
                         var stall = Stopwatch.StartNew();
                         while (sink.Pending >= LivePending && sink.LastError == null && stall.ElapsedMilliseconds < 3000) System.Threading.Thread.Sleep(1);
                     }
-                    while (sink.Pending >= (live ? LivePending + 4 : FrameSink.MaxPending) && sink.LastError == null) { Time.timeScale = 0f; yield return null; }
+                    // Single-sample frames queue as one RGBA32 screen each, so more of them may wait for the writer.
+                    while (sink.Pending >= (live ? LivePending + 4 : J == 1 ? LivePending : FrameSink.MaxPending) && sink.LastError == null) { Time.timeScale = 0f; yield return null; }
                     if (sink.LastError != null) throw new IOException("frame writer: " + sink.LastError);
                     sink.BeginFrame(f);
                     for (int j = 0; j < J && !_cineCancel; j++)

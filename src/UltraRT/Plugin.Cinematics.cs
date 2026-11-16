@@ -53,6 +53,10 @@ namespace UltraRT
         public float lookSpeed = 1f;
         /// <summary>While the cinematic camera is on: enemies don't see the player and the player takes no damage.</summary>
         public bool protectPlayer = true;
+        /// <summary>Keep V1's third-person model in the traced scene while the camera is free: its reflection (mirrors,
+        /// water, metal) and its shadow stay where the player stands. Camera rays still never see the model itself, so
+        /// frame it from near the player's eye, or only through the reflection.</summary>
+        public bool tracePlayer = false;
         public CineSettings Clone() => (CineSettings)MemberwiseClone();
     }
 
@@ -140,6 +144,11 @@ namespace UltraRT
             m.Float("Cinematics", "MoveSpeed", "Free camera speed (m/s; mouse wheel)", 0.5f, 40f, 1, () => _cine.moveSpeed, v => _cine.moveSpeed = v);
             m.Float("Cinematics", "LookSpeed", "Free camera mouse sensitivity", 0.1f, 4f, 2, () => _cine.lookSpeed, v => _cine.lookSpeed = v);
             m.Bool("Cinematics", "ProtectPlayer", "Enemies ignore the player while the camera is free", () => _cine.protectPlayer, v => _cine.protectPlayer = v);
+            m.Bool("Cinematics", "TracePlayer", "V1's reflection and shadow stay while the camera is free", () => _cine.tracePlayer, v =>
+            {
+                _cine.tracePlayer = v;
+                if (_cineState != CineState.Off) SceneProxies.TracePlayerModel = v && _cineSavedPlayerModel;
+            });
             m.Action("Cinematic camera on / off  [Home]", () => { if (_cineState == CineState.Off) CineEnter(); else if (_cineState != CineState.Render) CineExit(); });
             m.Action("Cinematic: play the path  [P]", () => CinePlay(0f));
             m.Action("Cinematic: render the path  [End]", CineStartRender);
@@ -183,9 +192,10 @@ namespace UltraRT
             _cineOwnsControl = !bench;
             if (_cineOwnsControl) GameControl.TakeControl(_cineSavedPose);
             if (!_cineHooked) { Application.onBeforeRender += CineBeforeRender; _cineHooked = true; }
-            // V1 stays where the player stood: keep it out of the traced scene (shadow, reflections) while the camera flies.
+            // V1 stays where the player stood: keep it out of the traced scene (shadow, reflections) while the camera flies,
+            // unless the shot wants it there (TracePlayer: a mirror shot with the player standing in front of the mirror).
             _cineSavedPlayerModel = SceneProxies.TracePlayerModel;
-            SceneProxies.TracePlayerModel = false;
+            SceneProxies.TracePlayerModel = _cine.tracePlayer && _cineSavedPlayerModel;
             _cineSavedVm = _vmEnabled;
             _vmEnabled = false;
             CineHideHud(true);

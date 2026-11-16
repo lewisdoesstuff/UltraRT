@@ -49,6 +49,7 @@ namespace UltraRT
             ApplyBenchMode(live);
             CineEnter(bench: true);
             if (_cineState == CineState.Off) throw new InvalidOperationException("cinematic camera could not start (no player?)");
+            if (spec.TracePlayer == true) SceneProxies.TracePlayerModel = _cineSavedPlayerModel; // V1 stands at the scenario's pose
             int nextArena = 0;
             float nextKill = 0f;
             if (replay)
