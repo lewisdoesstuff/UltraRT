@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-1-4-lamps",
+  "Scene": "Level 1-4",
+  "Note": "Final trailer, the closing shot: a slow pull back and rise from the lamps and the door of 1-4's garden path under the moon (base = end of bench/recordings/1-4-drift-a.json).",
+  "Keys": [
+    {"Player": [-0.174, -12.7, 395.299], "Yaw": 1.2, "Pitch": -3, "Fov": 80, "Duration": 6.4, "Ease": "smooth"},
+    {"Player": [-0.405, -11.1, 384.301], "Yaw": 1.2, "Pitch": 0, "Fov": 80, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

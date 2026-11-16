@@ -1,0 +1,14 @@
+{
+  "Version": 1,
+  "Name": "final-1-1-hallway",
+  "Scene": "Level 1-1",
+  "Note": "Final trailer: the 1-1 torch hallway round the corner to the doorway (trailer-1-1-skull-hall-corner), slower.",
+  "Keys": [
+    {"Player": [58.0, -4.5, 330.0], "Yaw": 90, "Pitch": 2, "Fov": 80, "Duration": 2.022, "Ease": "linear"},
+    {"Player": [66.0, -4.5, 329.8], "Yaw": 92, "Pitch": 2, "Fov": 80, "Duration": 1.887, "Ease": "linear"},
+    {"Player": [73.5, -4.5, 328.6], "Yaw": 118, "Pitch": 1, "Fov": 80, "Duration": 1.415, "Ease": "linear"},
+    {"Player": [77.6, -4.5, 325.0], "Yaw": 165, "Pitch": 0, "Fov": 80, "Duration": 1.28, "Ease": "linear"},
+    {"Player": [78.5, -4.4, 320.0], "Yaw": 180, "Pitch": 0, "Fov": 80, "Duration": 2.696, "Ease": "out"},
+    {"Player": [78.5, -4.3, 314.5], "Yaw": 180, "Pitch": 0, "Fov": 80, "Duration": 2.696, "Ease": "linear"}
+  ]
+}

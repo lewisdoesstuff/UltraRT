@@ -1,0 +1,147 @@
+{
+  "Name": "trailer-final-draft-1",
+  "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier draft, run 1): do not edit, change the plan.",
+  "Scenarios": [
+    {
+      "Name": "0-1 statue room",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-0-1-statue-room.json",
+        "Mode": "pathtrace",
+        "Fps": 30.0,
+        "Seconds": 7.567,
+        "Samples": 2,
+        "Aa": 1,
+        "OutputScale": 0.5,
+        "TimeScale": 0,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.75,
+        "OffUntil": 3.25
+      }
+    },
+    {
+      "Name": "7-3 tree",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-3-tree-b.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-7-3-tree.json",
+        "Mode": "pathtrace",
+        "Fps": 30.0,
+        "Seconds": 7.567,
+        "Samples": 2,
+        "Aa": 1,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.0,
+        "OffUntil": 4.0
+      }
+    },
+    {
+      "Name": "P-2 hall",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-p-2-hall.json",
+        "Mode": "pathtrace",
+        "Fps": 30.0,
+        "Seconds": 7.567,
+        "Samples": 2,
+        "Aa": 1,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.0,
+        "OffUntil": 4.0
+      }
+    },
+    {
+      "Name": "1-1 hallway",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-red-skull-hall.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-1-1-hallway.json",
+        "Mode": "pathtrace",
+        "Fps": 30.0,
+        "Seconds": 9.067,
+        "Samples": 2,
+        "Aa": 1,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.0,
+        "OffUntil": 4.0
+      }
+    },
+    {
+      "Name": "P-2 street",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-p-2-street.json",
+        "Mode": "pathtrace",
+        "Fps": 30.0,
+        "Seconds": 6.067,
+        "Samples": 2,
+        "Aa": 1,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.0,
+        "OffUntil": 2.5,
+        "Player": "camera"
+      }
+    }
+  ]
+}

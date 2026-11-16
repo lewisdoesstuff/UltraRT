@@ -1,0 +1,88 @@
+{
+  "Name": "trailer-final",
+  "Note": "The final trailer's plan (docs/trailer.md): scripts/trailer-plan.py writes the suites (bench/suites/trailer-final-<tier>-<n>.json) and the edit lists (bench/trailer/trailer-final-<tier>.json) from it. Music: the calm layer of 0-1's theme until the battle layer's step up at 36.34 s, the battle layer to 85.84 s (one bar past its loop point), the calm layer again under the end card. 160 bpm: a bar is 1.5 s and the bars fall at 0.34 + 1.5 n, so the title is 0.34 s + 3 bars and every other clip a whole number of bars.",
+  "Bar": 1.5,
+  "Margin": 0.25,
+  "PerRun": 5,
+  "Labels": ["RT OFF", "PATH TRACED"],
+  "Scenario": { "Enemies": "blind" },
+  "Tiers": {
+    "draft": { "Samples": 2, "Aa": 1, "OutputScale": 0.5, "Fps": 30, "Preroll": 40, "Width": 1280, "Height": 720, "Crf": 20, "ClipCrf": 16 },
+    "final": { "Samples": 16, "Aa": 4, "OutputScale": 1, "Fps": 60, "Preroll": 90, "Width": 2560, "Height": 1440, "Crf": 13, "ClipCrf": 8,
+               "Exports": [ { "Suffix": "-1080p", "Height": 1080, "Crf": 15 } ] }
+  },
+  "Music": {
+    "Volume": 0.9, "FadeOut": 4.5,
+    "Tracks": [
+      { "File": "trailer/music/0-1_Clean.wav", "Start": 0, "At": 0, "Until": 36.55, "FadeIn": 0.4, "FadeOut": 0.3, "Volume": 1.35 },
+      { "File": "trailer/music/0-1.wav", "Start": 36.24, "At": 36.24, "Until": 86.2, "FadeIn": 0.1, "FadeOut": 0.45 },
+      { "File": "trailer/music/0-1_Clean.wav", "Start": 0.14, "At": 85.64, "Until": 200, "FadeIn": 0.3, "FadeOut": 0.1, "Volume": 1.35 }
+    ]
+  },
+  "Shots": [
+    { "Kind": "title", "Name": "title", "Lead": 0.34, "Bars": 3,
+      "Card": { "Text": "ULTRART", "Size": 0.16, "Y": 0.43, "Sub": "PATH TRACING FOR ULTRAKILL", "SubSize": 0.04, "FadeIn": 0.4, "TextAt": 0.35, "TextEnd": 0.3, "TextFade": 0.7,
+                "Lines": [ { "Text": "an unofficial mod  /  work in progress", "Y": 0.9, "Size": 0.024, "Color": "white@0.55", "At": 1.2 } ] } },
+
+    { "Kind": "switch", "Name": "0-1 statue room", "Scene": "Level 0-1", "File": "final-0-1-statue-room", "Bars": 5, "Off": 3.0, "TimeScale": 0,
+      "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 1 },
+      "Caption": { "Text": "Ray-traced shadows", "Sub": "Every light in the level casts them", "At": 3.0 }, "Tag": "0-1  INTO THE FIRE" },
+
+    { "Kind": "sweep", "Name": "7-3 tree", "Scene": "Level 7-3", "File": "final-7-3-tree", "Bars": 5, "Off": 2.25, "Sweep": 1.5,
+      "Path": { "Type": "static", "Approach": "../recordings/7-3-tree-b.json", "Duration": 1 },
+      "Caption": { "Text": "Emissive lighting", "Sub": "Anything that glows lights the scene", "At": 3.0 }, "Tag": "7-3  NO SOUND, NO MEMORY" },
+
+    { "Kind": "sweep", "Name": "P-2 hall", "Scene": "Level P-2", "File": "final-p-2-hall", "Bars": 5, "Off": 2.25, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
+      "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Duration": 1 },
+      "Caption": { "Text": "Global illumination", "Sub": "Light bounces, and carries colour with it", "At": 3.0 }, "Tag": "P-2  WAIT OF THE WORLD" },
+
+    { "Kind": "sweep", "Name": "1-1 hallway", "Scene": "Level 1-1", "File": "final-1-1-hallway", "Bars": 6, "Off": 2.25, "Sweep": 1.5,
+      "Path": { "Type": "static", "Approach": "../recordings/1-1-red-skull-hall.json", "Duration": 1 },
+      "Tag": "1-1  HEART OF THE SUNRISE" },
+
+    { "Kind": "switch", "Name": "P-2 street", "Scene": "Level P-2", "File": "final-p-2-street", "Bars": 4, "Off": 2.25,
+      "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Duration": 1 },
+      "Cinematic": { "Player": "camera" },
+      "Tag": "P-2  WAIT OF THE WORLD" },
+
+    { "Kind": "switch", "Name": "1-1 terminal", "Scene": "Level 1-1", "File": "final-1-1-terminal-cam", "Bars": 4, "Off": 2.25,
+      "Path": { "Type": "static", "Position": [4.5, -0.5, 254.5], "Yaw": 16, "Pitch": 0, "Duration": 1, "Load": "none" },
+      "Cinematic": { "Player": "../cinematics/final-1-1-terminal-walk.json", "ShopScreensOff": true },
+      "Caption": { "Text": "Ray-traced reflections", "Sub": "V1 in the terminal's glass", "At": 2.25 }, "Tag": "1-1  HEART OF THE SUNRISE" },
+
+    { "Kind": "sweep", "Name": "2-2 street", "Scene": "Level 2-2", "File": "final-2-2-street", "Bars": 4, "Off": 1.5, "Sweep": 1.5,
+      "Path": { "Type": "static", "Approach": "../recordings/late-2-2-floor-noise-purple.json", "Duration": 1 },
+      "Tag": "2-2  DEATH AT 20,000 VOLTS" },
+
+    { "Kind": "switch", "Name": "0-5 lava", "Scene": "Level 0-5", "File": "final-0-5-lava", "Bars": 3, "Off": 1.5,
+      "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 1 },
+      "Tag": "0-5  CERBERUS" },
+
+    { "Kind": "sweep", "Name": "1-3 water", "Scene": "Level 1-3", "File": "final-1-3-water", "Bars": 4, "Off": 1.5, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
+      "Path": { "Type": "static", "Approach": "../recordings/1-3-start-water.json", "Duration": 1 },
+      "Tag": "1-3  HALLS OF SACRED REMAINS" },
+
+    { "Kind": "beauty", "Name": "5-2 sea", "Scene": "Level 5-2", "File": "final-5-2-sea", "Bars": 2, "Render": 15, "In": 6.7,
+      "TierCinematic": { "final": { "Samples": 8, "Seconds": 24 } },
+      "Path": { "Type": "static", "Approach": "../recordings/5-2-water-1115.json", "Duration": 1 },
+      "Tag": "5-2  WAVES OF THE STARLESS SEA" },
+
+    { "Kind": "sweep", "Name": "4-4 hall", "Scene": "Level 4-4", "File": "final-4-4-hall", "Bars": 4, "Off": 1.5, "Sweep": 1.5,
+      "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/4-4-v2-chair.json", "Duration": 1 },
+      "Caption": { "Text": "Coloured bounce light", "At": 2.25 }, "Tag": "4-4  CLAIR DE SOLEIL" },
+
+    { "Kind": "sweep", "Name": "6-2 hall", "Scene": "Level 6-2", "File": "final-6-2-nave", "Bars": 4, "Off": 1.5, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
+      "Path": { "Type": "static", "Approach": "../recordings/6-2-a.json", "Duration": 1 },
+      "Tag": "6-2  ASPIRATIONAL STRUCTURE" },
+
+    { "Kind": "beauty", "Name": "1-4 lamps", "Scene": "Level 1-4", "File": "final-1-4-lamps", "Bars": 4,
+      "Path": { "Type": "static", "Approach": "../recordings/1-4-drift-a.json", "Duration": 1 },
+      "FadeOut": 0.6, "Tag": "1-4  CLAIR DE LUNE" },
+
+    { "Kind": "end", "Name": "end card", "Seconds": 6.5,
+      "Card": { "Text": "ULTRART", "Size": 0.12, "Y": 0.38, "Sub": "A PATH TRACING MOD FOR ULTRAKILL", "SubSize": 0.036, "FadeIn": 0.5, "TextAt": 0.3, "TextEnd": 0.6, "TextFade": 0.6,
+                "Lines": [ { "Text": "WORK IN PROGRESS", "Y": 0.6, "Size": 0.03, "Color": "white@0.8", "At": 0.9 },
+                           { "Text": "Captured in ULTRAKILL with UltraRT. Path-traced footage rendered offline with accumulated samples; the mod runs in real time.", "Y": 0.86, "Size": 0.02, "Color": "white@0.55", "At": 1.3 },
+                           { "Text": "An unofficial fan-made mod, not affiliated with the game's developers.  Music from the ULTRAKILL soundtrack.", "Y": 0.9, "Size": 0.02, "Color": "white@0.55", "At": 1.3 } ] } }
+  ]
+}
