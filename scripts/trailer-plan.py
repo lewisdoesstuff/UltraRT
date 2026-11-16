@@ -52,10 +52,14 @@ def main():
             # "In": the clip starts this far into the rendered take; "Render": seconds of the path to render (default: the
             # clip), e.g. a longer take of a shot whose best moment is found afterwards.
             t_in = float(sh.get("In", 0))
-            cine = {"File": "../cinematics/%s.json" % sh["File"], "Mode": "pathtrace", "Fps": fps,
+            mode = q.get("Mode", "pathtrace")  # live: the real-time pipeline (DLSS RR); pathtrace: offline accumulation
+            cine = {"File": "../cinematics/%s.json" % sh["File"], "Mode": mode, "Fps": fps,
                     "Seconds": round(max(float(sh.get("Render", 0)), t_in + dur) + 2.0 / fps, 3),
-                    "Samples": q["Samples"], "Aa": q["Aa"], "OutputScale": q.get("OutputScale", 1), "TimeScale": sh.get("TimeScale", 1),
+                    "OutputScale": q.get("OutputScale", 1), "TimeScale": sh.get("TimeScale", 1),
                     "Preroll": q.get("Preroll", 60), "Encode": False}
+            for k in ("Samples", "Aa"):
+                if k in q:
+                    cine[k] = q[k]
             off = float(sh.get("Off", 0))
             sweep = float(sh.get("Sweep", 1.5))
             if kind in ("switch", "sweep"):
@@ -66,7 +70,7 @@ def main():
             cine.update((sh.get("TierCinematic") or {}).get(tier, {}))  # per-tier overrides of one shot (e.g. fewer samples)
             for k, v in (q.get("Cinematic") or {}).items():
                 cine.setdefault(k, v)
-            sc = {"Name": sname, "Scene": sh["Scene"], "Path": sh["Path"], "Modes": ["pathtrace"]}
+            sc = {"Name": sname, "Scene": sh["Scene"], "Path": sh["Path"], "Modes": [q.get("Modes", "pathtrace")]}
             sc.update(plan.get("Scenario", {}))
             sc.update(sh.get("Scenario", {}))
             sc["Cinematic"] = cine
@@ -79,7 +83,7 @@ def main():
                 wipe = {"Keys": keys, "Slant": sh.get("Slant", 0 if kind == "switch" else 0.18)}
                 if sh.get("Flip"):
                     wipe["Flip"] = True
-                c = {"Type": "wipe", "Name": sname, "Before": src + "_off", "After": src + "_pathtrace", "In": t_in, "Out": round(t_in + dur, 4), "Wipe": wipe}
+                c = {"Type": "wipe", "Name": sname, "Before": src + "_off", "After": src + "_" + mode, "In": t_in, "Out": round(t_in + dur, 4), "Wipe": wipe}
                 if "Labels" in plan:
                     c["Labels"] = plan["Labels"]
             for k in ("Caption", "Tag", "FadeIn", "FadeOut", "Transition", "Labels"):
@@ -108,7 +112,7 @@ def main():
         edit = {"Name": "%s-%s" % (name, tier),
                 "Note": "Written by scripts/trailer-plan.py from %s (tier %s): do not edit, change the plan." % (os.path.basename(a.plan), tier),
                 "Root": "../results", "Width": q["Width"], "Height": q["Height"], "Fps": fps, "Crf": q.get("Crf", 16), "ClipCrf": q.get("ClipCrf", 12)}
-        for k in ("Font", "TitleFont", "Music"):
+        for k in ("Font", "TitleFont", "Music", "Graphics", "Labels"):
             if k in plan:
                 edit[k] = plan[k]
         if q.get("Exports"):

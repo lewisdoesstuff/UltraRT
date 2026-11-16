@@ -134,7 +134,7 @@ namespace UltraRT
                 else if (_litParticles.Active)
                 {
                     _litParticles.Deactivate();
-                    _particleLight?.Reset();
+                    if (!_cinePairedLive) _particleLight?.Reset();
                     Shader.SetGlobalVector(PLCamId, Vector4.zero);
                 }
             }

@@ -42,10 +42,16 @@ namespace UltraRT
     /// rendered with ray tracing off and grabbed into a second sink, the world held as for every other sub-frame. Both
     /// image sequences then show the same world state in every frame while game time runs between frames: a before /
     /// after pair of a living world (flames, particles, flicker, enemies), not of a frozen one.
+    /// Paired capture in Live mode keeps the real-time pipeline's histories intact: the traced frame is the first frame
+    /// after the world's step (so its previous frame, in every temporal filter and in DLSS RR, is the previous output
+    /// frame's state), and the game's own image is rendered in one held frame after it.
     /// </summary>
     public partial class Plugin
     {
         private bool _cineCancel, _cineRendering, _cinePreroll;
+        /// <summary>A live paired capture is running: the view goes off for one frame in two, and what follows the view
+        /// (lit particles' light volume, effect geometry) must keep its state across those frames.</summary>
+        private bool _cinePairedLive;
         private bool _cineMeterFrame;
         private float _cineMeterDt;
         private string _cineProgress;
@@ -98,8 +104,7 @@ namespace UltraRT
             bool off = o.mode == CineRenderMode.Off, live = o.mode == CineRenderMode.Live, accumulate = !off && !live;
             r.Mode = off ? "off" : live ? Modes[modeIndex].name + " (live)" : Modes[modeIndex].name;
             int J = live ? 1 : Mathf.Clamp(o.aa, 1, 64), S = accumulate ? Mathf.Clamp(o.samples, 1, 255) : 1;
-            bool paired = accumulate && !string.IsNullOrEmpty(o.pairOffDir);
-            if (!accumulate && !string.IsNullOrEmpty(o.pairOffDir)) Logger.LogWarning("Cinematic render: paired capture needs an accumulating mode (pathtrace, relight, current); ignored");
+            bool paired = !off && !string.IsNullOrEmpty(o.pairOffDir);
             FrameSink sinkOff = null;
             float fps = Mathf.Clamp(o.fps, 1f, 240f), fdt = 1f / fps;
             float mbStep = o.motionBlur && J > 1 ? Mathf.Clamp01(o.shutter) * fdt / J : 0f;
@@ -159,6 +164,7 @@ namespace UltraRT
                 AudioListener.pause = true;
                 CineSetSpeed(g); // TimeController's modifier, so a hit stop ending mid-render restores this speed
                 _cineRendering = true;
+                _cinePairedLive = live && paired;
 
                 // ---- replay lead-in (bench recording replays): play the route from its start up to t0 on the fixed time step,
                 //      one plain frame per step, so the game is where the run was at t0 (arenas started, enemies moving).
@@ -211,7 +217,7 @@ namespace UltraRT
                     if (live)
                     {
                         var stall = Stopwatch.StartNew();
-                        while (sink.Pending >= LivePending && sink.LastError == null && stall.ElapsedMilliseconds < 3000) System.Threading.Thread.Sleep(1);
+                        while ((sink.Pending >= LivePending || (sinkOff != null && sinkOff.Pending >= LivePending)) && sink.LastError == null && stall.ElapsedMilliseconds < 5000) System.Threading.Thread.Sleep(1);
                     }
                     // Single-sample frames queue as one RGBA32 screen each, so more of them may wait for the writer.
                     while (sink.Pending >= (live ? LivePending + 4 : J == 1 ? LivePending : FrameSink.MaxPending) && sink.LastError == null) { Time.timeScale = 0f; yield return null; }
@@ -222,13 +228,13 @@ namespace UltraRT
                     bool onNow = sinkOff == null || frameT >= o.pairOnFrom - 1e-4f;
                     if (offNow)
                     {
-                        while (sinkOff.Pending >= (J == 1 ? LivePending : FrameSink.MaxPending) && sinkOff.LastError == null) { Time.timeScale = 0f; yield return null; }
+                        while (!live && sinkOff.Pending >= (J == 1 ? LivePending : FrameSink.MaxPending) && sinkOff.LastError == null) { Time.timeScale = 0f; yield return null; }
                         if (sinkOff.LastError != null) throw new IOException("frame writer (off): " + sinkOff.LastError);
                         sinkOff.BeginFrame(f);
                     }
                     if (onNow) sink.BeginFrame(f);
                     int Sf = onNow ? S : 1; // off-only frames: one traced frame keeps exposure and the cache going
-                    if (offNow)
+                    if (offNow && !live)
                     {
                         // Paired capture: the game's own image of this instant, all AA samples, before the traced ones;
                         // the world is held throughout. Lit particles, lamp cones and other swaps follow the view switch
@@ -288,7 +294,7 @@ namespace UltraRT
                             // The next frame's game step: into the next motion-blur sub-step, or to the next output frame.
                             float next = !last ? 0f : j < J - 1 ? mbStep : fdt - (J - 1) * mbStep;
                             Time.captureDeltaTime = next > 0f ? next : fdt;
-                            Time.timeScale = next > 0f ? g : 0f;
+                            Time.timeScale = next > 0f && !(live && offNow) ? g : 0f; // live pair: the off frame follows, held
                             float elapsed = (float)loop.Elapsed.TotalSeconds;
                             float perFrame = f > 0 ? elapsed / f : 0f;
                             _cineProgress = $"Render '{name}': frame {f + 1}/{frames}, sample {j * S + s + 1}/{J * S}" +
@@ -299,6 +305,23 @@ namespace UltraRT
                             if (CineGamePaused() || CineRenderAborted(scene)) { _cineCancel = true; break; }
                             if (onNow) sink.CaptureSample();
                             _cineHideGui = false;
+                            if (live && offNow)
+                            {
+                                // Live pair: the game's own image of the same instant, in one held frame. The view goes
+                                // off before that frame's Update (lit particles and lamp cones follow it there) and back
+                                // on before the next one, which is the next output frame's traced frame.
+                                _viewEnabled = false;
+                                yield return null;
+                                subframes++;
+                                _cineHideGui = true;
+                                Time.captureDeltaTime = fdt;
+                                Time.timeScale = g;
+                                yield return new WaitForEndOfFrame();
+                                if (CineGamePaused() || CineRenderAborted(scene)) { _cineCancel = true; _viewEnabled = true; break; }
+                                sinkOff.CaptureSample();
+                                _cineHideGui = false;
+                                _viewEnabled = true;
+                            }
                             yield return null;
                             subframes++;
                         }
@@ -323,6 +346,7 @@ namespace UltraRT
             finally
             {
                 _cineRendering = false;
+                _cinePairedLive = false;
                 _cinePreroll = false;
                 _cineMeterFrame = false;
                 _cineHideGui = false;

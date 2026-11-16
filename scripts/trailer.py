@@ -74,6 +74,14 @@ class Builder:
         self.fonts = {}
         self.font = self.use_font(edit.get("Font", "C:/Windows/Fonts/bahnschrift.ttf"))
         self.font_title = self.use_font(edit.get("TitleFont", edit.get("Font", "C:/Windows/Fonts/bahnschrift.ttf")))
+        # "Graphics": "motion": cards, captions, badges and tags are animated overlays (scripts/trailer_gfx.py, needs
+        # Pillow) instead of drawtext.
+        self.motion = str(edit.get("Graphics", "")).lower() == "motion"
+        self.gfx_n = 0
+        if self.motion:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import trailer_gfx
+            self.gfx = trailer_gfx
 
     # ------------------------------------------------------------ helpers
 
@@ -152,6 +160,64 @@ class Builder:
             opts += ["box=1", "boxcolor=black@0.45", f"boxborderw={int(self.H * size * 0.35)}"]
         return "drawtext=" + ":".join(opts)
 
+    # ------------------------------------------------------------ motion graphics
+
+    def gfx_dir(self):
+        self.gfx_n += 1
+        return os.path.join(self.work, f"gfx{self.gfx_n:03d}")
+
+    def motion_overlays(self, c, dur, first_input, switch_at=None, labels=None, beauty=False):
+        """The animated overlays of a clip: (ffmpeg input args, [(input index, x, y, start time)])."""
+        g, H, W, fps = self.gfx, self.H, self.W, self.fps
+        args, items = [], []
+
+        def add(r, x, y, t0):
+            args.extend(["-framerate", num(fps), "-i", r["pattern"]])
+            items.append((first_input + len(items), int(x), int(y), t0))
+
+        bx, by = W * 0.028, H * 0.035
+        if labels and switch_at is not None:
+            if switch_at > 0.3 and labels[0]:
+                add(g.badge(self.gfx_dir(), H, fps, switch_at, labels[0], False), bx, by, 0.0)
+            if dur - switch_at > 0.3 and len(labels) > 1 and labels[1]:
+                add(g.badge(self.gfx_dir(), H, fps, dur - switch_at, labels[1], True, pop=switch_at > 0.3), bx, by, switch_at)
+        elif beauty and labels and len(labels) > 1 and labels[1]:
+            add(g.badge(self.gfx_dir(), H, fps, dur, labels[1], True, pop=False), bx, by, 0.0)
+        cap = c.get("Caption")
+        if cap:
+            cs = cap if isinstance(cap, dict) else {"Text": cap}
+            t0 = float(cs.get("At", 0.3))
+            length = min(float(cs.get("For", 4.5)), dur - t0 - 0.1)
+            if length > 1.0:
+                r = g.lower_third(self.gfx_dir(), H, fps, length, cs["Text"], cs.get("Sub", c.get("Sub")))
+                add(r, W * 0.03, H * 0.905 - r["h"], t0)
+        if c.get("Tag"):
+            r = g.tag(self.gfx_dir(), H, fps, dur - 0.45, c["Tag"])
+            add(r, W * 0.972 - r["w"], H * 0.955 - r["h"], 0.25)
+        return args, items
+
+    def overlay_chain(self, label, items, tail):
+        """[label] with every overlay on it, then the tail filters, to [v]."""
+        parts, cur = [], label
+        for k, (idx, x, y, t0) in enumerate(items):
+            parts.append(f"[{idx}:v]format=rgba,setpts=PTS-STARTPTS+{num(t0)}/TB[o{k}]")
+            parts.append(f"[{cur}][o{k}]overlay=x={x}:y={y}:eof_action=pass:format=auto[m{k}]")
+            cur = f"m{k}"
+        parts.append(f"[{cur}]" + ",".join(["format=yuv420p"] + list(tail)) + "[v]")
+        return ";".join(parts)
+
+    def wipe_fraction(self, keys, slant, t):
+        """The divider position of wipe_position at time t, in Python."""
+        margin = abs(slant) * self.H / (2.0 * self.W) + 6.0 / self.W
+        pts = [(float(a), -margin + float(b) * (1 + 2 * margin)) for a, b in keys]
+        if t <= pts[0][0]:
+            return pts[0][1]
+        for (t0, p0), (t1, p1) in zip(pts, pts[1:]):
+            if t < t1:
+                u = (t - t0) / max(1e-3, t1 - t0)
+                return p0 + (p1 - p0) * u * u * (3 - 2 * u)
+        return pts[-1][1]
+
     def fit(self):
         return f"scale={self.W}:{self.H}:force_original_aspect_ratio=increase:flags=lanczos,crop={self.W}:{self.H},setsar=1"
 
@@ -206,7 +272,12 @@ class Builder:
     def build_shot(self, c, out):
         dur = self.clip_duration(c)
         args, src = self.source_args(c["Source"], float(c.get("In", 0)), dur, float(c.get("Speed", 1)))
-        graph = self.base_chain(c, dur, "0:v", self.caption_filters(c, dur) + self.fades(c, dur)) + ",format=yuv420p[v]"
+        if self.motion:
+            ov_args, items = self.motion_overlays(c, dur, 1, labels=c.get("Labels", self.e.get("Labels")), beauty=True)
+            graph = self.base_chain(c, dur, "0:v") + "[m];" + self.overlay_chain("m", items, self.fades(c, dur))
+            args = args + ov_args
+        else:
+            graph = self.base_chain(c, dur, "0:v", self.caption_filters(c, dur) + self.fades(c, dur)) + ",format=yuv420p[v]"
         self.encode(args, graph, dur, out)
         return dur, src
 
@@ -241,6 +312,8 @@ class Builder:
         left_x, right_x = f"{int(self.W * 0.04)}", f"w-text_w-{int(self.W * 0.04)}"
         before_label = [self.drawtext(labels[0], 0.036, left_x if flip else right_x, y, 0.0, dur + 1, fade=0.3, box=True)] if labels and labels[0] else []
         after_label = [self.drawtext(labels[1], 0.036, right_x if flip else left_x, y, 0.0, dur + 1, fade=0.3, box=True)] if labels and len(labels) > 1 and labels[1] else []
+        if self.motion:
+            before_label, after_label = [], []  # the state badge is an overlay instead
         # The clip in three parts: "before" alone until the divider enters (ta), the wipe, "after" alone once it has
         # left (tb). Only the middle needs both pictures (and the slow per-pixel blend); a hard switch has no middle.
         okeys = [[float(t), float(q)] for t, q in (w.get("Keys") or keys)]
@@ -284,6 +357,24 @@ class Builder:
             segs.append("[s2]")
         else:
             parts.append("[a1]nullsink")
+        if self.motion:
+            # The badge changes when the picture under it does: at the switch, or when the divider passes over it.
+            bx, by = self.W * 0.06, self.H * 0.06
+            switch = ta
+            if tb > ta:
+                thr = (bx - (by - self.H / 2) * slant) / self.W
+                switch = tb
+                for k in range(int((tb - ta) * self.fps) + 1):
+                    t = ta + k * fr
+                    q = self.wipe_fraction(keys, slant, t)
+                    if (q < thr) if flip else (q > thr):
+                        switch = t
+                        break
+            ov_args, items = self.motion_overlays(c, dur, 2, switch_at=switch, labels=labels)
+            parts.append("".join(segs) + (f"concat=n={len(segs)}:v=1:a=0," if len(segs) > 1 else "") + "format=yuv420p[m]")
+            parts.append(self.overlay_chain("m", items, self.fades(c, dur)))
+            self.encode(a_args + b_args + ov_args, ";".join(parts), dur, out)
+            return dur, f"{b_src} | {a_src}"
         tail = ",".join(["format=yuv420p"] + self.caption_filters(c, dur) + self.fades(c, dur))
         parts.append("".join(segs) + (f"concat=n={len(segs)}:v=1:a=0," if len(segs) > 1 else "") + tail + "[v]")
         self.encode(a_args + b_args, ";".join(parts), dur, out)
@@ -292,6 +383,15 @@ class Builder:
     def build_title(self, c, out):
         """A title card: "Text" (big), "Sub" and "Small" lines, on black or over a dimmed shot ("Source", "Dim")."""
         dur = self.clip_duration(c)
+        if self.motion and not c.get("Source"):
+            # An animated card: Text (the letters from AccentFrom on in the accent colour), Sub, Lines and Small (lists of
+            # strings), Scale, Y.
+            r = self.gfx.card(self.gfx_dir(), self.W, self.H, self.fps, dur, c.get("Text", ""), int(c.get("AccentFrom", 5)), c.get("Sub"),
+                              lines=[x if isinstance(x, str) else x.get("Text", "") for x in c.get("Lines", [])], small=c.get("Small") if isinstance(c.get("Small"), list) else None,
+                              scale=float(c.get("Scale", 1.0)), y=float(c.get("Y", 0.43)), out_fade=float(c.get("OutFade", 0.45)))
+            graph = "[0:v]" + ",".join([f"fps={num(self.fps)}", "setsar=1"] + self.fades(c, dur)) + ",format=yuv420p[v]"
+            self.encode(["-framerate", num(self.fps), "-i", r["pattern"]], graph, dur, out)
+            return dur, "card"
         fade = float(c.get("TextFade", 0.6))
         t0, t1 = float(c.get("TextAt", 0.25)), dur - float(c.get("TextEnd", 0.25))
         text = []

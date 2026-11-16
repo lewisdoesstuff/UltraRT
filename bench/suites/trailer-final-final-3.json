@@ -12,16 +12,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-4-4-hall.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -40,16 +38,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-6-2-nave.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -68,16 +64,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-1-4-lamps.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,

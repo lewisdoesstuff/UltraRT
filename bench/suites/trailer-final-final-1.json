@@ -11,16 +11,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-0-1-statue-room.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 7.533,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 0,
         "Preroll": 90,
@@ -39,16 +37,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-7-3-tree.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 7.533,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -67,16 +63,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-p-2-hall.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 7.533,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -95,16 +89,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-1-1-hallway.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 9.033,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -123,16 +115,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-p-2-street.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,

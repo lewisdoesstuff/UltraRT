@@ -18,16 +18,14 @@
         "Load": "none"
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-1-1-terminal-cam.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -48,16 +46,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-2-2-street.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -76,16 +72,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-0-5-lava.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 4.533,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -104,16 +98,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-1-3-water.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,
-        "Samples": 16,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
@@ -132,16 +124,14 @@
         "Duration": 1
       },
       "Modes": [
-        "pathtrace"
+        "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-5-2-sea.json",
-        "Mode": "pathtrace",
+        "Mode": "live",
         "Fps": 60.0,
         "Seconds": 24,
-        "Samples": 8,
-        "Aa": 4,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,

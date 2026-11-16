@@ -199,7 +199,7 @@ namespace UltraRT
                         sr.Cinematic = r;
                         if (takes.Count > 1) (sr.CinematicTakes ?? (sr.CinematicTakes = new List<CineRenderResult>())).Add(r);
                         string dir = Path.Combine(outDir, $"cine_{Sanitize(sc.Name)}" + (take != null ? "_" + Sanitize(take.ToLowerInvariant()) : ""));
-                        if (spec.Paired && ot.mode != CineRenderMode.Off && ot.mode != CineRenderMode.Live)
+                        if (spec.Paired && ot.mode != CineRenderMode.Off)
                         {
                             if (take == null) dir += "_" + ot.mode.ToString().ToLowerInvariant();
                             ot.pairOffDir = Path.Combine(outDir, $"cine_{Sanitize(sc.Name)}_off");
