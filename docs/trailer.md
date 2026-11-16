@@ -6,13 +6,14 @@ scripted, so a shot can be re-rendered after a rendering fix and the cut rebuilt
 Parts:
 - `scripts/trailer-paths.py`: writes camera paths (and scouting suites) from poses given relative to a known pose.
 - `bench/trailer/paths.json` -> `bench/cinematics/trailer-*.json`: the trailer's camera paths.
-- `bench/suites/trailer-test.json`, `trailer-test2.json`: render the shots (docs/cinematics.md, bench "Cinematic" scenarios).
-- `scripts/trailer.py` + `bench/trailer/trailer-test.json`, `trailer-test2.json`: the edit lists and the assembly (ffmpeg).
-  `trailer-test2` is the current cut (all comparisons); `trailer-test` is the first one.
+- `bench/suites/trailer-test.json`, `trailer-test2.json`, `trailer-test3.json`: render the shots (docs/cinematics.md, bench "Cinematic" scenarios).
+- `scripts/trailer.py` + `bench/trailer/trailer-test.json`, `trailer-test2.json`, `trailer-test3.json`: the edit lists and the assembly (ffmpeg).
+  `trailer-test3` is the current cut (it also needs the `trailer-test2` run: three of its shots are that cut's);
+  `trailer-test` is the first one.
 
 Rendered frames, videos and music are never committed: they live under `bench/results/` (gitignored).
 
-## Quick start (the test cuts: `trailer-test`, or `trailer-test2` for the second)
+## Quick start (the test cuts: `trailer-test`, `trailer-test2`, `trailer-test3`)
 
 ```powershell
 # 1. Paths (only after editing bench\trailer\paths.json)
@@ -50,6 +51,10 @@ is fast enough to iterate on camera paths. The DLSS SDK has to be in `lib\dlss` 
 `"TimeScale": 0`. The path is a pure function of time and the world is frozen, so the two takes line up exactly and
 can be wiped against each other. With the world running (`TimeScale` 1) the camera still lines up, but particles,
 flames and anything else the game randomises differ between the takes.
+
+**V1 in a shot.** A cinematic scenario can move the player during the take, show V1 to the camera, keep a shop
+terminal's screen dark and time the level's flickering lamps (`Player`, `ShowPlayer`, `ShopScreensOff`, `Flickers`:
+docs/cinematics.md, "A moving player, third-person shots, lamps"). The third cut's P-2 and terminal shots use them.
 
 ## Authoring paths without flying them
 
@@ -221,31 +226,81 @@ Notes from making it:
 - ffmpeg 8 crashed (segmentation fault, twice, the same command) on a two-input graph with `colorlevels`; nothing in
   `trailer.py` uses that filter.
 
+## The third test cut (2026-11-16)
+
+`bench\results\trailer\trailer-test3\trailer-test3.mp4`: 33.4 s, every shot an off / pathtrace pair shown either as a
+hard switch on a bar or as one sweep of the divider (user, after cut 2: no splits that hold half way or move back and
+forth). Edit list `bench/trailer/trailer-test3.json`. The P-2, 1-1 hallway and terminal shots are
+`bench/suites/trailer-test3.json` (runs `20261116-214344_trailer-test3_alt` and, for the final P-2 take,
+`20261116-215032_trailer-test3-p2_alt`); 0-1, 7-3 and 4-4 are the takes of the second cut.
+
+| # | Clip | Treatment | Seconds | What it shows |
+|---|---|---|---|---|
+| 1 | title | black | 2.34 | |
+| 2 | 0-1 statue room (the opener) | hard switch on the bar | 3.0 | lamps and their shadows against the game's flat room |
+| 3 | 7-3 tree orbit | one slanted sweep | 4.5 | the tree as the courtyard's light |
+| 4 | P-2 street, a first-person run to just before the tunnel | hard switch on the bar | 6.0 | the puddle's reflections, the tunnel's lamp lighting the street as it flickers, V1's long shadow when the lamps cut out |
+| 5 | 1-1 hallway to the red skull, round the corner to the doorway | one slanted sweep from the right | 6.0 | torch light and shadows, daylight through the doorway with the pavilion beyond |
+| 6 | 1-1 first room: V1 walks up to the shop terminal | hard switch on the bar | 4.5 | V1 lit by the room, its shadow, its reflection in the terminal's glass (a flat dark panel in the game) |
+| 7 | 4-4 boss hall, low arc | one slanted sweep | 4.5 | fire and lamp light, coloured bounce |
+| 8 | end card | black | 2.6 | |
+
+Render: 142 s of game time for the suite's three shots as first rendered together (P-2 pair, hallway pair, terminal
+pair, plus a relight take of P-2: 2,626 frames at 0.04 s each), 56 s for the final P-2 pair alone. Scouting and tests: 10
+more runs of 30 to 175 s (most of them on the P-2 shadow, below). Assembly 4 min 50 s.
+
+Notes from making it:
+- **P-2's long shadow.** The spot is (4.6, 103.3) on the street, 25 m before the tunnel at z 128, looking down the
+  street (fitted to the user's screenshot by the floor's joints: every 5 units, at x = 5 k and z = 88 + 5 k). The shadow
+  is V1's own, thrown down the street by the street lamp behind at (10.25, 73). It shows only when two other lamps are
+  not lighting that floor: the tunnel's lamp (`2 - Alleyway/Decorations/Metro Light/Spot Light`, a `Flicker`, on / off
+  every 0.5 +- 0.5 s) and the lamp post beside the spot (`Streetlight (2)/Point Light` at (10.25, 108), 9 m away, a
+  steady light with no `Flicker`). With the lamp post lit, as it is in every bench load, it gives about 37 % of the
+  light there against 9 % from the lamp behind, and the shadow is a faint soft stripe in pathtrace and in relight
+  alike. With its light off the shadow is crisp in both (tested with a temporary light override). Why it was out in
+  the user's screenshot is not known. The cut times both lamps (`Flickers`): the tunnel lamp flickers by itself until
+  3.6 s, is on until the camera stops at 4.95 s, then both go off for 0.6 s, on for 0.3 s and off for 0.6 s.
+- **The camera height is the game's.** The path's player heights are the recorded ones (y -21.75 on the street, floor
+  -23.25) and the eye is the game's 1.4 above that: 2.9 units over the floor. With a 90 degree FOV and a 10 to 14
+  degree down pitch it read as low; the path now uses the game's 105 and pitches 5 to 10 degrees.
+- **The puddle's "dimples" are rain ripples**, different in every frame; they are no landmark.
+- **Terminal.** 1-1's first room is the well-lit one: orange wall lights, the terminal at (6.78, -2, 267) facing -z,
+  screen centre about (6.78, 0.9, 266.5). The screen switches on when the player comes within about 4 m, and is on
+  for the first frames after a level load, so the shot uses `ShopScreensOff`. V1 stops a little right of the screen's
+  centre and the camera is behind on its left, so the mirror image falls on the glass.
+- **1-1 corner.** The hallway runs east along z 330 and turns south at x 78.5; the doorway is at z 308, the red skull's
+  pavilion outdoors beyond it. Floor y -5 (the player stands at -3.5).
+- **8-2's vending machines** (user: their glass panel reflects well) are a candidate for a second V1 reflection shot.
+  The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
+  `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
+
 ## Planned shot list for the full trailer
 
-About 75 s, 21 shots, leaning on comparisons (user, after the first cut: more on / off pairs, vary the treatment;
-P-2 is a favourite; 3-1's eye beams and daylight 1-1 are out; layer-8 mirrors wait for their own handling). "pair" =
-`off` + `live` pathtrace takes of one path in one scenario with a frozen world; "cine" = one `live` pathtrace take;
-**LIVE** = needs the user's own play (see below).
+About 80 s, 21 shots, leaning on comparisons. The user's notes so far: more on / off pairs; only two treatments, a
+hard switch on a bar or one sweep of the divider (no splits that hold or move back); open on 0-1; P-2 is a favourite
+(the street, its puddles and the long shadow); 1-1 is the torch-lit hallway and its doorway, not the daylight statue;
+V1 and its reflection should be seen (terminal, vending machine); 3-1's eye beams are out; layer-8 mirrors wait for
+their own handling. "pair" = `off` + `live` pathtrace takes of one path in one scenario; "cine" = one `live` pathtrace
+take; **LIVE** = needs the user's own play (see below).
 
 | # | Shot | Level | Mode | s | Treatment / shows |
 |---|---|---|---|---|---|
-| 1 | Cold open: down the entry corridor, RT off, hard switch to path traced on the first downbeat | 1-1 start (`1-1-start-descent`, stop before the daylight) | pair | 4.5 | hard switch: the whole idea in one cut |
-| 2 | Title sting | - | title | 1.5 | |
-| 3 | Tree orbit (in both test cuts) | 7-3 | pair | 4.5 | slanted wipe: emissive light, leaf shadows |
-| 4 | Hall reveal from the stained glass (in both test cuts) | P-2 | pair | 4.5 | sliding vertical split: bounce light, haze |
-| 5 | Up the stairs to the lit doorway behind the hall's start | P-2 | pair | 3 | hard switch: a second P-2 angle |
-| 6 | Hallway to the red skull, between the torches (in cut 2) | 1-1 | pair | 4.5 | wipe from the right: torch light and shadows |
-| 7 | Out of that hallway's doorway to the red skull's altar | 1-1 | pair | 3 | split that follows the doorway |
-| 8 | Boss hall, low arc (in both test cuts) | 4-4 | pair | 4.5 | fast sweep: fire, lamps, bounce |
-| 9 | Statue room (in cut 2) | 0-1 | pair | 3 | hard switch: lamps and shadows |
-| 10 | Red hall and stairs | 0-2 (v1 shadow a pose) | pair | 3 | static split, moving camera: shadows, red bounce |
-| 11 | Stained-glass corridor | 6-2 start | pair | 3 | wipe: coloured light through glass |
-| 12 | Vanity mirror with V1 (in cut 2) | 1-4 | pair, `TracePlayer` | 3 | hard switch: a reflection where the game has a flat texture |
-| 13 | Water glide | 1-3 (`1-3-water-glide`) | pair | 4.5 | horizontal wipe along the water line: reflections |
+| 1 | Title sting | - | title | 1.5 | |
+| 2 | Statue room, low glide to the door (in cuts 2 and 3) | 0-1 | pair | 3 | hard switch: the whole idea in one cut |
+| 3 | Tree orbit (in every test cut) | 7-3 | pair | 4.5 | sweep: emissive light, leaf shadows |
+| 4 | Street run to the tunnel (in cut 3) | P-2 | pair, `Player` camera, `Flickers` | 6 | hard switch: puddle reflections, the flickering lamp, V1's long shadow |
+| 5 | Hall reveal from the stained glass (in cuts 1 and 2) | P-2 | pair | 4.5 | sweep: bounce light, haze |
+| 6 | Hallway to the red skull, round the corner to the doorway (in cut 3) | 1-1 | pair | 6 | sweep from the right: torch light, daylight through the door |
+| 7 | Through that doorway to the red skull's pavilion | 1-1 | pair | 3 | hard switch: sunlight and shade outdoors |
+| 8 | V1 walks up to the shop terminal (in cut 3) | 1-1 first room | pair, `Player` path, `ShopScreensOff` | 4.5 | hard switch: V1 lit, its reflection in the glass |
+| 9 | V1 at a vending machine's glass | 8-2 reception (needs a recorded route) | pair, `Player` path | 3 | sweep: a second reflection, cooler light |
+| 10 | Boss hall, low arc (in every test cut) | 4-4 | pair | 4.5 | sweep: fire, lamps, bounce |
+| 11 | Red hall and stairs | 0-2 (v1 shadow a pose) | pair | 3 | hard switch: shadows, red bounce |
+| 12 | Stained-glass corridor | 6-2 start | pair | 3 | sweep: coloured light through glass |
+| 13 | Water glide | 1-3 (`1-3-water-glide`) | pair | 4.5 | sweep: reflections |
 | 14 | Storm sea, lightning | 5-2 | cine, world running | 3 | scrolling sea, rain, lightning as light |
-| 15 | Lava channel, camera low along the lava | 0-5 | pair | 3 | wipe: lava as an emitter |
-| 16 | Neon street | 2-2 | pair | 3 | split: coloured emissives, purple bounce |
+| 15 | Lava channel, camera low along the lava | 0-5 | pair | 3 | sweep: lava as an emitter |
+| 16 | Neon street | 2-2 | pair | 3 | hard switch: coloured emissives, purple bounce |
 | 17 | Flashlight in the forest | 7-3 start | **LIVE** | 3 | the player's light and its shadows |
 | 18 | Revolver shots lighting a corridor, the gun lit by the room | 0-2 / 1-1 corridor | **LIVE** | 3 | viewmodel RT, effect lights |
 | 19 | Combat montage, 4 quick cuts on the beat: explosions lighting a room, blood on wet floors, coins and their reflections, Gabriel's wings | 0-2, 1-1 arena, 6-2 | **LIVE** | 9 | it plays like this |
@@ -253,7 +308,8 @@ P-2 is a favourite; 3-1's eye beams and daylight 1-1 are out; layer-8 mirrors wa
 | 21 | End card over the last shot, dimmed | - | title | 4.5 | name, "work in progress", credits |
 
 Lengths are whole bars of the music (1.5 s at 160 bpm) so cuts and hard switches land on downbeats. Not in the list
-until they have their own handling: layer 8's portal mirrors and portal doorways (8-2, 8-3).
+until they have their own handling: layer 8's portal mirrors and portal doorways (8-2, 8-3). Dropped: 1-4's vanity
+mirror (dark; the terminal shows V1's reflection better).
 
 **The LIVE shots.** Two ways, both honest footage of the real-time pipeline:
 - Record the run with F10 (bench/README.md, "Recording a path") and replay it through the renderer: a cinematic scenario

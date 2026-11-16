@@ -1,0 +1,16 @@
+{
+  "Version": 1,
+  "Name": "trailer-p-2-street-walk",
+  "Scene": "Level P-2",
+  "Note": "Trailer: a first-person run down P-2's opening street, over the puddle at (-10, 80), slowing to a stop at (4.6, 103.3), 25 m before the tunnel at z 128 and just short of the lamp post at (10.25, 108), looking down the street at V1's own shadow, which the street lamps behind stretch all the way to the tunnel mouth (the end pose is fitted to the user's screenshot of the spot by the floor's joints, which lie every 5 units at x = 5 k and z = 88 + 5 k; the game's FOV). The shadow only shows while the tunnel's flickering lamp is off: the suite times that with Cinematic.Flickers (the stop is at 4.95 s). Use with Cinematic.Player \"camera\" (the player rides the path, so V1's shadow and puddle reflection move with it). Base = the street's centre line at the player's height on the flat part (floor -23.25, player 1.5 above it, eye 1.4 above that: the game's own eye height); the first key is on the ramp down from the hall.",
+  "Keys": [
+    {"Player": [3.0, -20.47, 60.0], "Yaw": -18, "Pitch": -7, "Fov": 105, "Duration": 0.73, "Ease": "linear"},
+    {"Player": [-0.4, -21.75, 66.5], "Yaw": -20, "Pitch": -9, "Fov": 105, "Duration": 0.41, "Ease": "linear"},
+    {"Player": [-2.5, -21.75, 70.0], "Yaw": -22, "Pitch": -10, "Fov": 105, "Duration": 1.15, "Ease": "linear"},
+    {"Player": [-6.0, -21.75, 81.0], "Yaw": 8, "Pitch": -9, "Fov": 105, "Duration": 1.0, "Ease": "linear"},
+    {"Player": [-1.5, -21.75, 90.0], "Yaw": 16, "Pitch": -8, "Fov": 105, "Duration": 0.82, "Ease": "linear"},
+    {"Player": [2.6, -21.75, 97.5], "Yaw": 6, "Pitch": -8, "Fov": 105, "Duration": 0.84, "Ease": "out"},
+    {"Player": [4.6, -21.75, 103.0], "Yaw": -11, "Pitch": -9, "Fov": 105, "Duration": 1.8, "Ease": "linear"},
+    {"Player": [4.6, -21.75, 103.3], "Yaw": -11, "Pitch": -9.5, "Fov": 105, "Duration": 2.0, "Ease": "linear"}
+  ]
+}
