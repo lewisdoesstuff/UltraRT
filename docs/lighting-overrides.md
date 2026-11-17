@@ -428,6 +428,43 @@ Hallway and Stairs Hallway (x1.5-1.6 with the lights off) are not lights; 8-2's 
 **Shipped 2026-11-17** (`t3/ship-r9-r10`; the user: "they look great! big fan of all of those"): the six files are in
 `data/lights/`. In the runs above they were the proposal layer (review R10); the layer is empty again.
 
+### Levels, third batch: P-1, P-2, 2-4, 8-4, 1-3, 7-2, 4-4, 3-2 (2026-11-17, `t3/light-levels-3`, proposals)
+
+Eight more, tuned in one pass (`20261117-222610_tune-c_alt`, `20261117-223100_tune-d_alt`, `20261117-223618_tune-e_alt`:
+every level light off, and the class layers of the second batch) and a second for what the first left open
+(`20261117-224229_tune-f_alt`: fills at x0.6, x0.8, x1 with only the reach capped; `20261117-224609_tune-g_alt`: class
+switches on the rooms nothing explained). What the levels are, at fixed exposure:
+
+- **Fills are the lighting** in 2-4, 8-4, 4-4 and 3-2: at x0.35 their rooms fall to x0.5-0.7 of the game. They want
+  the reach cap and x0.7-0.8.
+- **The player's own light** carries P-2's dark streets (x1.67 -> x0.96 and x1.46 -> x0.59 with the class `player`
+  off) and one room of 7-2 (x1.44 -> x1.03), as it does 7-3's halls. Three dark levels now: a global strength for
+  the player's light in pathtrace is the better question than three level policies (open).
+- 7-2's Windtunnel-side room is a `gameplay` light (x1.80 -> x0.91 without it).
+- P-1's arena is its fixtures; 1-3 is fills and far-reaching fixtures.
+- **0-S** (one stop, x1.66) is a `prefab` light (x0.88 with the class off). A level policy on `prefab` would also
+  undo the start room's `prefab:firstroom` x0, so it needs a rule for the light: left out of this batch.
+
+Proposals as files, tour medians (`bench/suites/review/review-<level>.json`; sheets
+`bench/results/review/review-<level>.png`); `reach` 0 on fill, scripted, fixture, accent, glow, effect and item in
+all of them:
+
+| Level | Proposal | shipped exposure | fixed exposure | dark delta (fixed) | Run |
+|---|---|---|---|---|---|
+| P-1 | fill, scripted x0.35; the others x0.5 | x0.99 -> x0.91 | x1.53 -> x1.11 | +4.4 -> +1.3 | `20261117-225108_review-P-1` |
+| P-2 | x0.5; x1; player x0.6 | x1.06 -> x1.01 (bright views 8 -> 4 of 18) | x1.54 -> x1.05 | +2.9 -> +0.8 | `20261117-225108_review-P-2` |
+| 2-4 | x0.7; x1 | x1.13 -> x0.97 (bright 6 -> 0 of 9) | x1.63 -> x1.02 | +8.9 -> +3.9 | `20261117-225108_review-2-4` |
+| 8-4 | x0.8; x1 | x1.13 -> x1.01 | x1.44 -> x1.02 | +7.0 -> +4.5 | `20261117-225749_review-8-4_alt` |
+| 1-3 | x0.35; x1 | x1.20 -> x1.00 (bright 19 -> 8 of 27) | x1.58 -> x1.10 | +28.9 -> +23.7 | `20261117-225749_review-1-3_alt` |
+| 7-2 | x0.6; x1; gameplay `reach` 0 x0.6; player x0.85 | x1.05 -> x0.88 (bright 6 -> 1, dim 5 -> 10 of 18) | x1.41 -> x1.19 | +6.5 -> +3.7 | `20261117-230837_review-7-2_alt` |
+| 4-4 | x0.7; x1 | x1.08 -> x1.02 | x1.31 -> x1.06 | +8.3 -> +8.1 | `20261117-230506_review-4-4_alt` |
+| 3-2 | x0.8; x1 (on top of the shipped entries) | x1.23 -> x0.98 (bright 4 -> 0 of 6) | x1.34 -> x0.96 | +5.2 -> +1.8 | `20261117-230506_review-3-2_alt` |
+
+7-2's first pass (x0.35; x0.5; gameplay x0.5; player x0.7) matched at fixed exposure (x1.05) and read x0.80 with 12
+of 18 views dim as shipped (`20261117-225749_review-7-2_alt`): softened, and still the one to look at (five of its
+views are dim before any change). P-2 without its exposure exception already reads x1.06 as shipped. All eight are
+proposals (`data/lights/proposed/`, review R13); nothing ships.
+
 ## Area lights (shader)
 
 Area lights keep the 4 x float4 per-light layout, so no buffer, UAV or payload changed (still 8 UAVs in PathTrace, 64-byte
