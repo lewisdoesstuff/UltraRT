@@ -279,9 +279,11 @@ Notes from making it:
 
 ## The final trailer (2026-11-16)
 
-Status (end of 2026-11-16): the cut below exists as a draft (`bench\results\trailer\trailer-final-draft\`, 720p30, RR at
-a third). The 1440p60 render (`trailer-final-final-1` to `-4`, then `trailer.py bench\trailer\trailer-final-final.json`)
-has not been run yet; after it, set the 5-2 shot's `In` to a lightning strike of that take.
+Rendered 2026-11-17: `bench\results\trailer\trailer-final-final\trailer-final-final.mp4` (2560x1440, 60 fps, H.264
+CRF 13, 47 Mbit/s, 642 MB), `trailer-final-final-1080p.mp4` beside it (scaled from the master, CRF 15, 237 MB) and one
+file per clip in `clips\` (CRF 8). Four bench runs in the alt slot, 12 minutes of game time in all (4.1 + 3.4 + 3.4 +
+1.3; 0.05 to 0.10 s per output frame, most of it writing PNGs), about 30 GB of frames; assembly 27 minutes. No run
+failed. The draft tier's output is `bench\results\trailer\trailer-final-draft\`.
 
 `bench/trailer/final-plan.json` is the whole trailer: the shots in order, each a whole number of bars, with its path,
 treatment, caption and level title, plus the quality tiers and the music. `scripts/trailer-plan.py` turns it into the
@@ -315,7 +317,7 @@ starting after `Off` seconds and taking `Sweep`; `Slant`, `Flip` as in a wipe). 
 length; `File` the path in bench/cinematics; `Path` and `Scenario` go to the bench scenario, `Cinematic` to its
 cinematic block, `TierCinematic` the same for one tier; `ModeAdd` appends runtime variants to the tier's `Modes` for one
 shot; `In` starts the clip that far into the take and `Render` renders a longer take than the clip (a shot whose best
-moment is picked afterwards: 5-2's lightning is random); `TimeScale` 0 freezes the world for one shot; `Caption` and `Tag`
+moment is picked afterwards: 5-2's lightning is random; `TierIn` gives `In` per tier); `TimeScale` 0 freezes the world for one shot; `Caption` and `Tag`
 as in the edit list.
 
 ### How the footage is made
@@ -402,5 +404,7 @@ Known problems in the footage, left as they are (renderer bugs are not fixed on 
 - P-2's puddles have a yellow-green tint.
 - The bench's install has no custom gun colours, so the revolver and V1's gun are in the default colours.
 - P-2's long shadow from the street lamp is faint: the steady lamp post beside it lights the same ground.
-- 5-2's lightning is random; the clip's `In` is set to a strike of the take in use (the plan's `In`).
+- 5-2's lightning is random; the clip's `In` is set to a strike of the take in use (the plan's `In`, and `TierIn` per
+  tier: the final take's strikes are at 6.35, 10.8 and 14.2 s, and the clip starts at 4.85 s so the first lands on its
+  second bar). The 15 s path is the longest take there is.
 - The game's image of a gunshot shows the gun one animation frame later than the traced image of the same frame.

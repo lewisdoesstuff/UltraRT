@@ -52,8 +52,8 @@
       "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/4-4-v2-chair.json", "Duration": 1 },
       "Caption": { "Text": "Coloured bounce light", "At": 2.25, "For": 3.4 }, "Tag": ["GREED /// CLIMAX", "CLAIR DE SOLEIL"] },
 
-    { "Kind": "beauty", "Name": "5-2 sea", "Scene": "Level 5-2", "File": "final-5-2-sea", "Bars": 3, "Render": 15, "In": 1.2,
-      "TierCinematic": { "final": { "Seconds": 24 } },
+    { "Kind": "beauty", "Name": "5-2 sea", "Scene": "Level 5-2", "File": "final-5-2-sea", "Bars": 3, "Render": 15, "In": 1.2, "TierIn": { "final": 4.85 },
+      "TierCinematic": { "final": { "Seconds": 15 } },
       "Path": { "Type": "static", "Approach": "../recordings/5-2-water-1115.json", "Duration": 1 },
       "Tag": ["WRATH /// SECOND", "WAVES OF THE STARLESS SEA"] },
 

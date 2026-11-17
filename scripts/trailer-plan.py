@@ -51,7 +51,7 @@ def main():
             folder = "cine_" + "".join(ch if ch.isalnum() or ch in "-" else "_" for ch in sname)
             # "In": the clip starts this far into the rendered take; "Render": seconds of the path to render (default: the
             # clip), e.g. a longer take of a shot whose best moment is found afterwards.
-            t_in = float(sh.get("In", 0))
+            t_in = float((sh.get("TierIn") or {}).get(tier, sh.get("In", 0)))  # TierIn: per tier (each take has its own best moment)
             mode = q.get("Mode", "pathtrace")  # live: the real-time pipeline (DLSS RR); pathtrace: offline accumulation
             cine = {"File": "../cinematics/%s.json" % sh["File"], "Mode": mode, "Fps": fps,
                     "Seconds": round(max(float(sh.get("Render", 0)), t_in + dur) + 2.0 / fps, 3),

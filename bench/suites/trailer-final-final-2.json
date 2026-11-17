@@ -71,7 +71,7 @@
         "File": "../cinematics/final-5-2-sea.json",
         "Mode": "live",
         "Fps": 60.0,
-        "Seconds": 24,
+        "Seconds": 15,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
