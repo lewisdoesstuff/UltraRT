@@ -1,0 +1,23 @@
+{
+  "Name": "tour-6-2",
+  "Note": "Checkpoint tour for the brightness scoreboard (tools/lights/tour_suites.py wrote this file; bench/README.md, 'Tour'). Score with tools/lights/score.py.",
+  "Scenarios": [
+    {
+      "Name": "6-2 tour",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.enabled=0"
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

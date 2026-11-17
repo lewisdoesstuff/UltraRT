@@ -148,6 +148,7 @@ namespace UltraRT
 
             m.Group = "Auto exposure";
             m.Bool("Relight", "AutoExposure", "Auto exposure  [Ctrl+F4]", () => _aeSettings.enabled, v => { _aeSettings.enabled = v; _autoExposure?.Reset(); }, "-ultrart-relight-autoexposure").Legacy();
+            m.Float("Relight", "RtBrightness", "RT brightness (0 = as the game)", 0f, 1f, 2, () => _aeSettings.rtBrightness, v => _aeSettings.rtBrightness = Mathf.Clamp01(v), "-ultrart-rt-brightness");
             m.Float("Relight", "AutoExposureKey", "Target brightness", 0.1f, 1f, 2, () => _aeSettings.key, v => _aeSettings.key = v, "-ultrart-ae-key");
             m.Float("Relight", "AutoExposureMin", "Darkest exposure (EV)", -6f, 0f, 1, () => _aeSettings.minEV, v => _aeSettings.minEV = v, "-ultrart-ae-min");
             m.Float("Relight", "AutoExposureMax", "Brightest exposure (EV)", 0f, 3f, 1, () => _aeSettings.maxEV, v => _aeSettings.maxEV = v, "-ultrart-ae-max");

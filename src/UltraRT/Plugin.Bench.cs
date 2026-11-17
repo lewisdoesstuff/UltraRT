@@ -822,6 +822,7 @@ namespace UltraRT
         /// <summary>Measure one scenario in the loaded level (EnsureLevel). routeFrom: see LoadPose.</summary>
         private IEnumerator RunScenario(Scenario sc, ScenarioResult sr, string suiteDir, string outDir, string method, float routeFrom)
         {
+            if ((sc.Path.Type ?? "").ToLowerInvariant() == "tour") { yield return RunTour(sc, sr, outDir); yield break; } // Plugin.Bench.Tour.cs
             var load = new PoseLoad();
             yield return LoadPose(sc, method, suiteDir, load, _level.Spawn, routeFrom);
             sr.Load = load.Method;

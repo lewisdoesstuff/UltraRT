@@ -44,6 +44,7 @@ they change on disk, so hand edits show up live.
 {
   "version": 1,
   "scene": "Level 1-1",
+  "exposure": { "rtBrightness": 1 },   // optional, level-wide: see "Level exposure" below
   "lights": [
     {
       "path": "2 - Courtyard/Lamps/Lamp (3)/Point Light",  // hierarchy path, "(Clone)" removed
@@ -75,6 +76,13 @@ light first seen while moving (a platform) keys on where it was then.
 
 **Added lights** are appended after the scene lights (and before the effect lights) as area lights. `bind` names a
 renderer by normalised path: the light is on only while that renderer is drawn (an emissive screen, a room that toggles).
+
+**Level exposure** (`"exposure": { "rtBrightness": F, "note": ".." }`, 2026-11-17): the level's own RT brightness
+(docs/relight.md, "Follow the game"). The level is shown at least that bright, whatever the user's "RT brightness"
+setting is; the user's file wins over the shipped one, and switching overrides off switches it off too. It is for a
+level whose look was approved under the exposure policy before 2026-11-17: `Level P-2.json` has 1 and no light entries
+(the user likes P-2's street as it is). Bench variant `ae.levelOverride=0` shows the level without it. The editor
+keeps a user file's block when it saves; the fit's output file does not carry one.
 
 ## Area lights (shader)
 
@@ -279,6 +287,59 @@ spheres, one as a 2 m x 0.3 m downward rect, an added 1 m blue panel): relight 6
 - Secret rooms and boss arenas (`taste` tag): fills not dimmed.
 - 1-1's torch de-saturation: matches the game's mean colour but makes fire slightly less orange than relight had it.
 - 3-2's eye room and 6-1: the remaining brightness is haze, not lights.
+
+## Scoreboard (2026-11-17)
+
+How brightness is compared with the game from now on (docs/plan-look-and-perf.md, workstream A). The earlier numbers
+on this page are screen means; a mean cannot see the most common complaint, light on what the game hides: 1-4's lamp
+pose has the game's mean (x0.96) while its far wall, door and trees, black in the game, are plainly visible.
+
+`tools/lights/score.py <run> [--sheet] [--board bench/results/scoreboard.csv]` scores every RT screenshot of a bench
+run against the game's frame (`off`) of the same pose, over the screen minus HUD and viewmodel:
+
+| Column | Meaning | Limit |
+|---|---|---|
+| ratio | mean luma, RT / game | 0.9-1.1 |
+| tint | sum of abs(rgb share - the game's) x 100 | (reported) |
+| dark % | share of the frame the game leaves at luma 8 or less | |
+| dark game -> RT (delta) | mean luma of exactly those pixels in both frames | delta 2.0 |
+| reveal % | share of the frame that is dark in the game and at least 6 levels brighter in RT, on 4x4 block means | 0.5 |
+| p10 / p50 / p90 | luma percentiles, RT / game | (reported) |
+
+`score.md` and `score.csv` go into the run's folder, `--sheet` adds `score.png` (game and every mode side by side with
+the numbers, failures in red), `--board` accumulates rows over runs for trends. The limits were set on the user's
+examples of 2026-11-17: 1-4 lamps, the 1-4 bridge and the 6-2 hall fail, 3-1's beam room passes.
+
+Two conditions, always both. **Fixed exposure** (the mode variant `ae.enabled=0`) judges the lights: with auto
+exposure following the game (docs/relight.md, "Game match"), a room whose lights are too strong is hidden by the
+exposure, and its dark corners are then *darker* than the game's. **Shipped settings** judge the result.
+
+Poses:
+- `bench/suites/bright-core.json`: nine poses reached through approach routes (the shared start room, 0-1 metal,
+  1-4 lamps and bridge, 3-1's beam room, 6-2 start and hall, P-2 vent smoke and street), in pathtrace, the
+  pre-2026-11-17 exposure policy, relight, and fixed exposure;
+- **tours**: `bench/suites/tour/tour-<level>.json` for all 43 campaign levels (written by
+  `tools/lights/tour_suites.py`): every entry of the game's Teleport Menu cheat (the first room and each checkpoint),
+  three views each, no route needed (bench/README.md, "Tour");
+- any other suite with `off` among its modes.
+
+First boards (2026-11-17, after the exposure change of docs/relight.md "Follow the game"; median over the views,
+pathtrace, shipped settings / fixed exposure):
+
+| Run | views | ratio shipped | ratio fixed exposure | dark delta shipped / fixed | passes shipped |
+|---|---|---|---|---|---|
+| `bright-core` | 9 | x1.14 | x1.63 | +5.1 / +7.8 | 1 |
+| tour 1-4 (first room, Arena, Main Hall) | 9 | x1.15 | x1.92 | +6.2 / +28.2 | 1 |
+| tour 6-2 (first room, Organ Hall) | 6 | x1.27 | x2.03 | +4.0 / +9.4 | 0 |
+| tour 3-1 (first room and five checkpoints) | 18 | x1.03 | x1.57 | +1.6 / +5.6 | 6 |
+
+The fixed-exposure column is the work list for the lights: 1-4's Arena reads x2.1 to x5.2 of the game there (its
+walls and floor, black in the game, are fully lit; 37-70 % of the frame "revealed"), the Main Hall's statue wall is
++47 on the game's dark pixels even with auto exposure. The exposure hides the mean, not the distribution. 3-1's
+Bridge Arena and Stairways, nearly black in the game (luma 4-10), read x2.3 to x4 at fixed exposure. Two runs of the
+3-1 tour gave the same medians (x1.03 / x1.56 and x1.03 / x1.57); two of 6-2 agree at shipped settings (x1.26,
+x1.27) and less at fixed exposure (x1.84, x2.03). A tour hides the level title the game types out after a teleport;
+a level's own subtitles (6-2's) stay in the frame, in every mode alike.
 
 ## Not done yet
 

@@ -98,6 +98,47 @@ namespace UltraRT.Bench
         /// <summary>Cinematic camera path instead of the measurement (docs/cinematics.md, bench/README.md "Cinematics"): the
         /// level is loaded as for a pose (Path.Approach / Areas / Load), then the path plays and/or renders offline.</summary>
         public CinematicSpec Cinematic;
+        /// <summary>Path.Type "tour": options of the checkpoint tour (null = the defaults). bench/README.md, "Tour".</summary>
+        public TourSpec Tour;
+    }
+
+    /// <summary>
+    /// Path.Type "tour": screenshots of every mode at each entry of the game's Teleport Menu cheat ("First Room", then
+    /// every checkpoint it offers, numbered by label), without a recorded route. Each stop gets its own fresh level load and
+    /// one press of the menu's own button (PoseLoader.Teleport), so the level is in the state the cheat gives a player.
+    /// Per stop, the most open view directions are captured. No frame times.
+    /// </summary>
+    public sealed class TourSpec
+    {
+        /// <summary>Views per stop: the directions with the longest free line of sight (eight candidates 45 degrees apart,
+        /// at least 60 degrees between the picked ones).</summary>
+        public int Views = 3;
+        /// <summary>Also the menu's "First Room" entry (the shared start room).</summary>
+        public bool Start = true;
+        /// <summary>Stops to run, by their index in the teleport menu as logged (0 = "First Room"); null = all.</summary>
+        public List<int> Only;
+        /// <summary>At most this many stops (0 = all), spread evenly over the level.</summary>
+        public int Max;
+        /// <summary>Seconds to let a stop's rooms settle before its first capture.</summary>
+        public float Settle = 1f;
+        /// <summary>Screenshot size relative to the screen (0.5 = half width and height: a 1440p frame as 1280x720).</summary>
+        public float Scale = 0.5f;
+        /// <summary>Camera pitch of every view (degrees, negative = down).</summary>
+        public float Pitch = 0f;
+    }
+
+    /// <summary>One stop of a tour as it ran (results.json).</summary>
+    public sealed class TourStop
+    {
+        public int Index;
+        /// <summary>The entry's label in the game's teleport menu ("First Room", "Main Hall", ...).</summary>
+        public string Name;
+        public float[] Position;
+        /// <summary>Yaw of each captured view (degrees), in file order.</summary>
+        public List<float> Yaws = new List<float>();
+        /// <summary>The screenshots' common prefix per view: &lt;scenario&gt;-s&lt;index&gt;-v&lt;view&gt;.</summary>
+        public List<string> Views = new List<string>();
+        public float LoadSeconds;
     }
 
     /// <summary>A scenario's cinematic: the path file and overrides of the [Cinematics] settings (null = the config's).</summary>
@@ -191,7 +232,7 @@ namespace UltraRT.Bench
 
     public sealed class PathSpec
     {
-        /// <summary>spawn | static | sweep | recording</summary>
+        /// <summary>spawn | static | sweep | recording | tour (Scenario.Tour: screenshots at every checkpoint)</summary>
         public string Type = "spawn";
         public float Duration = 8f;
         // static
@@ -275,6 +316,8 @@ namespace UltraRT.Bench
         public CineRenderResult Cinematic;
         /// <summary>Cinematic.Modes: every take (Cinematic is the last one).</summary>
         public List<CineRenderResult> CinematicTakes;
+        /// <summary>Path.Type "tour": the stops that ran.</summary>
+        public List<TourStop> Tour;
     }
 
     /// <summary>

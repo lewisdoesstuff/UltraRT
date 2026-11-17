@@ -1,7 +1,8 @@
 # Plan: look and performance (2026-11-17)
 
-Phase 1 of the owner's brief: investigate and plan, no code changes. This is the plan; nothing below is implemented.
-Branch `t3/plan-look-and-perf`, master `8ceda9b`. Measured on the RTX 5070 Ti at 2560x1440.
+The plan of phase 1 of the owner's brief (written with no code changes, on master `8ceda9b`), approved by the user on
+2026-11-17 and merged at `b028469`. Implementation is under way: one agent, one branch at a time, in the order of
+section 7; the [status](#status) table says where each step is. Measured on the RTX 5070 Ti at 2560x1440.
 
 Decisions the user made while this was written, already folded in:
 - **No frame generation** of any kind (DLSS-G, Smooth Motion, interpolation): 120 / 240 Hz mean rendered frames.
@@ -11,10 +12,40 @@ Decisions the user made while this was written, already folded in:
 - Raw recording playback does not load areas reliably: evidence below uses poses reached through an approach route,
   and every frame was looked at. Frames from unloaded areas are excluded and named.
 
-Contents: [1 Findings](#1-findings) · [2 Lights and brightness](#2-workstream-a-lights-and-brightness) ·
+Principles the user added with the approval (section 8 has the answers to the questions):
+- **Emissive over lights.** "If something can be emissive instead of using a light, it should." Fixtures, lamps,
+  screens and glowing props light the scene through their emissive surfaces (with emissive masks where the art needs
+  them), and their fake point / spot lights go. A light stays only where nothing emissive can stand in for it; what
+  remains is classified as fills.
+- **Compare, don't sweep.** The roughly 6,400 floating lights are not deleted in one pass. Every rule is reviewable:
+  A/B sheets per level or room (game / current / proposed) driven by the scoreboard, classes and single lights that
+  can be toggled in game and in bench variants, and a diff of what each rule changes per level. Levels roll out one
+  by one, the taste-sensitive ones after the user has seen their sheets.
+
+Contents: [Status](#status) · [1 Findings](#1-findings) · [2 Lights and brightness](#2-workstream-a-lights-and-brightness) ·
 [3 Materials](#3-workstream-b-generated-material-maps) · [4 Trailer flaws](#4-workstream-c-flaws-from-the-trailer) ·
 [5 Performance](#5-workstream-d-performance) · [6 Refactoring](#6-workstream-e-refactoring) ·
 [7 Order and branches](#7-order-branches-parallel-work) · [8 Decisions](#8-decisions-for-the-user) · [9 Effort](#9-effort)
+
+## Status
+
+Updated as branches land. "ready" = reported to the lead for merge-regress and merging.
+
+| Step | Branch | Status |
+|---|---|---|
+| A1 scoreboard (`tools/lights/score.py`: mean, dark-region delta, revealed share, sheets) | `t3/bright-metrics` | ready 2026-11-17 (docs/lighting-overrides.md, "Scoreboard") |
+| A2 pose coverage: tour of the game's Teleport Menu entries (`Path.Type` "tour"), tour suites for 43 levels | `t3/bright-metrics` | ready 2026-11-17; run on 1-4, 6-2, 3-1 so far (bench/README.md, "Tour") |
+| A2 per-light attribution report | `t3/light-classes` | planned (moved: it shares the class toggles) |
+| A3 exposure policy and the "RT brightness" setting | `t3/bright-metrics` | ready 2026-11-17: pathtrace median x1.53 -> x1.14 of the game over nine poses; P-2 kept as it was by a level setting, for the user to confirm (docs/relight.md, "Follow the game") |
+| 5.1 profiling pass; E1 pass scheduler; E3 default mode pathtrace | `t3/perf-profile` | next |
+| P1, P2 footprint-terminated paths; R1 ray generation per mode | `t3/perf-paths` | planned |
+| A4 light classes, flags, prefab layer, class and light toggles, rule diffs | `t3/light-classes` | planned |
+| B1 in-engine matrix, B2 generator bake-off | offline + `t3/materials-v2` | planned |
+| C1-C5, R2, R3 dispatch and CPU floor | `t3/perf-dispatch` | planned |
+| A6 level roll-out (per-level files and review sheets) | `t3/light-levels` | planned |
+| A5 window beams | `t3/window-beams` | planned |
+| B3-B5 new maps (AO, emissive masks, metal), review workflow, RR interplay | `t3/materials-v2` | planned |
+| C trailer flaws; hitches; 8-x floor of 60 fps | `t3/trailer-fixes` | planned |
 
 ## 1. Findings
 
@@ -226,7 +257,7 @@ without the game; the in-game classifier confirms with geometry and emissive dat
 |---|---|---|
 | sun, moon | directional from above | keep |
 | sky fill | directional from below | drop (done: fill cut) |
-| fixture: torch, lamp, orb, screen, window | inside or at a small renderer; emissive surface near | keep; area light on the glowing part. Needs emissive masks for painted lamp glass (B4) |
+| fixture: torch, lamp, orb, screen, window | inside or at a small renderer; emissive surface near | **emissive first**: the glowing surface is the light (an emissive mask where the glow is painted into a lit texture, B3) and the fake point / spot light is dropped. Only where nothing can emit (an open flame drawn by particles, a fixture with no glowing part): keep the light, as an area light the size of the source |
 | emissive duplicate | next to an emissive surface that already carries the light | drop (today: x0.5-0.85) |
 | bounce fill | floating, room-sized range, room-coloured, no aim | **drop**; GI replaces it. Restore at a fitted factor only where the room falls under about x0.85 of the game |
 | fog fill | floating in a fogged area, colour near the fog colour, large range and intensity (6-2 entryway, P-2 tunnel) | **volumetric only**: lights the medium, not surfaces, at a calibrated strength |
@@ -234,6 +265,16 @@ without the game; the in-game classifier confirms with geometry and emissive dat
 | gameplay / scripted | door, checkpoint, alarm, arena colour phases, flicker scripts | keep, with capped reach |
 | prefab | `FirstRoom`, large doors, shops, checkpoints, final doors | one global rule each, all levels |
 | enemy, item, effect, player | as today | unchanged |
+
+Review tooling, so that no rule is applied blind (the user's "compare, don't sweep"):
+- **class and light toggles**: every class can be switched off, dimmed or soloed at run time, in the light editor
+  (Insert) and as bench variants (`lights.class.<name>=off|0.5|solo`), and single lights by path; the editor's labels
+  show each light's class and the rule that set it;
+- **A/B sheets**: per level, game / current / proposed side by side for every scored pose, with the scoreboard's
+  numbers, from one bench run (the proposal is a preview layer, so nothing ships to see it);
+- **rule diff**: per level, a table of every light a rule touches (class, rule, before, after, its share of the
+  light at the scored poses), written next to the level's override file and kept in review until the user has seen
+  the sheets of the taste-sensitive levels.
 
 Mechanisms this needs:
 - per-light flags in the packed light data: lights surfaces, lights the medium, reach cap. "Volumetric only" is then
@@ -449,40 +490,34 @@ them in one branch at a time.
 | 3 | `perf-dispatch`: C1-C5, R2, R3 | `light-levels`: A6 level files (data only), then `window-beams` (A5) | `materials-v2` implementation after stage 2's `Proxy.shader` work lands |
 | 4 | `trailer-fixes` (C), hitches, 8-x | level roll-out continues | |
 
+(As approved: one agent does all of it, one branch at a time, so the two columns run one after the other: stage 1
+is `bright-metrics`, then `perf-profile`; then stage 2 left to right, and so on. Each branch is reported as ready and
+the next starts from master, or stacked on the previous one while that waits for its merge.)
+
 Dependencies: A3 before any light fitting (it changes what "matches" means); A1 before everything in A; E1 before
 C1 / R2; B's emissive masks before the fixture-to-area-light part of A4 (not before the rest); the puddle shading
 in C wants B's height maps but can start without. Two implementation agents at a time fits this table; a third only
 for the offline column. Merges go through the lead's merge-regress as now.
 
-## 8. Decisions for the user
+## 8. Decisions (answered by the user, 2026-11-17)
 
-1. **Brightness target.** Should pathtrace sit at the game's brightness by default, with a setting to brighten it?
-   *Recommendation: yes; default within about 10 % of the game, "RT brightness" slider for the old look.*
-2. **Fills in the "taste" levels.** May I drop or dim fill lights in 7-3, in secret rooms and in boss arenas, which
-   the classifier currently never touches? In P-2 I would only turn fog fills into volumetric-only lights.
-   *Recommendation: yes for 7-3 and the arenas, each with a review sheet before it ships; P-2 as said.*
-3. **Poses.** Could you save F11 poses at the 1-4 map-edge view, the 3-1 door walls, and anywhere else that looks
-   over-lit, when you next play? *The `tour` poses cover the rest.*
-4. **Which surfaces.** Are "the 8-2 intro room floor" and "the 0-1 starting room's exit door" in the shared start
-   room, or the first room after it? An F11 pose or a screenshot of each settles it.
-5. **Accent lights.** 0-1's gun spot and similar: keep as a real shadowed spotlight (my recommendation), or drop and
-   let the room's light show the prop?
-6. **Old modes.** May `hybrid` and `pt-dn` be frozen (kept working, no new features, out of the hot ray
-   generations), and removed later if nobody misses them? *Recommendation: freeze now.*
-7. **V1's colour**, if it turns out to be physics rather than a bug: lit by the room (grey-orange in an orange room)
-   or always readable as blue, as the game draws it? *Recommendation: lit, with a small unlit share so the blue reads.*
-8. **Perf targets.** Is "120 fps average in the combat run with p99 under 12 ms" the right reading for pathtrace,
-   and "240 in calm scenes, best reachable in combat (about 170-190)" acceptable for relight? Is 8-x out of scope
-   for the targets (the game alone is 117 fps in 8-3)?
-9. **Quality for speed.** May pathtrace read the radiance cache after the first bounce when that hit is far (P1),
-   and may dynamic resolution act as the last resort? *Recommendation: yes to both, P1 after you have seen the A/B.*
-10. **Material tools.** PBRFusion (Apache-2.0) and DeepBump (GPL-3.0, offline only) are fine to test; CHORD is
-    research-only and excluded. Agree?
-11. **Window beams.** Replace the game's beam meshes wherever the fit works and keep the game's elsewhere
-    (my recommendation), or keep a blend?
-12. **P-2's street** is darker and less saturated in pathtrace than in the game (x0.84), and you like how it looks.
-    Leave it, or pull its colour toward the game's red?
-13. **Agents.** Two implementation agents at a time, as before?
+The user agreed with every recommendation; where the answer adds something it is noted.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Brightness target | Pathtrace sits at the game's brightness by default, with an "RT brightness" setting for the brighter look |
+| 2 | Fills in 7-3, secret rooms, boss arenas | May be dropped or dimmed, each with a review sheet before it ships. P-2: only fog fills become volumetric-only |
+| 3 | F11 poses for the over-lit places | Not provided yet: proceed with the tour poses. The user may save poses later |
+| 4 | Which surfaces are "the 8-2 intro room floor" and "the 0-1 exit door" | Not answered: proceed with the best guess, the shared start room |
+| 5 | Accent lights (0-1 gun spot) | Keep as real shadowed spotlights |
+| 6 | Old modes | `hybrid` and `pt-dn` frozen: kept working, no new features, out of the hot ray generations; removal later if nobody misses them |
+| 7 | V1's colour, if it is physics | Lit by the room, with a small unlit share so the blue reads |
+| 8 | Perf targets | 120 fps average in the combat run with p99 under 12 ms for pathtrace. Relight: 240 in calm scenes, best effort in combat ("240 is maybe optimistic"). **8-x: they perform much worse because of the portals; fine as long as they never drop below 60 fps** |
+| 9 | Quality for speed | Pathtrace may read the radiance cache after the first bounce when that hit is far (after the A/B has been seen), and dynamic resolution may act as the last resort |
+| 10 | Material tools | PBRFusion and DeepBump may be tested (DeepBump offline only); CHORD stays excluded |
+| 11 | Window beams | Replace the game's beam meshes wherever the fit works, keep the game's elsewhere |
+| 12 | P-2 street | **Leave it as it looks now.** It may depend on which lights are active: if a light change alters it, flag it with a before / after instead of pulling it toward the game's red |
+| 13 | Agents | **One agent does all of it, sequentially**, no time limit; research subagents (Sonnet 5.5, low) are fine. The lead runs merge-regress and merges each branch when it is reported ready |
 
 ## 9. Effort
 

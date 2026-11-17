@@ -84,6 +84,7 @@ namespace UltraRT
                 _editSel = null;
             }
             else _lightOv.CheckReload();
+            _aeSettings.levelBrightness = _lightOverrides ? _lightOv.LevelRtBrightness : 0f; // the level's "exposure" block
             if (_ovCacheVersion != _lightOv.Version)
             {
                 _ovCacheVersion = _lightOv.Version;

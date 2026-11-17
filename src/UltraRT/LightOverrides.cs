@@ -92,11 +92,22 @@ namespace UltraRT
         public LightAddEntry Clone() => (LightAddEntry)MemberwiseClone();
     }
 
+    /// <summary>Level-wide exposure settings in a light override file ("exposure").</summary>
+    public sealed class LevelExposure
+    {
+        /// <summary>The level's own RT brightness (AutoExposureSettings.rtBrightness, 0-1): the level is shown at least this
+        /// bright, whatever the user's setting. For levels whose look was approved under the exposure policy before
+        /// 2026-11-17 (P-2).</summary>
+        [JsonProperty("rtBrightness", NullValueHandling = NullValueHandling.Ignore)] public float? RtBrightness;
+        [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
+    }
+
     public sealed class LightOverrideFile
     {
         [JsonProperty("version")] public int Version = 1;
         [JsonProperty("scene")] public string Scene;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
+        [JsonProperty("exposure", NullValueHandling = NullValueHandling.Ignore)] public LevelExposure Exposure;
         [JsonProperty("lights")] public List<LightOverrideEntry> Lights = new List<LightOverrideEntry>();
         [JsonProperty("added")] public List<LightAddEntry> Added = new List<LightAddEntry>();
     }
@@ -125,6 +136,10 @@ namespace UltraRT
         private DateTime _shippedStamp, _userStamp;
         private float _nextCheck;
         public string ShippedNote { get; private set; }
+        private LevelExposure _shippedExposure, _userExposure;
+        /// <summary>The level's own RT brightness ("exposure": { "rtBrightness": F }; the user's file over the shipped
+        /// one), or 0.</summary>
+        public float LevelRtBrightness => Mathf.Clamp01((_userExposure?.RtBrightness ?? _shippedExposure?.RtBrightness) ?? 0f);
 
         public int ShippedCount => _shipped.Count;
         public int UserCount => _user.Count;
@@ -200,13 +215,14 @@ namespace UltraRT
             Scene = scene;
             _shipped.Clear(); _user.Clear(); _shippedAdded.Clear(); _userAdded.Clear();
             ShippedNote = null;
+            _shippedExposure = _userExposure = null;
             _shippedStamp = Stamp(ShippedPath);
             _userStamp = Stamp(UserPath);
             ReadInto(ShippedPath, "shipped", _shipped, _shippedAdded, true);
             ReadInto(UserPath, "user", _user, _userAdded, false);
             Rebuild();
-            if (_shipped.Count + _user.Count + _shippedAdded.Count + _userAdded.Count > 0)
-                _log.LogInfo($"Light overrides '{scene}': {_shipped.Count} shipped + {_shippedAdded.Count} added ({ShippedPath}), {_user.Count} user + {_userAdded.Count} added ({UserPath}); {EffectiveCount} effective");
+            if (_shipped.Count + _user.Count + _shippedAdded.Count + _userAdded.Count > 0 || LevelRtBrightness > 0f)
+                _log.LogInfo($"Light overrides '{scene}': {_shipped.Count} shipped + {_shippedAdded.Count} added ({ShippedPath}), {_user.Count} user + {_userAdded.Count} added ({UserPath}); {EffectiveCount} effective" + (LevelRtBrightness > 0f ? $"; level RT brightness {LevelRtBrightness:F2}" : ""));
         }
 
         /// <summary>Once a second: re-read a file that changed on disk (hand edits, a deploy).</summary>
@@ -237,7 +253,8 @@ namespace UltraRT
             {
                 var f = JsonConvert.DeserializeObject<LightOverrideFile>(File.ReadAllText(path));
                 if (f == null) return;
-                if (shipped) ShippedNote = f.Note;
+                if (shipped) { ShippedNote = f.Note; _shippedExposure = f.Exposure; }
+                else _userExposure = f.Exposure;
                 foreach (var e in f.Lights ?? new List<LightOverrideEntry>())
                 {
                     if (string.IsNullOrEmpty(e.Path) || e.Pos == null || e.Pos.Length < 3) continue;
@@ -356,6 +373,7 @@ namespace UltraRT
                 {
                     Scene = Scene,
                     Note = "UltraRT light overrides edited in game (docs/lighting-overrides.md). Entries here replace the shipped ones for the same light.",
+                    Exposure = _userExposure,
                     Lights = _user.Values.OrderBy(e => e.Path, StringComparer.Ordinal).ToList(),
                     Added = _userAdded.Values.OrderBy(a => a.Id, StringComparer.Ordinal).ToList(),
                 };

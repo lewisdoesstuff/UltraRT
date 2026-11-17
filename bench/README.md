@@ -62,6 +62,38 @@ Each run launches the game on DX12 and plays every scenario in `bench/suites/<su
 | `static` | `Position` [x,y,z], `Yaw`, `Pitch`, `Duration`, `Approach` | hold a given pose (see "Poses deep in a level") |
 | `sweep` | `YawSpeed` (deg/s), `PitchAmplitude`, `Duration`, optional `Position` | spin in place; stresses reprojection |
 | `recording` | `File` (relative to the suite), optional `Start`/`End` seconds | replay a recorded flythrough or run |
+| `tour` | scenario field `Tour` (below) | screenshots at the level's start and at every checkpoint, no route needed, no frame times |
+
+### Tour
+`"Path": { "Type": "tour" }` covers a level that has no recorded route (`src/UltraRT/Plugin.Bench.Tour.cs`). The stops
+are the entries of the **game's own Teleport Menu cheat**: "First Room" (the shared start room), then every checkpoint
+the game offers there, numbered by label (ordinal order), because the menu's own order changes from load to load. The bench opens the menu (`CheatsController.ShowTeleportPanel`) and presses the
+entry's button (`PoseLoader.OpenTeleportMenu` / `Teleport`), so the game itself moves the player, switches the
+checkpoint's rooms on, unlocks its doors, runs its restart event and starts the level; nothing of that is
+re-implemented. The panel's canvas is hidden in a bench run, so its list is built by calling the panel's own
+`GenerateList` when its `Start` has not run. A stop is found again by its label after each reload (3-1 lists its
+checkpoints in a different order on each load). Every stop gets its **own fresh
+level load** first: teleporting from stop to stop in one load would
+leave earlier rooms switched on, and the game's lights shine through walls. At a stop the camera looks
+along the most open directions (eight candidates 45 degrees apart from the checkpoint's facing, the longest free lines
+of sight, at least 60 degrees between them), and every mode is captured as for a normal screenshot (12 frames, DLSS RR
+ready, `ShotSettle`, the auto exposure wait).
+
+```json
+{ "Name": "1-4 tour", "Scene": "Level 1-4", "Path": { "Type": "tour" },
+  "Tour": { "Views": 3, "Max": 0, "Only": null, "Start": true, "Settle": 1, "Scale": 0.5, "Pitch": 0 },
+  "Modes": [ "off", "pathtrace", "pathtrace+ae.enabled=0" ], "ShotSettle": 0.8 }
+```
+
+`Views` per stop; `Max` stops spread evenly over the level (0 = all); `Only` picks stops by their number
+(0 = "First Room"; the log lists `stop N '<label>'`, and `results.json` has the labels); `Start: false` leaves "First Room" out; `Scale` 0.5 saves a
+1440p frame as 1280x720. Files are `<scenario>-s<stop>-v<view>_0.0s_<mode>.png`, and `results.json` lists the stops
+(`Tour`: index, the menu's label, position, yaws). The level is in the state the cheat leaves: rooms behind a
+checkpoint are not loaded, as with `Load: checkpoint`.
+A tour reloads the level per stop, about 20 s each with three modes: one to three minutes per level, so run two or
+three levels per launch. `tools/lights/tour_suites.py` writes one suite per level into `bench/suites/tour/`
+(`.\scripts\bench.ps1 -Suite bench\suites\tour\tour-1-4.json -Slot alt`), and `tools/lights/score.py` scores a run
+against the game's frames (docs/lighting-overrides.md, "Scoreboard").
 
 ## Combat effects
 `"Effects": { "Kinds": ["revolver"], "Every": 0.5, "Distance": 5, "ShotDelay": 0.08 }` spawns the game's own effects in front of the camera, every `Every` seconds (0 = only at screenshots). At each screenshot they are also spawned once per mode, `ShotDelay` seconds before the capture, so every mode shows the effect at the same age.

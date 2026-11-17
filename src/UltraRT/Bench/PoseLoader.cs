@@ -126,6 +126,86 @@ namespace UltraRT.Bench
             return pose;
         }
 
+        // ---------------------------------------------------------------- the game's Teleport Menu cheat
+
+        /// <summary>One entry of the game's Teleport Menu (the cheat): its label and the button that performs it.</summary>
+        public sealed class TeleportEntry
+        {
+            public string Name;
+            public Component Button;
+        }
+
+        private static readonly FieldInfo TeleportTemplate = AccessTools.Field(typeof(TeleportCheat), "buttonTemplate");
+        private static readonly MethodInfo TeleportGenerate = AccessTools.Method(typeof(TeleportCheat), "GenerateList");
+
+        /// <summary>
+        /// Opens the game's Teleport Menu (CheatsController.ShowTeleportPanel, as the cheat does) and lists its entries in
+        /// menu order: "First Room", then every checkpoint the game lets the player teleport to, sorted as the game sorts
+        /// them. The panel builds its buttons in its Start, so this takes a frame or two. Leaves the panel open (the game
+        /// frozen): follow with <see cref="Teleport"/> or <see cref="CloseTeleportMenu"/>.
+        /// UI types are reached by name: the plugin only references UnityEngine.UI when PluginConfigurator is present.
+        /// </summary>
+        public static System.Collections.IEnumerator OpenTeleportMenu(List<TeleportEntry> into)
+        {
+            into.Clear();
+            var cc = MonoSingleton<CheatsController>.Instance;
+            if (cc == null) yield break;
+            cc.ShowTeleportPanel();
+            TeleportCheat menu = null;
+            GameObject template = null;
+            for (int f = 0; f < 10; f++)
+            {
+                if (menu == null) menu = cc.cheatsTeleportPanel != null ? cc.cheatsTeleportPanel.GetComponentInChildren<TeleportCheat>(true) : null;
+                if (menu == null) menu = UnityEngine.Object.FindObjectOfType<TeleportCheat>(true);
+                if (menu != null && template == null) template = TeleportTemplate?.GetValue(menu) as GameObject;
+                if (template != null && !template.activeSelf) break; // GenerateList ran: it switches the template off last
+                yield return null;
+            }
+            if (menu != null && template != null && template.activeSelf)
+            {
+                // The panel's Start has not run (its canvas is hidden in a bench run): build the list as Start would.
+                Log?.LogInfo($"Benchmark: teleport menu built directly (panel active {menu.gameObject.activeSelf}, in hierarchy {menu.gameObject.activeInHierarchy})");
+                try { TeleportGenerate?.Invoke(menu, null); }
+                catch (Exception ex) { Log?.LogWarning("Benchmark: the teleport menu's GenerateList failed: " + (ex.InnerException ?? ex).Message); }
+            }
+            if (menu == null || template == null || template.activeSelf)
+            {
+                Log?.LogWarning($"Benchmark: the game's teleport menu did not build its list (menu {(menu != null ? "found" : "missing")}, template {(template != null ? "found" : "missing")})");
+                yield break;
+            }
+            foreach (Transform child in template.transform.parent)
+            {
+                if (child.gameObject == template || !child.gameObject.activeSelf) continue;
+                var button = child.GetComponentsInChildren<Component>(true).FirstOrDefault(c => c != null && c.GetType().Name == "Button");
+                if (button == null) continue;
+                var text = child.GetComponentsInChildren<Component>(true).FirstOrDefault(c => c != null && c.GetType().GetProperty("text") != null && c.GetType().Name.StartsWith("TextMeshPro"));
+                string name = text != null ? text.GetType().GetProperty("text").GetValue(text) as string : child.name;
+                into.Add(new TeleportEntry { Name = System.Text.RegularExpressions.Regex.Replace(name ?? child.name, "<.*?>", "").Trim(), Button = button });
+            }
+        }
+
+        /// <summary>Presses a Teleport Menu entry: the game moves the player, restores the checkpoint's rooms, doors and
+        /// restart event, starts the level and closes the menu, exactly as when the player clicks it.</summary>
+        public static bool Teleport(TeleportEntry e)
+        {
+            var onClick = e?.Button != null ? e.Button.GetType().GetProperty("onClick")?.GetValue(e.Button) as UnityEngine.Events.UnityEventBase : null;
+            var invoke = onClick?.GetType().GetMethod("Invoke", Type.EmptyTypes);
+            if (invoke == null) return false;
+            invoke.Invoke(onClick, null);
+            return true;
+        }
+
+        /// <summary>Closes the Teleport Menu without teleporting (what its own Pause handler does).</summary>
+        public static void CloseTeleportMenu()
+        {
+            var menu = UnityEngine.Object.FindObjectOfType<TeleportCheat>(true);
+            if (menu != null && menu.gameObject.activeSelf)
+            {
+                menu.gameObject.SetActive(false);
+                MonoSingleton<OptionsManager>.Instance?.UnFreeze();
+            }
+        }
+
         public static string Describe(CheckPoint cp)
         {
             var p = cp.transform.position;
