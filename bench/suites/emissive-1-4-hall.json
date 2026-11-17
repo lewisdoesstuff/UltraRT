@@ -1,0 +1,30 @@
+{
+  "Name": "emissive-1-4-hall",
+  "Note": "1-4 Main Hall under the emissive proposal: the statues' orbs share the lamps' bulb material (docs/lighting-overrides.md, 'Emissive fixtures').",
+  "Scenarios": [
+    {
+      "Name": "1-4 tour",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0,
+        "Only": [
+          2
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace+ae.enabled=0",
+        "pathtrace+ae.enabled=0+lc.layer=proposed",
+        "pathtrace+ae.enabled=0+lc.layer=proposed+lc.class.fixture.orb=0",
+        "pathtrace+ae.enabled=0+lc.layer=proposed+lc.class.fixture.orb=0+lc.glow.exact.Light=3",
+        "pathtrace+ae.enabled=0+lc.layer=proposed+lc.class.fixture.orb=0+lc.glow.exact.Light=1.5",
+        "pathtrace+ae.enabled=0+lc.layer=proposed+lc.glow.exact.Light=0"
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

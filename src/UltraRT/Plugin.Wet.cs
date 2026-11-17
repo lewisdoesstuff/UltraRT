@@ -25,9 +25,9 @@ namespace UltraRT
         public float puddleMargin = 0f;
         /// <summary>Roughness and specular weight of a fully wet surface that holds no puddle.</summary>
         public float wetRoughness = 0.3f, wetWeight = 0.5f;
-        /// <summary>-ultrart-wet-soft on|off (bench wet.soft=1): soft puddle edges with a wet margin and a glossier wet
-        /// floor, in place of the four values above (docs/vfx.md, "Soft puddles"). Off until reviewed.</summary>
-        public bool soft;
+        /// <summary>-ultrart-wet-soft on|off (bench wet.soft=0 for the old look): soft puddle edges with a wet margin and a glossier wet
+        /// floor, in place of the four values above (docs/vfx.md, "Soft puddles"). On since the review of 2026-11-17.</summary>
+        public bool soft = true;
 
         /// <summary>Wet blood: fresh stains are glossy and darker, and dry to the game's matte look.</summary>
         public bool blood = true;

@@ -74,13 +74,13 @@ namespace UltraRT
                                                                          : name.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0;
 
         /// <summary>EmissiveLights.LightScaleOf: the scale on the light a surface gives ("emitters" rules, bench variants).</summary>
-        private float EmitterLightScale(Material m, Texture emission)
+        private float EmitterLightScale(Material m, Texture emission, Transform source)
         {
             if (!_lightOverrides || _lightOv == null || m == null) return 1f;
             string name = CleanMaterialName(m.name);
             foreach (var kv in _variantEmitters)
                 if (VariantNameMatches(name, kv.Key)) return kv.Value;
-            return _lightOv.Classes.EmitterScale(name, emission != null ? emission.name : "", out _);
+            return _lightOv.Classes.EmitterScale(name, emission != null ? emission.name : "", source != null ? LightOverrides.NormalizedPath(source) : "", out _);
         }
 
         /// <summary>SceneProxies.EmitterGlowOf: the emitter mask of a source material ("emitters" rules with "glow",
@@ -427,7 +427,7 @@ namespace UltraRT
                     }
                     var emitters = _emissive?.Describe().Select(g =>
                     {
-                        float sc = _lightOv.Classes.EmitterScale(CleanMaterialName(g.Material), g.Texture, out string er);
+                        float sc = _lightOv.Classes.EmitterScale(CleanMaterialName(g.Material), g.Texture, "", out string er);
                         return new { material = CleanMaterialName(g.Material), texture = g.Texture, triangles = g.Triangles, visible = g.Visible, area = LightOverrides.Round(g.Area), lum = LightOverrides.Round(g.Lum), scale = sc, rule = er };
                     }).ToList();
                     var doc = new { scene, layer, emitters, lights = rows.OrderBy(x => x.Class, StringComparer.Ordinal).ThenBy(x => x.Path, StringComparer.Ordinal).ToList() };

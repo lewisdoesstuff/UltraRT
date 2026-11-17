@@ -3,7 +3,7 @@
   "scene": "Level 4-3",
   "lights": [],
   "added": [],
-  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x0.5. Why: torches x4.5 of the game in the Generator Room Hallway at fixed exposure.",
+  "note": "Shipped 2026-11-17 (user: 'they look great! big fan of all of those') (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x0.5. Why: torches x4.5 of the game in the Generator Room Hallway at fixed exposure.",
   "classes": {
     "fill": {
       "reach": 0,

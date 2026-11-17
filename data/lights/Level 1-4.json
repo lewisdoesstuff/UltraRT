@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "Level 1-4",
-  "note": "Shipped 2026-11-17 (user: 'look great') (docs/lighting-overrides.md, 'Levels'): fills and fixtures never reach further than in the game; fills x0.4, street lamps x0.5. Tour at fixed exposure: Main Hall x1.9-2.0 -> x0.93-0.96, Arena x2.1-5.1 -> x1.0-2.4.",
+  "note": "Shipped 2026-11-17 (user: 'they look great! big fan of all of those') (docs/lighting-overrides.md, 'Emissive fixtures'): the shipped file, plus the street lamps lit by their bulbs (an emitter mask) with the lights inside them off. The statue orbs share the bulbs' material: their spheres carry them at scale 0.2 and their lights are off (Main Hall x1.92 of the game without that, x1.14 with).",
   "classes": {
     "fill": {
       "reach": 0,
@@ -16,5 +16,38 @@
     }
   },
   "lights": [],
-  "added": []
+  "added": [],
+  "rules": [
+    {
+      "name": "street lamps",
+      "path": "Streetlight[^/]*/[^/]*$",
+      "class": "fixture:lamp",
+      "set": {
+        "intensity": 0
+      }
+    },
+    {
+      "name": "statue orbs",
+      "path": "Statue[^/]*/Sphere_8/[^/]*$",
+      "class": "fixture:orb",
+      "set": {
+        "intensity": 0
+      }
+    }
+  ],
+  "emitters": [
+    {
+      "name": "statue orbs",
+      "material": "^Light$",
+      "path": "Statue[^/]*/Sphere_8",
+      "scale": 0.2,
+      "note": "the orbs share the bulbs' material and are far larger: Main Hall x1.9 of the game at the bulbs' strength"
+    },
+    {
+      "name": "lamp bulbs",
+      "material": "^Light$",
+      "glow": 6,
+      "note": "lamps pose: x1.05 of the game, the fake lights x0.83; glow 20 is x1.42"
+    }
+  ]
 }

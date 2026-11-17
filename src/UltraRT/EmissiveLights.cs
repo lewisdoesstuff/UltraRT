@@ -72,7 +72,7 @@ namespace UltraRT
 
         /// <summary>Scale on the light one surface gives, by its proxy material and emission texture (Plugin.LightClasses.cs,
         /// docs/lighting-overrides.md "Emitters"). Read when the triangle table is built: call Clear() when it changes.</summary>
-        public Func<Material, Texture, float> LightScaleOf;
+        public Func<Material, Texture, Transform, float> LightScaleOf;
 
         public struct EmitterGroup
         {
@@ -752,7 +752,7 @@ namespace UltraRT
             }
             // A surface's own scale on the light it gives (light overrides' "emitters"): only this table, so the surface
             // looks the same to the camera and in reflections.
-            float own = LightScaleOf != null ? Mathf.Max(0f, LightScaleOf(m, tex)) : 1f;
+            float own = LightScaleOf != null ? Mathf.Max(0f, LightScaleOf(m, tex, s.Source)) : 1f;
             if (own <= 0f) return true;
             baseLe *= own;
             Color avg = img != null ? Average(img) : Color.white;

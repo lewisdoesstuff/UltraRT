@@ -279,10 +279,28 @@ so the light leaves through the top and the bottom as it does with the fake ligh
 grass is the game's, and the yellow patches the fake lights left on the arch are gone. The same material name needs
 a different glow per level (6 on 1-4, 20 on 8-2: the bulbs differ in size), so the rules are per level.
 
-Proposals (`data/lights/proposed/Level 8-2.json`, `Level 1-4.json`; off unless `lc.layer=proposed`): review R9. As files
+**Shipped 2026-11-17** (`t3/ship-r9-r10`; the user on the sheets: "they look great! big fan of all of those"): the
+rules are in `data/lights/Level 8-2.json` and `Level 1-4.json`. They were proposals (review R9) in the runs below. As files
 (`bench/suites/emissive-review.json`, `20261117-204345_emissive-review_alt`): 8-2 pool x1.02 -> x0.76 (tint 3.5 -> 1.6),
 standing lamp x0.93 -> x1.04, 1-4 lamps x0.82 -> x1.06; the rules take 33 + 8 lights on 8-2 and 18 on 1-4.
-Open: `^Light$` on 1-4 also names six orbs' spheres (not checked in view); the per-level application for the other
+**1-4's statue orbs** (checked before shipping). The six statues of the Main Hall and the Boss Door hold spheres of
+the same `Light` material, far larger than a lamp's bulb: at the bulbs' glow the Main Hall read x1.92 of the game at
+fixed exposure (x0.91 as shipped before; `20261117-220626_review-1-4_alt`), and x1.85 with the orbs' own lights off,
+so it is the spheres' glow (`20261117-220931_emissive-1-4-hall_alt`: glow 3 x1.11, glow 1.5 x0.79). An emitter rule
+can now name objects: `"path"` is a regex on the hierarchy path of the object a surface belongs to, and the rule's
+`scale` applies to those objects only (in the emissive triangle table, like every `scale`; the mask itself stays
+the material's, so a rule with a path gives no `glow`; objects baked into a static batch have no path). 1-4 ships
+
+```json
+"emitters": [ { "name": "statue orbs", "material": "^Light$", "path": "Statue[^/]*/Sphere_8", "scale": 0.2 },
+              { "name": "lamp bulbs", "material": "^Light$", "glow": 6 } ]
+```
+
+with the orbs' lights off like the lamps': Main Hall x1.14-1.16 at fixed exposure, x0.97 -> x1.14 as shipped
+(scale 0.4: x1.26-1.28), the lamps and bridge poses x1.06 and x1.04 (`20261117-221634_review-1-4_alt`). The Arena,
+already x2.2 at fixed exposure, goes to x2.65 with its four lamps' bulbs (x1.02 -> x1.08 as shipped): open.
+
+Open: the per-level application for the other
 levels comes with their light proposals; a first rule match was missed once because numbered copies
 (`StreetlightFraud (1)`) need `[^/]*` after the name: check `lights_<scene>.proposed.json` for the rule's count.
 
@@ -407,7 +425,8 @@ A first, stronger pass for 7-3 (player x0.35, others x0.5) and 5-1 (others x0.7)
 `20261117-214151_review-5-1_alt`), so both were softened. Open: 5-3 and 5-1 trade bright views for dim ones (8 and
 10); 7-3 stays far over the game at fixed exposure (the flashlight's bounce) and auto exposure carries it; 4-3's L
 Hallway and Stairs Hallway (x1.5-1.6 with the lights off) are not lights; 8-2's Elevator stays x1.6.
-All six are proposals (`data/lights/proposed/`, review R10); nothing ships.
+**Shipped 2026-11-17** (`t3/ship-r9-r10`; the user: "they look great! big fan of all of those"): the six files are in
+`data/lights/`. In the runs above they were the proposal layer (review R10); the layer is empty again.
 
 ## Area lights (shader)
 
