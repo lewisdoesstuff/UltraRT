@@ -295,6 +295,33 @@ so the hybrid, reference and debug branches drop out). Measured against the gene
 0.02-0.04 ms is the spread between two equal modes, and a third ray generation is a third pipeline for the driver to
 compile, so the change was removed. The branches on `_Mode` cost nothing measurable; relight's GPU time is in its rays.
 
+### Pass schedule (2026-11-17, `t3/perf-dispatch`, plan C1)
+`-ultrart-aux-every N` (bench variant `plugin._auxEvery=N`, default 1): the radiance-cache update and the
+particle-light volume each run every N-th frame, on different frames. A frame without the cache update reads the
+cache unchanged (it is in world space); a frame without the particle trace keeps the volume and the camera it was
+traced for published together. The cache still updates every frame while it is new or the lights have just changed
+(`RadianceCache.Due`). Volumetrics are not scheduled: their buffer is in screen space.
+
+Measured at N = 2 against 1, `-Perf`, 2560x1440 (`bench/suites/perf-sched.json` and `perf-sched-rev.json`, the same
+pairs in the other order, one launch: `bench/results/20261117-190247_perf-sched*`; three earlier runs of the first
+order agree with it):
+
+| Scenario | relight, frame ms | pathtrace, frame ms |
+|---|---|---|
+| 0-1 metal | 5.74 -> 5.42 (-0.33) | 6.08 -> 5.56 (-0.52) |
+| 0-3 ghosts | 6.71 -> 6.25 (-0.46) | 6.08 -> 5.82 (-0.26) |
+| 0-2 run, combat | 8.39 -> 8.05 (-0.34) | 8.32 -> 8.09 (-0.23) |
+
+Means of both orders. **A pair is only comparable that way**: with four modes on a recorded route each mode sees
+different stretches (relight on the combat run read +0.55 in one order and -1.22 in the other), and the fourth mode
+of a static pose was 0.4 ms slower than the same mode in third place. The cache's GPU time halves (0.29 -> 0.14 ms
+at 0-1); the rest of the gain is the render thread and the main thread not preparing a dispatch.
+
+Held-image noise, 64-frame bursts (`sched-noise.json`, `20261117-190622_sched-noise_alt`, sigma over all pixels):
+6-2 start relight 1.73 -> 0.87, pathtrace 0.75 -> 0.73; 0-1 metal relight 3.41 -> 3.30, pathtrace 3.41 -> 3.58: no
+worse. Not measured yet: lit particles in motion with the volume a frame old, and how much later the cache follows a
+light that fades slowly. Default stays 1 until those two are; proposed default 2.
+
 ### What this changes in the plan
 - Relight 240 Hz: GPU first (4.9 ms of ours against a 4.17 ms frame), then the main thread; the render thread only in
   8-x. The per-dispatch cost is on **three** threads (main 0.07, render 0.25, workers), which makes fewer dispatches

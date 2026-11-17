@@ -160,7 +160,9 @@ namespace UltraRT
         {
             ConfigureDenoiserCacheSeed(ambient);
             if (_radianceCache == null) return;
-            if (_radianceCache.Active)
+            if (_radianceCache.Active && (_lightSampling.LightSetChanged || _emissive.SetChanged)) _radianceCache.NotifyLightsChanged();
+            bool due = _radianceCache.Due(_frameIndex, _auxEvery);
+            if (_radianceCache.Active && due)
             {
                 var u = _radianceCache.UpdateShader;
                 _cmd.SetRayTracingAccelerationStructure(u, "_Scene", _proxies.Rtas);
@@ -174,10 +176,9 @@ namespace UltraRT
                 _emissive.Bind(_cmd, u, _lightSamplingSettings.mode);
                 _cmd.SetRayTracingVectorParam(u, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
                 BindSky(u);
-                if (_lightSampling.LightSetChanged || _emissive.SetChanged) _radianceCache.NotifyLightsChanged();
             }
             _gpu?.Begin(_cmd, SlotCache);
-            _radianceCache.Execute(_cmd, pathTrace, w, h, invViewProj, _camera.transform.position, _frameIndex, 1f, 1f);
+            _radianceCache.Execute(_cmd, pathTrace, w, h, invViewProj, _camera.transform.position, _frameIndex, 1f, 1f, due);
             _gpu?.End(_cmd, SlotCache);
         }
 

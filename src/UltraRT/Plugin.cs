@@ -248,6 +248,7 @@ namespace UltraRT
                     case "-ultrart-relight-white": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightWhite); break;
                     case "-ultrart-light-radius": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _lightRadius); break;
                     case "-ultrart-nofixtureshadows": _fixtureShadows = false; break;
+                    case "-ultrart-aux-every": if (int.TryParse(Next(), out int every)) _auxEvery = Mathf.Clamp(every, 1, 4); break;
                     case "-ultrart-nofixturelift": _fixtureLift = false; break;
                     case "-ultrart-noorbemitters": SceneProxies.OrbEmitters = false; break;
                     case "-ultrart-beside": _besideV1 = true; break;
@@ -913,6 +914,9 @@ namespace UltraRT
             ? new Vector4(_relightFalloff, _relightFillCut, _relightExposure, _relightAmbientCut)
             : Vector4.zero;
         private bool _fixtureShadows = true;  // -ultrart-nofixtureshadows
+        /// <summary>-ultrart-aux-every N: the radiance-cache update and the particle-light volume each run every N-th
+        /// frame, on different frames (1 = both every frame). docs/performance.md, "Pass schedule".</summary>
+        public int _auxEvery = 1;
         private RenderTexture _depthCopy;
         private bool _noDepthMatch;
         private static readonly int UltraRTGameDepthId = Shader.PropertyToID("_UltraRTGameDepth");
