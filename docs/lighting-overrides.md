@@ -364,7 +364,7 @@ Open after these runs:
 The next six of the board. The fill policy of the first four does not carry over: with fills and scripted lights
 off, most of their bright rooms stay bright (`20261117-204658_tune-a_alt`, `20261117-205324_tune-b_alt`). Class
 switches on those rooms at fixed exposure (`20261117-210340_attr2-a_alt`, `20261117-210942_attr2-b_alt`,
-`20261117-211533_attr3_alt`; `lc.solo=none` = every level light off):
+`20261117-211546_attr3_alt`; `lc.solo=none` = every level light off):
 
 | Level | Room (tour stop) | ships | the class that carries it, off |
 |---|---|---|---|
