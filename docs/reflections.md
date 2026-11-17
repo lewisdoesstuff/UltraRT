@@ -254,7 +254,7 @@ Where each path applies it:
 | — | `threshold` (minimum luma(specW) for a ray), `maxRadiance` (8) | 0.015 |
 | — | `temporal`, `spatial`, `alphaMirror`/`alphaRough` (0.3/0.08), `clampMirror`/`clampRough` (1.25/2.5), `maxHistory` (32), `spatialMinRoughness` (0.08) | |
 
-**Debug views** (F8 cycles; appended after `primitive`, so existing indices are unchanged):
+**Debug views** (Page Up / Page Down cycle the view modes; F8 did once; appended after `primitive`, so existing indices are unchanged):
 - **`refl`**: filtered reflected radiance.
 - **`refl-raw`**: the one-ray radiance. Untraced pixels are dark grey.
 - **`refl-spec`**: what gets added (specW × filtered).

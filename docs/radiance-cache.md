@@ -87,7 +87,7 @@ Order within a frame (one command buffer): update `DispatchRays`, then `Resolve`
 
 ## Debug views
 
-There are two new view modes at the end of the F8 list (existing indices are unchanged). They are written by `DebugRayGen` over PathTrace's output, using the same primary rays as PathTrace.
+There are two new view modes at the end of the Page Up / Page Down list (it was F8 once; existing indices are unchanged). They are written by `DebugRayGen` over PathTrace's output, using the same primary rays as PathTrace.
 
 | Name | Shows |
 |---|---|
