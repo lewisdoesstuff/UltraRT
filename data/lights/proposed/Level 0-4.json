@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "scene": "Level 0-4",
+  "lights": [],
+  "added": [],
+  "classes": {
+    "fill": {
+      "reach": 0
+    },
+    "scripted": {
+      "reach": 0
+    },
+    "fixture": {
+      "reach": 0,
+      "intensity": 2.5,
+      "medium": 0.4
+    },
+    "accent": {
+      "reach": 0,
+      "intensity": 2.5,
+      "medium": 0.4
+    },
+    "glow": {
+      "reach": 0,
+      "intensity": 2.5,
+      "medium": 0.4
+    },
+    "effect": {
+      "reach": 0,
+      "intensity": 2.5,
+      "medium": 0.4
+    },
+    "item": {
+      "reach": 0,
+      "intensity": 2.5,
+      "medium": 0.4
+    }
+  },
+  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Punch'): the user wants bright, harsh key lights and colour with the dark areas kept. No level light reaches further than in the game; fills and scripted at full; fixtures, accents, glows, effect and item lights x2.5 with their haze held (medium 0.4). Shown with the exposure and tone settings of the punch suite."
+}

@@ -465,6 +465,66 @@ of 18 views dim as shipped (`20261117-225749_review-7-2_alt`): softened, and sti
 views are dim before any change). P-2 without its exposure exception already reads x1.06 as shipped. All eight are
 proposals (`data/lights/proposed/`, review R13); nothing ships.
 
+## Punch: the target after the user's second look (2026-11-17, `t3/light-punch`, proposal)
+
+The user on the shipped batches: "a little too dark ... While the previous lighting was definitely too bright, the
+colours also had a lot more pop ... There are large lights that should be very bright, brighter than the base game,
+sometimes maybe quite a bit so ... The game has lots of bright, harsh lighting that we should be trying to take
+advantage of" (0-3 the example). Matching the game's mean brightness was the wrong target. The target is contrast:
+the game's dark areas stay dark, key lights and fixtures are bright (brighter than the game is fine) and coloured.
+
+**What made it dull**, measured on 0-3 (`20261117-232130_punch-try_alt`): the class factors (fills x0.35 took the
+tunnel's and the hall's key lights with them: they are floating lights, `fill` by class), and the exposure, which
+since 2026-11-17 follows the game's brightness by 0.9 beyond 0.1 EV (before: 0.4 beyond 0.35 EV, "lit rooms may stay
+brighter than the game").
+
+**The score.** `tools/lights/punch.py <run> [--modes ...] [--labels ...] [--sheet out.png]` measures, per view
+against the game's frame: `hi%` (share of the frame at luma 150 or more), `p95` (the bright end), `sat` and `chroma`
+(mean channel spread: colour that is saturated and bright), `contrast`, and the dark-pixel delta of the scoreboard,
+which is the part that must not move. More highlight and chroma than the game is allowed.
+
+**The proposal** (`bench/suites/punch.json`; `data/lights/proposed/Level 0-3.json`, `0-4`, `2-2`):
+
+- every level light keeps `reach` 0 (no further than in the game): that is what keeps the map's edges dark;
+- fills and scripted lights at full strength again;
+- fixtures, accents, glows, effect and item lights x2.5, with `medium` 0.4 so their haze stays what it is (boosted
+  without it, 0-3's pillar room fogs over);
+- exposure: game match down 0.4 beyond 0.35 EV again (`ae.gameMatchDown`, `ae.gameMatchBandDown`;
+  `-ultrart-ae-match 0.75,0.4 -ultrart-ae-match-band 0.35,0.35`), without the old build's lift of dark scenes;
+- a shadow toe on the tone curve, 0.6 (`plugin._tonemapToe`; `-ultrart-relight-toe 0.6`): it takes a third off the
+  dark delta. The max-channel shoulder was tried and dropped: it removes highlights (hi% 1.8 -> 1.1 on 0-4).
+
+Tour medians (`20261117-233456_punch-try_alt`; sheets `bench/results/review/punch-0-3.png`, `punch-0-4.png`,
+`punch-2-2.png`: the game, the old bright build, what ships, fixtures x1.6, fixtures x2.5, every view):
+
+| Level | | hi% (game) | p95 | chroma | contrast | dark delta |
+|---|---|---|---|---|---|---|
+| 0-3 | old bright build | 2.2 (0.8) | x1.28 | x1.74 | x0.59 | +15.3 |
+| | ships | 0.8 | x1.07 | x0.96 | x0.45 | +7.8 |
+| | punch, fixtures x1.6 | 1.2 | x1.19 | x1.17 | x0.46 | +9.8 |
+| | punch, fixtures x2.5 | 1.1 | x1.22 | x1.29 | x0.46 | +9.1 |
+| 0-4 | old bright build | 2.2 (1.3) | x1.06 | x1.34 | x0.72 | +12.0 |
+| | ships | 1.6 | x0.97 | x1.13 | x0.79 | +7.5 |
+| | punch, fixtures x1.6 | 1.9 | x1.01 | x1.12 | x0.86 | +7.1 |
+| | punch, fixtures x2.5 | 1.9 | x1.02 | x1.30 | x0.81 | +8.1 |
+| 2-2 | old bright build | 1.3 (1.6) | x1.04 | x0.94 | x0.73 | +8.7 |
+| | ships | 1.2 | x0.93 | x0.80 | x0.76 | +5.7 |
+| | punch, fixtures x1.6 | 1.6 | x1.03 | x0.82 | x0.90 | +3.8 |
+| | punch, fixtures x2.5 | 2.0 | x1.04 | x0.88 | x1.00 | +5.0 |
+
+("Old bright build" = `plugin._lightOverrides=0+ae.rtBrightness=1`: no light policies and the exposure of before.)
+Colour and highlights come most of the way back with the dark areas near what ships, far below the old build. Not
+there yet: 0-3's chroma (x1.29 against the old x1.74); 0-3's pillar room, whose void fogs with the fills back at
+full (dark +16 in that view, +10 as shipped, +15 in the old build); contrast against the game stays x0.46 on 0-3
+because path-traced bounce lights what the game leaves black.
+
+The proposal files as committed, run once more (`20261117-234452_punch_alt`, suite `punch`, 0 exceptions), ships -> proposal:
+0-3 hi% 0.8 -> 1.2, chroma x0.96 -> x1.36, dark +7.8 -> +9.6 (old build +17.0); 0-4 hi% 1.5 -> 1.8, chroma x1.13 -> x1.29,
+dark +7.5 -> +6.6 (old +11.8); 2-2 hi% 1.2 -> 1.9, chroma x0.80 -> x0.88, contrast x0.74 -> x0.96, dark +5.6 -> +4.2 (old
++8.7). (`--labels` follow `--modes`; without `--modes` the modes are sorted by name.)
+
+Until the user has seen this: the third batch (review R13) is on hold, and nothing here ships. Review R14.
+
 ## Area lights (shader)
 
 Area lights keep the 4 x float4 per-light layout, so no buffer, UAV or payload changed (still 8 UAVs in PathTrace, 64-byte
