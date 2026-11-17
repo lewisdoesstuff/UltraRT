@@ -62,9 +62,16 @@ namespace UltraRT
 
         /// <summary>Emitter scales set by bench variants (lc.emit.TEXT=F: materials whose name contains TEXT).</summary>
         private readonly List<KeyValuePair<string, float>> _variantEmitters = new List<KeyValuePair<string, float>>();
+        private readonly List<KeyValuePair<string, Vector2>> _variantGlow = new List<KeyValuePair<string, Vector2>>();
         private string _emitterKey = "";
 
         private static string CleanMaterialName(string n) => (n ?? "").Replace(" (Instance)", "").Replace(" [UltraRT]", "").Trim();
+
+        /// <summary>lc.emit.TEXT / lc.glow.TEXT: TEXT is part of the material's name, or with "exact." in front the
+        /// whole name (lc.glow.exact.Light: 'Light', not 'Streetlight').</summary>
+        private static bool VariantNameMatches(string name, string key) =>
+            key.StartsWith("exact.", StringComparison.OrdinalIgnoreCase) ? string.Equals(name, key.Substring(6), StringComparison.OrdinalIgnoreCase)
+                                                                         : name.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0;
 
         /// <summary>EmissiveLights.LightScaleOf: the scale on the light a surface gives ("emitters" rules, bench variants).</summary>
         private float EmitterLightScale(Material m, Texture emission)
@@ -72,29 +79,44 @@ namespace UltraRT
             if (!_lightOverrides || _lightOv == null || m == null) return 1f;
             string name = CleanMaterialName(m.name);
             foreach (var kv in _variantEmitters)
-                if (name.IndexOf(kv.Key, StringComparison.OrdinalIgnoreCase) >= 0) return kv.Value;
+                if (VariantNameMatches(name, kv.Key)) return kv.Value;
             return _lightOv.Classes.EmitterScale(name, emission != null ? emission.name : "", out _);
+        }
+
+        /// <summary>SceneProxies.EmitterGlowOf: the emitter mask of a source material ("emitters" rules with "glow",
+        /// bench variants lc.glow.TEXT=G or G,T).</summary>
+        private Vector2 EmitterGlow(Material src)
+        {
+            if (!_lightOverrides || _lightOv == null || src == null) return Vector2.zero;
+            string name = CleanMaterialName(src.name);
+            foreach (var kv in _variantGlow)
+                if (VariantNameMatches(name, kv.Key)) return kv.Value;
+            var main = src.HasProperty("_MainTex") ? src.GetTexture("_MainTex") : null;
+            return _lightOv.Classes.EmitterGlow(name, main != null ? main.name : "");
         }
 
         /// <summary>EnsureLightOverrides: the emissive triangle table is built with the emitter scales; rebuild it when they change.</summary>
         private void SyncEmitterScales()
         {
-            string key = !_lightOverrides ? "off" : _lightOv.Classes.EmitterKey + "#" + string.Join(";", _variantEmitters.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)));
+            string key = !_lightOverrides ? "off" : _lightOv.Classes.EmitterKey + "#" + string.Join(";", _variantEmitters.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)))
+                + "#" + string.Join(";", _variantGlow.Select(kv => kv.Key + "=" + kv.Value.x.ToString(CultureInfo.InvariantCulture) + "," + kv.Value.y.ToString(CultureInfo.InvariantCulture)));
             if (key == _emitterKey) return;
             bool first = _emitterKey == "";
             _emitterKey = key;
-            if (first && _lightOv.Classes.EmitterKey == "" && _variantEmitters.Count == 0) return; // nothing to apply
+            if (first && _lightOv.Classes.EmitterKey == "" && _variantEmitters.Count == 0 && _variantGlow.Count == 0) return; // nothing to apply
+            _proxies?.SyncEmitterGlow(); // masks first: the table reads the proxy materials
             _emissive?.Clear(); // rebuilt on the next traced frame (EmissiveLights.Update)
             ResetLightHistories();
             Logger.LogInfo($"Emitter scales changed ({key}): emissive lights rebuild");
         }
 
-        private bool LightTogglesActive => _classToggles.Count > 0 || _lightToggles.Count > 0 || _classSolo != null || _variantPolicies.Count > 0 || _variantEmitters.Count > 0;
+        private bool LightTogglesActive => _classToggles.Count > 0 || _lightToggles.Count > 0 || _classSolo != null || _variantPolicies.Count > 0 || _variantEmitters.Count > 0 || _variantGlow.Count > 0;
 
         private void ClearLightToggles()
         {
             if (!LightTogglesActive) return;
             _variantEmitters.Clear();
+            _variantGlow.Clear();
             _classToggles.Clear();
             _lightToggles.Clear();
             _variantPolicies.Clear();
@@ -151,7 +173,8 @@ namespace UltraRT
         }
 
         /// <summary>Bench variants "lc.KEY=VALUE": class.NAME=off|F, solo=NAME, light.TEXT=off|F (TEXT: part of the
-        /// hierarchy path), set.CLASS.FIELD=VALUE (a class policy for this mode), layer=NAME (lights\NAME\ over the
+        /// hierarchy path), emit.TEXT=F (the light of emissive materials named TEXT), glow.TEXT=G or G,T (an emitter
+        /// mask on materials named TEXT: glow, threshold), set.CLASS.FIELD=VALUE (a class policy for this mode), layer=NAME (lights\NAME\ over the
         /// shipped files). A kind is written with a dot (prefab.firstroom = prefab:firstroom: ':' cannot be in a file
         /// name). Undone by RestoreVariantState.</summary>
         private void ApplyLightVariant(string key, string value)
@@ -159,6 +182,12 @@ namespace UltraRT
             if (key.StartsWith("class.", StringComparison.OrdinalIgnoreCase)) SetClassToggle(key.Substring(6).Replace('.', ':'), ParseScale(value));
             else if (key.StartsWith("set.", StringComparison.OrdinalIgnoreCase)) SetVariantPolicy(key.Substring(4), value);
             else if (key.StartsWith("emit.", StringComparison.OrdinalIgnoreCase)) { _variantEmitters.Add(new KeyValuePair<string, float>(key.Substring(5), ParseScale(value))); _toggleVersion++; }
+            else if (key.StartsWith("glow.", StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = (value ?? "").Split(',');
+                _variantGlow.Add(new KeyValuePair<string, Vector2>(key.Substring(5), new Vector2(ParseScale(parts[0]), parts.Length > 1 ? ParseScale(parts[1]) : 0f)));
+                _toggleVersion++;
+            }
             else if (key.StartsWith("light.", StringComparison.OrdinalIgnoreCase))
             {
                 _lightToggles.Add(new KeyValuePair<string, float>(key.Substring(6), ParseScale(value)));
@@ -326,6 +355,40 @@ namespace UltraRT
             [JsonProperty("rule")] public string Rule;
             [JsonProperty("policy")] public string Policy;
             [JsonProperty("entry", NullValueHandling = NullValueHandling.Ignore)] public string Entry;
+            /// <summary>The fixture's materials, "name:emissive|unlit|lit" (FixtureMaterials).</summary>
+            [JsonProperty("fixture", NullValueHandling = NullValueHandling.Ignore)] public string[] Fixture;
+        }
+
+        /// <summary>Census: what the light's fixture is made of, so that tools/lights/fixtures.py can tell which fake
+        /// lights have a glowing part to hand their job to (docs/lighting-overrides.md, "Emissive fixtures"). The
+        /// fixture is the nearest ancestor (two levels up at most) with renderers below it; more than 24 renderers is
+        /// a room, not a fixture. Per material: emissive (the game's EMISSIVE / _EMISSION keyword: it is in the
+        /// emissive light list when bright enough), unlit (fullbright Master: it shows its texture, and lights nothing
+        /// unless it is also emissive), or lit.</summary>
+        private static string[] FixtureMaterials(Light l)
+        {
+            var t = l.transform.parent;
+            for (int up = 0; up < 2 && t != null; up++, t = t.parent)
+            {
+                var rs = t.GetComponentsInChildren<Renderer>(true);
+                if (rs.Length == 0) continue;
+                if (rs.Length > 24) return null;
+                var names = new List<string>();
+                foreach (var r in rs)
+                {
+                    if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) continue;
+                    foreach (var m in r.sharedMaterials)
+                    {
+                        if (m == null) continue;
+                        string kind = m.IsKeywordEnabled("EMISSIVE") || m.IsKeywordEnabled("_EMISSION") ? "emissive"
+                            : m.shader != null && m.shader.name == "ULTRAKILL/Master" && !m.IsKeywordEnabled("VERTEX_LIGHTING") ? "unlit" : "lit";
+                        string n = CleanMaterialName(m.name) + ":" + kind;
+                        if (!names.Contains(n) && names.Count < 8) names.Add(n);
+                    }
+                }
+                return names.Count > 0 ? names.ToArray() : null;
+            }
+            return null;
         }
 
         /// <summary>Bench, at the end of a scenario (-ultrart-light-census): every light the RT scene tracks, on or off,
@@ -359,6 +422,7 @@ namespace UltraRT
                             Type = l.type.ToString().ToLowerInvariant(), Range = l.range, Intensity = l.intensity,
                             Color = new[] { LightOverrides.Round(l.color.r), LightOverrides.Round(l.color.g), LightOverrides.Round(l.color.b) },
                             Active = l.isActiveAndEnabled, Class = r.Class, Rule = r.Rule, Policy = r.PolicyText(), Entry = e?.Origin,
+                            Fixture = layer == null ? FixtureMaterials(l) : null,
                         });
                     }
                     var emitters = _emissive?.Describe().Select(g =>

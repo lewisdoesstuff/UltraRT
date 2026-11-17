@@ -125,7 +125,7 @@ User report: "still too bright compared to the base game". Most of the mean exce
 - the dark lift (`up`) is 0: a dark place is as dark as its lights make it;
 - the game match's down side is 0.9 beyond 0.1 EV (`gameMatchDown`, `gameMatchBandDown`). The up side is unchanged;
 - **RT brightness** (`-ultrart-rt-brightness F`, config `[Relight] RtBrightness`, settings menu, bench `ae.rtBrightness`) blends the three values back: 0 = as the game (default), 1 = the policy before this change;
-- a level can carry its own RT brightness in its light override file (`"exposure": { "rtBrightness": 1 }`, docs/lighting-overrides.md, "Format"): the level is shown at least that bright. **P-2** has 1: the user likes its street as it was. Bench `ae.levelOverride=0` ignores it.
+- a level can carry its own RT brightness in its light override file (`"exposure": { "rtBrightness": 1 }`, docs/lighting-overrides.md, "Format"): the level is shown at least that bright. **P-2** had 1 (the user liked its street as it was) until the user dropped the exception later on 2026-11-17: P-2 now follows the same policy as every level (the "1.89" column below, not "shipped: 2.17"). Bench `ae.levelOverride=0` ignores a level's value.
 
 Mean screen luma against the game's, pathtrace, old policy and new (`bench/suites/bright-core.json`, 2026-11-17, scored with `tools/lights/score.py`; "reveal" = share of the frame that is dark in the game and visibly lit in RT, docs/lighting-overrides.md "Scoreboard"):
 

@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "scene": "Level 7-3",
+  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.5, fixtures, accents, glows, effect and item lights x0.7. Why: the Grand Hall's lights; the flashlight (class player) x0.6: its bounce in the white halls reads x5-6.6. On top of the shipped entries.",
+  "lights": [
+    {
+      "path": "3 - Central Plaza/3 Nonstuff/FightLights/Spot Light",
+      "name": "Spot Light",
+      "pos": [
+        -130.0,
+        -13.5,
+        483.75
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "source": "fit",
+      "note": "fit x0.50 (1.00, 1.00, 1.00) over 2 poses"
+    },
+    {
+      "path": "3 - Central Plaza/3 Nonstuff/FightLights/Spot Light (1)",
+      "name": "Spot Light (1)",
+      "pos": [
+        -161.0,
+        -13.5,
+        483.75
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "source": "fit",
+      "note": "fit x0.50 (1.00, 1.00, 1.00) over 3 poses"
+    },
+    {
+      "path": "3 - Central Plaza/3 Nonstuff/Tree Area/Spot Light",
+      "name": "Spot Light",
+      "pos": [
+        -140.5,
+        20.0,
+        483.625
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "source": "fit",
+      "note": "fit x0.50 (1.00, 1.00, 1.00) over 3 poses"
+    },
+    {
+      "path": "3 - Central Plaza/3 Nonstuff/Tree Area/Spot Light (1)",
+      "name": "Spot Light (1)",
+      "pos": [
+        -150.0,
+        20.0,
+        483.625
+      ],
+      "type": "spot",
+      "intensity": 0.5,
+      "source": "fit",
+      "note": "fit x0.50 (1.00, 1.00, 1.00) over 3 poses"
+    },
+    {
+      "path": "3 - Central Plaza/3 Stuff/SuicideTreeHungry/BloodLeaves/Point Light",
+      "name": "Point Light",
+      "pos": [
+        -144.863,
+        12.125,
+        483.625
+      ],
+      "type": "point",
+      "intensity": 0.857,
+      "color": [
+        1.111,
+        0.926,
+        0.962
+      ],
+      "source": "fit",
+      "note": "fit x0.86 (1.11, 0.93, 0.96) over 2 poses"
+    },
+    {
+      "path": "FirstRoom/Room/Shop/Point Light",
+      "name": "Point Light",
+      "pos": [
+        6.535,
+        2.612,
+        266.62
+      ],
+      "type": "point",
+      "offset": [
+        0.035,
+        0.035,
+        -0.337
+      ],
+      "class": "emissive",
+      "source": "classifier",
+      "confidence": 0.6,
+      "note": "wall: moved 0.34 m into the room [taste, wall]"
+    }
+  ],
+  "added": [],
+  "classes": {
+    "fill": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "scripted": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "fixture": {
+      "reach": 0,
+      "intensity": 0.7
+    },
+    "accent": {
+      "reach": 0,
+      "intensity": 0.7
+    },
+    "glow": {
+      "reach": 0,
+      "intensity": 0.7
+    },
+    "effect": {
+      "reach": 0,
+      "intensity": 0.7
+    },
+    "item": {
+      "reach": 0,
+      "intensity": 0.7
+    },
+    "player": {
+      "intensity": 0.6
+    }
+  }
+}

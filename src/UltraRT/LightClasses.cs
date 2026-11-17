@@ -164,6 +164,12 @@ namespace UltraRT
         /// <summary>Regex on the name of its emission texture (the albedo, for albedo-as-emission materials).</summary>
         [JsonProperty("texture", NullValueHandling = NullValueHandling.Ignore)] public string Texture;
         [JsonProperty("scale")] public float Scale = 1f;
+        /// <summary>Emitter mask: above 0, a surface the game does not mark as emissive glows with its albedo times
+        /// this (SceneProxies.Glow.cs). For such a rule "texture" is the main texture's name.</summary>
+        [JsonProperty("glow", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Glow;
+        /// <summary>The mask: only texels whose albedo luminance (linear, 0-1) is above this glow (a soft step of
+        /// +-0.1). 0 = the whole surface.</summary>
+        [JsonProperty("threshold", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Threshold;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
 
         [JsonIgnore] private Regex _scene, _material, _texture;
@@ -228,6 +234,17 @@ namespace UltraRT
             }
             rule = null;
             return 1f;
+        }
+
+        /// <summary>The emitter mask of a surface (first matching emitter rule): x glow (0 = none), y threshold.</summary>
+        public Vector2 EmitterGlow(string material, string texture)
+        {
+            foreach (var r in _emitters)
+            {
+                try { if (r.Matches(material, texture)) return new Vector2(Mathf.Max(0f, r.Glow), Mathf.Clamp01(r.Threshold)); }
+                catch (ArgumentException e) { _log.LogError($"Emitter rule '{r.Name}': bad pattern: {e.Message}"); }
+            }
+            return Vector2.zero;
         }
         private readonly Dictionary<string, LightPolicy> _levelClasses = new Dictionary<string, LightPolicy>(StringComparer.OrdinalIgnoreCase);
         private DateTime _stamp, _layerStamp;
@@ -304,7 +321,7 @@ namespace UltraRT
                 _emitters.AddRange(_globalEmitters.Where(r => r.SceneMatches(scene)));
             }
             catch (ArgumentException e) { _log.LogError($"Emitter rules: bad pattern: {e.Message}"); }
-            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Scale.ToString(CultureInfo.InvariantCulture)}"));
+            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Scale.ToString(CultureInfo.InvariantCulture)}" + (r.Glow > 0f ? $"|g{r.Glow.ToString(CultureInfo.InvariantCulture)}t{r.Threshold.ToString(CultureInfo.InvariantCulture)}" : "")));
         }
 
         /// <summary>The first matching rule, or null.</summary>

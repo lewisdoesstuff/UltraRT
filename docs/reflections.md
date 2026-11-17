@@ -512,6 +512,28 @@ The bits are Plugin's `_playerRays` (default 15 = all four), uploaded every fram
 
 **V1 lit like the scene in reflections** (2026-11-14 late, user report "P-2 v1 reflection": in the dark red hall V1 reflected greyish white with bright yellow wings). V1's materials are all ULTRAKILL/Master without VERTEX_LIGHTING: body `V1` (`_USEALBEDOASEMISSIVE_ON` but no EMISSIVE keyword), wings `V1Wing` (EMISSIVE), third-person guns `Pistol New Unlit`, `Shotgun New Unlit`, ... The proxy rule for that ("unlit = fullbright, like the game", `_Unlit` 1) made V1 fullbright, which is how the game draws it in its own portal mirrors but stands out wherever the scene is dark. Player proxies now get lit copies of their materials (`SceneProxies.PlayerProxyOrDisabled`, `_Unlit` 0, also on runtime material swaps; other users of the same materials keep theirs). The body takes the room's colour; the wings keep the game's own yellow emission (the stamina glow), now on top of a lit, dark-red albedo. Switch: `SceneProxies.PlayerModelLit` (read when the model's proxies are made). No extra rays: cost unchanged.
 
+**V1's own blue** (2026-11-17, `t3/trailer-fixes`; the trailer's "V1 reads grey" in 1-1's terminal room). The
+separating capture (`bench/suites/diag-v1-grey.json`: the trailer's third-person shot in pathtrace and the debug
+views; the debug ray generation does not trace the player, so only pathtrace and `dn-lighting` show it) says it is
+physics: the body's albedo is blue, the room's light is orange, and a blue surface returns almost none of it, so the
+body is near black with grey highlights from its gloss. By the user's decision 7 (docs/plan-look-and-perf.md) V1
+keeps a small unlit share so the blue reads: `SceneProxies.PlayerModelUnlit` = 0.2 of the game's fullbright
+(`-ultrart-v1-unlit F`; 0 = lit by the room only, read when the model's proxies are made). Before / after at the
+same frame: `bench/results/review/v1-unlit-share.png` (`20261117-201615_diag-v1-grey_alt` against
+`20261117-201813_trailer-fixes_alt`). The guns V1 holds get the same share.
+
+**Water tint and P-2's puddle** (2026-11-17). The trailer's yellow-green patch on P-2's street is the game's `Puddle`
+object, which is traced as water (`Water 6 Still`: colour (0.22, 0, 0), alpha 0.5, texture `Fixed Water Texture`).
+In pathtrace a path that passes through water is tinted by `lerp(1, albedo, 0.48)` whatever the game's alpha is
+(`UltraRTPathTraceFull.hlsl`). `trans.alphaTint=1` makes that follow the game's blend alpha (texture alpha x colour
+alpha x `_Opacity` / `_OpacScale`, full tint from 0.5 up; the proxy gets `_TransOpacity`, and each water material's
+values are logged as `Transparent proxy: water ...`). At five water poses (`bench/suites/water-tint.json`,
+`20261117-202126_water-tint_alt`: P-2 puddle, 5-2 sea, 1-3 start, 8-2 pool, 7-1 pool) it changes little (mean
+difference 0.7-7 of 255), and **the yellow-green patch did not reproduce** at the plan's pose in today's build with
+it off or on: the puddle is a red, mottled reflection there. So the switch is off, and the item stays open until
+the patch is seen again (the trailer's take was a moving first-person run under flickering lamps). What that pose
+does show: the street is x2.7 brighter than the game there, floor and all.
+
 ### Animation
 
 `PlayerAnimations.LateUpdate` drives the model from `NewMovement` (velocity, sliding, dodging, in air, jump/land, shoot/punch/coin triggers) and turns the head, chest and right arm to the camera every frame. The Animator ships with `cullingMode = CullUpdateTransforms`; its renderers are on layer 30, which the main camera never draws, and our proxies never render, so outside portal views Unity could stop updating the bones. `SceneProxies.PlayerAlwaysAnimate` sets `AlwaysAnimate` while the RT scene exists and restores the original on dispose (`-ultrart-player-noanimate` skips it). The 600-frame log line `Player model: ...` reports the proxies in the RTAS, the animator's culling mode, state and normalized time (it advances: 22.4 → 26.0 → 32.6 over successive logs in one level), and where the root bone and bounds are relative to the camera. The RT pose is the skinned pose (`DynamicGeometry` re-reads it every build) and the instance follows the root bone.

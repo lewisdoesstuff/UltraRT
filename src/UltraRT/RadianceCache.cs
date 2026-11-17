@@ -151,6 +151,21 @@ namespace UltraRT
         /// <summary>Shorten the history for a few frames (lights or emitters appeared/disappeared).</summary>
         public void NotifyLightsChanged() => _fastFrames = Math.Max(_fastFrames, Settings.changeFrames);
 
+        /// <summary>Whether the update runs this frame when the auxiliary passes take turns (docs/performance.md, "Pass
+        /// schedule"): every <paramref name="every"/>-th frame, and every frame while the cache is new or the lights
+        /// have just changed. The cache is in world space, so a frame without an update reads it unchanged.</summary>
+        public bool Due(uint frameIndex, int every)
+        {
+            Every = Mathf.Max(1, every);
+            return DueNow(frameIndex, every);
+        }
+
+        /// <summary>Frames per update, as last asked of <see cref="Due"/>: the history and stale lengths are divided by
+        /// it, so the cache follows a changing light as fast in seconds as when it updates every frame.</summary>
+        public int Every { get; private set; } = 1;
+
+        private bool DueNow(uint frameIndex, int every) => every <= 1 || _needsClear || _fastFrames > 0 || _keys == null || frameIndex % (uint)every == 0;
+
         /// <summary>
         /// Record the update paths and the resolve (when <see cref="Active"/>) and bind the lookup inputs on PathTrace.
         /// Must run on every PathTrace dispatch (PathTrace declares the lookup inputs), after the caller bound the shared
@@ -158,10 +173,11 @@ namespace UltraRT
         /// </summary>
         /// <param name="traceWidth">PathTrace dispatch size; update paths cover it in stride x stride blocks.</param>
         public void Execute(CommandBuffer cmd, RayTracingShader pathTrace, int traceWidth, int traceHeight,
-                            Matrix4x4 invViewProj, Vector3 camPos, uint frameIndex, float lightScale, float emissionScale)
+                            Matrix4x4 invViewProj, Vector3 camPos, uint frameIndex, float lightScale, float emissionScale, bool update = true)
         {
             var s = Settings;
             bool active = Active;
+            if (active && !update && _keys != null) { BindLookup(cmd, pathTrace, true); return; }
             if (active)
             {
                 EnsureBuffers();
@@ -195,7 +211,7 @@ namespace UltraRT
                 BindResolve(cmd);
                 cmd.SetComputeIntParam(_resolve, IdCapacity, _capacity);
                 cmd.SetComputeIntParam(_resolve, IdFrame, unchecked((int)_frame));
-                cmd.SetComputeVectorParam(_resolve, IdResolve, new Vector4(Mathf.Max(1f, history), Mathf.Max(1, s.staleFrames), 1f / FixedScale, 0));
+                cmd.SetComputeVectorParam(_resolve, IdResolve, new Vector4(Mathf.Max(1f, history / Every), Mathf.Max(1, s.staleFrames / Every), 1f / FixedScale, 0));
                 cmd.DispatchCompute(_resolve, _kResolve, _capacity / 256, 1, 1);
                 _frame++;
             }

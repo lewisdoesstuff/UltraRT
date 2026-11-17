@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "Level 3-1",
-  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels'): the floating room lights never reach further than in the game; x0.5, the Bridge Arena's switched ones x0.35. The opening's and the last rooms' keep their strength.",
+  "note": "Shipped 2026-11-17 (user: 'look great') (docs/lighting-overrides.md, 'Levels'): the floating room lights never reach further than in the game; x0.5, the Bridge Arena's switched ones x0.35. The opening's and the last rooms' keep their strength.",
   "rules": [
     {
       "name": "opening",

@@ -30,6 +30,10 @@ namespace UltraRT
         /// <summary>Fresnel F0. Above the physical 0.02/0.04: the game's water and glass textures are bright and fairly
         /// opaque, which hides a physical-strength reflection everywhere but at grazing angles.</summary>
         public float waterF0 = 0.12f, glassF0 = 0.08f;
+        /// <summary>Pathtrace: water tints a path by the game's blend alpha (texture alpha x colour alpha x opacity; full
+        /// tint from 0.5 up) instead of a fixed share. Off: it changed little at the five poses tried and the flaw it was
+        /// written for did not reproduce (bench trans.alphaTint=1; docs/reflections.md, "Water tint").</summary>
+        public bool alphaTint = false;
         /// <summary>Liquid blood (0-2's river): thick and opaque, so a calmer, weaker sheen than water, no ripples in the
         /// reflection ray (traced like glass), no refraction (overlay _Kind 2), and a lower cap on the reflection weight.
         /// The game's blood is alpha blended and thin; with the floor under it relit (brighter, more contrast than the

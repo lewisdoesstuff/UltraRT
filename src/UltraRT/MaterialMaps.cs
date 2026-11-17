@@ -15,10 +15,10 @@ namespace UltraRT
         public bool enabled = true;
         /// <summary>-ultrart-materials-source ai|proc: the cache folder under BepInEx/ultrart/materials (tools/materials).</summary>
         public string source = "ai";
-        /// <summary>-ultrart-materials-smooth F ([Materials] NormalSmooth), 0-1: how far each texel's normal is pulled to
+        /// <summary>-ultrart-materials-smooth F ([Materials] NormalSmoothing), 0-1: how far each texel's normal is pulled to
         /// the 3x3 average of its neighbourhood when a map is loaded (wrapped). PBRify tilts every texel on its own,
         /// which shows as fragments inside bricks under any denoiser (docs/materials.md, "Matrix"). Read at scene build.</summary>
-        public float smooth = 0f;
+        public float smooth = 1f;
         /// <summary>-ultrart-materials-normal F: global multiplier on the per-class normal strength (relight, pt-dn, pt).</summary>
         public float normalStrength = 1f;
         /// <summary>-ultrart-materials-hybrid-normal F: the same in hybrid, whose shadow ratio scales the game's lit colour

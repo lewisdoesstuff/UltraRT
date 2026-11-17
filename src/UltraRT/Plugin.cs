@@ -248,6 +248,7 @@ namespace UltraRT
                     case "-ultrart-relight-white": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightWhite); break;
                     case "-ultrart-light-radius": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _lightRadius); break;
                     case "-ultrart-nofixtureshadows": _fixtureShadows = false; break;
+                    case "-ultrart-aux-every": if (int.TryParse(Next(), out int every)) _auxEvery = Mathf.Clamp(every, 1, 4); break;
                     case "-ultrart-nofixturelift": _fixtureLift = false; break;
                     case "-ultrart-noorbemitters": SceneProxies.OrbEmitters = false; break;
                     case "-ultrart-beside": _besideV1 = true; break;
@@ -263,6 +264,7 @@ namespace UltraRT
                     case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
                     case "-ultrart-rtmirrors": _rtMirrors = true; break;
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
+                    case "-ultrart-v1-unlit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.PlayerModelUnlit); break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
                     case "-ultrart-norain": _rainOn = false; break;
                     case "-ultrart-notexscroll": _texScroll = false; break;
@@ -512,7 +514,7 @@ namespace UltraRT
                 var playerCam = MonoSingleton<CameraController>.Instance != null ? MonoSingleton<CameraController>.Instance.cam : null;
                 var cam = playerCam != null ? playerCam : Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
                 Logger.LogInfo($"RT layer mask from {(cam != null ? Bench.GameControl.PathOf(cam.transform) : "none")}: 0x{(cam != null ? cam.cullingMask : ~0):X8}");
-                _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy);
+                _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy) { EmitterGlowOf = EmitterGlow };
                 _proxies.SetDisplaceShader(_displaceCs);
                 _proxies.Build();
                 _emissive.Build(_proxies);
@@ -913,6 +915,9 @@ namespace UltraRT
             ? new Vector4(_relightFalloff, _relightFillCut, _relightExposure, _relightAmbientCut)
             : Vector4.zero;
         private bool _fixtureShadows = true;  // -ultrart-nofixtureshadows
+        /// <summary>-ultrart-aux-every N: the radiance-cache update runs every N-th frame (1 = every frame).
+        /// docs/performance.md, "Pass schedule".</summary>
+        public int _auxEvery = 1;
         private RenderTexture _depthCopy;
         private bool _noDepthMatch;
         private static readonly int UltraRTGameDepthId = Shader.PropertyToID("_UltraRTGameDepth");

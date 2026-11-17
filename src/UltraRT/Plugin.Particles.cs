@@ -154,6 +154,8 @@ namespace UltraRT
             string name = Modes[_mode].name;
             // Before the first activation the materials are not swapped yet; run anyway so the volume is warm.
             if (!ParticlesFor(name, kind) || !(kind == Kind.Denoised || kind == Kind.Hybrid) || _proxies?.Rtas == null || _camera == null) return;
+            // Not on the pass schedule (docs/performance.md, "Pass schedule"): with the volume a frame old, smoke read
+            // 2-4 times noisier between replays (P-2 vent smoke, 2026-11-17).
             if (Time.frameCount - _particleTracedFrame > 2) _particleLight.Reset(); // stale after other modes / view off
             _particleTracedFrame = Time.frameCount;
 

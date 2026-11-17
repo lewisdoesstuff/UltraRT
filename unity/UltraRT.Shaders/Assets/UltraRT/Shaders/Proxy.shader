@@ -12,6 +12,8 @@ Shader "UltraRT/Proxy"
         _UseAlbedoAsEmissive ("Use Albedo As Emissive", Float) = 0
         // ULTRAKILL/Master _EmissiveMask: the emission is multiplied by the main texture's alpha^2.2 (decompiled).
         _EmissiveMask ("Emissive Mask (albedo alpha)", Float) = 0
+        // Emitter mask by rule (SceneProxies.Glow.cs): above 0, only texels whose luminance passes it glow.
+        _EmissiveThreshold ("Emissive Threshold (luminance)", Float) = 0
         _Cutoff ("Alpha cutoff", Float) = 0
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
         _BlendTex ("Blend atlas", 2D) = "white" {}
@@ -30,6 +32,9 @@ Shader "UltraRT/Proxy"
         // Water / glass / blood proxies (mask 0x10, SceneProxies.Transparent.cs): the kind, reported in the payload flags so
         // the path tracing mode can reflect or pass through them (UltraRTPathTraceFull.hlsl). 0 = an ordinary surface.
         _Transparent ("Transparent kind (1 glass, 2 water, 3 blood)", Float) = 0
+        // Water: the game's opacity factor (its _Opacity / _OpacScale). With the texture's and the colour's alpha it is how
+        // much of the water's own colour the game blends over what is behind; the path's tint follows it.
+        _TransOpacity ("Transparent opacity", Float) = 1
         // ULTRAKILL/Master without VERTEX_LIGHTING is fullbright in game: the lit weight is 1 - _Unlit (enemies: a partial
         // value, SceneProxies.UnlitEnemyLitWeight). Non-atlas only; atlas geometry carries it in the vertex colour alpha.
         _Unlit ("Unlit (0 lit, 1 fullbright)", Float) = 0
@@ -129,12 +134,15 @@ Shader "UltraRT/Proxy"
             float _EmissiveIntensity;
             float _UseAlbedoAsEmissive;
             float _EmissiveMask;
+            float _EmissiveThreshold;
             float _Cutoff;
             float _AtlasMode;
             float _SkyWall;
             float _AlphaTest;
             float _CameraSkip;
             float _Transparent;
+            float _TransOpacity;
+            float _UltraRTTransAlpha; // global: 1 = water's path tint follows the game's blend alpha
             float _Unlit;
             float _BloodFill, _BloodScale;
             Texture2D _BloodNoiseTex;
@@ -175,6 +183,9 @@ Shader "UltraRT/Proxy"
             // Rain wetness (docs/vfx.md, "Rain"): global, x wetness of a rained-on surface (0 = off), y puddle amount,
             // z puddle noise frequency (1/m), w ripple strength.
             float4 _UltraRTWet;
+            // x puddle edge width, y wet margin width (both in puddle-noise units), z roughness and w specular weight of a
+            // wet surface without standing water (Plugin.Wet.cs).
+            float4 _UltraRTWet2;
 
             float WetHash(float2 p)
             {
@@ -220,7 +231,12 @@ Shader "UltraRT/Proxy"
                 if (up < 0.9 || _UltraRTWet.y <= 0.0) return;
                 float n = WetNoise(P.xz * _UltraRTWet.z);
                 float lo = 1.0 - _UltraRTWet.y * 0.75;
-                puddle = smoothstep(lo, lo + 0.12, n) * saturate((up - 0.9) * 20.0);
+                float flat = saturate((up - 0.9) * 20.0);
+                float edge = max(_UltraRTWet2.x, 0.01);
+                // A wider edge grows inwards and outwards from the same outline, so the share of standing water stays.
+                puddle = smoothstep(lo - 0.5 * (edge - 0.12), lo + 0.12 + 0.5 * (edge - 0.12), n) * flat;
+                // The floor around a puddle is soaked: full wetness in a margin outside the edge.
+                if (_UltraRTWet2.y > 0.0) wet = max(wet, smoothstep(lo - 0.5 * (edge - 0.12) - _UltraRTWet2.y, lo, n) * flat);
                 if (!ripples || _UltraRTWet.w <= 0.0) return;
                 float3 p = P;
                 if (_LocalOffsetRain != 0.0) { float3x4 o = ObjectToWorld3x4(); p -= float3(o[0][3], o[1][3], o[2][3]); }
@@ -630,6 +646,7 @@ Shader "UltraRT/Proxy"
                     if (_UseAlbedoAsEmissive < 0.5) e = _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_EmissiveTex, lodAlbedo, lodCap)).rgb; // not ?: (both sides run)
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                     if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
+                    if (_EmissiveThreshold > 0.0) emission *= smoothstep(_EmissiveThreshold - 0.1, _EmissiveThreshold + 0.1, dot(e, float3(0.2126, 0.7152, 0.0722)));
                 }
                 // Fresh explosion debris glows and cools; the texture's light and dark texels stay readable.
                 if (_HotDebris > 0.5) emission += _UltraRTDebrisGlow.rgb * (0.4 + 1.2 * dot(albedo.rgb, float3(0.2126, 0.7152, 0.0722)));
@@ -645,6 +662,9 @@ Shader "UltraRT/Proxy"
                 }
 
                 p.albedo = albedo.rgb;
+                // Water the game draws nearly transparent (P-2's puddles: alpha about 0.1) must tint a path about as little:
+                // towards white by the game's blend alpha, full tint from alpha 0.5 up (pools and seas keep their colour).
+                if (_Transparent == 2.0 && _UltraRTTransAlpha > 0.5) p.albedo = lerp(1.0, albedo.rgb, saturate(2.0 * albedo.a * _TransOpacity));
                 p.alpha = litWeight;
                 p.normal = n;
                 p.t = RayTCurrent();
@@ -694,8 +714,8 @@ Shader "UltraRT/Proxy"
                     // turned a wet metal floor black under a dark sky) and most of their roughness.
                     float nonMetal = 1.0 - metal;
                     float film = saturate(wet + puddle) * lerp(0.35, 1.0, nonMetal);
-                    rough = lerp(rough, min(rough, lerp(0.3, 0.03, puddle)), film);
-                    specWeight = max(specWeight, lerp(0.5 * wet, 1.0, puddle) * nonMetal);
+                    rough = lerp(rough, min(rough, lerp(_UltraRTWet2.z, 0.03, puddle)), film);
+                    specWeight = max(specWeight, lerp(_UltraRTWet2.w * wet, 1.0, puddle) * nonMetal);
                     f0 = max(f0, 0.04);
                 }
                 p.material = PackMaterialWord(rough, metal, f0, specWeight);

@@ -737,6 +737,19 @@ namespace UltraRT
             var img = tex != null ? LowRes(tex) : null;
             var baseLe = m.GetColor("_EmissiveColor") * m.GetFloat("_EmissiveIntensity");
             baseLe = new Color(baseLe.r * tint.r, baseLe.g * tint.g, baseLe.b * tint.b);
+            // _EmissiveThreshold (an emitter mask, SceneProxies.Glow.cs): as Proxy.shader, only texels above the
+            // threshold glow. On the 32x32 copy, so a mask of single texels is averaged before the step: approximate.
+            float thr = m.HasProperty("_EmissiveThreshold") ? m.GetFloat("_EmissiveThreshold") : 0f;
+            if (thr > 0f && img != null)
+            {
+                var cut = new Color[img.Length];
+                for (int i = 0; i < img.Length; i++)
+                {
+                    var c = img[i];
+                    cut[i] = c * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(thr - 0.1f, thr + 0.1f, Lum(new Color(c.r * tint.r, c.g * tint.g, c.b * tint.b))));
+                }
+                img = cut;
+            }
             // A surface's own scale on the light it gives (light overrides' "emitters"): only this table, so the surface
             // looks the same to the camera and in reflections.
             float own = LightScaleOf != null ? Mathf.Max(0f, LightScaleOf(m, tex)) : 1f;

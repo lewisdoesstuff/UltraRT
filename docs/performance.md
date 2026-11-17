@@ -295,6 +295,59 @@ so the hybrid, reference and debug branches drop out). Measured against the gene
 0.02-0.04 ms is the spread between two equal modes, and a third ray generation is a third pipeline for the driver to
 compile, so the change was removed. The branches on `_Mode` cost nothing measurable; relight's GPU time is in its rays.
 
+### Pass schedule (2026-11-17, `t3/perf-dispatch`, plan C1): tried, kept as an option, not the default
+`-ultrart-aux-every N` (bench variant `plugin._auxEvery=N`, default 1): the radiance-cache update runs every N-th
+frame. A frame without it reads the cache unchanged (the cache is in world space). It still runs every frame while
+the cache is new or the lights have just changed (`RadianceCache.Due`), and the history and stale lengths are divided
+by N, so the cache follows a changing light as fast in seconds as before. Volumetrics were never scheduled (their
+buffer is in screen space).
+
+**First version: the cache update and the particle-light volume on alternating frames.** Frame time at N = 2
+against 1, `-Perf`, 2560x1440, means of both mode orders (`perf-sched.json`, `perf-sched-rev.json`, one launch,
+`bench/results/20261117-190247_perf-sched*`):
+
+| Scenario | relight, frame ms | pathtrace, frame ms |
+|---|---|---|
+| 0-1 metal | 5.74 -> 5.42 (-0.33) | 6.08 -> 5.56 (-0.52) |
+| 0-3 ghosts | 6.71 -> 6.25 (-0.46) | 6.08 -> 5.82 (-0.26) |
+| 0-2 run, combat | 8.39 -> 8.05 (-0.34) | 8.32 -> 8.09 (-0.23) |
+
+Held-image noise was no worse (`sched-noise.json`, `20261117-190622_sched-noise_alt`). In motion it failed where
+smoke fills the view (`sched-motion.json`, `20261117-195954_sched-motion_alt`, replay sigma): P-2 vent smoke relight
+2.92 -> 10.93, pathtrace 3.46 -> 7.39; the dust sweep and the flashing lights were within their spread. Lit smoke
+with its lighting volume a frame old differs visibly from replay to replay, so **the particle volume came off the
+schedule**.
+
+**Second version: the cache update alone** (`20261117-200950_perf-sched*`, both orders):
+
+| Scenario | relight, frame ms | pathtrace, frame ms |
+|---|---|---|
+| 0-1 metal | 5.66 -> 5.58 (-0.08) | 6.10 -> 5.73 (-0.37) |
+| 0-3 ghosts | 6.73 -> 6.62 (-0.11) | 6.04 -> 5.90 (-0.13) |
+| 0-2 run, combat | 8.16 -> 8.10 (-0.05) | 8.25 -> 8.16 (-0.09) |
+
+About 0.1 ms, less than the difference between the two orders of one pair. So most of the first version's gain was
+the particle dispatch, the one that cannot be skipped. Motion noise with the second version
+(`20261117-200634_sched-motion_alt`): sweep 4.87 -> 4.56 (relight), 5.40 -> 5.14 (pathtrace); flash 0.33 -> 0.30,
+0.45 -> 0.45; P-2 vent smoke 5.89 -> 7.18, 4.54 -> 5.73, on a pose whose baseline moved from 2.92 to 5.89 between
+the two launches, so that row decides nothing. **Default stays 1**: 0.1 ms is not worth a second update rate to
+reason about. The flag stays for machines where the cache update costs more.
+
+**Measuring pairs.** With four modes on a recorded route each mode sees different stretches (relight on the combat
+run read +0.55 in one order and -1.22 in the other), and the fourth mode of a static pose was up to 0.4 ms slower
+than the same mode in third place. A pair is comparable only as the mean of both orders.
+
+### One dispatch for the auxiliary passes (plan C2, C3): not possible as planned
+The idea was extra rows of the main dispatch selecting the job, to pay the per-dispatch setup once. Unity allows a
+ray tracing shader eight writable targets. Counted in the shaders (2026-11-17): the main ray generation
+(`PathTrace.raytrace`) already has 7; the cache update needs 1, particle light 1, volumetrics 2, the viewmodel 4. Only
+the cache update fits, and the schedule above shows what removing half of its dispatches is worth: 0.1 ms. The
+viewmodel pass (0.28 ms GPU, 0.32 ms render thread) cannot join the main dispatch for the same reason, and its own
+doc found it latency-bound, not thread-bound (docs/viewmodel.md: a 1x1 dispatch costs 0.01 ms GPU, halving the
+threads saved 0.05 of 0.26 ms). What remains for it is the render-thread setup every dispatch pays. Fewer hit-group
+records per dispatch (C4: static groups for proxies that never move) is the remaining lever on that cost, and it
+helps every dispatch at once.
+
 ### What this changes in the plan
 - Relight 240 Hz: GPU first (4.9 ms of ours against a 4.17 ms frame), then the main thread; the render thread only in
   8-x. The per-dispatch cost is on **three** threads (main 0.07, render 0.25, workers), which makes fewer dispatches

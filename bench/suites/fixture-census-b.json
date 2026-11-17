@@ -1,0 +1,126 @@
+{
+  "Name": "fixture-census-b",
+  "Note": "Fixture census (docs/lighting-overrides.md, 'Emissive fixtures'): one view at each level's first checkpoint, only to write lights_<scene>.json. Run with -Extra \"-ultrart-light-census\"; read with tools/lights/fixtures.py.",
+  "Scenarios": [
+    {
+      "Name": "2-4 census",
+      "Scene": "Level 2-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "0-1 census",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "1-1 census",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "2-2 census",
+      "Scene": "Level 2-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "3-1 census",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "4-1 census",
+      "Scene": "Level 4-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "6-2 census",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "7-1 census",
+      "Scene": "Level 7-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    }
+  ]
+}
