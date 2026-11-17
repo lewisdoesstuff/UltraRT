@@ -140,8 +140,10 @@ Where policies are written, weak to strong: `"classes"` in `_rules.json`, `"clas
 entry can give a single fill its intensity back. An empty entry of the user's (Shift+Keypad 0) still means "the
 game's values": no policy applies to that light.
 
-Shipped today: **the rules only, no policy** (`"classes": {}`), so nothing looks different until a level's policies
-are reviewed and shipped (below). Mechanics: reach is packed into `_Lights[i*4+1].w` above the player-light flag (no
+Shipped (2026-11-17, after the user's review of the sheets): the start and final room (their wall strips as the
+light, `prefab:firstroom` and `prefab:finalroom` off) in `_rules.json`, and the level policies of 1-4, 3-1, 6-2 and
+0-1 ("Levels"). Every other level has the rules only, so nothing looks different there until its policies are
+reviewed and shipped (below). Mechanics: reach is packed into `_Lights[i*4+1].w` above the player-light flag (no
 buffer changed); air-only lights are packed after every other light, and the surface passes are given the count
 without them, so they cost surfaces nothing.
 
@@ -252,7 +254,9 @@ as `scripted`. Fixtures, glows, accents and gameplay lights change nothing measu
 6-2 Organ Hall x2.42 -> x0.54 with fills off; 3-1 Bridge Arena x3.4 -> x1.0 with scripted off; 0-1 Glass Intro x1.28
 -> x0.60 with fills off (there the fills are the room's lighting, not an extra).
 
-**Proposals** (`data/lights/proposed/`, not shipped; sheets under `bench/results/light-classes/`):
+**Shipped 2026-11-17** (the user on the four sheets and the start room: "look great"; they were proposals in
+`data/lights/proposed/` until then, and the runs below compare them as `lc.layer=proposed` against what shipped
+before; sheets under `bench/results/light-classes/`). The proposal layer is empty again, for the next levels:
 
 | Level | Policy | Tour at shipped settings | Tour at fixed exposure | Run |
 |---|---|---|---|---|

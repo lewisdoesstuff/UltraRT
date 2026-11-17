@@ -44,7 +44,7 @@ Updated as branches land. "ready" = reported to the lead for merge-regress and m
 | A6 emitter rules (emissive first), levels | `t3/light-levels` | in review 2026-11-17: emitter rules in (a glowing surface's light scaled per material); proposals for the start and final room, 1-4, 3-1, 6-2 and 0-1 in `data/lights/proposed/` with review sheets (docs/lighting-overrides.md, "Levels"); nothing ships until the user has seen the sheets. First board of all 43 levels (`tools/lights/board.py`) |
 | B1 in-engine matrix, B2 generator bake-off | offline + `t3/materials-v2` | B1 done 2026-11-17: the fragments are the maps' texel-to-texel disagreement, not RR's resolution; a 3x3 low-pass of the normals at load removes them (`-ultrart-materials-smooth`, default 0 until the user picks from the sheet; docs/materials.md, section 9). B5's footprint fade is not the fix. B2 not started: DeepBump can run offline, PBRFusion's page needs a sign-in |
 | C1-C5, R2, R3 dispatch and CPU floor | `t3/perf-dispatch` | in progress 2026-11-17: C1 (pass schedule) in as `-ultrart-aux-every 2`: relight -0.33 to -0.46 ms, pathtrace -0.23 to -0.52 ms, held noise no worse; default 1 until particles in motion are checked (docs/performance.md, "Pass schedule"). Next: C3, C2 |
-| A6 level roll-out (per-level files and review sheets) | `t3/light-levels` | 5 of 43 proposed 2026-11-17; the rest in board order once the first proposals are accepted. Found on the way: 3-1 Stairways' haze is far weaker than the game's (for `t3/window-beams`) |
+| A6 level roll-out (per-level files and review sheets) | `t3/light-levels`, then `t3/perf-dispatch` | start/final room, 1-4, 3-1, 6-2, 0-1 **shipped 2026-11-17** (user: the sheets "look great"); 5 of 43 proposed 2026-11-17; the rest in board order once the first proposals are accepted. Found on the way: 3-1 Stairways' haze is far weaker than the game's (for `t3/window-beams`) |
 | A5 window beams | `t3/window-beams` | planned |
 | B3-B5 new maps (AO, emissive masks, metal), review workflow, RR interplay | `t3/materials-v2` | planned |
 | C trailer flaws; hitches; 8-x floor of 60 fps | `t3/trailer-fixes` | planned |
@@ -524,6 +524,7 @@ The user agreed with every recommendation; where the answer adds something it is
 | 12 | P-2 street | **Leave it as it looks now.** It may depend on which lights are active: if a light change alters it, flag it with a before / after instead of pulling it toward the game's red |
 | 13 | Agents | **One agent does all of it, sequentially**, no time limit; research subagents (Sonnet 5.5, low) are fine. The lead runs merge-regress and merges each branch when it is reported ready |
 | 14 | Start room (first light proposal, 2026-11-17) | Its floating lights at half strength are "about right". Some lights are fine where they are needed, but **emissive surfaces should carry a room where possible** |
+| 15 | First light sheets (2026-11-17) | 1-4, 3-1, 6-2, 0-1 and the shared start / final room "look great": on by default. The same approach for the remaining levels, their sheets reviewed in a batch. P-2's exposure exception stays for now (the user likes the street); normal smoothing stays off for now |
 
 ## 9. Effort
 
@@ -554,11 +555,11 @@ question, and what happens on yes.
 
 | # | Since | Sheet(s) in `bench/results/review/` | Question | On yes | How to see it in game |
 |---|---|---|---|---|---|
-| R1 | 2026-11-17 | `review-firstroom-emissive.png` | Start and final room lit by their wall strips (x4.5) with the floating lights off: right? | move the rule from `data/lights/proposed/_rules.json` to `data/lights/_rules.json` | bench variant `lc.layer=proposed` |
-| R2 | 2026-11-17 | `review-1-4.png` | 1-4: room lights x0.4, street lamps x0.5, none reaching further than in the game. The lamps and bridge poses read a little dim (x0.84, x0.87): acceptable? | ship `proposed/Level 1-4.json` | `lc.layer=proposed` |
-| R3 | 2026-11-17 | `review-3-1.png` | 3-1: room lights x0.5, the Bridge Arena's x0.35 | ship `proposed/Level 3-1.json` | `lc.layer=proposed` |
-| R4 | 2026-11-17 | `review-6-2.png` | 6-2: room lights x0.4. (Known: an orange patch by the Organ Hall terminal.) | ship `proposed/Level 6-2.json` | `lc.layer=proposed` |
-| R5 | 2026-11-17 | `review-0-1.png` | 0-1: room lights x0.9 with their reach capped | ship `proposed/Level 0-1.json` | `lc.layer=proposed` |
+| ~~R1~~ **approved and shipped 2026-11-17** | 2026-11-17 | `review-firstroom-emissive.png` | Start and final room lit by their wall strips (x4.5) with the floating lights off: right? | move the rule from `data/lights/proposed/_rules.json` to `data/lights/_rules.json` | bench variant `lc.layer=proposed` |
+| ~~R2~~ **approved and shipped 2026-11-17** | 2026-11-17 | `review-1-4.png` | 1-4: room lights x0.4, street lamps x0.5, none reaching further than in the game. The lamps and bridge poses read a little dim (x0.84, x0.87): acceptable? | ship `proposed/Level 1-4.json` | `lc.layer=proposed` |
+| ~~R3~~ **approved and shipped 2026-11-17** | 2026-11-17 | `review-3-1.png` | 3-1: room lights x0.5, the Bridge Arena's x0.35 | ship `proposed/Level 3-1.json` | `lc.layer=proposed` |
+| ~~R4~~ **approved and shipped 2026-11-17** | 2026-11-17 | `review-6-2.png` | 6-2: room lights x0.4. (Known: an orange patch by the Organ Hall terminal.) | ship `proposed/Level 6-2.json` | `lc.layer=proposed` |
+| ~~R5~~ **approved and shipped 2026-11-17** | 2026-11-17 | `review-0-1.png` | 0-1: room lights x0.9 with their reach capped | ship `proposed/Level 0-1.json` | `lc.layer=proposed` |
 | R6 | 2026-11-17 | `board-20261117.md` | P-2: keep its brighter exposure exception (x1.57 at shipped settings), or bring the street down? | no change / remove the exception | |
 | R7 | 2026-11-17 | `materials-smooth-1-1-wall.png` | Detail normals smoothed over neighbouring texels ("smooth 1"), or normals off on walls like this (top row, third cell)? | `[Materials] NormalSmooth` default 1 | `-ultrart-materials-smooth 1` |
 
