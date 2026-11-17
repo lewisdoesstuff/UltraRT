@@ -964,7 +964,7 @@ namespace UltraRT
             if (!PlayerModelLit || !m.HasProperty("_Unlit") || m.GetFloat("_Unlit") <= 0f) return m;
             if (_playerMaterialCache.TryGetValue(src, out var pm) && pm != null) return pm;
             pm = new Material(m) { name = m.name + " (V1 lit)" };
-            pm.SetFloat("_Unlit", 0f);
+            pm.SetFloat("_Unlit", Mathf.Clamp01(PlayerModelUnlit) * m.GetFloat("_Unlit"));
             _playerMaterialCache[src] = pm;
             NoteProxyMaterial(src, pm); // runtime colour/texture changes, like the shared proxy
             if (IsTwoSided(m)) _twoSidedProxies.Add(pm);

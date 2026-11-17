@@ -32,6 +32,14 @@ namespace UltraRT
         /// </summary>
         public static bool PlayerModelLit = true;
 
+        /// <summary>
+        /// -ultrart-v1-unlit F: the share of V1's own colour that shows whatever the light (0 = lit by the room only).
+        /// A blue body under orange light is nearly black with grey highlights (1-1's terminal room, the trailer's "V1
+        /// reads grey"): a small unlit share keeps the blue readable (the user's decision 7, docs/plan-look-and-perf.md).
+        /// Read when the model's proxies are made.
+        /// </summary>
+        public static float PlayerModelUnlit = 0.2f;
+
         private Transform _playerModelRoot;
         private Animator _playerAnimator;
         private AnimatorCullingMode _playerAnimatorCulling;

@@ -172,6 +172,25 @@ its dark sky (a metal's reflection replaces its diffuse colour). REFLECTION mate
 wherever the game sets it: P-2 (1,245 of 1,427 rain-capable materials at the vent pose), 8-2's streets, 7-3's
 outdoor parts (the recorded 7-3 poses are indoors: 2 of 366 materials raining, so there is no 7-3 screenshot).
 
+### Soft puddles (2026-11-17, `t3/trailer-fixes`; off, on the review list)
+The report from the trailer: puddles have obvious edges and the wet floor is not very reflective. `-ultrart-wet-soft
+on` (bench `wet.soft=1`) changes three things in `RainWetness` and the wet film (`Proxy.shader`, globals
+`_UltraRTWet2`):
+
+| | default | soft |
+|---|---|---|
+| puddle edge, in units of the puddle noise | 0.12 | 0.4, grown inwards and outwards from the same outline |
+| soaked margin around a puddle | none | 0.3 wide: full wetness without standing water |
+| wet surface without a puddle: roughness, specular weight | 0.3, 0.5 x wetness | 0.15, 1 x wetness |
+
+The four values are also settings of their own (`wet.puddleEdge`, `wet.puddleMargin`, `wet.wetRoughness`,
+`wet.wetWeight`); `soft` replaces them. P-2's street (`bench/suites/trailer-fixes.json`,
+`bench/results/20261117-201813_trailer-fixes_alt`, sheet `bench/results/review/soft-puddles-p-2.png`: game /
+default / soft): the arch and the lamps reflect in the whole floor, and the outline of the puddles is gone. It is
+brighter: x2.73 -> x3.34 of the game at that pose, which is too bright before any of this (P-2's street lights, not
+the water: its light proposal comes first). Not done from the plan's list: breaking the puddle noise with the
+surface's own height, so water sits in joints (needs the height maps of the materials bake-off).
+
 ### Wet blood
 The game's blood stains are not traced as geometry (docs/particles.md; reflection hits do read them: docs/path-tracing.md, "Blood stains in reflections"): it stamps them from a GPU ring buffer of up to 100,000
 stains (`BloodsplatterManager.instanceBuffer`) into a screen buffer and multiplies that into the frame after our
@@ -209,6 +228,7 @@ Bench variants: `vfx.<field>`, `wet.<field>`, `pl.soft`, `pl.softDistance`.
 | Glowing explosion debris | `-ultrart-debris-glow on\|off` | on | |
 | Underwater | `-ultrart-underwater on\|off` | on | |
 | Rain wetness / wetness / puddles | `-ultrart-wet-rain on\|off`, `-ultrart-wet-rain-strength F`, `-ultrart-wet-puddles F` | on / 0.8 / 0.45 | |
+| Soft puddles | `-ultrart-wet-soft on\|off` (bench `wet.soft=1`) | off | soft edges, soaked margin, glossier wet floor ("Soft puddles") |
 | Wet blood / drying time | `-ultrart-wet-blood on\|off`, `-ultrart-wet-blood-dry S` | on / 40 s | |
 | Blood stains in reflections | `-ultrart-stain-reflections on\|off` | on | ([path-tracing.md](path-tracing.md), "Blood stains in reflections") |
 

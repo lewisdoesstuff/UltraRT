@@ -18,6 +18,16 @@ namespace UltraRT
         public float puddleSize = 5f;
         /// <summary>How much the raindrop rings tilt the water surface.</summary>
         public float ripples = 1f;
+        /// <summary>Width of a puddle's edge in units of the puddle noise (0.12 = the hard outline of 2026-11-14).</summary>
+        public float puddleEdge = 0.12f;
+        /// <summary>A wetter margin around each puddle, this wide in noise units: the floor there is as wet as it gets
+        /// without standing water (0 = none).</summary>
+        public float puddleMargin = 0f;
+        /// <summary>Roughness and specular weight of a fully wet surface that holds no puddle.</summary>
+        public float wetRoughness = 0.3f, wetWeight = 0.5f;
+        /// <summary>-ultrart-wet-soft on|off (bench wet.soft=1): soft puddle edges with a wet margin and a glossier wet
+        /// floor, in place of the four values above (docs/vfx.md, "Soft puddles"). Off until reviewed.</summary>
+        public bool soft;
 
         /// <summary>Wet blood: fresh stains are glossy and darker, and dry to the game's matte look.</summary>
         public bool blood = true;
@@ -49,6 +59,7 @@ namespace UltraRT
                     case "-ultrart-wet-rain": rain = On(); break;
                     case "-ultrart-wet-rain-strength": rainWetness = F(rainWetness); break;
                     case "-ultrart-wet-puddles": puddles = F(puddles); break;
+                    case "-ultrart-wet-soft": soft = On(); break;
                     case "-ultrart-wet-blood": blood = On(); break;
                     case "-ultrart-wet-blood-dry": bloodDryTime = F(bloodDryTime); break;
                     case "-ultrart-stain-reflections": stainReflections = On(); break;
@@ -70,6 +81,7 @@ namespace UltraRT
     {
         private readonly WetSettings _wetSettings = new WetSettings();
         private static readonly int WetId = Shader.PropertyToID("_UltraRTWet");
+        private static readonly int Wet2Id = Shader.PropertyToID("_UltraRTWet2");
         private BloodWet _bloodWet;
         private float _bloodNextLog;
 
@@ -121,6 +133,11 @@ namespace UltraRT
             Shader.SetGlobalVector(WetId, on
                 ? new Vector4(Mathf.Clamp01(s.rainWetness), Mathf.Clamp01(s.puddles), 1f / Mathf.Max(0.5f, s.puddleSize), Mathf.Max(0f, s.ripples))
                 : Vector4.zero);
+            Shader.SetGlobalFloat("_UltraRTTransAlpha", SceneProxies.Transparents.alphaTint ? 1f : 0f); // every frame, every mode
+            // x puddle edge width, y wet margin width (noise units), z wet roughness, w wet specular weight.
+            Shader.SetGlobalVector(Wet2Id, s.soft
+                ? new Vector4(0.4f, 0.3f, 0.15f, 1f)
+                : new Vector4(Mathf.Clamp(s.puddleEdge, 0.01f, 1f), Mathf.Clamp01(s.puddleMargin), Mathf.Clamp01(s.wetRoughness), Mathf.Clamp01(s.wetWeight)));
         }
     }
 }

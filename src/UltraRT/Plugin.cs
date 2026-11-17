@@ -264,6 +264,7 @@ namespace UltraRT
                     case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
                     case "-ultrart-rtmirrors": _rtMirrors = true; break;
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
+                    case "-ultrart-v1-unlit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.PlayerModelUnlit); break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
                     case "-ultrart-norain": _rainOn = false; break;
                     case "-ultrart-notexscroll": _texScroll = false; break;

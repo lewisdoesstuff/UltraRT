@@ -1,0 +1,117 @@
+{
+  "Name": "water-tint",
+  "Note": "Pathtrace water tint by the game's blend alpha (docs/reflections.md, 'Water tint'): P-2's puddle, and pools and seas that must keep their colour. pathtrace+trans.alphaTint=0 is the fixed tint of before.",
+  "Scenarios": [
+    {
+      "Name": "P-2 puddle",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Position": [
+          6,
+          -18.5,
+          41.5
+        ],
+        "Yaw": 32,
+        "Pitch": -22,
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "pathtrace+trans.alphaTint=0",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "5-2 sea",
+      "Scene": "Level 5-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/5-2-water-1115.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "pathtrace+trans.alphaTint=0",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "1-3 start water",
+      "Scene": "Level 1-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-3-start-water.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "pathtrace+trans.alphaTint=0",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 pool oblique",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Position": [
+          0,
+          -11.6,
+          335
+        ],
+        "Yaw": 0,
+        "Pitch": -40,
+        "Duration": 3
+      },
+      "Modes": [
+        "off",
+        "pathtrace+trans.alphaTint=0",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "7-1 pool",
+      "Scene": "Level 7-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          75.5,
+          22,
+          522
+        ],
+        "Yaw": 0,
+        "Pitch": -15,
+        "Duration": 6,
+        "Load": "none"
+      },
+      "Modes": [
+        "off",
+        "pathtrace+trans.alphaTint=0",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1
+    }
+  ]
+}
