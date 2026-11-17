@@ -29,7 +29,7 @@ How the design was arrived at (the experiments, the alternatives): [pt-plan.md](
   frames) is [cinematics.md](cinematics.md); texture LOD for the detail maps is [materials.md](materials.md); frame costs at
   1440p are [performance.md](performance.md); portals in paths are [portals.md](portals.md); the first-person gun, lit
   particles and screen effects in this mode are [viewmodel.md](viewmodel.md), [particles.md](particles.md), [vfx.md](vfx.md).
-- Flags: `-ultrart-pt-paths N`, `-ultrart-pt-bounces N`, `-ultrart-pt-nocache`, `-ultrart-pt-roulette F`,
+- Flags: `-ultrart-pt-paths N`, `-ultrart-pt-bounces N`, `-ultrart-pt-nocache`, `-ultrart-pt-footprint F`, `-ultrart-pt-roulette F`,
   `-ultrart-pt-clamp F`, `-ultrart-pt-scale F`, `-ultrart-pt-denoiser auto|rr|ultrart`.
 - Bench variants: `pathtrace+ptx.<field>=value` for any field of `PathTraceSettings`, e.g.
   `pathtrace+ptx.paths=2+ptx.bounces=3`, `pathtrace+ptx.denoiser=UltraRT`.
@@ -110,6 +110,7 @@ the light comes from: contact shadows and colour bleeding within the first two b
 | `paths` | 1 | diffuse (and glossy) paths per pixel, 1-4 |
 | `bounces` | 2 | segments per path, 1-4 |
 | `cacheTail` | on | the last vertex reads the radiance cache |
+| `footprint` | 1 | a vertex whose ray cone is this many cache cells wide ends the path in the cache (0 = off; "Footprint") |
 | `roulette` | 0.2 | throughput below which paths are thinned (0 = off) |
 | `maxRadiance` | 12 | firefly clamp on one diffuse path (lighting units; 0 = off) |
 | `specularLobes` | on | specular lobes at path vertices |
@@ -167,6 +168,41 @@ by the surface colour (`transparentTint` 0.8; water and glass take 0.6 of it, bl
 after three such surfaces a path ignores the rest. So pools, windows and the blood river show up in reflections and
 tint the light that bounces through them. The camera ray is unchanged: the game draws the surface, and the overlay
 adds its reflection. Frosted ice stays the opaque frosted surface it is in the scene.
+
+## Footprint (2026-11-17, branch `t3/perf-paths`)
+
+A path vertex whose ray cone is at least `footprint` radiance-cache cells wide there ends the path in the cache
+(`PtPath`, `_PtParams3.z`; it needs the cache tail and a valid cell, otherwise the path goes on as before). The cache
+holds lighting per 0.5 m cell near the camera, so a second segment from a vertex the cone already covers as widely
+adds little the cache does not have. After a cosine bounce the cone opens by the diffuse spread (0.3 rad): at the
+default of 1 cell a diffuse path traces its second segment only when the first hit is nearer than about 1.7 m, which
+is where contact shadows and colour bleeding between close surfaces are. Glossy cones open with roughness, so rough
+lobes end at their first hit and mirrors keep both segments. `footprint = 0` is the behaviour before this change.
+
+GPU ms of the main dispatch / frame ms, 2560x1440, RR at 1/3, exclusive lock (`perf-paths`,
+`bench/results/20261117-144613_perf-paths`). An earlier launch, `20261117-143829_perf-paths`, ran slower as a whole
+(0-1 metal 4.37 -> 2.60 dispatch, 7.82 -> 6.09 ms frame) with the same saving; compare within one launch:
+
+| | footprint 0 (before) | **1 (default)** | 0.5 | 2 | bounces=1 (the bound) |
+|---|---|---|---|---|---|
+| 0-1 metal | 3.47 / 6.91 (145 fps) | **2.23 / 5.68 (176 fps)** | 2.09 / 5.78 | 2.54 / - | 1.59 / 5.63 |
+| 0-3 ghosts | 4.10 / 7.88 | **2.30 / 7.43** | 2.01 / 7.87 | 2.69 / 7.50 | 1.45 / 7.22 |
+| 0-2 run, combat | 3.72 / 8.49 | **3.17 / 8.65** | 2.74 / 8.70 | 3.66 / 9.21 | 2.04 / 8.45 |
+
+- Calm, GPU-bound scenes gain what the dispatch gains: 1.2 ms at 0-1 (145 -> 176 fps). 0-3 and the combat run are
+  bound by the main thread (docs/performance.md, "Where the frame goes"), so 0.5-1.8 ms less GPU work shows as
+  0-0.4 ms of frame time there; it becomes frame time once the CPU side is shorter (`t3/perf-dispatch`).
+- 0.5 cells gains another 0.1-0.4 ms of dispatch and nothing in frame time; kept at 1. The 0-1 frame time at 2 cells
+  holds a 300 ms stall of that run and is left out.
+- **Look** (`paths-look`: start room, 0-1 metal, 1-4 lamps, 6-2 hall; `bench/results/20261117-144036_paths-look_alt`,
+  sheet `bench/results/perf-paths/look.png`): on the scoreboard the default is within run-to-run spread of full paths
+  (start room dark delta +8.1 -> +8.4, against +12.0 with `bounces=1`; 6-2 hall x1.26 -> x1.30), and the difference
+  images show the animated smoke and gun, no edges or corners.
+- **Noise** (`paths-noise`, masked burst sigma / block sigma, `bench/results/20261117-144241_paths-noise_alt`): 6-2
+  start 0.48 / 0.36 -> 0.31 / 0.19 (the cache is smoother than a traced segment), 0-1 metal 0.75 / 0.46 -> 0.78 / 0.47.
+
+Setting: menu "End wide paths in the cache (cells; 0 = off)", `[PathTrace] Footprint`, `-ultrart-pt-footprint F`,
+bench `ptx.footprint`. The cost table below (2026-11-14) was measured without it.
 
 ## Cost (2026-11-14, RTX 5070 Ti, 2560x1440, exclusive perf lock)
 

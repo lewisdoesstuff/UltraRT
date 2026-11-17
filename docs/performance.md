@@ -287,6 +287,14 @@ is what moves p99 from 5.8 ms to 21 ms. Of 53 slow relight frames 35 are scripts
 `Plugin.Trace` (the `lights` section's 6-9 ms frame, once per level). So the p99 of the combat run mostly measures the
 game's explosion instantiate; what RT adds per hitch is about 2 ms.
 
+### Tried: a ray generation per mode (2026-11-17, `t3/perf-paths`, not kept)
+Plan item R1: a `RayGenRelight` entry point with the mode compiled in (`_Mode` as a constant 0 instead of a uniform,
+so the hybrid, reference and debug branches drop out). Measured against the general `RayGen` in one launch
+(`bench/results/20261117-144902_perf-raygen`, and the same pair in `20261117-144613_perf-paths`): main dispatch
+2.887 -> 2.846 / 2.865 ms at 0-1 metal (the same mode twice), 2.739 -> 2.712 / 2.702 at 0-3 ghosts. A gain of
+0.02-0.04 ms is the spread between two equal modes, and a third ray generation is a third pipeline for the driver to
+compile, so the change was removed. The branches on `_Mode` cost nothing measurable; relight's GPU time is in its rays.
+
 ### What this changes in the plan
 - Relight 240 Hz: GPU first (4.9 ms of ours against a 4.17 ms frame), then the main thread; the render thread only in
   8-x. The per-dispatch cost is on **three** threads (main 0.07, render 0.25, workers), which makes fewer dispatches

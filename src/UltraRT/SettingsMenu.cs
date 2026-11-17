@@ -128,6 +128,7 @@ namespace UltraRT
             m.Float("PathTrace", "Bounces", "Bounces per path", 1f, 4f, 0, () => _ptSettings.bounces, v => _ptSettings.bounces = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4), "-ultrart-pt-bounces");
             m.Float("PathTrace", "DirectSamples", "Light samples per pixel (DLSS RR)", 1f, 4f, 0, () => _ptSettings.directSamplesRR, v => _ptSettings.directSamplesRR = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4));
             m.Bool("PathTrace", "CacheTail", "Radiance cache after the last bounce", () => _ptSettings.cacheTail, v => _ptSettings.cacheTail = v, "-ultrart-pt-nocache");
+            m.Float("PathTrace", "Footprint", "End wide paths in the cache (cells; 0 = off)", 0f, 8f, 2, () => _ptSettings.footprint, v => _ptSettings.footprint = Mathf.Max(0f, v), "-ultrart-pt-footprint");
             m.Bool("PathTrace", "SkyAtVertices", "Sky sample at every bounce", () => _ptSettings.skyAtVertices, v => _ptSettings.skyAtVertices = v);
             m.Bool("DLSS", "RayReconstruction", "DLSS RR in relight / pt-dn  [Ctrl+F8]", () => _rrEnabled, v => _rrEnabled = v, "-ultrart-rr", "-ultrart-norr").Legacy();
             m.Bool("DLSS", "Remodulate", "DLSS RR: exact texels (remodulation)", () => _rrRemodulate, v => _rrRemodulate = v, "-ultrart-rr-noremod");

@@ -38,8 +38,8 @@ Updated as branches land. "ready" = reported to the lead for merge-regress and m
 | A2 per-light attribution report | `t3/light-classes` | planned (moved: it shares the class toggles) |
 | A3 exposure policy and the "RT brightness" setting | `t3/bright-metrics` | ready 2026-11-17: pathtrace median x1.53 -> x1.14 of the game over nine poses; P-2 kept as it was by a level setting, for the user to confirm (docs/relight.md, "Follow the game") |
 | 5.1 profiling pass (frame slot, render-thread and main-thread ms per pass, ETW traces, hitch attribution, `-Floor`); E3 default mode pathtrace | `t3/perf-profile` | ready 2026-11-17 (docs/performance.md, "Profiling") |
-| 5.1 step 5 ray counters; E1 pass scheduler | `t3/perf-paths` / `t3/perf-dispatch` | planned (moved: each lands with the first change that needs it, P1 and C1) |
-| P1, P2 footprint-terminated paths; R1 ray generation per mode | `t3/perf-paths` | planned |
+| 5.1 step 5 ray counters; E1 pass scheduler | `t3/perf-dispatch` | planned (P1 was judged on dispatch ms with `footprint` 0 / `bounces=1` as its bounds, so the counters wait for R2) |
+| P1, P2 footprint-terminated paths; R1 ray generation per mode | `t3/perf-paths` | ready 2026-11-17: P1 + P2 in (one rule, default 1 cell: 0-1 metal 145 -> 176 fps; docs/path-tracing.md, "Footprint"); R1 measured at 0.02-0.04 ms and dropped (docs/performance.md, "Tried: a ray generation per mode") |
 | A4 light classes, flags, prefab layer, class and light toggles, rule diffs | `t3/light-classes` | planned |
 | B1 in-engine matrix, B2 generator bake-off | offline + `t3/materials-v2` | planned |
 | C1-C5, R2, R3 dispatch and CPU floor | `t3/perf-dispatch` | planned |

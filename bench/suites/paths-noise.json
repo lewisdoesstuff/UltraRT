@@ -1,0 +1,62 @@
+{
+  "Name": "paths-noise",
+  "Note": "Temporal noise of footprint-terminated paths at two held poses: termination off, default, one segment everywhere.",
+  "Scenarios": [
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "Burst": 64,
+      "BurstStride": 4,
+      "BurstSettle": 240,
+      "BurstModes": [
+        "off",
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.bounces=1"
+      ]
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 4
+      },
+      "Modes": [
+        "off",
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [
+        2
+      ],
+      "ShotSettle": 1,
+      "Burst": 64,
+      "BurstStride": 4,
+      "BurstSettle": 240,
+      "BurstModes": [
+        "off",
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.bounces=1"
+      ]
+    }
+  ]
+}

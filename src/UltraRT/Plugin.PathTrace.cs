@@ -25,6 +25,11 @@ namespace UltraRT
         public int bounces = 2;
         /// <summary>The last vertex reads the radiance cache (direct + all further bounces) instead of one light sample.</summary>
         public bool cacheTail = true;
+        /// <summary>Footprint termination: a path vertex whose ray cone is at least this many radiance-cache cells wide ends
+        /// the path in the cache there (needs the cache tail). After a cosine bounce the cone opens by the diffuse spread
+        /// angle, so only near hits trace a further segment. 0 = off (every path runs its full length).
+        /// -ultrart-pt-footprint F, bench ptx.footprint.</summary>
+        public float footprint = 1f;
         /// <summary>Russian roulette: paths whose throughput (largest channel) is below this survive in proportion. 0 = off.</summary>
         public float roulette = 0.2f;
         /// <summary>Firefly clamp on one diffuse path's radiance (luminance, lighting units). 0 = off.</summary>
@@ -95,6 +100,7 @@ namespace UltraRT
                     case "-ultrart-pt-paths": s.paths = I(s.paths); break;
                     case "-ultrart-pt-bounces": s.bounces = I(s.bounces); break;
                     case "-ultrart-pt-nocache": s.cacheTail = false; break;
+                    case "-ultrart-pt-footprint": s.footprint = Mathf.Max(0f, F(s.footprint)); break;
                     case "-ultrart-pt-noprewarm": s.prewarm = false; break;
                     case "-ultrart-pt-roulette": s.roulette = F(s.roulette); break;
                     case "-ultrart-pt-clamp": s.maxRadiance = F(s.maxRadiance); break;
@@ -154,7 +160,7 @@ namespace UltraRT
             _cmd.SetRayTracingVectorParam(shader, "_PtParams2", new Vector4(Mathf.Max(0f, s.maxRadiance), s.specularLobes ? 1f : 0f, s.skyAtVertices ? 1f : 0f,
                 rr ? Mathf.Clamp(s.directSamplesRR, 1, 4) : 1f));
             bool trans = s.transparents && SceneProxies.Transparents.enabled && _proxies != null && _proxies.ActiveTransparent > 0;
-            _cmd.SetRayTracingVectorParam(shader, "_PtParams3", new Vector4(trans ? 1f : 0f, Mathf.Clamp01(s.transparentTint), 0f, 0f));
+            _cmd.SetRayTracingVectorParam(shader, "_PtParams3", new Vector4(trans ? 1f : 0f, Mathf.Clamp01(s.transparentTint), Mathf.Max(0f, s.footprint), 0f));
             if (full && !_ptLoggedDenoiser)
             {
                 _ptLoggedDenoiser = true;
