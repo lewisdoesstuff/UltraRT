@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "scene": "Level P-1",
+  "lights": [],
+  "added": [],
+  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels, third batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x0.5. Why: the arena's fixtures x1.6 at fixed exposure (x0.93 at x0.5).",
+  "classes": {
+    "fill": {
+      "reach": 0,
+      "intensity": 0.35
+    },
+    "scripted": {
+      "reach": 0,
+      "intensity": 0.35
+    },
+    "fixture": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "accent": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "glow": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "effect": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "item": {
+      "reach": 0,
+      "intensity": 0.5
+    }
+  }
+}

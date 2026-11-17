@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "scene": "Level 1-3",
+  "lights": [],
+  "added": [],
+  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels, third batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x1. Why: fills and far-reaching fixtures: tour median x1.47 -> x0.99.",
+  "classes": {
+    "fill": {
+      "reach": 0,
+      "intensity": 0.35
+    },
+    "scripted": {
+      "reach": 0,
+      "intensity": 0.35
+    },
+    "fixture": {
+      "reach": 0
+    },
+    "accent": {
+      "reach": 0
+    },
+    "glow": {
+      "reach": 0
+    },
+    "effect": {
+      "reach": 0
+    },
+    "item": {
+      "reach": 0
+    }
+  }
+}

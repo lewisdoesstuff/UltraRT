@@ -534,6 +534,15 @@ it off or on: the puddle is a red, mottled reflection there. So the switch is of
 the patch is seen again (the trailer's take was a moving first-person run under flickering lamps). What that pose
 does show: the street is x2.7 brighter than the game there, floor and all.
 
+Second try, at the pose the patch was first seen from (the end of the trailer's hall crane,
+`bench/cinematics/trailer-p-2-hall-reveal.json`; `bench/suites/p-2-hall-floor.json`,
+`bench/results/20261117-222625_p-2-hall-floor`, sheet `bench/results/review/water-tint-p-2-hall.png`): the puddle at
+the bottom right is red in every mode, not yellow-green. Mean colour of the patch: the game (163, 13, 0), pathtrace
+(58, 8, 4), with `trans.alphaTint=1` (73, 7, 4), rain wetness off (68, 7, 3), blood wetness off (25, 6, 4). The alpha
+tint moves it a little towards the game's red; the hue is not the fault in today's build. What is off at this pose is
+the level: the game's floor is two to three times brighter (P-2's lighting also changes over time, docs/vfx.md's
+trap). The switch stays off.
+
 ### Animation
 
 `PlayerAnimations.LateUpdate` drives the model from `NewMovement` (velocity, sliding, dodging, in air, jump/land, shoot/punch/coin triggers) and turns the head, chest and right arm to the camera every frame. The Animator ships with `cullingMode = CullUpdateTransforms`; its renderers are on layer 30, which the main camera never draws, and our proxies never render, so outside portal views Unity could stop updating the bones. `SceneProxies.PlayerAlwaysAnimate` sets `AlwaysAnimate` while the RT scene exists and restores the original on dispose (`-ultrart-player-noanimate` skips it). The 600-frame log line `Player model: ...` reports the proxies in the RTAS, the animator's culling mode, state and normalized time (it advances: 22.4 → 26.0 → 32.6 over successive logs in one level), and where the root bone and bounds are relative to the camera. The RT pose is the skinned pose (`DynamicGeometry` re-reads it every build) and the instance follows the root bone.

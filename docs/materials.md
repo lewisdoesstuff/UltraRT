@@ -426,3 +426,42 @@ Not answered by this matrix: the start room (the tour stop of 1-4 looks out of t
 surfaces (section 1: per-texture rules, plan B4), and whether another generator does better than PBRify + low-pass
 (plan B2: DeepBump is a small ONNX model with a command line and can be run offline; PBRFusion's model page needs a
 sign-in, so its licence and files are unconfirmed).
+
+## 10. Bake-off: DeepBump against PBRify (2026-11-17, `t3/light-levels-3`; plan B2)
+
+`tools/materials/deepbump.py --cache <work> --deepbump <checkout>` writes a second map set, `<work>/db`, with
+DeepBump's colour-to-normals network (GPL-3.0; cloned next to the work folder and run offline with onnxruntime on
+the CPU: nothing of it is in the repository, and nothing it writes ships). The same recipe as PBRify's set: each
+texel upscaled to a 4x4 block, the result box-filtered back to one normal per texel; a small texture is wrapped into
+one 256 px tile so the network sees its own repeat. DeepBump has no roughness: the set carries PBRify's. 1,955
+textures in 16 minutes on four threads (half a second each; a GPU is not needed).
+
+**The maps** (sheet `bench/results/review/materials-deepbump-maps.png`: albedo, PBRify, DeepBump for six textures):
+
+| | PBRify (`ai`) | DeepBump (`db`) |
+|---|---|---|
+| median tilt (`nstd`) | 0.215 | 0.140 |
+| texel-to-texel disagreement (mean distance of a normal from its 3x3 mean, 200 textures) | 0.051 | 0.021 |
+| noisy textures (grass) | per-texel noise | nearly flat |
+| structured textures (panels, glyphs, a hatch) | sharper edges, stronger relief | the same structure, softer, wider bevels |
+
+DeepBump's maps are what section 9 asked for: the relief without the disagreement between neighbours.
+
+**In the engine** (`bench/suites/mat-matrix.json` and `mat-matrix-src.json` with `-ultrart-materials-source db`;
+`20261117-225024_mat-matrix_alt`, `20261117-225210_mat-matrix-src_alt`; sheet
+`bench/results/review/materials-deepbump-engine.png`), with today's default smoothing of 1 on both sets:
+
+| Pose | PBRify vs DeepBump | PBRify vs maps off | DeepBump vs maps off |
+|---|---|---|---|
+| 1-1 indoor wall | 3.1 | 3.2 | 2.6 |
+| 0-1 metal | 4.5 | 4.6 | 5.4 |
+| start room | 0.8 | 1.6 | 1.5 |
+
+(mean difference of the frames, of 255, noise included.) The two sets are as far from each other as each is from no
+maps at all, and at native size the crops are hard to tell apart: the wall's bricks and the metal panels read the
+same. The load-time smoothing already removed what DeepBump would have fixed.
+
+**Conclusion.** No switch. PBRify with smoothing 1 stays: it is CC0, has its own roughness, and in the frame
+DeepBump is not visibly better. DeepBump stays as a tool for a texture that PBRify gets wrong (its grass is the
+example). PBRFusion 4 was not run: its model page is gated and its licence and files could not be confirmed
+(2026-11-17), and a diffusion pipeline per texture is a different order of cost. Review list: R12, for information.
