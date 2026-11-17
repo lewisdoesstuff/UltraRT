@@ -1,0 +1,60 @@
+{
+  "Name": "emissive-review",
+  "Note": "Emissive fixtures, the proposals as files (docs/lighting-overrides.md, 'Emissive fixtures'; review R9): the game, what ships, the proposal layer. Run with -Extra \"-ultrart-light-census\" and check the rules' counts in lights_<scene>.proposed.json.",
+  "Scenarios": [
+    {
+      "Name": "8-2 c",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-c.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+lc.layer=proposed"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "8-2 lamp flicker",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-lamp-flicker.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+lc.layer=proposed"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+lc.layer=proposed"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    }
+  ]
+}

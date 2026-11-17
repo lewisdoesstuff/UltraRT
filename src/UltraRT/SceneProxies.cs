@@ -1279,6 +1279,7 @@ namespace UltraRT
             }
 
             _materialCache[src] = m;
+            if (!_atlasProxies.Contains(m)) ApplyEmitterGlow(src, m); // "glow" emitter rules (SceneProxies.Glow.cs)
             NoteProxyMaterial(src, m); // runtime property changes (SceneProxies.Sync.cs)
             RegisterRain(src, m); // the game's rain on surfaces (SceneProxies.Rain.cs)
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);

@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "scene": "Level 1-4",
+  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Emissive fixtures'): the shipped file, plus the street lamps lit by their bulbs (an emitter mask) with the lights inside them off.",
+  "classes": {
+    "fill": {
+      "reach": 0,
+      "intensity": 0.4
+    },
+    "fixture": {
+      "reach": 0
+    },
+    "fixture:lamp": {
+      "reach": 0,
+      "intensity": 0.5
+    }
+  },
+  "lights": [],
+  "added": [],
+  "rules": [
+    {
+      "name": "street lamps",
+      "path": "Streetlight[^/]*/[^/]*$",
+      "class": "fixture:lamp",
+      "set": {
+        "intensity": 0
+      }
+    }
+  ],
+  "emitters": [
+    {
+      "name": "lamp bulbs",
+      "material": "^Light$",
+      "glow": 6,
+      "note": "lamps pose: x1.05 of the game, the fake lights x0.83; glow 20 is x1.42"
+    }
+  ]
+}

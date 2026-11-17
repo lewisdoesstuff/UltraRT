@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "scene": "Level 8-2",
+  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Emissive fixtures'): the street lamps' glowing heads carry their light, and the standing lamps' bulbs theirs (an emitter mask); the lights inside them are off.",
+  "rules": [
+    {
+      "name": "street lamps",
+      "path": "StreetlightFraud[^/]*/[^/]*$",
+      "class": "fixture:streetlamp",
+      "set": {
+        "intensity": 0
+      }
+    },
+    {
+      "name": "standing lamps",
+      "path": "ApartmentLamp[^/]*/[^/]*$",
+      "class": "fixture:lamp",
+      "set": {
+        "intensity": 0
+      }
+    }
+  ],
+  "emitters": [
+    {
+      "name": "street lamp heads",
+      "material": "^Streetlight$",
+      "scale": 4,
+      "note": "pool pose 2026-11-17: x4 keeps the yard's pink (tint 1.6), x8 and up wash it out (tint 4.8-5.8)"
+    },
+    {
+      "name": "standing lamp bulbs",
+      "material": "^Light$",
+      "glow": 20,
+      "note": "x1.04 of the game at the lamp pose, the fake light x0.93"
+    }
+  ],
+  "classes": {},
+  "lights": [],
+  "added": []
+}

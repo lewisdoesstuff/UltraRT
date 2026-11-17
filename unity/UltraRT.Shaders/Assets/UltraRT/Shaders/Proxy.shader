@@ -12,6 +12,8 @@ Shader "UltraRT/Proxy"
         _UseAlbedoAsEmissive ("Use Albedo As Emissive", Float) = 0
         // ULTRAKILL/Master _EmissiveMask: the emission is multiplied by the main texture's alpha^2.2 (decompiled).
         _EmissiveMask ("Emissive Mask (albedo alpha)", Float) = 0
+        // Emitter mask by rule (SceneProxies.Glow.cs): above 0, only texels whose luminance passes it glow.
+        _EmissiveThreshold ("Emissive Threshold (luminance)", Float) = 0
         _Cutoff ("Alpha cutoff", Float) = 0
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
         _BlendTex ("Blend atlas", 2D) = "white" {}
@@ -132,6 +134,7 @@ Shader "UltraRT/Proxy"
             float _EmissiveIntensity;
             float _UseAlbedoAsEmissive;
             float _EmissiveMask;
+            float _EmissiveThreshold;
             float _Cutoff;
             float _AtlasMode;
             float _SkyWall;
@@ -643,6 +646,7 @@ Shader "UltraRT/Proxy"
                     if (_UseAlbedoAsEmissive < 0.5) e = _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_EmissiveTex, lodAlbedo, lodCap)).rgb; // not ?: (both sides run)
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                     if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
+                    if (_EmissiveThreshold > 0.0) emission *= smoothstep(_EmissiveThreshold - 0.1, _EmissiveThreshold + 0.1, dot(e, float3(0.2126, 0.7152, 0.0722)));
                 }
                 // Fresh explosion debris glows and cools; the texture's light and dark texels stay readable.
                 if (_HotDebris > 0.5) emission += _UltraRTDebrisGlow.rgb * (0.4 + 1.2 * dot(albedo.rgb, float3(0.2126, 0.7152, 0.0722)));

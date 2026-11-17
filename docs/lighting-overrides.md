@@ -160,10 +160,11 @@ No policy ships blind. The tools, in the order of use:
 | Tool | What it shows |
 |---|---|
 | Light editor (Insert) | Every light's label carries its class and what RT does with it (red: hidden); the panel names the rule. **Ctrl+Keypad /**: only the selected light's class. **Ctrl+Keypad 0**: that class off / on. **Ctrl+Keypad .**: clear the switches. Parameters `Reach`, `Air only`, `Air` edit one light |
-| Bench variants | `lc.class.NAME=0` (or a factor), `lc.solo=NAME`, `lc.light.TEXT=0` (TEXT: part of the path), `lc.set.CLASS.FIELD=VALUE` (a class policy for that mode: `lc.set.fill.reach=0`), `lc.layer=NAME`. A kind is written with a dot: `prefab.firstroom`. Any number per mode, joined with `+` |
+| Bench variants | `lc.class.NAME=0` (or a factor), `lc.solo=NAME`, `lc.light.TEXT=0` (TEXT: part of the path), `lc.emit.TEXT=F` and `lc.glow.TEXT=G[,T]` (emitters, below), `lc.set.CLASS.FIELD=VALUE` (a class policy for that mode: `lc.set.fill.reach=0`), `lc.layer=NAME`. A kind is written with a dot: `prefab.firstroom`. Any number per mode, joined with `+` |
 | Proposal layer | `data/lights/proposed/`: `_rules.json` (its rules come first, its class policies replace those of the same name) and level files (in place of the shipped file of that level). Inactive unless a mode says `lc.layer=proposed` |
 | A/B sheet | A suite with the modes `off`, `pathtrace`, `pathtrace+lc.layer=proposed` and the two at fixed exposure (`+ae.enabled=0`), then `tools/lights/score.py <run> --sheet`: the game, what ships and the proposal side by side with the scoreboard's numbers. `bench/suites/light-review.json` is the template |
 | Census and rule diff | `bench.ps1 ... -Extra "-ultrart-light-census"` writes `lights_<scene>.json` (every light, on or off: class, rule, policy) and one per layer; `tools/lights/rulediff.py <run>` writes `lights_<scene>.md`: the classes of the level with what ships and what is proposed, and one row per group of lights the proposal changes |
+| Fixtures | `tools/lights/fixtures.py bench/results`: per level, each fixture's lights and whether it has a glowing part ("Emissive fixtures") |
 | Board | `tools/lights/board.py bench/results --since <stamp>`: every level's scored tour in one table, worst first ("Levels") |
 | Attribution | Which lights make a pose too bright: the class switches as modes (`bench/suites/light-classes.json`), then `lc.light.TEXT=0` for single lights; the scoreboard's dark delta per mode is the share |
 
@@ -215,6 +216,75 @@ With strips x5 over six views of 1-4 and 3-1 (`bench/results/20261117-151956_lig
 `bench/results/light-classes/review-firstroom-emissive.png`): pathtrace median x1.17 -> x1.05 at shipped settings,
 x1.47 -> x1.07 at fixed exposure, dark delta +10.7 -> +7.8. Open: the final room has no scored pose yet, and 3-1's
 first view (x1.4, a view out of the room) is other lights.
+
+### Emissive fixtures: the lamp itself as the light (2026-11-17, `t3/emissive-masks`)
+
+The same idea for single fixtures: a lamp's glowing part lights the room and the point or spot light the game put
+inside it is switched off. Three pieces.
+
+**Which fixtures can.** The census (`-ultrart-light-census`) now lists, per light, the materials of its fixture (the
+nearest ancestor with renderers, at most two levels up, at most 24 renderers) as `name:emissive|unlit|lit`, and
+`tools/lights/fixtures.py bench/results [--since <stamp>] [--level "Level 8-2"]` groups a level's fixture lights by
+fixture with a verdict: `emissive` (the game marks the part as emissive: an emitter rule's `scale` is enough),
+`unlit` (a fullbright part that shows its texture and is no emitter: it needs a mask), `lit` (no glowing part: a
+mask on a lit texture, or the light stays), `none` (no fixture). `bench/suites/fixture-census-a.json` and `-b` load
+sixteen levels for the census alone (one minute each). Over those levels and 8-2, 2026-11-17: 375 lights in
+emissive fixtures, 386 in unlit ones, 616 lit, 1,731 none. What they are:
+
+| Fixture | Levels seen | Glowing part | Verdict |
+|---|---|---|---|
+| `StreetlightFraud` | 8-2 | `Streetlight` (emissive texture) | scale |
+| `OfficeLight`, `SupermarketLamp` | 8-2 | `Ceiling_Light`, `Metal Light 2C` (emissive) | scale |
+| `Streetlight` | 1-4, 5-1, P-2 | `Light` (unlit) | mask |
+| `ApartmentLamp` (standing lamp) | 8-2 | `Light` (unlit) | mask |
+| `Dome` lamps | 5-3, 8-2 | `Basic Color - White NoFog` (unlit) where it is not baked | mask, partly |
+| `Glowing Mushrooms`, `OfficeComputer` screens | 5-1, 8-2 | `GlowingShroom`, `ComputerScreen_*` (unlit) | mask |
+| `Light` pillars (0-3, 5-1) | 0-3, 5-1 | `LightPillar *` (unlit beam meshes) | beams: `t3/window-beams` |
+| `BigTorch`, `Candle`, `Lantern`, `Fire` | 4-3, 5-3, 1-4 | `FireMaterial` flame sprites | the light stays |
+
+Torches and candles have no surface to carry them: their lights stay (the user, 2026-11-17: "not opposed to some
+lights where needed"). Parts baked into the level atlas (`Batch Material Environment`) cannot be named by material.
+The census also counts 100 pooled `BloodsplatterManager` lights per level as `fixture:torch`: they are not fixtures.
+
+**The mask.** An emitter rule with `glow` makes a surface that is not emissive in the game an emitter
+(`SceneProxies.Glow.cs`): its albedo times `glow` is the emission, in the texels whose luminance (linear, 0-1) is
+above `threshold` (a soft step of 0.1 either side; 0 = the whole surface, for a bulb or a shade that has its own
+material). `texture` is then the main texture's name.
+
+```json
+"rules":    [ { "name": "street lamps", "path": "Streetlight[^/]*/[^/]*$", "class": "fixture:lamp", "set": { "intensity": 0 } } ],
+"emitters": [ { "name": "lamp bulbs", "material": "^Light$", "glow": 6 } ]
+```
+
+The proxy material gets `_EmissiveColor` white, `_EmissiveIntensity` = glow, `_UseAlbedoAsEmissive` and
+`_EmissiveThreshold` (`Proxy.shader`), so camera rays, reflections and bounces see the glow, and the emissive
+triangle table samples it like any emissive surface (with the threshold applied to its 32x32 copy of the texture:
+approximate for masks of single texels). A material with emission of its own keeps it. Plain proxy materials only:
+not the level atlas, transparents or the player. On an unlit surface the glow adds to the texture the surface
+already shows. Bench variants: `lc.glow.TEXT=G` or `G,T`; `exact.` before TEXT (also for `lc.emit`) takes the whole
+material name (`lc.glow.exact.Light=6`: `Light`, not `Streetlight`).
+
+**Proved on three fixtures** (alt install, pathtrace, shipped exposure; ratio to the game, p10 / p50 / p90 regions,
+tint; sheets in `bench/results/review/`):
+
+| Fixture, pose | Today (fake lights) | Lights off, nothing else | Emissive | Proposal |
+|---|---|---|---|---|
+| 8-2 street lamps, pool (`20261117-203720_emissive-8-2_alt`) | x0.93, x0.68 / x0.79 / x1.20, tint 3.0: a hard-edged spot cone the game does not have | x0.74 | heads x4: x0.76, x0.79 / x0.73 / x0.81, tint 1.6; x8: x0.87, tint 4.8; x12: x0.88, tint 5.8 | heads x4 |
+| 8-2 standing lamp (same run) | x0.93, x0.79 / x1.24 / x0.80, tint 7.5 | x0.72 | bulb glow 6: x0.81; 20: x1.04, x0.89 / x1.30 / x1.00, tint 5.8; with threshold 0.6 the same | glow 20 |
+| 1-4 street lamps (`20261117-204053_emissive-1-4_alt`) | x0.83, tint 6.6, dark +1.6: yellow patches on the arch | x0.78 | bulb glow 6: x1.05, tint 7.5, dark +4.6; 20: x1.42; 60: x1.67 | glow 6 |
+
+The street lamps' pool on 8-2 is even and keeps the yard's pink at x4 (the remaining x0.76 is the yard's ambient, the
+same with the lamps off); more than that washes the ground yellow. The standing lamp's bulb sits inside its shade,
+so the light leaves through the top and the bottom as it does with the fake light. On 1-4 the lamp's pool on the
+grass is the game's, and the yellow patches the fake lights left on the arch are gone. The same material name needs
+a different glow per level (6 on 1-4, 20 on 8-2: the bulbs differ in size), so the rules are per level.
+
+Proposals (`data/lights/proposed/Level 8-2.json`, `Level 1-4.json`; off unless `lc.layer=proposed`): review R9. As files
+(`bench/suites/emissive-review.json`, `20261117-204345_emissive-review_alt`): 8-2 pool x1.02 -> x0.76 (tint 3.5 -> 1.6),
+standing lamp x0.93 -> x1.04, 1-4 lamps x0.82 -> x1.06; the rules take 33 + 8 lights on 8-2 and 18 on 1-4.
+Open: `^Light$` on 1-4 also names six orbs' spheres (not checked in view); the per-level application for the other
+levels comes with their light proposals; a first rule match was missed once because numbered copies
+(`StreetlightFraud (1)`) need `[^/]*` after the name: check `lights_<scene>.proposed.json` for the rule's count.
 
 ## Levels (2026-11-17, `t3/light-levels`)
 
