@@ -172,7 +172,7 @@ secondary set alone.
 | `-ultrart-materials-source ai\|proc`, `[Materials] Source` | ai | which cache folder; read at scene build |
 | `-ultrart-materials-normal F`, `[Materials] NormalStrength` | 2 | global multiplier on the class normal strength (relight, pt-dn, pt) |
 | `-ultrart-materials-hybrid-normal F`, `[Materials] HybridNormalStrength` | 1 | the same in hybrid |
-| `-ultrart-materials-roughness F`, `[Materials] Roughness` | 1 | global multiplier on the roughness variation |
+| `-ultrart-materials-roughness F`, `[Materials] Roughness` | 1 | global multiplier on the roughness variation (menu: Enabled, both strengths and this one, [settings.md](settings.md); the LOD entries are config / flags only) |
 | `-ultrart-materials-guided on\|off` | on | hybrid composite: albedo-guided trace texel pick |
 | `-ultrart-materials-lod on\|off`, `[Materials] TextureLod` | on | ray-cone texture LOD for the detail maps (section 8), shader-side |
 | `-ultrart-materials-lod-bias F`, `[Materials] LodBias` | 0 | mips added to the cone's LOD (0 = a traced pixel's footprint) |
@@ -280,7 +280,7 @@ kept).
   lighting in the albedo misleads it). Per-texel normals on flat quads also can't self-shadow.
 - **Reflection, bounce and cache hits ignore detail** by design (cost); reflections are filtered and the indirect light
   is smooth anyway.
-- **Secondary-hit albedo LOD** needs mipped copies of the game's textures (section 8); not built.
+- **Secondary-hit albedo LOD** needs mipped copies of the game's textures (section 8). The cone path exists but is off by default (`-ultrart-materials-albedo-lod`): the game's textures have no mips.
 
 ## 7. Rain on surfaces (2026-11-14 pm, branch `lights-pm`)
 (Since 2026-11-15 rained-on surfaces are also wet: darker, glossier, with puddles and ripple normals from the same

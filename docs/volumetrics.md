@@ -1,6 +1,6 @@
 # Volumetric lighting
 
-Ray-traced single scattering for relight (and pt-dn): sun shafts through windows, arches and trees, and halos and
+Ray-traced single scattering for relight, pathtrace (and pt-dn): sun shafts through windows, arches and trees, and halos and
 shafts around torches, lamps and explosions, in the level's own atmosphere. The same pass also gives the ray-traced
 image back the game's distance fog, which the replace modes had lost.
 
@@ -89,7 +89,7 @@ lighting is irradiance / pi, since displayed = albedo x lighting; the medium's r
   proportional to 1/d^2. One shadow ray per sample, stopping 0.35 m short of the light like surface shadow rays (lights
   sit inside their fixtures). Falloff and spot cone are relight's (physical inverse square windowed to 2x range, in
   linear light). Directional and fill lights are skipped, and so are **lights attached to the player or the camera**
-  (`playerLights` false; also any light within 0.5 m of the eye): the game's player light (range 15, grey, at the eye)
+  (`playerLights` false; those within 1.5 m of the eye, `AttachedLightReach`; also any light within 0.5 m of the eye): the game's player light (range 15, grey, at the eye)
   starts every view ray inside its core. It took 45-72% of the light picks in every pose tested.
 - **Haze range** (`hazeRange` 20 m): a light's scattering is weighted by `1 / (1 + (range / hazeRange)^3)`. Torches,
   fires and lamps (range 15-25) keep 70-34% of their halo; a light that reaches across a whole room is the level's mood
@@ -128,7 +128,7 @@ lighting is irradiance / pi, since displayed = albedo x lighting; the medium's r
   match, the closest-depth sample (scaled) is used.
 
 ### Composite
-`VolumetricsComposite.shader`, two fullscreen passes into the camera target:
+`VolumetricsComposite.shader`, three fullscreen passes into the camera target (fog, scatter, beams):
 
 1. **Fog** (pass 0), right after the RT composite, before the game's transparents: on pixels the temporal upsampler
    marks as ray traced (`_UltraRTUpsampled.a > 0`), the game's fog, exactly its formula and colour (display space, eye
@@ -153,7 +153,8 @@ The game's fog still applies to transparents as the game draws them.
 
 | Flag | Field (`vol.<field>` bench variant) | Default | |
 |---|---|---|---|
-| `-ultrart-volumetrics on\|off`, config `[Volumetrics] Enabled`, **Ctrl+F6** | `enabled` (`vol=0\|1`) | on | relight and pt-dn |
+| `-ultrart-volumetrics on\|off`, config `[Volumetrics] Enabled`, **Ctrl+F6** | `enabled` (`vol=0\|1`) | on | relight, pathtrace and pt-dn |
+| | `shadowPass` | true | the hit pass traces with `Proxy.shader`'s slim `UltraRTShadow` pass (docs/performance.md) |
 | `-ultrart-vol-hybrid` | `ptDn`, `hybrid` | true, false | hybrid gets the in-scattering only (its colour already has the game's fog) |
 | `-ultrart-vol-block N` | `block` | 4 | screen px per low-res px |
 | `-ultrart-vol-steps N` | `steps` | 8 | sun shadow rays per low-res px |
@@ -519,7 +520,7 @@ the depth, so nested layers stack and from inside the widest frustum only its fa
    the haze with its own history (`beamAtrous` 2 passes). The composite upsamples both sums with depth weights and divides:
    the lit fraction of the beam along each pixel's ray, smooth across the hulls' hard edges.
 3. **Colour** (`beamMeshes` 1): the game's own beam meshes, drawn with `DrawMesh` (their mesh, material, property block and
-   only pass, LightMode `Vertex`) into a screen-size buffer against the game's depth, in the late command buffer after the
+   pass: `ForwardPass` takes a ForwardBase / Always pass and else pass 0, which is the beam shader's only pass, LightMode `Vertex`) into a screen-size buffer against the game's depth, in the late command buffer after the
    transparents; the camera's targets are bound again afterwards. Their renderers stay disabled (`UpdateFakes`, only for
    hulls drawn in the last 2 frames; the rest keep the game's meshes). Pass 2 adds `colour x visibility` to the target
    (`Blend One One`, display space, as the game adds the meshes), before the haze's copy, so the bloom sees them as it sees

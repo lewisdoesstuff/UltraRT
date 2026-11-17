@@ -6,6 +6,8 @@ rasterises. The mode's own documentation is [path-tracing.md](path-tracing.md); 
 
 ## 1. What exists (master f4be515)
 
+*A snapshot from before the work below; section 6 records what changed (relight's default sampler is RIS now, effects, blood stains and water/glass are traced in the paths).*
+
 | Mode | What it traces | Light model | Output |
 |---|---|---|---|
 | `relight` (default) | primary hit; ReSTIR DI (1 shadow ray); 1 sky sample; 1 cosine bounce whose hit reads the radiance cache; 1 reflection ray on glossy pixels, shaded from the cache or one light sample | physical falloff, linear transport, sky, sun disk, auto exposure, colour match | denoiser + reflection filter + TAAU, or DLSS RR (Ctrl+F8) |

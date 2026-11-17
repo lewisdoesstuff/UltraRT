@@ -164,6 +164,9 @@ How a frame is made (`Plugin.CineRender.cs`):
 | exposure (`Exposure`) | auto | auto / locked |
 | game speed (`TimeScale`) | 1 | world time per path second; 0 = frozen world |
 | 16-bit PNG (`Png16`), encode (`Encode`), CRF (`Crf`) | off, on, 16 | |
+| free camera speed (`MoveSpeed`), mouse sensitivity (`LookSpeed`) | 6, 1 | menu and config only |
+| enemies ignore the player while the camera is free (`ProtectPlayer`) | on | menu and config only |
+| V1's reflection and shadow stay while the camera is free (`TracePlayer`) | off | also a bench field; menu and config |
 | bench only: `Start`, `Seconds`, `Preroll`, `Play` | 0, all, 60, off | |
 
 The render size is the game window's (2560x1440 here). It is never changed: for a smaller video use the output size.
@@ -246,7 +249,7 @@ moved along with it (`GameControl`, as a recording benchmark does), the recorded
 (`ReplayArenas`), and `KillEnemies` works as in a benchmark. `Start` > 0 first plays the route from its beginning up to
 `Start` on the fixed time step (one plain frame per step), so the run is in its state there instead of teleported. V1 is
 traced in replays (the camera is where the player is). `bench/suites/cine-replay.json` replays 2 s of the 0-2 run twice
-from fresh loads; see "Determinism" below.
+from fresh loads; see "Determinism" above.
 
 ### A moving player, third-person shots, lamps
 

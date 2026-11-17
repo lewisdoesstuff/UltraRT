@@ -2,6 +2,8 @@
 
 Observed in the Steam build running Unity 2022.3.29f1 (Mono, built-in render pipeline), using the probe plugin and decompiled `Assembly-CSharp`.
 
+See also: [portals.md](portals.md) (layer 8's portals and mirrors), [relight.md](relight.md) (the physical light model and HDR output), [vfx.md](vfx.md) (the screen effects UltraRT adds on top of the ray-traced image).
+
 ## Pipeline
 - Forward rendering, no HDR, no MSAA, no depth texture. Everything is point-filtered.
 - Cameras: `Main Camera` (world), `HUD Camera` (viewmodel/HUD, layer 13, FOV 90, clears depth, same colour/depth buffers; see [viewmodel.md](viewmodel.md)), `Virtual Camera`.

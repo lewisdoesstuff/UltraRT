@@ -20,9 +20,10 @@ section "RR for path tracing" is what changed for the `pathtrace` mode, where it
 
 ## Use
 
+- Settings menu: "Path tracing" and the DLSS entries ([settings.md](settings.md)). The offline renderer and the trailer use RR at full resolution ([cinematics.md](cinematics.md), [trailer.md](trailer.md)); the cache tail is [radiance-cache.md](radiance-cache.md).
 - `scripts\fetch-dlss.ps1` once (by running it you accept NVIDIA's license, see "License"). Then build as usual.
   `native\UltraRT.Native\build.ps1` links `nvsdk_ngx_s.lib` when it finds the SDK. Without it, it builds the stub and RR
-  reports itself unavailable. `build.ps1 -NoDeploy` stages `nvngx_dlssd.dll`, and `deploy.ps1` copies it next to
+  reports itself unavailable. `scripts\build.ps1 -NoDeploy` stages `nvngx_dlssd.dll`, and `deploy.ps1` copies it next to
   `UltraRT.Native.dll` in `BepInEx\plugins\UltraRT\`. Nothing goes into the game's own folders.
 - Config `[DLSS] RayReconstruction` (default **off**), `-ultrart-rr` / `-ultrart-norr`, and **Ctrl+F8** in game (plain F8
   opens the game's console): RR in `relight` and `pt-dn`. `pathtrace` has its own choice (`[PathTrace] Denoiser`, default
@@ -115,8 +116,8 @@ RR measured 1.1-2x noisier than our denoiser on relight's signal (below). The ca
 plain RIS (`lights=ris`) or a short history (`ls.historyLimit=2`) the same RR bursts are 35-45% quieter and match
 "no light-selection noise at all" (`lights=ref`); the radiance cache makes no difference. `pathtrace` therefore
 samples lights at the primary hit with RIS and no reservoirs while RR denoises (`ptx.lightsRR`, `candidatesRR`,
-`directSamplesRR`). Relight under RR (Ctrl+F8) keeps whatever F6 selects; `-ultrart-lights ris` is the setting to
-pair with it.
+`directSamplesRR`). Relight under RR (Ctrl+F8) keeps whatever F6 selects; relight's default (RIS since 2026-11-15, formerly ReSTIR, hence
+`-ultrart-lights ris` at the time) is the setting to pair with it, ReSTIR is the correlated case.
 
 ### Remodulation
 
@@ -129,7 +130,7 @@ smears the texel grid, clearly so at 1/3 scale. So RR no longer sees textures:
   albedo guides become each lobe's share of D (they sum to 1 where nothing is emitted), so RR has no texture to
   reconstruct. Fullbright art and pure emitters become X = 1.
 - D is noise-free, so it is accumulated to screen resolution by a second instance of the temporal upsampler
-  (`TemporalUpsampler` in `DlssRR.cs`; the game's full-resolution depth is the geometry). Weights are sharp
+  (`TemporalUpsampler`, `TemporalUpsampler.cs`, instantiated in `DlssRR.cs`; the game's full-resolution depth is the geometry). Weights are sharp
   (`exp(-30 d^2)`, d = distance from the pixel centre in screen px): the sample nearest a pixel's centre wins. There is
   no clip box (it would cut texels the 9 samples of a frame happen to miss); instead a sample on the pixel centre that
   differs from the history replaces it, which follows animated textures and re-sharpens history that reprojection

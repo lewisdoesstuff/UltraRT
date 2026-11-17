@@ -287,6 +287,7 @@ Per pixel in `ReSTIR` mode:
    ```csharp
    _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount);
    ```
+   (Historical wiring recipe. The current call in `Plugin.cs` also passes `_emissive.SetChanged` and `kind == Kind.Hybrid`.)
    `viewProj` is the existing local, `_camera.projectionMatrix * _camera.worldToCameraMatrix`, whose inverse is `_InvViewProj`. `w` and `h` are the dispatch size. `LightSampling` remembers its own previous `viewProj`, so there is nothing else to pass.
 5. Resets: call `_lightSampling?.Reset();` wherever `_denoiser?.Reset()` / `_denoiser.Reset()` is called:
    - `ResetScene()`, which also covers shader reload
@@ -308,7 +309,7 @@ Per pixel in `ReSTIR` mode:
    case "-ultrart-ris-m": int.TryParse(Next(), out _lightSamplingSettings.candidates); break;
    case "-ultrart-restir-spatial": int.TryParse(Next(), out _lightSamplingSettings.spatialSamples); break;
    ```
-   Also a hotkey in `OnUpdate()` (F6 is free):
+   Also a hotkey in `OnUpdate()` (F6 was free then; it now cycles the light sampling mode, as built here):
    ```csharp
    if (Input.GetKeyDown(KeyCode.F6))
    {
