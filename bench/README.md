@@ -81,12 +81,12 @@ ready, `ShotSettle`, the auto exposure wait).
 
 ```json
 { "Name": "1-4 tour", "Scene": "Level 1-4", "Path": { "Type": "tour" },
-  "Tour": { "Views": 3, "Max": 0, "Only": null, "Start": true, "Settle": 1, "Scale": 0.5, "Pitch": 0 },
+  "Tour": { "Views": 3, "Max": 0, "Only": null, "Start": true, "Settle": 1, "Step": 0, "Scale": 0.5, "Pitch": 0 },
   "Modes": [ "off", "pathtrace", "pathtrace+ae.enabled=0" ], "ShotSettle": 0.8 }
 ```
 
 `Views` per stop; `Max` stops spread evenly over the level (0 = all); `Only` picks stops by their number
-(0 = "First Room"; the log lists `stop N '<label>'`, and `results.json` has the labels); `Start: false` leaves "First Room" out; `Scale` 0.5 saves a
+(0 = "First Room"; the log lists `stop N '<label>'`, and `results.json` has the labels); `Start: false` leaves "First Room" out; `Step` walks that many metres forward from the stop before the captures, for rooms whose lights wait for the player to step in (3-1's Stairways: `bench/suites/review/review-3-1.json`); `Scale` 0.5 saves a
 1440p frame as 1280x720. Files are `<scenario>-s<stop>-v<view>_0.0s_<mode>.png`, and `results.json` lists the stops
 (`Tour`: index, the menu's label, position, yaws). The level is in the state the cheat leaves: rooms behind a
 checkpoint are not loaded, as with `Load: checkpoint`.

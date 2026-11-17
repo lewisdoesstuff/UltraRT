@@ -30,14 +30,17 @@ def main():
         if name not in modes:
             modes.append(name)
         key = r["pose"] + (" " + r["stop"] if r.get("stop") else "")
-        poses.setdefault(key, {"game": r["game"], "dark": r["dark_pct"]})[name] = (float(r["ratio"]), float(r["dark_delta"]))
+        if not r["ratio"]:
+            continue
+        # A view with no dark pixels in the game has no dark delta.
+        poses.setdefault(key, {"game": r["game"], "dark": r["dark_pct"]})[name] = (float(r["ratio"]), float(r["dark_delta"] or "nan"))
     modes = ["base"] + [m for m in modes if m != "base"]
     lines = ["| View | game | dark % | " + " | ".join(modes) + " |", "|---|---|---|" + "---|" * len(modes)]
     for pose, d in poses.items():
         cells = []
         for m in modes:
             v = d.get(m)
-            cells.append("x%.2f %+.1f" % v if v else "")
+            cells.append(("x%.2f %+.1f" % v).replace(" +nan", "") if v else "")
         lines.append("| %s | %s | %s | %s |" % (pose, d["game"], d["dark"], " | ".join(cells)))
     out = os.path.join(a.run, "attribution.md")
     open(out, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "scene": "Level 6-2",
+  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels'): the floating room lights never reach further than in the game, x0.4.",
+  "classes": {
+    "fill": {
+      "reach": 0,
+      "intensity": 0.4
+    },
+    "scripted": {
+      "reach": 0,
+      "intensity": 0.4
+    }
+  },
+  "lights": [],
+  "added": []
+}

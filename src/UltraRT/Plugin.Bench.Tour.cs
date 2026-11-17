@@ -106,6 +106,24 @@ namespace UltraRT
                 // The rooms a checkpoint switches on run their Start()s next frame (and clone themselves there).
                 float until = Time.realtimeSinceStartup + 0.5f + Mathf.Max(0f, spec.Settle);
                 while (Time.realtimeSinceStartup < until) { GameControl.SetPose(pose); GameControl.HideCheatPanels(); yield return null; }
+                if (spec.Step > 0f)
+                {
+                    // Walk, not jump: a trigger the step crosses must see the player inside it on a physics step.
+                    var from = pose.Position;
+                    var dir = Quaternion.Euler(0f, pose.Yaw, 0f) * Vector3.forward;
+                    float walked = 0f;
+                    while (walked < spec.Step)
+                    {
+                        walked = Mathf.Min(spec.Step, walked + 8f * Time.unscaledDeltaTime);
+                        pose.Position = from + dir * walked;
+                        GameControl.SetPose(pose);
+                        GameControl.HideCheatPanels();
+                        yield return null;
+                    }
+                    Logger.LogInfo($"Benchmark: tour stop {index}: stepped {spec.Step:0.#} m forward to ({pose.Position.x:F1}, {pose.Position.y:F1}, {pose.Position.z:F1})");
+                    until = Time.realtimeSinceStartup + 1.5f;
+                    while (Time.realtimeSinceStartup < until) { GameControl.SetPose(pose); GameControl.HideCheatPanels(); yield return null; }
+                }
 
                 // Let the RT scene register what the stop switched on, then give RR its feature (as RunScenario does).
                 string warm = sc.Modes.FirstOrDefault(m => m != "off");

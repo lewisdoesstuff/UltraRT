@@ -121,6 +121,9 @@ namespace UltraRT.Bench
         public int Max;
         /// <summary>Seconds to let a stop's rooms settle before its first capture.</summary>
         public float Settle = 1f;
+        /// <summary>Metres to walk forward from the stop (the way the checkpoint faces) before the captures, at walking
+        /// speed, for rooms whose lights or doors wait for the player to step in (3-1's Stairways). 0 = stay.</summary>
+        public float Step;
         /// <summary>Screenshot size relative to the screen (0.5 = half width and height: a 1440p frame as 1280x720).</summary>
         public float Scale = 0.5f;
         /// <summary>Camera pitch of every view (degrees, negative = down).</summary>
