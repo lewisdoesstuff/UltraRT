@@ -545,3 +545,22 @@ In sessions (one agent, a few hours including builds and game runs):
 | E refactoring not already counted (overrides v2 tests, suites, settings) | 2 | E1-E3 are inside D |
 
 About 30-40 sessions in all; with two agents in parallel, stages 1 and 2 are about four sessions each side.
+
+## 10. Review list (for the user, one sitting)
+
+Everything that needs the user's taste waits here, **off by default** until answered (lead, 2026-11-17). Sheets are
+local, one folder: `bench/results/review/` (rendered frames: not in the repo). Each row: what to look at, the
+question, and what happens on yes.
+
+| # | Since | Sheet(s) in `bench/results/review/` | Question | On yes | How to see it in game |
+|---|---|---|---|---|---|
+| R1 | 2026-11-17 | `review-firstroom-emissive.png` | Start and final room lit by their wall strips (x4.5) with the floating lights off: right? | move the rule from `data/lights/proposed/_rules.json` to `data/lights/_rules.json` | bench variant `lc.layer=proposed` |
+| R2 | 2026-11-17 | `review-1-4.png` | 1-4: room lights x0.4, street lamps x0.5, none reaching further than in the game. The lamps and bridge poses read a little dim (x0.84, x0.87): acceptable? | ship `proposed/Level 1-4.json` | `lc.layer=proposed` |
+| R3 | 2026-11-17 | `review-3-1.png` | 3-1: room lights x0.5, the Bridge Arena's x0.35 | ship `proposed/Level 3-1.json` | `lc.layer=proposed` |
+| R4 | 2026-11-17 | `review-6-2.png` | 6-2: room lights x0.4. (Known: an orange patch by the Organ Hall terminal.) | ship `proposed/Level 6-2.json` | `lc.layer=proposed` |
+| R5 | 2026-11-17 | `review-0-1.png` | 0-1: room lights x0.9 with their reach capped | ship `proposed/Level 0-1.json` | `lc.layer=proposed` |
+| R6 | 2026-11-17 | `board-20261117.md` | P-2: keep its brighter exposure exception (x1.57 at shipped settings), or bring the street down? | no change / remove the exception | |
+| R7 | 2026-11-17 | `materials-smooth-1-1-wall.png` | Detail normals smoothed over neighbouring texels ("smooth 1"), or normals off on walls like this (top row, third cell)? | `[Materials] NormalSmooth` default 1 | `-ultrart-materials-smooth 1` |
+
+Not a question, for information: `3-1-stairs-lit.png` (the Stairways' haze is far weaker than the game's; work for
+`t3/window-beams`).
