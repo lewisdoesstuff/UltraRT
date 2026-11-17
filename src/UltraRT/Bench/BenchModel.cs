@@ -394,6 +394,12 @@ namespace UltraRT.Bench
         public float AvgFps, Low1Fps;
         /// <summary>Average GPU ms per timer slot (empty without -ultrart-gputimer).</summary>
         public Dictionary<string, float> GpuMs = new Dictionary<string, float>();
+        /// <summary>Average render-thread ms per timer slot: that thread's own time between the slot's begin and end
+        /// events (GpuTimer.TryGetCpuMs). "frame" is the whole frame's rendering, in every mode.</summary>
+        public Dictionary<string, float> RenderThreadMs = new Dictionary<string, float>();
+        /// <summary>Wall-clock spans (unix seconds, UTC) of this mode's counted frames, for cutting an ETW trace
+        /// (bench.ps1 -Etw, tools/perf/etw_report.py).</summary>
+        public List<double[]> WindowsUtc = new List<double[]>();
         /// <summary>Frames slower than 1/60 s and 1/30 s; the 5 slowest frame times.</summary>
         public int Over16, Over33;
         public List<float> WorstMs = new List<float>();

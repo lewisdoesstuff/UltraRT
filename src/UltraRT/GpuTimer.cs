@@ -23,13 +23,13 @@ namespace UltraRT
 
         private readonly IntPtr _eventFunc;
         private readonly int _eventBase;
-        private readonly GetTimingsFn _getTimings;
+        private readonly GetTimingsFn _getTimings, _getCpuTimings;
         private readonly IntFn _isReady;
         private readonly StatusFn _getStatus;
         private readonly LongFn _resolvedFrames, _droppedFrames;
-        private readonly float[] _ms;
+        private readonly float[] _ms, _cpuMs;
         private int _cachedFrame = -1;
-        private int _cachedCount;
+        private int _cachedCount, _cachedCpuCount;
         private bool _disposed;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int IntFn();
@@ -50,11 +50,14 @@ namespace UltraRT
             _eventBase = Get<IntFn>(module, "UltraRT_GetEventBase")();
             MaxSlots = Get<IntFn>(module, "UltraRT_GetMaxSlots")();
             _getTimings = Get<GetTimingsFn>(module, "UltraRT_GetTimings");
+            // Render-thread CPU time per slot: absent in a native DLL built before 2026-11-17 (a game that kept the old one loaded).
+            _getCpuTimings = GetProcAddress(module, "UltraRT_GetCpuTimings") != IntPtr.Zero ? Get<GetTimingsFn>(module, "UltraRT_GetCpuTimings") : null;
             _isReady = Get<IntFn>(module, "UltraRT_IsReady");
             _getStatus = Get<StatusFn>(module, "UltraRT_GetStatus");
             _resolvedFrames = Get<LongFn>(module, "UltraRT_GetResolvedFrameCount");
             _droppedFrames = Get<LongFn>(module, "UltraRT_GetDroppedFrameCount");
             _ms = new float[MaxSlots];
+            _cpuMs = new float[MaxSlots];
             if (_eventFunc == IntPtr.Zero) throw new InvalidOperationException("GetRenderEventAndDataFunc returned null");
         }
 
@@ -144,14 +147,33 @@ namespace UltraRT
         {
             ms = 0f;
             if (_disposed || (uint)slot >= (uint)MaxSlots) return false;
-            if (_cachedFrame != Time.frameCount)
-            {
-                _cachedFrame = Time.frameCount;
-                _cachedCount = _getTimings(_ms, _ms.Length);
-            }
+            Refresh();
             if (slot >= _cachedCount || _ms[slot] < 0f) return false;
             ms = _ms[slot];
             return true;
+        }
+
+        /// <summary>
+        /// The render thread's own time (ms) between the slot's Begin and End events in the same frame as
+        /// <see cref="TryGetMs"/>: what executing the commands recorded between them cost it (shader tables for a
+        /// DispatchRays, state changes, copies). Not GPU time, and not the main thread's time to record them.
+        /// </summary>
+        public bool TryGetCpuMs(int slot, out float ms)
+        {
+            ms = 0f;
+            if (_disposed || _getCpuTimings == null || (uint)slot >= (uint)MaxSlots) return false;
+            Refresh();
+            if (slot >= _cachedCpuCount || _cpuMs[slot] < 0f) return false;
+            ms = _cpuMs[slot];
+            return true;
+        }
+
+        private void Refresh()
+        {
+            if (_cachedFrame == Time.frameCount) return;
+            _cachedFrame = Time.frameCount;
+            _cachedCount = _getTimings(_ms, _ms.Length);
+            _cachedCpuCount = _getCpuTimings != null ? _getCpuTimings(_cpuMs, _cpuMs.Length) : 0;
         }
 
         /// <summary>

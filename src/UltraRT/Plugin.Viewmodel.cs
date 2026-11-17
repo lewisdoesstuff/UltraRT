@@ -237,7 +237,8 @@ namespace UltraRT
             }
             _vmCmd.Clear();
             if (!ViewmodelWanted()) { _vmHistValid = false; return; }
-            try { RecordViewmodel(cam, pp); }
+            long tvm = Perf.Now;
+            try { RecordViewmodel(cam, pp); Perf.Add(Perf.Sec.Viewmodel, tvm); }
             catch (Exception e)
             {
                 _vmCmd.Clear();

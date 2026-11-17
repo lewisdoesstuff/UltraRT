@@ -37,7 +37,8 @@ Updated as branches land. "ready" = reported to the lead for merge-regress and m
 | A2 pose coverage: tour of the game's Teleport Menu entries (`Path.Type` "tour"), tour suites for 43 levels | `t3/bright-metrics` | ready 2026-11-17; run on 1-4, 6-2, 3-1 so far (bench/README.md, "Tour") |
 | A2 per-light attribution report | `t3/light-classes` | planned (moved: it shares the class toggles) |
 | A3 exposure policy and the "RT brightness" setting | `t3/bright-metrics` | ready 2026-11-17: pathtrace median x1.53 -> x1.14 of the game over nine poses; P-2 kept as it was by a level setting, for the user to confirm (docs/relight.md, "Follow the game") |
-| 5.1 profiling pass; E1 pass scheduler; E3 default mode pathtrace | `t3/perf-profile` | next |
+| 5.1 profiling pass (frame slot, render-thread and main-thread ms per pass, ETW traces, hitch attribution, `-Floor`); E3 default mode pathtrace | `t3/perf-profile` | ready 2026-11-17 (docs/performance.md, "Profiling") |
+| 5.1 step 5 ray counters; E1 pass scheduler | `t3/perf-paths` / `t3/perf-dispatch` | planned (moved: each lands with the first change that needs it, P1 and C1) |
 | P1, P2 footprint-terminated paths; R1 ray generation per mode | `t3/perf-paths` | planned |
 | A4 light classes, flags, prefab layer, class and light toggles, rule diffs | `t3/light-classes` | planned |
 | B1 in-engine matrix, B2 generator bake-off | offline + `t3/materials-v2` | planned |
@@ -200,14 +201,17 @@ What follows:
 
 1. **Pathtrace at 120 Hz** holds in calm scenes with no headroom (126-128 fps) and fails in combat (94 fps), where it
    is GPU-bound (8.6 ms of ours). The largest single cost is the second path segment.
-2. **Relight at 240 Hz is blocked by the CPU side before the GPU.** With no GPU work at all the frame is 3.9 ms in a
+2. **Relight at 240 Hz is blocked by the CPU side before the GPU.** (Refined 2026-11-17, docs/performance.md
+   "Profiling": at trace scale 0.5 a calm relight frame is GPU-bound, 5.63 ms of GPU in a 5.81 ms frame; the CPU
+   floor below is what remains once the GPU work is cut, and it is the main thread, not the render thread, in 0-x.) With no GPU work at all the frame is 3.9 ms in a
    calm room and 6.3 ms in combat, against a 4.17 ms budget. The four auxiliary ray dispatches (cache update,
    volumetrics, particle light, viewmodel) cost 1.0 ms of frame in 0-1 and 1.5 ms in combat on the render thread,
    more than their GPU time. This matches the per-`DispatchRays` shader-table cost found on 2026-11-15
    (docs/performance.md), now measured in an ordinary level.
 3. **In combat the game alone takes 2.6-3.3 ms**, so 240 Hz leaves 0.9-1.5 ms for everything of ours. I do not think
    240 Hz in combat is reachable; 240 in calm scenes and about 170-190 in combat is (5.5).
-4. **Hitches**: p99 is 20-23 ms in combat in every RT mode (off: 4.7-7.3). Not attributed yet.
+4. **Hitches**: p99 is 20-23 ms in combat in every RT mode (off: 4.7-7.3). Attributed 2026-11-17
+   (docs/performance.md, "Hitches"): mostly the game's own script phase when an explosion spawns, present with RT off.
 5. 8-3 is render-thread bound at 59-63 fps and the game alone runs at 117 fps there: 120 Hz is out of reach in 8-3
    whatever we do; the aim there is to cut the 7-8 ms we add.
 6. Unity 2022.3.29 has no inline ray tracing (`UnityRayQuery.cginc` is absent from the editor's includes; it arrived

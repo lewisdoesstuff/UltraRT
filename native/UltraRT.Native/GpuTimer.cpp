@@ -4,7 +4,9 @@
 //   main thread    UltraRT_Init()  -> registers this DLL with Unity -> Unity calls UnityPluginLoad(interfaces)
 //   render thread  plugin events Begin(slot) / End(slot) / Resolve, issued from a CommandBuffer via
 //                  IssuePluginEventAndData(GetRenderEventAndDataFunc(), UltraRT_GetEventBase() + n, slot)
-//   any thread     UltraRT_GetTimings() returns the newest frame whose GPU work has completed.
+//   any thread     UltraRT_GetTimings() returns the newest frame whose GPU work has completed;
+//                  UltraRT_GetCpuTimings() the render thread's own time between the same Begin and End events
+//                  (what it took to execute the commands recorded between them: shader tables, state, copies).
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -58,6 +60,7 @@ namespace
     char s_Status[512] = "not initialized (call UltraRT_Init)";
     char s_StatusOut[512];
     float s_Latest[kMaxSlots];
+    float s_LatestCpu[kMaxSlots];
     int s_LatestCount = 0;
     volatile LONG s_Ready = 0;
     volatile LONG64 s_ResolvedFrames = 0;
@@ -84,6 +87,8 @@ namespace
         uint64_t beginMask, endMask;
         UINT64 fence;
         bool pending;      // resolved on the GPU timeline, waiting for the frame fence
+        LONGLONG cpuBegin[kMaxSlots];  // render-thread clock (QueryPerformanceCounter) at Begin
+        float cpuMs[kMaxSlots];        // render-thread time from Begin to End
     };
 
     ID3D12Device* s_Device = nullptr;
@@ -92,6 +97,7 @@ namespace
     const UINT64* s_Mapped = nullptr;
     ID3D12Fence* s_FrameFence = nullptr;
     double s_TicksToMs = 0;
+    double s_QpcToMs = 0;
     Frame s_Frames[kRing];
     int s_Cur = 0;
     bool s_CurDropped = false;
@@ -128,6 +134,9 @@ namespace
         HRESULT hr = queue->GetTimestampFrequency(&freq);
         if (FAILED(hr) || freq == 0) { SetStatus("GetTimestampFrequency failed (hr=0x%08X)", (unsigned)hr); return false; }
         s_TicksToMs = 1000.0 / (double)freq;
+        LARGE_INTEGER qpf = {};
+        QueryPerformanceFrequency(&qpf);
+        s_QpcToMs = qpf.QuadPart > 0 ? 1000.0 / (double)qpf.QuadPart : 0.0;
 
         D3D12_QUERY_HEAP_DESC qd = {};
         qd.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
@@ -187,19 +196,21 @@ namespace
             Frame& f = s_Frames[(s_Cur + i) % kRing];
             if (!f.pending || completed < f.fence) continue;
             const UINT64* q = s_Mapped + (size_t)((&f - s_Frames) * kQueriesPerFrame);
-            float ms[kMaxSlots];
+            float ms[kMaxSlots], cpu[kMaxSlots];
             int count = 0;
             uint64_t valid = f.beginMask & f.endMask;
             for (int s = 0; s < kMaxSlots; s++)
             {
-                ms[s] = -1.0f;
+                ms[s] = cpu[s] = -1.0f;
                 if (!(valid >> s & 1)) continue;
                 UINT64 b = q[s * 2], e = q[s * 2 + 1];
                 if (e >= b) ms[s] = (float)((double)(e - b) * s_TicksToMs);
+                cpu[s] = f.cpuMs[s];
                 count = s + 1;
             }
             AcquireSRWLockExclusive(&s_Lock);
             memcpy(s_Latest, ms, sizeof ms);
+            memcpy(s_LatestCpu, cpu, sizeof cpu);
             s_LatestCount = count;
             ReleaseSRWLockExclusive(&s_Lock);
             InterlockedIncrement64(&s_ResolvedFrames);
@@ -241,12 +252,19 @@ namespace
         cl->EndQuery(s_Heap, D3D12_QUERY_TYPE_TIMESTAMP, (UINT)(s_Cur * kQueriesPerFrame + slot * 2));
         f->beginMask |= 1ull << slot;
         f->endMask &= ~(1ull << slot); // re-begun: previous end no longer pairs with it
+        // Last thing in Begin, first thing in End: the span is the commands between the two events, not this bookkeeping.
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+        f->cpuBegin[slot] = now.QuadPart;
     }
 
     void OnEnd(int slot)
     {
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
         Frame* f = WritableFrame();
         if (!f || !(f->beginMask >> slot & 1)) return;
+        f->cpuMs[slot] = (float)((double)(now.QuadPart - f->cpuBegin[slot]) * s_QpcToMs);
         ID3D12GraphicsCommandList* cl = CurrentCommandList();
         if (!cl) return;
         cl->EndQuery(s_Heap, D3D12_QUERY_TYPE_TIMESTAMP, (UINT)(s_Cur * kQueriesPerFrame + slot * 2 + 1));
@@ -470,6 +488,22 @@ ULTRART_API int UltraRT_GetTimings(float* outMs, int maxSlots)
     AcquireSRWLockShared(&s_Lock);
     int count = s_LatestCount;
     if (count > 0) memcpy(outMs, s_Latest, sizeof(float) * n);
+    ReleaseSRWLockShared(&s_Lock);
+    if (count <= 0)
+        for (int i = 0; i < n; i++) outMs[i] = -1.0f;
+    for (int i = n; i < maxSlots; i++) outMs[i] = -1.0f;
+    return count < n ? count : n;
+}
+
+// The render thread's time between Begin and End of each slot, for the same frame as UltraRT_GetTimings (ms; -1 for a
+// slot not timed in that frame). Returns 1 + the highest timed slot.
+ULTRART_API int UltraRT_GetCpuTimings(float* outMs, int maxSlots)
+{
+    if (!outMs || maxSlots <= 0) return 0;
+    int n = maxSlots < kMaxSlots ? maxSlots : kMaxSlots;
+    AcquireSRWLockShared(&s_Lock);
+    int count = s_LatestCount;
+    if (count > 0) memcpy(outMs, s_LatestCpu, sizeof(float) * n);
     ReleaseSRWLockShared(&s_Lock);
     if (count <= 0)
         for (int i = 0; i < n; i++) outMs[i] = -1.0f;

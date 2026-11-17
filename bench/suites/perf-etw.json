@@ -1,0 +1,68 @@
+{
+  "Name": "perf-etw",
+  "Note": "CPU trace poses (bench.ps1 -Perf -Etw; docs/performance.md, 'ETW'): few modes and long segments, so each mode has seconds of uninterrupted frames inside the trace. Analyse with tools/perf/etw_report.py.",
+  "Scenarios": [
+    {
+      "Name": "warm-up",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 6
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 1.5
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 12
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 4,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "0-2 run combat",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/0-2-run.json",
+        "Start": 3,
+        "End": 36
+      },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Weapon": 1,
+      "Effects": {
+        "Kinds": [
+          "revolver"
+        ],
+        "PeriodicKinds": [
+          "revolver",
+          "explosion"
+        ],
+        "Every": 0.6,
+        "Distance": 8
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 5,
+      "SwitchSkipFrames": 20
+    }
+  ]
+}

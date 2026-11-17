@@ -232,6 +232,8 @@ A burst mode may add runtime variants after the view mode, separated by `+`: `re
 | `-Settle <s>` | Seconds to settle after every level load, instead of each scenario's `Settle` (3 s in the suite files). See "Level settle" below. |
 | `-Slot main\|alt` | Which install to run in (`-GameDir` still works). A run in alt writes its Unity log to `<alt>\Player.log` (`-logFile`), because `LocalLow\Hakita\ULTRAKILL\Player.log` belongs to the main install. |
 | `-KeepOpen` / `-Stop` | Resident game (see "How to run tests"). |
+| `-Floor` | `-Perf` at trace scale 0.2: the CPU floor (every pass runs, with little GPU work). |
+| `-Etw` | Records a CPU trace of the launch (`trace.etl` in the first suite's folder; `scripts\etw-setup.ps1` once, it asks for elevation). Analyse with `tools/perf/etw_report.py <run>`. Tracing slows the game: take frame times from a run without it. docs/performance.md, "ETW". |
 | `-Load`, `-NoChain`, `-ValidateLoad`, `-ValidateMethods`, `-Scale`, `-Api`, `-NoGpuTimer`, `-NativeGfxJobs`, `-Extra`, `-TimeoutSec`, `-Compare` | As before. |
 
 `bench.ps1` refuses to start a game while the user is playing, warns when no slot lock is held and, for `-Perf`, when another game instance is running (frame times are then not exclusive).

@@ -102,10 +102,32 @@ namespace UltraRT
 
         private void Awake()
         {
+            // The default mode is pathtrace where DLSS Ray Reconstruction can run (an NVIDIA GPU and nvngx_dlssd.dll beside the
+            // plugin; docs/dlss.md), relight elsewhere (pathtrace without RR is the slower fallback denoiser). Set before
+            // InitSettings, which remembers the code defaults (the menu's "reset").
+            string pluginDir = Path.GetDirectoryName(Info.Location) ?? "";
+            bool rrPresent = SystemInfo.graphicsDeviceVendor.IndexOf("NVIDIA", StringComparison.OrdinalIgnoreCase) >= 0
+                && File.Exists(Path.Combine(pluginDir, "nvngx_dlssd.dll")) && File.Exists(Path.Combine(pluginDir, GpuTimer.DllName));
+            _mode = Mathf.Max(0, Array.FindIndex(Modes, m => m.name == (rrPresent ? "pathtrace" : "relight")));
             InitSettings(); // SettingsMenu.cs: register the settings and remember the code defaults before any entry or flag changes them
             // Starting view mode: BepInEx/config/ooo.lew.ultrart.cfg ([View] DefaultMode), overridden by -ultrart-view.
-            var defaultMode = Config.Bind("View", "DefaultMode", "relight",
-                "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.").Value;
+            var defaultModeEntry = Config.Bind("View", "DefaultMode", rrPresent ? "pathtrace" : "relight",
+                "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.");
+            // BepInEx writes a default into the file, so a config made before 2026-11-17 still says relight although nobody
+            // chose it. Once per config: such an entry moves to the new default. Picking relight again afterwards sticks.
+            var configVersion = Config.Bind("View", "ConfigVersion", 0, "Internal: which default migrations this file has had. Do not edit.");
+            // Not in a bench launch: the user's own start of the game does it (a bench never changes their settings).
+            bool benchLaunch = Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
+            if (configVersion.Value < 1 && !benchLaunch)
+            {
+                if (rrPresent && defaultModeEntry.Value.Equals("relight", StringComparison.OrdinalIgnoreCase))
+                {
+                    defaultModeEntry.Value = "pathtrace";
+                    Logger.LogInfo("Config: [View] DefaultMode was the old default (relight): now pathtrace. Set it back in the settings menu to keep relight.");
+                }
+                configVersion.Value = 1;
+            }
+            string defaultMode = defaultModeEntry.Value;
             int dm = Array.FindIndex(Modes, m => m.name.Equals(defaultMode, StringComparison.OrdinalIgnoreCase));
             if (dm >= 0) _mode = dm;
             ParseArgs();
@@ -151,7 +173,11 @@ namespace UltraRT
             {
                 // Opt-in dev tool: the native DLL registers itself with Unity through an internal routine.
                 var nativePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", GpuTimer.DllName);
-                if (GpuTimer.TryCreate(nativePath, out _gpu, out var gpuError)) Logger.LogInfo($"GPU timer: {_gpu.Status}");
+                if (GpuTimer.TryCreate(nativePath, out _gpu, out var gpuError))
+                {
+                    Logger.LogInfo($"GPU timer: {_gpu.Status}");
+                    InstallFrameSlot();
+                }
                 else Logger.LogWarning($"GPU timer unavailable: {gpuError}");
             }
 
@@ -1316,7 +1342,9 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
                 _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
+                long tc = Perf.Now;
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
+                Perf.Add(Perf.Sec.Cache, tc);
                 BindTransparents(shader, denoised); // water and glass (Plugin.Transparent.cs)
                 BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
                 BindStains(shader, kind == Kind.Denoised || kind == Kind.Hybrid || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
@@ -1345,7 +1373,10 @@ namespace UltraRT
             if (_diagDispatches > 0 && pt) DiagDispatches(invViewProj); // bench: per-dispatch render-thread cost (docs/performance.md)
             _proxies.RecordMotionCopies(_cmd); // this frame's skinned poses become next frame's previous poses
             if (kind == Kind.PathTrace) TraceCacheDebug(mode);
+            long tpl = Perf.Now;
             if (pt) TraceParticleLight(kind); // lit particles' lighting volume (Plugin.Particles.cs)
+            Perf.Add(Perf.Sec.Particles, tpl);
+            long tdn = Perf.Now;
 
             _displayed = _output;
             if (resolve)
@@ -1436,6 +1467,7 @@ namespace UltraRT
                 upsampled = true;
             }
 
+            Perf.Add(Perf.Sec.Denoise, tdn); // reflections filter, denoiser or RR, exposure, upsampler
             // Composite into the camera's current target without changing render-target bindings.
             _gpu?.Begin(_cmd, SlotBlit);
             _cmd.SetGlobalTexture(UltraRTImageId, _displayed);
@@ -1472,15 +1504,14 @@ namespace UltraRT
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);
+            long tv = Perf.Now;
             TraceVolumetrics(kind, upsampled); // sun shafts, light halos, the game's fog on RT pixels (Plugin.Volumetrics.cs)
+            Perf.Add(Perf.Sec.Volumetrics, tv);
             CopyPreAlpha(); // refraction background for the water overlays (Plugin.Transparent.cs)
+            long tx = Perf.Now;
             TraceVfx(kind); // bloom, heat haze, shockwaves, underwater: after the transparents (Plugin.Vfx.cs)
-            _gpu?.End(_cmd, SlotTotal);
-            if (_gpu != null)
-            {
-                _gpu.EndFrame(_cmd);
-                SampleGpuTimings();
-            }
+            Perf.Add(Perf.Sec.Vfx, tx);
+            _gpu?.End(_cmd, SlotTotal); // the frame's queries are resolved at the end of the frame (InstallFrameSlot)
 
             ViewmodelTraced(kind); // the HUD camera lights the viewmodel against this frame (Plugin.Viewmodel.cs)
             _frameIndex++;
@@ -1520,13 +1551,39 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotCount = 22; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotFrame = 22, SlotCount = 23; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace", "frame" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;
         private readonly double[] _gpuSum = new double[SlotCount];
         private readonly int[] _gpuN = new int[SlotCount];
+
+        private CommandBuffer _frameBeginCmd, _frameEndCmd;
+
+        /// <summary>
+        /// The whole-frame slot ("frame"): from right before the frame's rendering starts on the main thread to right after
+        /// it ends, before the present, in every mode including off. Its GPU time is the span the GPU took for the frame's
+        /// commands (the game's and ours), so a frame is GPU-bound when it is close to the frame time; its render-thread
+        /// time is the span from the first to the last of them on that thread. The frame's queries are resolved here, after
+        /// every camera, so late passes (viewmodel, late volumetrics) land in the same frame as the trace.
+        /// </summary>
+        private void InstallFrameSlot()
+        {
+            Perf.InstallFrameMarkers();
+            _frameBeginCmd = new CommandBuffer { name = "UltraRT frame begin" };
+            _gpu.Begin(_frameBeginCmd, SlotFrame);
+            _frameEndCmd = new CommandBuffer { name = "UltraRT frame end" };
+            _gpu.End(_frameEndCmd, SlotFrame);
+            _gpu.EndFrame(_frameEndCmd);
+            Perf.OnRenderStart = () => { if (_gpu != null) Graphics.ExecuteCommandBuffer(_frameBeginCmd); };
+            Perf.OnRenderEnd = () =>
+            {
+                if (_gpu == null) return;
+                Graphics.ExecuteCommandBuffer(_frameEndCmd);
+                SampleGpuTimings();
+            };
+        }
 
         /// <summary>Accumulate each newly resolved frame's per-slot timings (values lag 2-4 frames).</summary>
         private void SampleGpuTimings()

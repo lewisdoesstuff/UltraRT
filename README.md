@@ -8,12 +8,12 @@ Created in [T3 Code](https://t3.codes).
 
 ## View modes
 
-Cycle them in game with **Page Up / Page Down**, pick one in the settings menu, or set the startup mode (`[View] DefaultMode` in `BepInEx/config/ooo.lew.ultrart.cfg`).
+Cycle them in game with **Page Up / Page Down**, pick one in the settings menu, or set the startup mode (`[View] DefaultMode` in `BepInEx/config/ooo.lew.ultrart.cfg`). The default is `pathtrace` where DLSS Ray Reconstruction can run (an NVIDIA GPU and `nvngx_dlssd.dll` beside the plugin), `relight` elsewhere. A config written before 2026-11-17 that still holds the old default (`relight`) is moved to `pathtrace` once; choosing `relight` again afterwards sticks.
 
 | Mode | What it is |
 |---|---|
-| `relight` (default) | Full ray tracing with a physical light model: inverse-square falloff, soft shadows from every light, sky and sun, one bounce of global illumination from a radiance cache, ray-traced reflections, auto exposure, volumetrics. Calibrated against the game's brightness and colour; see [docs/relight.md](docs/relight.md). |
-| `pathtrace` | Real multi-bounce path tracing with the same look as relight. [DLSS Ray Reconstruction](docs/dlss.md) denoises and upscales it when it is available (NVIDIA RTX GPU, the DLSS SDK runtime fetched by `scripts/fetch-dlss.ps1`); otherwise UltraRT's own denoiser runs at a lower trace resolution with exact-texel remodulation. See [docs/path-tracing.md](docs/path-tracing.md). |
+| `relight` (default without DLSS RR) | Full ray tracing with a physical light model: inverse-square falloff, soft shadows from every light, sky and sun, one bounce of global illumination from a radiance cache, ray-traced reflections, auto exposure, volumetrics. Calibrated against the game's brightness and colour; see [docs/relight.md](docs/relight.md). |
+| `pathtrace` (default with DLSS RR) | Real multi-bounce path tracing with the same look as relight. [DLSS Ray Reconstruction](docs/dlss.md) denoises and upscales it when it is available (NVIDIA RTX GPU, the DLSS SDK runtime fetched by `scripts/fetch-dlss.ps1`); otherwise UltraRT's own denoiser runs at a lower trace resolution with exact-texel remodulation. See [docs/path-tracing.md](docs/path-tracing.md). |
 | `hybrid` | The game draws its own image; ray-traced lighting ratios are applied on top of it. |
 | `pt-dn` | Ray traced with the game's own light model (its falloff and flat ambient) and the denoiser. |
 | debug views | `dn-lighting`, `dn-variance`, `normals`, `albedo`, `depth`, `refl`, `cache`, `motion`, and others at the end of the Page Up / Page Down cycle. |

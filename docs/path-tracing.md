@@ -22,7 +22,7 @@ How the design was arrived at (the experiments, the alternatives): [pt-plan.md](
 
 ## Use
 
-- **Page Up / Page Down** to `pathtrace`, or the settings menu (View mode), or `[View] DefaultMode = pathtrace`.
+- **Page Up / Page Down** to `pathtrace`, or the settings menu (View mode), or `[View] DefaultMode = pathtrace` (the default since 2026-11-17 where DLSS RR is present: README, "View modes").
 - Settings menu, section "Path tracing": denoiser, render resolution with RR, paths, bounces, light samples, cache tail,
   sky sample at every bounce. Config section `[PathTrace]` ([settings.md](settings.md)).
 - Related: the cache tail is [radiance-cache.md](radiance-cache.md); the offline renderer (paths, bounces, accumulation, 16-bit
