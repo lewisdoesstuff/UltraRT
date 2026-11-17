@@ -1,0 +1,96 @@
+{
+  "Name": "plan-perf-floor",
+  "Note": "docs/plan-look-and-perf.md: run with -Perf -Scale 0.2 (exclusive lock). At trace scale 0.2 relight has almost no GPU work, so its frame time is the CPU / render-thread floor and each variant's frame delta is that pass's CPU-side cost. Pathtrace keeps its own 1/3 scale: the knob scenario shows where its dispatch goes.",
+  "Scenarios": [
+    {
+      "Name": "warm-up",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 6
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 1.5
+    },
+    {
+      "Name": "0-1 floor",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 17
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.enabled=0",
+        "relight+cache=off",
+        "relight+plugin._vmEnabled=0",
+        "relight+pl.enabled=0",
+        "relight+vol.enabled=0+cache=off+plugin._vmEnabled=0+pl.enabled=0"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "0-1 pt knobs",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 17
+      },
+      "Modes": [
+        "pathtrace",
+        "pathtrace+ptx.bounces=1",
+        "pathtrace+ptx.roulette=0.7",
+        "pathtrace+ptx.candidatesRR=4",
+        "pathtrace+ptx.specularLobes=0",
+        "pathtrace+refl=0",
+        "pathtrace+ptx.cacheTail=0"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "0-2 combat floor",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/0-2-run.json",
+        "Start": 3,
+        "End": 36
+      },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Weapon": 1,
+      "Effects": {
+        "Kinds": [
+          "revolver"
+        ],
+        "PeriodicKinds": [
+          "revolver",
+          "explosion"
+        ],
+        "Every": 0.6,
+        "Distance": 8
+      },
+      "Modes": [
+        "off",
+        "relight",
+        "relight+vol.enabled=0+cache=off+plugin._vmEnabled=0+pl.enabled=0",
+        "pathtrace",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [],
+      "Segment": 1.0,
+      "SwitchSkipFrames": 20
+    }
+  ]
+}
