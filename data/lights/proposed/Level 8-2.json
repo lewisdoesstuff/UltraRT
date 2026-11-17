@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "Level 8-2",
-  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Emissive fixtures'): the street lamps' glowing heads carry their light, and the standing lamps' bulbs theirs (an emitter mask); the lights inside them are off.",
+  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Emissive fixtures'): the street lamps' glowing heads carry their light, and the standing lamps' bulbs theirs (an emitter mask); the lights inside them are off. Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x0.5. Why: fills in most rooms, office and supermarket lamps, the Mirror Reaper Arena's effect lights.",
   "rules": [
     {
       "name": "street lamps",
@@ -34,7 +34,36 @@
       "note": "x1.04 of the game at the lamp pose, the fake light x0.93"
     }
   ],
-  "classes": {},
+  "classes": {
+    "fill": {
+      "reach": 0,
+      "intensity": 0.35
+    },
+    "scripted": {
+      "reach": 0,
+      "intensity": 0.35
+    },
+    "fixture": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "accent": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "glow": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "effect": {
+      "reach": 0,
+      "intensity": 0.5
+    },
+    "item": {
+      "reach": 0,
+      "intensity": 0.5
+    }
+  },
   "lights": [],
   "added": []
 }

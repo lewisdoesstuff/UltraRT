@@ -359,6 +359,56 @@ Open after these runs:
 - **0-1 First Room** (the short starting room, not the prefab): one view x0.61-0.65 in every variant: not lights.
 - The final room has no scored pose.
 
+### Levels, second batch: 4-3, 5-3, 7-3, 0-3, 8-2, 5-1 (2026-11-17, `t3/light-levels-2`, proposals)
+
+The next six of the board. The fill policy of the first four does not carry over: with fills and scripted lights
+off, most of their bright rooms stay bright (`20261117-204658_tune-a_alt`, `20261117-205324_tune-b_alt`). Class
+switches on those rooms at fixed exposure (`20261117-210340_attr2-a_alt`, `20261117-210942_attr2-b_alt`,
+`20261117-211533_attr3_alt`; `lc.solo=none` = every level light off):
+
+| Level | Room (tour stop) | ships | the class that carries it, off |
+|---|---|---|---|
+| 4-3 | Generator Room Hallway | x4.5 | fixture (torches): x0.36 |
+| 4-3 | Stairs Hallway | x3.0 | fixture: x1.5 |
+| 4-3 | First Room | x1.5 | item (the altar's torch): x0.79 |
+| 4-3 | L Hallway | x1.6 | none: x1.64 with every light off (not a light) |
+| 5-3 | Dual Wield Arena, Traitor Hallway | x1.9 | fixture: x0.79, x0.34 |
+| 5-3 | Hologram Room, Residence Corridor | x2.6, x2.2 | glow: x2.1, x0.64 |
+| 5-3 | First Room, Lounge Bar, Staircase | x1.4-2.3 | fill and scripted: x0.9, x1.0, x0.43 |
+| 7-3 | Central Plaza Upper, Circular Garden, Forest Path | x5.2, x6.6, x1.8 | **player** (the flashlight): x0.25, x0.20, x0.28 |
+| 7-3 | Grand Hall | x1.8 | fill and scripted: x1.3 |
+| 0-3 | two rooms | x1.8-2.0 | fill and scripted: x0.84-0.94 |
+| 0-3 | two rooms | x1.6 | fixture: x0.90-0.96 |
+| 8-2 | Elevator to Windtunnel, Shaped Hallway | x1.5-3.0 | fill and scripted: x0.7-1.5 |
+| 8-2 | Storage Room, Supermarket Shutters | x1.7, x1.9 | fixture (office and supermarket lamps): x1.2 |
+| 8-2 | Mirror Reaper Arena | x2.4 | effect: x0.72 |
+| 5-1 | First Encounter | x2.0 | fixture: x0.84 |
+| 5-1 | Tunnel B, Tunnel C | x1.8 | accent: x1.0 |
+
+7-3 is its own case: the game's flashlight lights a spot on the far wall; path traced, its bounce fills the white
+halls. Nothing but its strength helps (a class policy on `player`, which also dims the small light at the player).
+The bench variant for the sun is `lc.class.sun=0` (there is no class `directional`).
+
+Strengths (`20261117-211947_tune-a_alt`, `20261117-212553_tune-b_alt`: every level light's `reach` 0 with the
+fixture, accent, glow, effect and item classes at x1, x0.5, x0.25 and fills at x0.35), then the proposals as files,
+tour medians (`bench/suites/review/review-<level>.json`; sheets `bench/results/review/review-<level>.png`):
+
+| Level | Proposal (`reach` 0 on all of them) | shipped exposure | fixed exposure | dark delta (fixed) | Run |
+|---|---|---|---|---|---|
+| 4-3 | fill, scripted x0.35; fixture, accent, glow, effect, item x0.5 | x1.08 -> x0.95 (bright views 5 -> 0 of 12) | x1.97 -> x1.45 | +5.5 -> +1.7 | `20261117-213515_review-4-3_alt` |
+| 5-3 | x0.35; x0.7 | x1.24 -> x0.93 (bright 18 -> 0 of 21, dim 0 -> 8) | x2.05 -> x0.96 | +16.0 -> +7.2 | `20261117-213515_review-5-3_alt` |
+| 7-3 | x0.5; x0.7; player x0.6 | x1.02 -> x0.90 (bright 7 -> 3 of 15) | x1.72 -> x1.57 | +26.5 -> +19.3 | `20261117-215227_review-7-3_alt` |
+| 0-3 | x0.35; x1 | x1.22 -> x1.01 (bright 13 -> 6 of 15) | x1.76 -> x1.08 | +18.5 -> +8.9 | `20261117-214151_review-0-3_alt` |
+| 8-2 | x0.35; x0.5; street and standing lamps by their glowing parts ("Emissive fixtures") | x1.08 -> x1.05 (bright 11 -> 9 of 27) | x1.66 -> x1.14 | +31.6 -> +17.3 | `20261117-214151_review-8-2_alt` |
+| 5-1 | x0.5; x1 | x1.15 -> x0.90 (bright 11 -> 3 of 21, dim 3 -> 10) | x1.60 -> x1.18 | +14.3 -> +8.8 | `20261117-215227_review-5-1_alt` |
+
+A first, stronger pass for 7-3 (player x0.35, others x0.5) and 5-1 (others x0.7) matched the game at fixed exposure
+(x1.47, x1.00) but read dim at shipped exposure (x0.84, x0.80: `20261117-213515_review-7-3_alt`,
+`20261117-214151_review-5-1_alt`), so both were softened. Open: 5-3 and 5-1 trade bright views for dim ones (8 and
+10); 7-3 stays far over the game at fixed exposure (the flashlight's bounce) and auto exposure carries it; 4-3's L
+Hallway and Stairs Hallway (x1.5-1.6 with the lights off) are not lights; 8-2's Elevator stays x1.6.
+All six are proposals (`data/lights/proposed/`, review R10); nothing ships.
+
 ## Area lights (shader)
 
 Area lights keep the 4 x float4 per-light layout, so no buffer, UAV or payload changed (still 8 UAVs in PathTrace, 64-byte
