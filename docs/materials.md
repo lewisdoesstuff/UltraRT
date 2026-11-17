@@ -170,7 +170,7 @@ secondary set alone.
 |---|---|---|
 | `-ultrart-materials on\|off`, `[Materials] Enabled`, **Ctrl+F1** | on | shader-side switch, instant |
 | `-ultrart-materials-source ai\|proc`, `[Materials] Source` | ai | which cache folder; read at scene build |
-| `-ultrart-materials-smooth F`, `[Materials] NormalSmooth` | 0 | 0-1: each texel's normal pulled to its 3x3 neighbourhood average at load (section 9); read at scene build |
+| `-ultrart-materials-smooth F`, `[Materials] NormalSmoothing` | 1 | 0-1: each texel's normal pulled to its 3x3 neighbourhood average at load (section 9); read at scene build. 0 = the maps as generated. Default 1 since 2026-11-17 (the user on the sheet: "looks reasonably good too"); the config key was `NormalSmooth` for the few hours it defaulted to 0 and was renamed with the default, so a config that already held the old 0 does not keep it; screenshots and measurements dated before that were taken at 0 |
 | `-ultrart-materials-normal F`, `[Materials] NormalStrength` | 1 | global multiplier on the class normal strength (relight, pt-dn, pt). Was 2 until 2026-11-17 (section 8: the bumpiness under RR is mostly the strength); measurements below dated before that were taken at 2. An existing config keeps the value written into it |
 | `-ultrart-materials-hybrid-normal F`, `[Materials] HybridNormalStrength` | 1 | the same in hybrid |
 | `-ultrart-materials-roughness F`, `[Materials] Roughness` | 1 | global multiplier on the roughness variation (menu: Enabled, both strengths and this one, [settings.md](settings.md); the LOD entries are config / flags only) |
@@ -417,10 +417,10 @@ What the 1-1 wall shows:
 - On the metal pose the sets differ little: slightly less grain on flat panels with `ai-lp`.
 
 So the low-pass is in the plugin, applied when a map is loaded, and needs no regenerated maps:
-`-ultrart-materials-smooth F` / `[Materials] NormalSmooth` (0-1, `MaterialMaps.SmoothNormals`; the baked atlases are
+`-ultrart-materials-smooth F` / `[Materials] NormalSmoothing` (0-1, `MaterialMaps.SmoothNormals`; the baked atlases are
 composed from the smoothed texels). At 1 the frame matches the offline `ai-lp` set (mean difference 1.5 of 255 on
 the wall crop, against 4.9 for the shipped maps; `20261117-185318_mat-matrix-src_alt`, sheet `m-11wall-smooth.png`).
-**Default 0 until the user has picked from the sheet**; proposed default 1.
+**Default 1 since 2026-11-17** (the user's pick from the sheet); 0 turns it off.
 
 Not answered by this matrix: the start room (the tour stop of 1-4 looks out of the room), printed and painted
 surfaces (section 1: per-texture rules, plan B4), and whether another generator does better than PBRify + low-pass
