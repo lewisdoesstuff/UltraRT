@@ -279,6 +279,32 @@ first take to the last, so particles (falling leaves, smoke) are at the same ins
 line up in camera and geometry only. `scripts/trailer.py` does the wipe and the rest of an edit (title cards,
 captions, cross-fades, music) from an edit-list JSON: see docs/trailer.md.
 
+### Paired capture: both images from one take, world running
+
+`"Paired": true` in a bench `Cinematic` block (any mode but `off`) writes two folders from one take:
+`cine_<scenario>_off` (the game's own image) and `cine_<scenario>_<mode>` (the traced one). The world is stepped once per
+output frame and held while both images of that frame are rendered, so flames, particles, flickering lamps, a walking
+V1 and a fired gun are at the same instant in both, with the world alive (`"TimeScale": 1`). Frame numbers are the
+same in both folders.
+
+| Mode | Order within an output frame |
+|---|---|
+| accumulating (`pathtrace`, `relight`, `current`) | the world steps; one unrecorded frame with the view off; the game's image (all `Aa` samples); two unrecorded frames with the view back on; the accumulated samples. The unrecorded frames are there because lit particles and lamp cones follow the view switch in `Update`, a frame late. |
+| `live` | the world steps and the traced frame is rendered straight away, so every temporal filter and DLSS RR see the previous output frame as their previous frame; then one held frame with the view off for the game's image. Lit particles' light volume and the effect geometry keep their state across the view-off frames. |
+
+`"OnFrom"` and `"OffUntil"` (path seconds) limit which frames each folder gets: the game's image up to `OffUntil`, the
+traced one from `OnFrom`. A comparison that switches at 3 s needs the game's image only until then. Traced frames are
+still rendered throughout (one sample per frame outside the window in accumulating modes), so exposure and histories
+are settled when the window opens; a frame outside a window is simply not written, and `scripts/trailer.py` addresses
+frames by number. The player-driven options above work as before.
+
+`"ShowWeapon": true` (with `"Player": "camera"`, and `"Weapon": <slot>` on the scenario) keeps the gun in view: the HUD
+camera draws the viewmodel again, lit by the traced scene as in play, and the HUD's own canvases stay hidden.
+`"Shots": [0.75, 2.25, ...]` fires at those path seconds (`"ShotKinds"`, default `["revolver"]`: the held revolver fires as
+the player fires it, with its muzzle light, beam and recoil; any kind of the bench's `Effects` works). Add the runtime
+variant `plugin._vmFullScreen=1` to the mode: the viewmodel pass otherwise works in a rectangle measured a few frames
+earlier, and the recoil swings the gun out of it for a moment.
+
 ## Limitations
 
 - The render size is the window size; supersampling only goes down from it (Unity's resolution would be a display

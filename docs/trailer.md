@@ -102,7 +102,10 @@ guess until a scout frame shows it.
 | `Root` | folder the sources and the music are relative to (relative to the edit list); `--root` overrides |
 | `Width`, `Height`, `Fps`, `Crf` | the output (1280x720, 60, 18) |
 | `Font`, `TitleFont` | font files (default `C:/Windows/Fonts/bahnschrift.ttf`) |
-| `Music` | `File`, `Start` (seconds into the track), `Volume`, `FadeIn`, `FadeOut` |
+| `Graphics` | `"motion"`: cards, captions, badges and level titles are animated overlays in the game's HUD style (`scripts/trailer_gfx.py`; "Graphics" under the final trailer) instead of `drawtext` |
+| `Labels` | the comparison's two state names (`["RT OFF", "PATH TRACED"]`) |
+| `Exports`, `ClipCrf` | further encodes of the finished trailer (`Suffix`, `Height`, `Crf`); the CRF of the per-clip files |
+| `Music` | `File`, `Start` (seconds into the track), `Volume`, `FadeIn`, `FadeOut`; or `Tracks`: several pieces on the trailer's timeline, each `File`, `Start`, `At` (when it comes in), `Until`, `FadeIn`, `FadeOut`, `Volume` (files loop) |
 | `Clips` | the clips, in order |
 
 Clips (`Type`):
@@ -274,50 +277,130 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
-## Planned shot list for the full trailer
+## The final trailer (2026-11-16)
 
-About 80 s, 21 shots, leaning on comparisons. The user's notes so far: more on / off pairs; only two treatments, a
-hard switch on a bar or one sweep of the divider (no splits that hold or move back); open on 0-1; P-2 is a favourite
-(the street, its puddles and the long shadow); 1-1 is the torch-lit hallway and its doorway, not the daylight statue;
-V1 and its reflection should be seen (terminal, vending machine); 3-1's eye beams are out; layer-8 mirrors wait for
-their own handling. "pair" = `off` + `live` pathtrace takes of one path in one scenario; "cine" = one `live` pathtrace
-take; **LIVE** = needs the user's own play (see below).
+Status (end of 2026-11-16): the cut below exists as a draft (`bench\results\trailer\trailer-final-draft\`, 720p30, RR at
+a third). The 1440p60 render (`trailer-final-final-1` to `-4`, then `trailer.py bench\trailer\trailer-final-final.json`)
+has not been run yet; after it, set the 5-2 shot's `In` to a lightning strike of that take.
 
-| # | Shot | Level | Mode | s | Treatment / shows |
-|---|---|---|---|---|---|
-| 1 | Title sting | - | title | 1.5 | |
-| 2 | Statue room, low glide to the door (in cuts 2 and 3) | 0-1 | pair | 3 | hard switch: the whole idea in one cut |
-| 3 | Tree orbit (in every test cut) | 7-3 | pair | 4.5 | sweep: emissive light, leaf shadows |
-| 4 | Street run to the tunnel (in cut 3) | P-2 | pair, `Player` camera, `Flickers` | 6 | hard switch: puddle reflections, the flickering lamp, V1's long shadow |
-| 5 | Hall reveal from the stained glass (in cuts 1 and 2) | P-2 | pair | 4.5 | sweep: bounce light, haze |
-| 6 | Hallway to the red skull, round the corner to the doorway (in cut 3) | 1-1 | pair | 6 | sweep from the right: torch light, daylight through the door |
-| 7 | Through that doorway to the red skull's pavilion | 1-1 | pair | 3 | hard switch: sunlight and shade outdoors |
-| 8 | V1 walks up to the shop terminal (in cut 3) | 1-1 first room | pair, `Player` path, `ShopScreensOff` | 4.5 | hard switch: V1 lit, its reflection in the glass |
-| 9 | V1 at a vending machine's glass | 8-2 reception (needs a recorded route) | pair, `Player` path | 3 | sweep: a second reflection, cooler light |
-| 10 | Boss hall, low arc (in every test cut) | 4-4 | pair | 4.5 | sweep: fire, lamps, bounce |
-| 11 | Red hall and stairs | 0-2 (v1 shadow a pose) | pair | 3 | hard switch: shadows, red bounce |
-| 12 | Stained-glass corridor | 6-2 start | pair | 3 | sweep: coloured light through glass |
-| 13 | Water glide | 1-3 (`1-3-water-glide`) | pair | 4.5 | sweep: reflections |
-| 14 | Storm sea, lightning | 5-2 | cine, world running | 3 | scrolling sea, rain, lightning as light |
-| 15 | Lava channel, camera low along the lava | 0-5 | pair | 3 | sweep: lava as an emitter |
-| 16 | Neon street | 2-2 | pair | 3 | hard switch: coloured emissives, purple bounce |
-| 17 | Flashlight in the forest | 7-3 start | **LIVE** | 3 | the player's light and its shadows |
-| 18 | Revolver shots lighting a corridor, the gun lit by the room | 0-2 / 1-1 corridor | **LIVE** | 3 | viewmodel RT, effect lights |
-| 19 | Combat montage, 4 quick cuts on the beat: explosions lighting a room, blood on wet floors, coins and their reflections, Gabriel's wings | 0-2, 1-1 arena, 6-2 | **LIVE** | 9 | it plays like this |
-| 20 | Candle hall or night lamps, slow pull back | 6-1 / 1-4 | cine, 64 spp accumulated | 4.5 | a clean hero frame to end on |
-| 21 | End card over the last shot, dimmed | - | title | 4.5 | name, "work in progress", credits |
+`bench/trailer/final-plan.json` is the whole trailer: the shots in order, each a whole number of bars, with its path,
+treatment, caption and level title, plus the quality tiers and the music. `scripts/trailer-plan.py` turns it into the
+bench suites and the edit lists, so the draft and the final render are the same cut at different quality.
 
-Lengths are whole bars of the music (1.5 s at 160 bpm) so cuts and hard switches land on downbeats. Not in the list
-until they have their own handling: layer 8's portal mirrors and portal doorways (8-2, 8-3). Dropped: 1-4's vanity
-mirror (dark; the terminal shows V1's reflection better).
+```powershell
+python scripts\trailer-font.py "<ULTRAKILL folder>"                       # once: the game's font for the graphics
+python scripts\trailer-paths.py bench\trailer\paths.json                  # after editing paths
+python scripts\trailer-plan.py bench\trailer\final-plan.json              # suites + edit lists for every tier
+#   --tier draft            only that tier
+#   --only "8-2 street,7-3 gun"   also writes trailer-final-<tier>-redo.json with just those shots
+.\scripts\bench.ps1 -Suite trailer-final-draft-1 -Slot alt                # ... -2, -3, -4: 5 shots a run
+python scripts\trailer.py bench\trailer\trailer-final-draft.json          # -> bench\results\trailer\trailer-final-draft\
+```
 
-**The LIVE shots.** Two ways, both honest footage of the real-time pipeline:
-- Record the run with F10 (bench/README.md, "Recording a path") and replay it through the renderer: a cinematic scenario
-  whose `Path` is the recording, with `"Mode": "live"` (docs/cinematics.md, "Replaying a recorded run"). The camera, the
-  player and the arenas repeat on the fixed time step, so the same run can also be rendered `off` for a before / after
-  of gameplay; enemies and gore are not identical between takes. Not tried yet with `live`.
-- Or capture the screen while playing (OBS at 60 fps). The game's cheats can hide the HUD and the weapon for clean
-  frames; keep the weapon for shots 18 and 19.
+The edit list's sources are wildcards over every run of the tier (`*_trailer-final-<tier>-*_alt/cine_<shot>`), and the
+newest match wins, so re-rendering one shot with the `-redo` suite replaces just that shot.
 
-For the final cut: render at the window's 1440p (`OutputScale` 1) or supersample to 1080p, 60 fps; keep `live` for
-everything that moves and use an accumulated `pathtrace` render only for the closing hero shot.
+### Plan fields
+
+| Field | |
+|---|---|
+| `Bar`, `Margin` | seconds per bar (1.5 at 160 bpm); extra seconds rendered either side of a comparison's switch |
+| `Tiers` | per tier: `Mode` (the cinematic's render mode), `Modes` (the scenario's RT mode and runtime variants), `OutputScale`, `Fps`, `Preroll`, `Width`, `Height`, `Crf`, `ClipCrf`, `Exports` |
+| `Scenario` | fields for every bench scenario (`"Enemies": "blind"`) |
+| `Labels`, `Graphics`, `Music` | passed to the edit list |
+
+Shots: `Kind` is `title` / `end` (a card: `Card` holds the title clip's fields), `beauty` (one traced take), `switch`
+(the game's image, then a hard switch to the traced one after `Off` seconds) or `sweep` (the divider crosses once,
+starting after `Off` seconds and taking `Sweep`; `Slant`, `Flip` as in a wipe). `Bars` (+ `Lead` / `Seconds`) is the
+length; `File` the path in bench/cinematics; `Path` and `Scenario` go to the bench scenario, `Cinematic` to its
+cinematic block, `TierCinematic` the same for one tier; `ModeAdd` appends runtime variants to the tier's `Modes` for one
+shot; `In` starts the clip that far into the take and `Render` renders a longer take than the clip (a shot whose best
+moment is picked afterwards: 5-2's lightning is random); `TimeScale` 0 freezes the world for one shot; `Caption` and `Tag`
+as in the edit list.
+
+### How the footage is made
+
+- **Real-time path tracing with DLSS Ray Reconstruction, not offline accumulation.** The first draft was accumulated
+  (2 samples a frame, then 64): without a denoiser 64 samples a pixel are still visibly grainy in these levels, and the
+  user asked why it did not look denoised. `"Mode": "live"` renders what a player sees. In play RR runs at a third of
+  the output resolution (854x480 for 1440p); the final tier adds the runtime variant `ptx.scaleRR=1`, which runs it at
+  the full 2560x1440 (DLAA; the log says "feature 2560x1440 -> 2560x1440"). `bench\results\trailer\rr-compare.jpg` has
+  the three side by side: full-resolution RR is clean and sharp, a third is clean but soft, 64 accumulated samples are
+  sharp but grainy. 2 paths a pixel and 3 bounces were tried on top: no visible gain for 1.5 to 3 times the time.
+- **Paired capture** (docs/cinematics.md): every comparison is one take that writes the game's image and the traced
+  image of each frame with the world held between them, so the world runs (flames, smoke, rain, flicker, V1 walking,
+  gunfire) and the two images still match. `OnFrom` / `OffUntil` come from the shot's `Off` and `Sweep`, so each image
+  is only written where the cut shows it.
+- 0-1's statue room is the one frozen shot (`"TimeScale": 0`): with the world running, the bench's enemy handling
+  leaves spawn and death smoke in that arena room.
+- Nothing is staged. P-2's street is a plain first-person jog (`"Player": "camera"`); its lamps flicker as the level
+  has them. The gun shot is the game's own revolver fired by the bench at fixed path times (`ShowWeapon`, `Shots`).
+- Tiers: `draft` is 1280x720 at 30 fps with RR at a third (about 2 minutes of game time per run of five shots, 3.5
+  minutes to assemble); `final` is 2560x1440 at 60 fps with RR at full resolution, clips at CRF 8, master at CRF 13 and a
+  1080p export (CRF 15) scaled from the master.
+
+### Graphics: the game's own HUD style
+
+`"Graphics": "motion"` in an edit list replaces the `drawtext` captions with animated overlays from
+`scripts/trailer_gfx.py` (Pillow; PNG sequences that the assembly overlays). They copy the game's UI, measured from its
+assets (`LevelNamePopup`, `HudMessageReceiver`, `HudOpenEffect`, the fonts bundle):
+
+| Element | In the game | In the trailer |
+|---|---|---|
+| Font | VCR OSD Mono, white, a hard dark underlay offset down and right | the same font file, extracted by `scripts/trailer-font.py` to `bench\results\trailer\fonts` (not in git); `TRAILER_FONT` overrides; Consolas stands in without it |
+| Level title | canvas 720 units high; the layer line (`PRELUDE /// FIRST`) 26 units, centred 245 above the middle; the name (`INTO THE FIRE`) 46 units, 210 above; typed at 100 letters a second, half a second between the lines, 3 s hold, 1 s fade | `"Tag": ["PRELUDE /// FIRST", "INTO THE FIRE"]`: the same layout and timing at 0.85 of the size, with the level's real strings (read from each level's MapInfo). Shown the first time a level appears. |
+| Feature caption | HUD message: a rounded black box at 59 % opacity, low in the middle, that snaps open from 5 % (width first, then height), text typed with a block cursor | `Caption`: the same box and motion; heading in capitals, an optional sub line under it |
+| State badge | - | top left, the same box: `RT OFF` grey with a hollow marker, `PATH TRACED` white with an accent marker; it snaps open again and flashes when the picture under it changes (at the switch, or when the divider passes it) |
+| Cards | - | on black, laid out as a level title: sub line typed first, then `ULTRART` under it in large type ("RT" in the accent colour), further lines typed, small print faded in. `Beats`: when the sub line, the title and the first further line start. |
+
+No logo and no art of the game is used; the cards say "a path tracing mod for ULTRAKILL" and "unofficial", and the end
+card's small print says how the footage was captured and that the mod is not affiliated with the game's developers.
+
+### Music
+
+0-1's theme, both layers from the game's files, 160 bpm, bars at 0.34 + 1.5 n seconds. The calm layer (`0-1 Clean`)
+plays from its start under the title and the first eight shots (40 bars, to 60.34 s); the battle layer (`0-1`) comes in
+there from its step up at 36.34 s of the song and runs 32 bars to its loop point (108.34 s of the trailer); the calm
+layer returns under the end card and fades over 4.5 s. Every cut, switch and gunshot (half bars) is on the grid.
+
+### Shot list
+
+All comparisons are paired live takes (the game's image / real-time path tracing with RR); "beauty" is one traced take.
+
+| # | Start | s | Shot | Level | Treatment | Caption |
+|---|---|---|---|---|---|---|
+| 1 | 0:00.0 | 4.84 | Title card | - | card | |
+| 2 | 0:04.8 | 7.5 | Statue room glide (world frozen) | 0-1 | switch at 3.0 s | Ray-traced shadows |
+| 3 | 0:12.3 | 7.5 | Tree orbit | 7-3 | sweep | Emissive lighting |
+| 4 | 0:19.8 | 7.5 | Hall crane from the stained glass | P-2 | sweep from the right | Global illumination |
+| 5 | 0:27.3 | 9.0 | Torch hallway, round the corner to the doorway | 1-1 | sweep | |
+| 6 | 0:36.3 | 7.5 | Street, lamp posts and the pool | 8-2 | sweep from the right | Lamp light |
+| 7 | 0:43.8 | 6.0 | Glide down to the water | 1-3 | sweep | Water reflections |
+| 8 | 0:49.8 | 6.0 | Boss hall, low arc | 4-4 | sweep from the right | Coloured bounce light |
+| 9 | 0:55.8 | 4.5 | Storm sea, lightning | 5-2 | beauty | |
+| 10 | 1:00.3 | 6.0 | First-person jog down the street (`Player` camera) | P-2 | switch at 2.25 s | Wet surfaces |
+| 11 | 1:06.3 | 6.0 | V1 walks up to the shop terminal (`Player` path, `ShopScreensOff`) | 1-1 | switch at 2.25 s | Ray-traced reflections |
+| 12 | 1:12.3 | 4.5 | Neon street pan | 2-2 | sweep | |
+| 13 | 1:16.8 | 6.0 | First-person walk, revolver fired on the half bars (`ShowWeapon`, `Shots`) | 7-3 | switch at 1.5 s | Gunfire is a light source |
+| 14 | 1:22.8 | 4.5 | Low along the lava | 0-5 | switch at 1.5 s | |
+| 15 | 1:27.3 | 4.5 | Standing lamp in the apartment corridor | 8-2 | switch at 1.5 s | |
+| 16 | 1:31.8 | 4.5 | Fountain in daylight | museum | sweep | |
+| 17 | 1:36.3 | 6.0 | First hall, pillars and stained glass | 6-2 | sweep from the right | |
+| 18 | 1:42.3 | 6.0 | Night lamps, pull back | 1-4 | beauty, fade out | |
+| 19 | 1:48.3 | 6.5 | End card | - | card | |
+
+8-2's street was first captioned "Volumetric light": the game draws its lamp cones as bold polygons and the traced
+cones are soft and faint, so the comparison did not carry that caption. What the traced image adds there is the lamps'
+light on the ground and the pool's reflections.
+
+Total 1:54.8. Tried and left out: 6-1's candle hall and 8-2's vending machine (the bench's area loads land in a void
+there), a replay of the recorded 0-2 run (no gunfire, and it leaves the level after 20 s), 1-1's fountain (the water is
+too small in frame to read), 7-1's pool (the pose loaded without its level state: grey and unlit), layer 8's mirrors and portals, 3-1.
+
+Known problems in the footage, left as they are (renderer bugs are not fixed on this branch):
+- V1's body reads grey in 1-1's orange room when path traced (blue in the game's image and in its own reflection).
+- P-2's puddles have a yellow-green tint.
+- The bench's install has no custom gun colours, so the revolver and V1's gun are in the default colours.
+- P-2's long shadow from the street lamp is faint: the steady lamp post beside it lights the same ground.
+- 5-2's lightning is random; the clip's `In` is set to a strike of the take in use (the plan's `In`).
+- The game's image of a gunshot shows the gun one animation frame later than the traced image of the same frame.

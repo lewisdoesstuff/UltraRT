@@ -70,7 +70,7 @@ def main():
             cine.update((sh.get("TierCinematic") or {}).get(tier, {}))  # per-tier overrides of one shot (e.g. fewer samples)
             for k, v in (q.get("Cinematic") or {}).items():
                 cine.setdefault(k, v)
-            sc = {"Name": sname, "Scene": sh["Scene"], "Path": sh["Path"], "Modes": [q.get("Modes", "pathtrace")]}
+            sc = {"Name": sname, "Scene": sh["Scene"], "Path": sh["Path"], "Modes": [q.get("Modes", "pathtrace") + sh.get("ModeAdd", "")]}  # ModeAdd: runtime variants for one shot ("+key=value")
             sc.update(plan.get("Scenario", {}))
             sc.update(sh.get("Scenario", {}))
             sc["Cinematic"] = cine

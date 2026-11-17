@@ -190,9 +190,15 @@ class Builder:
             length = min(float(cs.get("For", 4.5)), dur - t0 - 0.1)
             if length > 1.0:
                 r = g.lower_third(self.gfx_dir(), H, fps, length, cs["Text"], cs.get("Sub", c.get("Sub")))
-                add(r, W * 0.03, H * 0.905 - r["h"], t0)
-        if c.get("Tag"):
-            r = g.tag(self.gfx_dir(), H, fps, dur - 0.45, c["Tag"])
+                add(r, (W - r["w"]) / 2, H * 0.875 - r["h"], t0)  # a HUD message: centred, low
+        tag = c.get("Tag")
+        if isinstance(tag, list) and len(tag) > 1:
+            # [layer line, name]: the level's title as the game shows it, top centre
+            t0 = float(c.get("TagAt", 0.3))
+            r = g.level_title(self.gfx_dir(), W, H, fps, dur - t0 - 0.1, tag[0], tag[1])
+            add(r, 0, r["y"], t0)
+        elif tag:
+            r = g.tag(self.gfx_dir(), H, fps, dur - 0.45, tag if isinstance(tag, str) else tag[0])
             add(r, W * 0.972 - r["w"], H * 0.955 - r["h"], 0.25)
         return args, items
 
@@ -388,7 +394,7 @@ class Builder:
             # strings), Scale, Y.
             r = self.gfx.card(self.gfx_dir(), self.W, self.H, self.fps, dur, c.get("Text", ""), int(c.get("AccentFrom", 5)), c.get("Sub"),
                               lines=[x if isinstance(x, str) else x.get("Text", "") for x in c.get("Lines", [])], small=c.get("Small") if isinstance(c.get("Small"), list) else None,
-                              scale=float(c.get("Scale", 1.0)), y=float(c.get("Y", 0.43)), out_fade=float(c.get("OutFade", 0.45)))
+                              scale=float(c.get("Scale", 1.0)), y=float(c.get("Y", 0.43)), out_fade=float(c.get("OutFade", 0.45)), beats=c.get("Beats"))
             graph = "[0:v]" + ",".join([f"fps={num(self.fps)}", "setsar=1"] + self.fades(c, dur)) + ",format=yuv420p[v]"
             self.encode(["-framerate", num(self.fps), "-i", r["pattern"]], graph, dur, out)
             return dur, "card"

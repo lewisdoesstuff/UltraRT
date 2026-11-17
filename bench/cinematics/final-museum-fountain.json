@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-museum-fountain",
+  "Scene": "CreditsMuseum2",
+  "Note": "Final trailer: a crane down towards the fountain in the museum's garden, daylight on the water (base = end of bench/recordings/late-museum-fountain.json).",
+  "Keys": [
+    {"Player": [11.511, -3.72, 372.593], "Yaw": -136.2, "Pitch": -19, "Fov": 85, "Duration": 4.8, "Ease": "smooth"},
+    {"Player": [8.382, -5.22, 370.052], "Yaw": -131.2, "Pitch": -15, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

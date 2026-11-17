@@ -3,93 +3,6 @@
   "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier draft, run 2): do not edit, change the plan.",
   "Scenarios": [
     {
-      "Name": "1-1 terminal",
-      "Scene": "Level 1-1",
-      "Path": {
-        "Type": "static",
-        "Position": [
-          4.5,
-          -0.5,
-          254.5
-        ],
-        "Yaw": 16,
-        "Pitch": 0,
-        "Duration": 1,
-        "Load": "none"
-      },
-      "Modes": [
-        "pathtrace"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-1-1-terminal-cam.json",
-        "Mode": "live",
-        "Fps": 30.0,
-        "Seconds": 6.067,
-        "OutputScale": 0.5,
-        "TimeScale": 1,
-        "Preroll": 40,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 2.0,
-        "OffUntil": 2.5,
-        "Player": "../cinematics/final-1-1-terminal-walk.json",
-        "ShopScreensOff": true
-      }
-    },
-    {
-      "Name": "2-2 street",
-      "Scene": "Level 2-2",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/late-2-2-floor-noise-purple.json",
-        "Duration": 1
-      },
-      "Modes": [
-        "pathtrace"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-2-2-street.json",
-        "Mode": "live",
-        "Fps": 30.0,
-        "Seconds": 6.067,
-        "OutputScale": 0.5,
-        "TimeScale": 1,
-        "Preroll": 40,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 1.25,
-        "OffUntil": 3.25
-      }
-    },
-    {
-      "Name": "0-5 lava",
-      "Scene": "Level 0-5",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/0-5-approach.json",
-        "Duration": 1
-      },
-      "Modes": [
-        "pathtrace"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-0-5-lava.json",
-        "Mode": "live",
-        "Fps": 30.0,
-        "Seconds": 4.567,
-        "OutputScale": 0.5,
-        "TimeScale": 1,
-        "Preroll": 40,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 1.25,
-        "OffUntil": 1.75
-      }
-    },
-    {
       "Name": "1-3 water",
       "Scene": "Level 1-3",
       "Path": {
@@ -103,6 +16,33 @@
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-1-3-water.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.067,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 1.25,
+        "OffUntil": 3.25
+      }
+    },
+    {
+      "Name": "4-4 hall",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/4-4-v2-chair.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-4-4-hall.json",
         "Mode": "live",
         "Fps": 30.0,
         "Seconds": 6.067,
@@ -136,6 +76,68 @@
         "TimeScale": 1,
         "Preroll": 40,
         "Encode": false
+      }
+    },
+    {
+      "Name": "P-2 street",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-p-2-street.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.067,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.0,
+        "OffUntil": 2.5,
+        "Player": "camera"
+      }
+    },
+    {
+      "Name": "1-1 terminal",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          4.5,
+          -0.5,
+          254.5
+        ],
+        "Yaw": 16,
+        "Pitch": 0,
+        "Duration": 1,
+        "Load": "none"
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-1-1-terminal-cam.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.067,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.0,
+        "OffUntil": 2.5,
+        "Player": "../cinematics/final-1-1-terminal-walk.json",
+        "ShopScreensOff": true
       }
     }
   ]

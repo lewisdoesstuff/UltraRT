@@ -101,6 +101,28 @@ namespace UltraRT
                     Logger.LogInfo($"Benchmark: the player {(ride ? "rides the camera path" : $"walks {spec.Player} ({walk.Duration:F2}s)")}, shown to the camera: {_cineShowPlayer}");
                 }
 
+                if (spec.ShowWeapon == true) CineShowWeapon();
+                if (spec.Shots != null && spec.Shots.Count > 0)
+                {
+                    var shots = spec.Shots.OrderBy(x => x).ToList();
+                    var fx = new EffectSpec { Kinds = spec.ShotKinds != null && spec.ShotKinds.Count > 0 ? spec.ShotKinds : new List<string> { "revolver" }, Every = 0f };
+                    var before = _cineOnTime;
+                    int next = 0;
+                    float last = float.MinValue;
+                    _cineOnTime = t =>
+                    {
+                        before?.Invoke(t);
+                        if (t < last - 0.5f) next = 0; // a new take
+                        last = t;
+                        while (next < shots.Count && shots[next] <= t)
+                        {
+                            if (t - shots[next] < 0.25f) EffectSpawner.Spawn(fx); // not the ones a late start has passed
+                            next++;
+                        }
+                    };
+                    Logger.LogInfo($"Benchmark: cinematic shots ({string.Join(", ", fx.Kinds)}) at {string.Join(", ", shots.Select(x => x.ToString("F2")))} s");
+                }
+
                 if (spec.Flickers != null && spec.Flickers.Count > 0)
                 {
                     // Flicker timing: a lamp is put into (and kept in) the wanted phase with the game's own On() / Off()

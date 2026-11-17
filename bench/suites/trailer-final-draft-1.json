@@ -107,11 +107,11 @@
       }
     },
     {
-      "Name": "P-2 street",
-      "Scene": "Level P-2",
+      "Name": "8-2 street",
+      "Scene": "Level 8-2",
       "Path": {
         "Type": "static",
-        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Approach": "../recordings/8-2-c.json",
         "Duration": 1
       },
       "Modes": [
@@ -119,18 +119,17 @@
       ],
       "Enemies": "blind",
       "Cinematic": {
-        "File": "../cinematics/final-p-2-street.json",
+        "File": "../cinematics/final-8-2-street.json",
         "Mode": "live",
         "Fps": 30.0,
-        "Seconds": 6.067,
+        "Seconds": 7.567,
         "OutputScale": 0.5,
         "TimeScale": 1,
         "Preroll": 40,
         "Encode": false,
         "Paired": true,
         "OnFrom": 2.0,
-        "OffUntil": 2.5,
-        "Player": "camera"
+        "OffUntil": 4.0
       }
     }
   ]

@@ -322,6 +322,29 @@ namespace UltraRT
             catch (Exception e) { Logger.LogWarning($"Cinematic camera: HUD {(hide ? "hide" : "restore")} failed: {e.Message}"); }
         }
 
+        /// <summary>The viewmodel back in view while the camera is free (bench "ShowWeapon", for a camera the player
+        /// rides): the HUD camera draws again and the viewmodel is ray traced as in play; the HUD's own canvases, which
+        /// the HUD camera draws too, are switched off. CineExit puts everything back (CineHideHud(false)).</summary>
+        private void CineShowWeapon()
+        {
+            try
+            {
+                _vmEnabled = _cineSavedVm;
+                if (_cineHudCam == null || _cineSavedHudMask == int.MinValue) { Logger.LogWarning("Cinematic camera: no HUD camera, the weapon stays hidden"); return; }
+                _cineHudCam.cullingMask = _cineSavedHudMask;
+                int n = 0;
+                foreach (var c in FindObjectsOfType<Canvas>())
+                    if (c != null && c.isRootCanvas && c.enabled && (c.worldCamera == _cineHudCam || c.gameObject.layer == 13) && !(c.GetComponentInParent<ShopZone>() != null))
+                    {
+                        c.enabled = false;
+                        _cineCanvases.Add(c);
+                        n++;
+                    }
+                Logger.LogInfo($"Cinematic camera: weapon shown (HUD camera mask 0x{_cineSavedHudMask:X}), {n} HUD canvas(es) hidden");
+            }
+            catch (Exception e) { Logger.LogWarning($"Cinematic camera: show weapon failed: {e.Message}"); }
+        }
+
         /// <summary>Enemies blind and the player invincible, without the cheat menu: only the cheats' static state is swapped,
         /// so nothing is saved and the level is not marked as cheated.</summary>
         private void CineProtect(bool on)

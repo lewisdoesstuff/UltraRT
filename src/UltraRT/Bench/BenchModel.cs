@@ -140,6 +140,14 @@ namespace UltraRT.Bench
         /// <summary>Shop terminals keep their screens off during the take: the shop UI that switches on when the player
         /// comes near covers the glass, which is what reflects.</summary>
         public bool? ShopScreensOff;
+        /// <summary>A first-person shot with the gun in view (with <see cref="Player"/> "camera"): the HUD camera keeps
+        /// drawing the viewmodel (lit by the traced scene as in play), the HUD itself stays hidden. Scenario.Weapon picks
+        /// the gun.</summary>
+        public bool? ShowWeapon;
+        /// <summary>Path seconds at which <see cref="ShotKinds"/> are spawned (EffectSpec kinds; default "revolver": the
+        /// held revolver fires as the player fires it).</summary>
+        public List<float> Shots;
+        public List<string> ShotKinds;
         /// <summary>Timing for the level's lamps. A flickering lamp (the game's Flicker component switches a light fully on
         /// and off at random intervals) is held in its on or its off phase for a stretch of the path, so a shot can land
         /// on the phase it needs; outside the stretches it flickers by itself. A steady light named here is switched
