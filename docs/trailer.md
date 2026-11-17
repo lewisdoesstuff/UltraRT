@@ -282,7 +282,7 @@ Notes from making it:
 Rendered 2026-11-17: `bench\results\trailer\trailer-final-final\trailer-final-final.mp4` (2560x1440, 60 fps, H.264
 CRF 13, 47 Mbit/s, 642 MB), `trailer-final-final-1080p.mp4` beside it (scaled from the master, CRF 15, 237 MB) and one
 file per clip in `clips\` (CRF 8). Four bench runs in the alt slot, 12 minutes of game time in all (4.1 + 3.4 + 3.4 +
-1.3; 0.05 to 0.10 s per output frame, most of it writing PNGs), about 30 GB of frames; assembly 27 minutes. No run
+1.3; 0.05 to 0.10 s per output frame, most of it writing PNGs), 37 GB of frames; assembly 27 minutes. No run
 failed. The draft tier's output is `bench\results\trailer\trailer-final-draft\`.
 
 `bench/trailer/final-plan.json` is the whole trailer: the shots in order, each a whole number of bars, with its path,
