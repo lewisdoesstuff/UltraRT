@@ -1,6 +1,6 @@
 # Viewmodel lighting
 
-The first-person arms and guns (the viewmodel) are on screen all the time. Before this pass, relight and pt-dn relit the whole world, but the viewmodel kept the game's own vertex lighting: no RT shadows on it, no coloured bounce, no reflections on its metal, and muzzle flashes and explosions lit it the game's way. `Plugin.Viewmodel.cs` now lights it with the same lights, shadow rays, radiance cache and reflections as the world, in relight, pt-dn and hybrid.
+The first-person arms and guns (the viewmodel) are on screen all the time. Before this pass, relight (and pathtrace and pt-dn) relit the whole world, but the viewmodel kept the game's own vertex lighting: no RT shadows on it, no coloured bounce, no reflections on its metal, and muzzle flashes and explosions lit it the game's way. `Plugin.Viewmodel.cs` now lights it with the same lights, shadow rays, radiance cache and reflections as the world, in relight, pt-dn and hybrid.
 
 Files:
 - `src/UltraRT/Plugin.Viewmodel.cs`: renderers, materials, targets, and the command buffer on the HUD camera.
@@ -40,7 +40,7 @@ From the decompiled `Assembly-CSharp` (`PostProcessV2_Handler`, `CameraControlle
 
 ## 2. Design
 
-A command buffer on the HUD camera at **AfterForwardOpaque**: after the game drew its viewmodel, before the viewmodel's transparents (muzzle sprites, beams) and the UI. `ViewmodelPreRender` records it every frame, but only when Main Camera traced this frame in relight, pt-dn or hybrid (`ViewmodelTraced`, at the end of `Trace`).
+A command buffer on the HUD camera at **AfterForwardOpaque**: after the game drew its viewmodel, before the viewmodel's transparents (muzzle sprites, beams) and the UI. `ViewmodelPreRender` records it every frame, but only when Main Camera traced this frame in relight, pathtrace, pt-dn or hybrid (`ViewmodelTraced`, at the end of `Trace`).
 
 1. **G-buffer (full resolution).** `cmd.DrawRenderer` for every active opaque submesh of the viewmodel renderers, with a per-source-material copy of `ViewmodelGBuffer.shader`. It draws on the HUD camera, so its projection and pixels are the game's, into five targets with its own depth buffer:
 

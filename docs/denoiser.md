@@ -74,7 +74,7 @@ ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has 
 - Short-history pixels are left alone (at 1 spp any clamp would eat legitimate sparse samples). The pre-blur spreads their outliers instead.
 - **Bias**: on a converged surface whose bright samples are rarer than about 1 in 30 frames, those samples are partly clamped, which darkens it slightly. Use `-ultrart-dn-firefly 0` to compare.
 
-**Debug view `dn-boost`** (`DenoiserDebugView.SpatialBoost`, at the end of the Page Up/Page Down list), drawn over a dim grey image: **red** is pre-blur strength, **green** the cache seed weight, **blue** history recovered by the 3x3 search, and **white** a firefly clamped by more than 10%. While sliding, expect a red band along the leading edge that fades within 8 frames, green over most of it (indirect light near the camera), and blue specks along silhouettes. `dn-history` still shows the history length.
+**Debug view `dn-boost`** (`DenoiserDebugView.SpatialBoost`, near the end of the Page Up/Page Down list, before `motion`), drawn over a dim grey image: **red** is pre-blur strength, **green** the cache seed weight, **blue** history recovered by the 3x3 search, and **white** a firefly clamped by more than 10%. While sliding, expect a red band along the leading edge that fades within 8 frames, green over most of it (indirect light near the camera), and blue specks along silhouettes. `dn-history` still shows the history length.
 
 ## Static noise
 
@@ -235,7 +235,7 @@ Ctrl+F3 cycles `DenoiserPreset` on both denoiser instances (`Plugin.ApplyStabili
 
 The trace runs at `-ultrart-scale` (0.5) of the screen. The old composite picked, per screen pixel, the one of the 2x2 nearest trace texels whose depth matched the game's. That gave stair-stepped silhouettes, blocky textures and lighting (2x2 screen pixels per texel), and thin geometry (wires, railings) that switched between RT and the game's own shading. In the replace modes (pt-dn, relight, dn-\*) a TAAU pass now rebuilds a screen-resolution image: `Upsample.compute`, `src/UltraRT/TemporalUpsampler.cs`. Hybrid is unchanged: it keeps the game's full-resolution colour and applies only RT ratios.
 
-**Where it applies.** It works on the final RT colour (the denoiser's composite output), not on demodulated lighting. In relight and pt-dn the textures come from the RT hits too: no full-resolution albedo exists to remodulate with. Jittered exact-hit samples rebuild the textures at screen resolution as well.
+**Where it applies.** It works on the final RT colour (the denoiser's composite output), not on demodulated lighting. In relight and pt-dn the textures come from the RT hits too: no full-resolution albedo exists to remodulate with (`pathtrace` has remodulation since 2026-11-15: [path-tracing.md](path-tracing.md), "UltraRT's denoiser at 1/3"). `pathtrace` runs through the upsampler as well; with DLSS RR the upsampler is replaced ([dlss.md](dlss.md)). Jittered exact-hit samples rebuild the textures at screen resolution as well.
 
 **Jitter.** Each frame the trace grid is offset by a sub-pixel jitter. The projection is `T(-2j / traceSize) · viewProj`, so pixel p's primary ray goes through trace position p + 0.5 + j. When the screen is exactly twice the visible trace size, j cycles through (±0.25, ±0.25) trace px: every screen pixel centre is traced exactly once per 4 frames. Otherwise j follows an 8-phase Halton(2, 3) sequence. Every temporal consumer (this denoiser, ReSTIR, reflections, the radiance cache) reprojects world positions with the same jittered matrices, so their histories stay consistent with no other change.
 
@@ -262,7 +262,7 @@ Identical modes vary by about ±0.1 σ between bursts (butterflies, birds), so e
 
 **Cost**: the pass is 0.09–0.12 ms at 1080p, and the composite gets about 0.012 ms cheaper. Memory: RGBA16F colour + R32F depth at screen resolution, ×2 ping-pong (50 MB at 1080p). GPU total vs master in merge-regress: relight +0.09 to +0.13 ms, hybrid unchanged.
 
-**Trace scale**: 0.67 with the upsampler costs 50–60% more GPU (1-1 start 1.27 → 1.85 ms, 8-3 b 1.67 → 2.55 ms, 0-2 run 2.18 → 3.37 ms). A static view looks the same as 0.5, slightly softer even: the Halton jitter never lands exactly on pixel centres. Noise is no better. **Keep 0.5**, the only scale whose jitter hits every pixel centre exactly. The upsampler works at any scale.
+**Trace scale**: 0.67 with the upsampler costs 50–60% more GPU (1-1 start 1.27 → 1.85 ms, 8-3 b 1.67 → 2.55 ms, 0-2 run 2.18 → 3.37 ms). A static view looks the same as 0.5, slightly softer even: the Halton jitter never lands exactly on pixel centres. Noise is no better. **Keep 0.5**, the only scale whose jitter hits every pixel centre exactly (historical for `pathtrace`, whose default scale is 1/3 with an exact 3x3 jitter grid: [path-tracing.md](path-tracing.md)). The upsampler works at any scale.
 
 **Limits.** Thin features and silhouettes inherit more denoiser noise than before. Their trace texels alternate between surfaces as the grid jitters, so the denoiser's history there is short, and the cap of 3 exact hits only partly averages it. A pixel held without samples doesn't follow lighting changes until a sample lands on it again (≤ 4 frames static). The game's depth is assumed to be the main camera's, covering the same view as the composite target.
 

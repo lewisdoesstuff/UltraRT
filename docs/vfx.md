@@ -173,7 +173,7 @@ wherever the game sets it: P-2 (1,245 of 1,427 rain-capable materials at the ven
 outdoor parts (the recorded 7-3 poses are indoors: 2 of 366 materials raining, so there is no 7-3 screenshot).
 
 ### Wet blood
-The game's blood stains are not traced (docs/particles.md): it stamps them from a GPU ring buffer of up to 100,000
+The game's blood stains are not traced as geometry (docs/particles.md; reflection hits do read them: docs/path-tracing.md, "Blood stains in reflections"): it stamps them from a GPU ring buffer of up to 100,000
 stains (`BloodsplatterManager.instanceBuffer`) into a screen buffer and multiplies that into the frame after our
 composite. It stores no age. So:
 - A Harmony postfix on `BloodsplatterManager.CreateBloodstain` records the birth time of each slot (`BloodWet.cs`);
@@ -210,6 +210,7 @@ Bench variants: `vfx.<field>`, `wet.<field>`, `pl.soft`, `pl.softDistance`.
 | Underwater | `-ultrart-underwater on\|off` | on | |
 | Rain wetness / wetness / puddles | `-ultrart-wet-rain on\|off`, `-ultrart-wet-rain-strength F`, `-ultrart-wet-puddles F` | on / 0.8 / 0.45 | |
 | Wet blood / drying time | `-ultrart-wet-blood on\|off`, `-ultrart-wet-blood-dry S` | on / 40 s | |
+| Blood stains in reflections | `-ultrart-stain-reflections on\|off` | on | ([path-tracing.md](path-tracing.md), "Blood stains in reflections") |
 
 `vfx.debugView=1` shows the bloom alone, `2` the distortion field (offset x100 around grey).
 

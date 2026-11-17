@@ -24,7 +24,11 @@ How the design was arrived at (the experiments, the alternatives): [pt-plan.md](
 
 - **Page Up / Page Down** to `pathtrace`, or the settings menu (View mode), or `[View] DefaultMode = pathtrace`.
 - Settings menu, section "Path tracing": denoiser, render resolution with RR, paths, bounces, light samples, cache tail,
-  sky sample at every bounce. Config section `[PathTrace]`.
+  sky sample at every bounce. Config section `[PathTrace]` ([settings.md](settings.md)).
+- Related: the cache tail is [radiance-cache.md](radiance-cache.md); the offline renderer (paths, bounces, accumulation, 16-bit
+  frames) is [cinematics.md](cinematics.md); texture LOD for the detail maps is [materials.md](materials.md); frame costs at
+  1440p are [performance.md](performance.md); portals in paths are [portals.md](portals.md); the first-person gun, lit
+  particles and screen effects in this mode are [viewmodel.md](viewmodel.md), [particles.md](particles.md), [vfx.md](vfx.md).
 - Flags: `-ultrart-pt-paths N`, `-ultrart-pt-bounces N`, `-ultrart-pt-nocache`, `-ultrart-pt-roulette F`,
   `-ultrart-pt-clamp F`, `-ultrart-pt-scale F`, `-ultrart-pt-denoiser auto|rr|ultrart`.
 - Bench variants: `pathtrace+ptx.<field>=value` for any field of `PathTraceSettings`, e.g.
@@ -70,7 +74,7 @@ The ray generation is relight's with two parts swapped (`RayGenBody(full)`; `ful
    one shadow ray; V1's shadow split and the moving-occluder flag as in relight) and one sky sample.
    - With RR: plain RIS (`lightsRR` 1, `candidatesRR` 16), no reservoirs, `directSamplesRR` samples averaged
      (`PtMoreDirect`). RR wants samples that are independent from frame to frame; see [dlss.md](dlss.md).
-   - With UltraRT's denoiser: whatever F6 selects (ReSTIR by default), one sample.
+   - With UltraRT's denoiser: whatever F6 selects (RIS by default since 2026-11-15, ReSTIR optional), one sample.
 3. **Diffuse paths** (`PtIndirect`, `paths` per pixel): a cosine direction from the primary hit, then up to `bounces`
    segments (`PtPath`). At each vertex:
    - **emission**: zero for emitters the light sampling covers (as relight's bounce), in full after a specular bounce;
@@ -360,8 +364,8 @@ Mean demodulated lighting at the primary hit (radiance statistics, linear; `benc
   samples survive.
 - So under RR `pathtrace` shows slightly less direct light than relight in rooms with many competing lights (lava
   room -16%, 2-2 less blue, 1-4's lamps +17% the other way), and it is the one that agrees with the reference. Relight
-  is not changed (its look is the accepted one); `ptx.lightsRR=2` gives `pathtrace` the same sampler, at RR's
-  correlated-noise cost.
+  was not changed at the time (its look was the accepted one: it used ReSTIR then; see the next bullet for today's
+  default); `ptx.lightsRR=2` gives `pathtrace` ReSTIR, at RR's correlated-noise cost.
 - Since 2026-11-15 relight defaults to RIS and its ReSTIR no longer reuses visibility; both match the reference
   within about 2 % (docs/light-sampling.md, "Bias and noise").
 - The rest of the difference (pathtrace 0.778 against RIS relight 0.810 in the lava room; 0-5% of screen luma) is the

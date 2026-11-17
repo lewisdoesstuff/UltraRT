@@ -107,7 +107,8 @@ Brute force over every emissive triangle is not feasible. In Reference mode, eac
 
 ## Risks and limitations
 
-- **EmissiveLightScale and EmissiveHybridAdd are untested in the game.** See above.
+- **EmissiveLightScale and EmissiveHybridAdd were untested in the game when this was written.** See above. ("Emissive brightness" is in the settings menu since: [settings.md](settings.md).)
+- **Statue orbs** are emitters too: orb fixtures get `EmitterMask`, and the orb's light lights its holders at x0.5 ([scene-proxies.md](scene-proxies.md), "Statue orbs"; [lighting-overrides.md](lighting-overrides.md)).
 - **Large emitters near receivers** (lava floors, wall-sized screens) are noisy, because uniform area sampling of a big triangle gives high variance close to it. The `minDistance` clamp (0.25 m) removes the worst fireflies at the cost of a little bias. Solid-angle sampling of the triangle would be the real fix. Lava emitters are split into pieces of at most 1 m2 (docs/lava.md).
 - **Runtime material changes** (swaps, property blocks) are followed by the hit shader and re-registered here (docs/scene-proxies.md, "Runtime material changes"); emission changes from property blocks at most once a second per proxy (the hit shader follows them every frame).
 - **Emission uv**: the game samples `_EmissiveTex` at the main texture's uv (`uv0 * _MainTex_ST`, checked in the Master shader's compiled code), so both the hit shader and the triangle radiance here use `_MainTex_ST`. Before 2026-11-14 they used `_EmissiveTex_ST` (never set, identity): materials sharing one texture with different `_MainTex` offsets (0-2's `FinalFrameL 2/3` light strips) glowed one band off, an extra row of lit strips on the wall while the real ones were lit orange.
@@ -151,13 +152,14 @@ Brute force over every emissive triangle is not feasible. In Reference mode, eac
    _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged);
    _emissive.Bind(_cmd, shader, _lightSamplingSettings.mode);
    ```
+   (Historical wiring recipe. Today `Plugin.cs` passes `_lightSampling.ActiveMode` to `_emissive.Bind`, because hybrid has its own mode, and `kind == Kind.Hybrid` to `_lightSampling.Bind`.)
 7. Optional: arguments in `ParseArgs()`:
    ```csharp
    case "-ultrart-noemissive": _emissiveSettings.enabled = false; break;
    case "-ultrart-emissive-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.lightScale); break;
    case "-ultrart-emissive-hybrid": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.hybridAdd); break;
    ```
-   Also a hotkey in `OnUpdate()` (F5 is free) for A/B tests:
+   Also a hotkey in `OnUpdate()` (F5 was free then; plain F5 now toggles emissive lights, as built here) for A/B tests:
    ```csharp
    if (Input.GetKeyDown(KeyCode.F5)) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
    ```

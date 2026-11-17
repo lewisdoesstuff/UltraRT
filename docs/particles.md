@@ -28,10 +28,10 @@ revolver fire, 1-1 start and 4-1 indoor A with explosions, 0-5. Shader code was 
 | Water splashes and drips (`WaterSplash 1`, `WaterSplashContinuous`, `WaterDrip` from wet enemies) | sprites / particles, `ULTRAKILL/SplashSprite-*`, `ULTRAKILL/Sprites/Default` | premultiplied alpha | unlit (`SplashSprite-VertexLit`: the game's 8 vertex lights) | **lit** |
 | Glass shards (`Glass Shard 1`) | particles, `Sprites/Default` | premultiplied alpha | unlit | **lit** |
 | Gas and dust clouds (`Smoke` on vents and pipes, `GasParticle`), explosion debris smoke trails (`Smoke` on `ExplosionChunk`, up to 51 at once), mist (`Smoke 2 FogOn`) | particles / trails, `ULTRAKILL/Master` TRANSPARENCY | **additive** | unlit | **lit** (additive smoke, see below) |
-| Explosion and gore smoke (`Smoke2`) | particles, `ULTRAKILL/Legacy Shaders/Particles/Multiply (Double)` | `DstColor SrcColor` | multiplies the image behind it | unchanged: already follows the ray-traced image |
+| Explosion and gore smoke (`Smoke2`) | particles, `ULTRAKILL/Legacy Shaders/Particles/Multiply (Double)` | `DstColor SrcColor` | multiplies the image behind it | unchanged for lighting (already follows the ray-traced image); swapped unlit for the soft fade only ([vfx.md](vfx.md)) |
 | Blood and oil stains on surfaces | `Blood and Oil` camera command buffer: `Bloodstain_ProceduralInstancing` into a screen buffer, then `PostProcess/CompositeBlood` | `DstColor Zero` | multiplies the image behind it | unchanged: already follows (they are drawn at `BeforeForwardAlpha`, after the RT composite) |
-| Blood stains on meshes (`Bloodstain_Fallback`, e.g. 0-2's pre-placed `Bloodstain(Clone)` meshes) | mesh, queue 2999 | `DstColor Zero` | multiplies | unchanged; **not traced** (`SceneProxies.Traceable` skips `ULTRAKILL/Bloodstain*`): queue 2999 let them into the opaque scene, where the white (= no blood) part of the multiplicative texture became an opaque white quad over the wall |
-| Fire, explosions (`Explosion`, `ExplosionSphere`, `ExplosionShockwave`), muzzle flashes, charge / spawn effects, beams, bite and wind trails, checkpoint, light pillars | various additive (`Legacy Particles/Additive`, Master additive, `Sprites/Default` glows) | additive | emissive | unchanged: light sources (EffectLights lights the scene from them) |
+| Blood stains on meshes (`Bloodstain_Fallback`, e.g. 0-2's pre-placed `Bloodstain(Clone)` meshes) | mesh, queue 2999 | `DstColor Zero` | multiplies | unchanged (their wet look and reflections: [vfx.md](vfx.md), [path-tracing.md](path-tracing.md)); **not traced** (`SceneProxies.Traceable` skips `ULTRAKILL/Bloodstain*`): queue 2999 let them into the opaque scene, where the white (= no blood) part of the multiplicative texture became an opaque white quad over the wall |
+| Fire, explosions (`Explosion`, `ExplosionSphere`, `ExplosionShockwave`), muzzle flashes, charge / spawn effects, beams, bite and wind trails, checkpoint, light pillars | various additive (`Legacy Particles/Additive`, Master additive, `Sprites/Default` glows) | additive | emissive | unchanged for lighting: light sources (EffectLights lights the scene from them); fire, explosions and `ExplosionSphere` are swapped unlit for the soft fade only ([vfx.md](vfx.md)) |
 | Signs, cracks, blood river (`Mulch`) | meshes, `ULTRAKILL/Master` TRANSPARENCY + VERTEX_LIGHTING | alpha | the game's vertex lights | unchanged (not done, see Limits) |
 | Water and glass | Master TRANSPARENCY | alpha | vertex lights | the reflection overlay (docs/reflections.md section 12) |
 
@@ -76,13 +76,13 @@ fog). When the mode goes off (or F7, Shift+F7, a scene change), the original sha
 Material instances made from a swapped material while it was swapped (`renderer.material`) are found by shader and
 restored too.
 
-`LitParticle.shader` reproduces the five game shaders (psx alpha test with its anti-aliased cutoff and vertex snapping,
+`LitParticle.shader` reproduces the five lit game shaders (psx alpha test with its anti-aliased cutoff and vertex snapping,
 Unity's Standard Unlit colour modes, sprites, Mobile alpha blended, Master additive), then multiplies the colour by the
 volume's lighting at the vertex (one trilinear 3D read per vertex): back to the game's gamma units, times relight's auto
 exposure, through relight's tone curve (`UltraRTToneCurve.hlsl`, as the composite), then the game's fog. Lit amount
 `lerp(1, lighting, strength)`; strength 1 is fully ray-traced.
 
-Selection: the shader must be one of those five, the material or texture name must say what it is (blood, smoke, dust,
+Selection: the shader must be one of those five (three more kinds are swapped unlit for the soft fade alone, [vfx.md](vfx.md), "Soft particles"), the material or texture name must say what it is (blood, smoke, dust,
 dirt, debris, splash, drip, wet, mud, gib, gore, chunk, shard, ...; or the `Alpha Blended` debris trail material) and
 must not name a glow (fire, flame, flash, muzzle, spark, glow, light, beam, laser, charge, explosion, ...).
 Multiplicative materials, materials with emission, and `Sprites-Default` (shared by every plain sprite, muzzle flashes
@@ -132,6 +132,7 @@ Seen so far: 3-2 `HeatWaves (2)` and a 44 m cone of dust `Dot`s, 0-5 `Lava Found
 | Flag | Field | Default | |
 |---|---|---|---|
 | `-ultrart-particles on\|off`, config `[Particles] Lit`, **Shift+F7** | `enabled` | on | relight, pt-dn and hybrid |
+| `-ultrart-particles-soft on\|off`, `-ultrart-particles-soft-distance M` | `soft`, `softDistance` (`pl.soft`, `pl.softDistance`; `softKinds`) | on, 0.6 m | the soft fade ([vfx.md](vfx.md), "Soft particles"; menu "Soft particles") |
 | `-ultrart-particles-strength F` | `strength` | 1 | relight and pt-dn: 0 = the game's look |
 | `-ultrart-particles-hybrid F` | `hybridStrength` | 1 | 0 turns hybrid off |
 | `-ultrart-particles-additive on\|off` | `additiveSmoke` | on | additive smoke, dust and mist |

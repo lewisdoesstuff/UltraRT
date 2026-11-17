@@ -295,11 +295,11 @@ The remaining worst frame on the route is the game's own clone. RT off shows the
 - `Rescan: find ms (counts), scan ms: ...; dynamic proxies, cloned proxies skipped, lights tracked`.
 - The plugin's 600-frame line (`RT scene sync CPU avg ...`) also reports the proxy queue (`deferred proxies: made, ms, queue max`), hierarchies and instantiations seen, lights tracked and on, emissive costs (alias rebuilds, visibility, transforms) and the dynamic loops (dirty evaluations, active loop, dormant poll).
 
-## Tunables (static fields; no command-line flags yet)
+## Tunables (static fields, each with a command-line flag)
 
-- `SceneProxies.StaticActivation = false`: static batches are always present (the old behaviour), for A/B tests.
-- `SceneProxies.ForceGroupLevel = 0..4`: force a grouping level.
-- `SceneProxies.StaticRecordBudget`: the record budget.
+- `SceneProxies.StaticActivation = false` (`-ultrart-static-always`): static batches are always present (the old behaviour), for A/B tests.
+- `SceneProxies.ForceGroupLevel = 0..4` (`-ultrart-static-level N`): force a grouping level.
+- `SceneProxies.StaticRecordBudget` (`-ultrart-static-budget N`): the record budget.
 
 ## Runtime material changes
 

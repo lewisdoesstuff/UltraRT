@@ -7,7 +7,7 @@ Files:
 - `src/UltraRT/EmissiveLights.Lava.cs`: splits lava emitters into small triangles and computes their radiance.
 - `src/UltraRT/Plugin.Lava.cs`: flags, shader loading, and dimming the game's lava point lights.
 - `unity/.../LavaProxy.shader`: the hit group (`UltraRTHit`), with an any-hit shader that camera rays pass through.
-- One-line hooks: `SceneProxies.cs` (`TryAddLava`, `LogLava`, `DisposeLava`, `LavaHidden` in `Evaluate`), `EmissiveLights.cs` (`partial`, the `ExtractLava` branch, the log), `Plugin.cs` (`ParseLavaArgs`, `LoadLavaShader`, `UpdateLava`, `DimLavaLights`), `Plugin.Burst.cs` (the `lava` variant target), `BuildBundles.cs`.
+- One-line hooks: `SceneProxies.cs` (`TryAddLava`, `LogLava`, `DisposeLava`, `LavaHidden` in `Evaluate`), `EmissiveLights.cs` (`partial`, the `ExtractLava` branch, the log), `Plugin.cs` (`ParseLavaArgs`, `LoadLavaShader`, `_proxies.UpdateLava()` = `SceneProxies.UpdateLava`, `DimLavaLights`), `Plugin.Burst.cs` (the `lava` variant target), `BuildBundles.cs`.
 
 ## Survey (offline, UnityPy over `materials.bundle` and the level bundles)
 
@@ -80,7 +80,7 @@ x1.5 is the default. Walls next to lava read as lit by it, and are 10-15 % brigh
 | Flag | Field (`LavaSettings`) | Default |
 |---|---|---|
 | `-ultrart-nolava` | `enabled` (scene build) | on |
-| bench variant `lava.active=0` | `active` (runtime: the proxies leave the RTAS and the emitter list, lights are not dimmed) | on |
+| settings menu "Ray-traced lava and acid", bench variant `lava.active=0` | `active` (runtime: the proxies leave the RTAS and the emitter list, lights are not dimmed) | on |
 | `-ultrart-lava-light X` | `lightScale` (scene build) | 1.5 |
 | `-ultrart-lava-glow X` | `glow` (emission seen by reflection, bounce and cache rays) | 1 |
 | `-ultrart-lava-pointlights X` | `pointLightScale` | 0.15 |
@@ -132,3 +132,4 @@ Relight and hybrid stay within about 10 %. pt-dn 0-5 is +50 % in absolute luma. 
 - No lighting pattern from the scrolling texture (see Emission). The lava's light is steady.
 - `lava.lightScale` is read at the scene build. Bench variants for the level use `em.lightScale` (all emitters) instead.
 - The light-dimming heuristic goes by position and colour. A non-lava light of the same colour over a lava pool is dimmed too.
+- Heat haze over lava (a screen effect fed by the lava surfaces) is in [vfx.md](vfx.md), "Heat haze".

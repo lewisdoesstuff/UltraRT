@@ -20,6 +20,9 @@ Code: `src/UltraRT/LightOverrides.cs` (data, matching, packing), `Plugin.LightOv
   flicker scripts, area triggers and 8-2's day/night keep working: an entry multiplies whatever the light is this frame,
   and a light the game switches off stays off. Every consumer of `_Lights` sees the result: direct light (RIS, ReSTIR,
   reference), pathtrace's NEE, the radiance cache, volumetrics, lit particles, the viewmodel pass.
+- **Statue orb lights** get one more factor after the override: `Plugin._orbLightScale` 0.5 (`-ultrart-orb-light F`), applied to
+  the lights of orb fixtures whose holder was found ([scene-proxies.md](scene-proxies.md), "Statue orbs"). It stacks on any
+  override of those lights, and the classifier leaves `fixture:orb` lights alone.
 - Off switches: `-ultrart-nolightoverrides`; settings menu "Light editor" > "Per-level light overrides" (config
   `[Lights] Overrides`); Keypad `*` while the editor is open (session); bench variant `plugin._lightOverrides=0`.
 
@@ -203,7 +206,8 @@ moves colour.
 ## Per-level status (2026-11-15)
 
 Shipped: `data/lights/Level {0-1,1-1,2-2,3-2,6-1,7-3}.json` = the classifier's fixes plus the fit of the poses in
-`bench/suites/lights-fit-a.json` / `lights-fit-b.json` (`tools/lights/merge.py`). Other levels have no file (no change).
+`bench/suites/lights-fit-a.json` / `lights-fit-b.json` (`tools/lights/merge.py`), and `Level 5-2.json` (hand-written, below).
+Other levels have no file (no change).
 
 ### Classifier (lights tracked; fixes)
 
@@ -246,7 +250,7 @@ What moved:
   wanted less), and some of the rest is haze.
 - **1-1 torch rooms**: `BigTorch/Fire` x0.6 and a little less saturated (linear transport saturates coloured lights:
   the game's torch rooms are less orange than relight's).
-- **0-1**: the statue-orb lights x0.6-0.9.
+- **0-1**: the statue-orb lights x0.6-0.9 (fitted before the orb light x0.5 above existed: the effective factor on the orbs is now that times 0.5).
 - **5-2** (hand-written, 2026-11-15): the Ferryman's cabin fill light unshadowed (docs/relight.md, "V1 beside a light").
 - **2-2**: the blue street light is pushed purple (1.27, 0.53, 1.20): the frame-wide colour match does less work.
 - **3-2 and 6-1**: at the near pixels the fit lands on the game (3-2: 1.43 / 1.72 -> 1.01), but the screen barely moves:

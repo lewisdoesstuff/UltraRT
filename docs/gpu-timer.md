@@ -91,9 +91,11 @@ That matches the disassembly above. The call runs under SEH. If Unity rejects it
 - `/MT`: the DLL loads into a process we don't control. With `/MD` it would need the 14.5x VC++ redistributable, and an older `vcruntime140.dll` already in the process makes `LoadLibrary` fail. No CRT-owned memory crosses the DLL boundary, so a private CRT is safe. It costs about 100 KB; the DLL is 142 KB.
 - Imports: `KERNEL32.dll` only. D3D12 is used through the COM pointers Unity hands over.
 
-The opt-in block at the end of `scripts/build.ps1` builds the DLL and copies it to `BepInEx\plugins\UltraRT\` (set `ULTRART_SKIP_NATIVE=1` to skip it). Merge it into a proper `-SkipNative` switch. Copying fails while the game is running, because the loaded DLL is locked and can't be unloaded (see Caveats). The block warns and continues.
+`scripts/build.ps1` builds the DLL (unless `-SkipNative` is given) and copies it to `BepInEx\plugins\UltraRT\` (`-NoDeploy` stages it instead). Copying fails while the game is running, because the loaded DLL is locked and can't be unloaded (see Caveats). The block warns and continues.
 
 ## Integration (Plugin.cs)
+
+The timer is opt-in: `-ultrart-gputimer` enables it (`scripts\bench.ps1` passes it unless `-NoGpuTimer`), `-ultrart-gputimer-flags` / `ULTRART_GPUTIMER_FLAGS` set its flags. The same DLL also holds the DLSS Ray Reconstruction glue (`Dlss.cpp`, or `DlssStub.cpp` without the SDK): [dlss.md](dlss.md). The snippet below is the simplified first wiring; the current slot list is `Slot*` / `SlotNames` in `Plugin.cs` (slots up to 21).
 
 **Deploy:** `UltraRT.Native.dll` goes **next to `UltraRT.dll`** in `BepInEx\plugins\UltraRT\`. It does not go in `ULTRAKILL_Data\Plugins`.
 

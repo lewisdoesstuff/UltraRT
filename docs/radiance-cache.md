@@ -94,7 +94,7 @@ There are two new view modes at the end of the F8 list (existing indices are unc
 | `cache` | `albedo × lerp(1, cached total, litWeight) + emission` at the primary hit: what a bounce ray would see. Magenta checker = no valid cell. |
 | `cache-cells` | a hash colour per cell, darker on odd LOD levels (LOD rings); grey = not in the table |
 
-`-ultrart-cache-debug N` or **Shift+F3** forces the view used by both modes: 1 radiance, 2 total lighting, 3 indirect lighting, 4 cells, 5 sample count (log heat map, blue ≈ 1 to red ≈ 1000). **F4** cycles the cache mode: Bounce → Primary → Off.
+`-ultrart-cache-debug N` or **Shift+F3** forces the view used by both modes: 1 radiance, 2 total lighting, 3 indirect lighting, 4 cells, 5 sample count (log heat map, blue ≈ 1 to red ≈ 1000). **F3** cycles the cache mode: Bounce → Primary → Off (Ctrl+F3 is the denoiser preset, F4 reflections).
 
 ## Settings (`RadianceCacheSettings`) and flags
 
@@ -129,7 +129,7 @@ Plugin.cs has one-line hooks only. Everything else is in `Plugin.Cache.cs`:
 2. `Awake`: `ParseCacheArgs();` after `ParseArgs();`.
 3. `LoadShaders`: `LoadCacheShaders(bundle);`. Missing cache shaders only log a warning and leave the cache off; the bundle still loads.
 4. `ResetScene`: `_radianceCache?.Reset();` (scene change and shader reload).
-5. `OnUpdate`: `CacheHotkeys();` (F4, Shift+F3).
+5. `OnUpdate`: `CacheHotkeys();` (F3, Shift+F3; Ctrl+F3, the denoiser preset, is handled first in the same function).
 6. `Trace`, at the end of the `if (pt)` bind block: `TraceRadianceCache(shader, w, h, invViewProj, ambient);`. It binds the scene, lights, light tables, emitters and sky on the update shader, records update and resolve, and binds the lookups on PathTrace. It must come **after** `_emissive.Bind(_cmd, shader, ...)` for PathTrace, because `EmissiveLights.Bind` consumes its history-valid flag on the first call of the frame. It must run on every PathTrace dispatch, since PathTrace declares the lookup inputs.
 7. `Trace`, after PathTrace's `DispatchRays`: `if (kind == Kind.PathTrace) TraceCacheDebug(mode);`.
 8. GPU timer: new slot `cache` (5), which wraps update + resolve. It appears in the bench JSON `GpuMs` and in `TakeGpuSummary`. The PathTrace query cost is inside `dispatch`.
@@ -155,15 +155,15 @@ At 1280x720 trace resolution, stride 4, 2 bounces:
 - **Cache keys use the dominant axis only**: surfaces at exactly 45° can alternate between two bins. This is harmless (it only splits samples).
 - **SRV count in PathTrace** rises from 12 to 14. No SRV limit is known for Unity ray tracing shaders. If `DispatchRays` ever fails with the cache on and works with `-ultrart-nocache`, check this first.
 - **Unity resource barriers**: the update writes `_CacheKeys` and `_CacheAccum` as UAVs, the resolve then uses them as UAVs, and PathTrace reads `_CacheKeys` as an SRV in the same command buffer. This relies on Unity inserting the D3D12 UAV and state barriers between dispatches, as it does for the ReSTIR reservoirs and the denoiser.
-- **Untested in the game**: this was compiled and checked statically only.
+- **Untested in the game** (historical: written before the first run; the cache has been in use since, as pathtrace's bounce tail and the relight bounce: [path-tracing.md](path-tracing.md), [relight.md](relight.md)): this was compiled and checked statically only.
 
 ## Test steps
 
 1. Build and deploy: `scripts\build.ps1`, or build the shaders and plugin and copy `ultrart.shaders` and `UltraRT.dll` into `BepInEx\plugins\UltraRT`. The log line `Bundle loaded: ...` should have no cache warning. `First trace OK: ... cache=Bounce 1048576 slots 52 MB`.
 2. **4-1 indoor poses**: `-ultrart-scene "Level 4-1" -ultrart-pose ... -ultrart-gputimer`
-   - `pt-indirect` with and without `-ultrart-nocache` (or F4 to cycle): the bounce should go from black speckle to a warm, smooth fill.
+   - `pt-indirect` with and without `-ultrart-nocache` (or F3 to cycle): the bounce should go from black speckle to a warm, smooth fill.
    - `cache` view: rooms should be fully covered within a few frames, with no magenta. `cache-cells`: about 0.5 m cells nearby and LOD rings further away. Shift+F3 → 5 (samples): red/yellow near, blue far.
-   - `hybrid`, and `pt-dn` with A/B via F4: check `GIStrength` and the brightness.
+   - `hybrid`, and `pt-dn` with A/B via F3: check `GIStrength` and the brightness.
    - Leak check: stand next to a wall between a lit and a dark room. In the `cache` view, check the floor strip on the dark side.
    - Room toggle: walk through a door that switches rooms. The bounce should settle within about 8 frames.
 3. **1-1** via the bench harness: add `"cache"` to a scenario's modes if wanted. Compare `GpuMs.cache` and `GpuMs.dispatch` with and without the cache (`-ultrart-nocache` as the bench tag run). The expected `cache` slot is ≤ 0.15 ms at a trace scale giving 1280x720.

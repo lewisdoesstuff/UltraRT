@@ -8,8 +8,10 @@ Parts:
 - `bench/trailer/paths.json` -> `bench/cinematics/trailer-*.json`: the trailer's camera paths.
 - `bench/suites/trailer-test.json`, `trailer-test2.json`, `trailer-test3.json`: render the shots (docs/cinematics.md, bench "Cinematic" scenarios).
 - `scripts/trailer.py` + `bench/trailer/trailer-test.json`, `trailer-test2.json`, `trailer-test3.json`: the edit lists and the assembly (ffmpeg).
-  `trailer-test3` is the current cut (it also needs the `trailer-test2` run: three of its shots are that cut's);
-  `trailer-test` is the first one.
+  `trailer-test`, `-test2` and `-test3` are the test cuts (`trailer-test3` also needs the `trailer-test2` run: three of its
+  shots are that cut's). The current cut is the final trailer ("The final trailer" below).
+- `scripts/trailer-plan.py` + `bench/trailer/final-plan.json`: the final trailer's plan, which writes the `trailer-final-*` suites and
+  edit lists; `scripts/trailer_gfx.py` and `scripts/trailer-font.py`: the motion graphics in the game's HUD style ("Graphics" below).
 
 Rendered frames, videos and music are never committed: they live under `bench/results/` (gitignored).
 

@@ -38,7 +38,7 @@ The travel matrix maps the world near one side to the world near the other, rota
 
 **Layer 30 ("Portal")**: the main camera never draws it; portal views with `canSeePortalLayer` do. Level geometry that should only exist "through" a portal lives there: in 8-3, 29 to 33 renderers, 3 of them active at the poses tested, among them the theatre chandeliers seen through the Shifting Arena's strip portals.
 
-**Other portal-aware systems**: `PortalAwareRenderer` clones renderers that straddle a portal (`PortalAwareRendererClone`), enemies get "(PortalOffset)" transforms, particles, audio (`VirtualAudioListener`), navigation links and the player's traversal (`PortalTraversalV2`, `CheckPlayerTraversals`) all use the same `NativePortalScene`. The game's "Portal" layer (30) is not used by the render path above.
+**Other portal-aware systems**: `PortalAwareRenderer` clones renderers that straddle a portal (`PortalAwareRendererClone`), enemies get "(PortalOffset)" transforms, particles, audio (`VirtualAudioListener`), navigation links and the player's traversal (`PortalTraversalV2`, `CheckPlayerTraversals`) all use the same `NativePortalScene`.
 
 **Portals in 8-3** (from the `Portal side` log lines):
 - *False Starts / Door (2) / Portal (2)*: a 10 x 15 m doorway, enter facing +z, exit facing +y (it turns the world 90 degrees).
@@ -98,7 +98,7 @@ Where it is used:
 | `-ultrart-compdebug 5` | portal depth diagnostic (hybrid) |
 | `-ultrart-portal-hops N`, bench `plugin._portalHops=N` | teleports per ray (3); past it rays ignore portals |
 | `-ultrart-noportallayer` | don't trace layer-30 renderers |
-| `-ultrart-rtmirrors`, bench `plugin._rtMirrors=1` | camera rays reflect off portal mirrors instead of keeping the game's mirror view |
+| `-ultrart-rtmirrors`, bench `plugin._rtMirrors=1` | camera rays reflect off portal mirrors instead of keeping the game's mirror view (settings menu: "Ray-traced mirrors", [settings.md](settings.md)) |
 | `SceneProxies.PortalAddDelay` | 2 frames before a new portal quad goes into the RTAS |
 | `-ultrart-compdebug 6` | game / RT albedo alignment overlay (hybrid) |
 | `SceneProxies.MaxPortalSides` | 1024 |
