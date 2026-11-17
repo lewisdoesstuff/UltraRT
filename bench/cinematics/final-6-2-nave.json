@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-6-2-nave",
+  "Scene": "Level 6-2",
+  "Note": "Final trailer: a slow dolly down 6-2's first hall between the pillars and the stained-glass windows (base = end of bench/recordings/6-2-a.json).",
+  "Keys": [
+    {"Player": [-1.365, -7.6, 305.326], "Yaw": 5.0, "Pitch": -3, "Fov": 85, "Duration": 6.4, "Ease": "smooth"},
+    {"Player": [1.519, -6.7, 327.279], "Yaw": -1.0, "Pitch": -4, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

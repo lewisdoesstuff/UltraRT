@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "trailer-p-2-hall-reveal",
+  "Scene": "Level P-2",
+  "Note": "Trailer: crane down from the stained-glass windows into the P-2 entrance hall (base = end of bench/recordings/p-2-vent-smoke.json).",
+  "Keys": [
+    {"Player": [4.755, -13.5, 27.525], "Yaw": -29.8, "Pitch": 48, "Fov": 85, "Duration": 2.0, "Ease": "in"},
+    {"Player": [3.0, -14.9, 29.958], "Yaw": -25.8, "Pitch": 20, "Fov": 85, "Duration": 2.0, "Ease": "linear"},
+    {"Player": [0.075, -16.9, 34.013], "Yaw": -22.8, "Pitch": 4, "Fov": 85, "Duration": 2.0, "Ease": "out"},
+    {"Player": [-2.85, -17.5, 38.069], "Yaw": -21.8, "Pitch": 3, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

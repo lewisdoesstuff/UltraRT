@@ -1,0 +1,55 @@
+{
+  "Name": "trailer-final-draft-4",
+  "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier draft, run 4): do not edit, change the plan.",
+  "Scenarios": [
+    {
+      "Name": "6-2 hall",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-a.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-6-2-nave.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.067,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 1.25,
+        "OffUntil": 3.25
+      }
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-1-4-lamps.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.067,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false
+      }
+    }
+  ]
+}

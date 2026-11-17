@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "trailer-3-1-eye-beams",
+  "Scene": "Level 3-1",
+  "Note": "Trailer: along the bone walkway and up into the eye's beam (base = the 3-1 beams sweep pose of bench/suites/beams-3-1.json).",
+  "Keys": [
+    {"Player": [-167.701, -100.7, 451.497], "Yaw": 278.85, "Pitch": 2, "Fov": 90, "Duration": 2.0, "Ease": "in"},
+    {"Player": [-173.63, -100.5, 452.42], "Yaw": 280.85, "Pitch": 24, "Fov": 90, "Duration": 1.8, "Ease": "linear"},
+    {"Player": [-178.57, -99.0, 453.189], "Yaw": 282.85, "Pitch": 36, "Fov": 90, "Duration": 1.7, "Ease": "out"},
+    {"Player": [-181.535, -98.0, 453.651], "Yaw": 284.85, "Pitch": 44, "Fov": 90, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

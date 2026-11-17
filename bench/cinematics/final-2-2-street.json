@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Name": "final-2-2-street",
+  "Scene": "Level 2-2",
+  "Note": "Final trailer: 2-2's street from the red doorway round to the blue buildings (base = end of bench/recordings/late-2-2-floor-noise-purple.json): a slow drift forward and right with a pan to the right.",
+  "Keys": [
+    {"Player": [13.78, -8.4, 312.362], "Yaw": -122.7, "Pitch": -3, "Fov": 85, "Duration": 2.438, "Ease": "smooth"},
+    {"Player": [9.225, -8.1, 313.1], "Yaw": -88.7, "Pitch": -2, "Fov": 85, "Duration": 2.362, "Ease": "smooth"},
+    {"Player": [5.464, -7.7, 314.565], "Yaw": -58.7, "Pitch": -3, "Fov": 85, "Duration": 1.524, "Ease": "linear"}
+  ]
+}

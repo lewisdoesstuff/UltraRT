@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-7-3-gun",
+  "Scene": "Level 7-3",
+  "Note": "Final trailer: a first-person walk in 7-3's dark garden with the revolver in view (base = end of bench/recordings/7-3-flashlight.json). Use with Cinematic.Player \"camera\", ShowWeapon and Shots.",
+  "Keys": [
+    {"Player": [0.572, -7.34, 300.463], "Yaw": 5.6, "Pitch": -3, "Fov": 100, "Duration": 6.2, "Ease": "linear"},
+    {"Player": [1.157, -7.34, 306.435], "Yaw": 5.6, "Pitch": -3, "Fov": 100, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

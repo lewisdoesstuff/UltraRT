@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-8-2-street",
+  "Scene": "Level 8-2",
+  "Note": "Final trailer: a low glide along the pool of 8-2's street towards the red door, past the lamp posts and their cones of light (base = end of bench/recordings/8-2-c.json).",
+  "Keys": [
+    {"Player": [5.772, -2.76, 379.065], "Yaw": 226, "Pitch": -1, "Fov": 85, "Duration": 7.9, "Ease": "smooth"},
+    {"Player": [1.545, -2.06, 374.111], "Yaw": 218, "Pitch": -3, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

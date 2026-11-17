@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Name": "final-0-5-lava",
+  "Scene": "Level 0-5",
+  "Note": "Final trailer: low along 0-5's lava channel (base = end of bench/recordings/0-5-approach.json).",
+  "Keys": [
+    {"Player": [1.893, 2.0, 368.504], "Yaw": 51.1, "Pitch": -10, "Fov": 85, "Duration": 2.4, "Ease": "in"},
+    {"Player": [5.932, 2.0, 371.534], "Yaw": 53.1, "Pitch": -10, "Fov": 85, "Duration": 2.4, "Ease": "out"},
+    {"Player": [11.088, 2.5, 374.608], "Yaw": 58.1, "Pitch": -11, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

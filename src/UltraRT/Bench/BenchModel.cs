@@ -109,13 +109,63 @@ namespace UltraRT.Bench
         /// <summary>Play the path once in real time first, in the scenario's first RT mode (frame times and a mid-path screenshot).</summary>
         public bool Play;
         public bool Render = true;
-        /// <summary>pathtrace | relight | current</summary>
+        /// <summary>pathtrace | relight | current | off (the game's image) | live (the scenario's first RT mode as played)</summary>
         public string Mode;
+        /// <summary>Several takes of the path in one scenario, one per mode (e.g. ["off", "live"]), each into
+        /// cine_&lt;scenario&gt;_&lt;mode&gt;. With TimeScale 0 the world stays frozen from the first take to the last, so the takes
+        /// show the same instant (particles included) and line up exactly: before / after pairs.</summary>
+        public List<string> Modes;
+        /// <summary>Paired capture (accumulating modes and live): one take that writes two folders, cine_&lt;scenario&gt;_&lt;mode&gt;
+        /// and cine_&lt;scenario&gt;_off. Per output frame the world is stepped once and held while the game's own image and
+        /// the traced image are rendered, so both show the same world state in every frame with the world running
+        /// (TimeScale 1): a before / after pair that needs no frozen world.</summary>
+        public bool Paired;
+        /// <summary>Paired capture windows (path seconds): the traced image is only rendered from OnFrom, the game's
+        /// image only until OffUntil (default: both for the whole path). Frame numbers stay the path's.</summary>
+        public float? OnFrom, OffUntil;
         public float? Fps, OutputScale, Shutter, TimeScale, Seconds, Start;
         public int? Samples, Aa, Paths, Bounces, Crf, Preroll;
         public bool? CacheTail, MotionBlur, Png16, Encode;
+        /// <summary>Keep V1's model in the traced scene (reflections, shadow) at the scenario's pose while the camera flies.</summary>
+        public bool? TracePlayer;
+        /// <summary>The player moves during the take (V1's shadow and reflections with it): "camera" = it rides the camera
+        /// path (a first-person walk: the camera is the player's eye), or a second path file, relative to the suite, that
+        /// the player walks while the camera flies <see cref="File"/> (its keys are the player's position and view
+        /// direction). V1 is kept in the traced scene, walks at the route's speed and looks where the route looks. Use
+        /// TimeScale 1: the walk animation needs game time.</summary>
+        public string Player;
+        /// <summary>The camera sees V1's model (a third-person shot), in the traced image and in the game's ("off" takes).
+        /// Default: on when <see cref="Player"/> is a path file, off otherwise (the camera would be inside the model).</summary>
+        public bool? ShowPlayer;
+        /// <summary>Shop terminals keep their screens off during the take: the shop UI that switches on when the player
+        /// comes near covers the glass, which is what reflects.</summary>
+        public bool? ShopScreensOff;
+        /// <summary>A first-person shot with the gun in view (with <see cref="Player"/> "camera"): the HUD camera keeps
+        /// drawing the viewmodel (lit by the traced scene as in play), the HUD itself stays hidden. Scenario.Weapon picks
+        /// the gun.</summary>
+        public bool? ShowWeapon;
+        /// <summary>Path seconds at which <see cref="ShotKinds"/> are spawned (EffectSpec kinds; default "revolver": the
+        /// held revolver fires as the player fires it).</summary>
+        public List<float> Shots;
+        public List<string> ShotKinds;
+        /// <summary>Timing for the level's lamps. A flickering lamp (the game's Flicker component switches a light fully on
+        /// and off at random intervals) is held in its on or its off phase for a stretch of the path, so a shot can land
+        /// on the phase it needs; outside the stretches it flickers by itself. A steady light named here is switched
+        /// on or off for the stretch (the Light component only: its lamp mesh keeps glowing) and put back after it.</summary>
+        public List<FlickerHold> Flickers;
         /// <summary>auto | locked</summary>
         public string Exposure;
+    }
+
+    /// <summary>One lamp held in a flicker phase (see <see cref="CinematicSpec.Flickers"/>).</summary>
+    public sealed class FlickerHold
+    {
+        /// <summary>The end of the light's hierarchy path, e.g. "Metro Light/Spot Light" (case-insensitive).</summary>
+        public string Light;
+        /// <summary>Path seconds.</summary>
+        public float From, To = 1e9f;
+        /// <summary>true: held on; false (default): held off.</summary>
+        public bool On;
     }
 
     /// <summary>
@@ -223,6 +273,8 @@ namespace UltraRT.Bench
         /// <summary>Scenario.Cinematic: the live playback's frame times and the offline render's result.</summary>
         public ModeStats CinematicPlay;
         public CineRenderResult Cinematic;
+        /// <summary>Cinematic.Modes: every take (Cinematic is the last one).</summary>
+        public List<CineRenderResult> CinematicTakes;
     }
 
     /// <summary>

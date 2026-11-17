@@ -12,7 +12,10 @@ using UnityEngine;
 
 namespace UltraRT
 {
-    public enum CineRenderMode { Pathtrace = 0, Relight = 1, Current = 2 }
+    /// <summary>Offline render view mode. Pathtrace / Relight / Current accumulate to convergence at full resolution.
+    /// Off: the game's own image (ray tracing off), for before / after pairs. Live: the current view mode exactly as played
+    /// (the real-time pipeline: trace scale, denoiser, DLSS RR / upsampler), one rendered frame per output frame.</summary>
+    public enum CineRenderMode { Pathtrace = 0, Relight = 1, Current = 2, Off = 3, Live = 4 }
     public enum CineExposure { Auto = 0, Locked = 1 }
 
     /// <summary>Cinematic camera and offline render settings (docs/cinematics.md). Config section [Cinematics]; a bench
@@ -50,6 +53,19 @@ namespace UltraRT
         public float lookSpeed = 1f;
         /// <summary>While the cinematic camera is on: enemies don't see the player and the player takes no damage.</summary>
         public bool protectPlayer = true;
+        /// <summary>Keep V1's third-person model in the traced scene while the camera is free: its reflection (mirrors,
+        /// water, metal) and its shadow stay where the player stands. Camera rays still never see the model itself, so
+        /// frame it from near the player's eye, or only through the reflection.</summary>
+        public bool tracePlayer = false;
+        /// <summary>Paired capture (accumulating modes; bench "Paired"): every output frame is also rendered with ray
+        /// tracing off, into this folder, while the world is held, so the game's image and the traced image show the
+        /// identical world state frame for frame although the world runs. Null: off.</summary>
+        [Newtonsoft.Json.JsonIgnore] public string pairOffDir;
+        /// <summary>Paired capture windows (path seconds): the traced image is rendered from pairOnFrom on, the game's
+        /// image until pairOffUntil. An edit that switches or sweeps from one to the other only needs both in between;
+        /// before pairOnFrom one traced frame per output frame still runs (uncaptured), so exposure and the radiance
+        /// cache are where they would be.</summary>
+        public float pairOnFrom = float.NegativeInfinity, pairOffUntil = float.PositiveInfinity;
         public CineSettings Clone() => (CineSettings)MemberwiseClone();
     }
 
@@ -101,6 +117,14 @@ namespace UltraRT
         private object _cineSavedBlind, _cineSavedInvincible;
         private bool _cineCheatsSet;
         private Vector3 _cineEye = new Vector3(0f, 1f, 0f);
+        // A take that moves the player (bench "Player"): its velocity for V1's walk animation; and third-person shots.
+        private bool _cinePlayerDriven, _cineShowPlayer, _cineShowPlayerMask, _cinePlayerRestart;
+        private Vector3 _cinePlayerVel;
+        private float _cinePlayerLastT = float.MaxValue;
+        private readonly List<Collider> _cineShopTriggers = new List<Collider>();
+        private readonly List<GameObject> _cineShopCanvases = new List<GameObject>();
+        private Animator _cinePlayerAnimator;
+        private const int PlayerModelLayer = 30;
 
         /// <summary>The overlay is not drawn on frames the offline renderer captures.</summary>
         private bool _cineHideGui;
@@ -117,7 +141,8 @@ namespace UltraRT
         {
             m.Group = "Cinematics (camera paths and offline render: docs/cinematics.md)";
             m.Choice("Cinematics", "Mode", "Render: view mode", () => _cine.mode, v => _cine.mode = v, v => v.ToString(),
-                v => v == CineRenderMode.Pathtrace ? "pathtrace" : v == CineRenderMode.Relight ? "relight" : "the current view mode");
+                v => v == CineRenderMode.Pathtrace ? "pathtrace" : v == CineRenderMode.Relight ? "relight" : v == CineRenderMode.Off ? "ray tracing off (the game's image)"
+                    : v == CineRenderMode.Live ? "as played (the current view mode, real-time pipeline)" : "the current view mode");
             m.Float("Cinematics", "Fps", "Render: frames per second", 12f, 120f, 0, () => _cine.fps, v => _cine.fps = Mathf.Round(v));
             m.Float("Cinematics", "Samples", "Render: accumulated frames per AA sample (spp)", 1f, 256f, 0, () => _cine.samples, v => _cine.samples = Mathf.Clamp(Mathf.RoundToInt(v), 1, 255));
             m.Float("Cinematics", "AA", "Render: anti-aliasing / motion-blur samples per frame", 1f, 16f, 0, () => _cine.aa, v => _cine.aa = Mathf.Clamp(Mathf.RoundToInt(v), 1, 64));
@@ -136,6 +161,11 @@ namespace UltraRT
             m.Float("Cinematics", "MoveSpeed", "Free camera speed (m/s; mouse wheel)", 0.5f, 40f, 1, () => _cine.moveSpeed, v => _cine.moveSpeed = v);
             m.Float("Cinematics", "LookSpeed", "Free camera mouse sensitivity", 0.1f, 4f, 2, () => _cine.lookSpeed, v => _cine.lookSpeed = v);
             m.Bool("Cinematics", "ProtectPlayer", "Enemies ignore the player while the camera is free", () => _cine.protectPlayer, v => _cine.protectPlayer = v);
+            m.Bool("Cinematics", "TracePlayer", "V1's reflection and shadow stay while the camera is free", () => _cine.tracePlayer, v =>
+            {
+                _cine.tracePlayer = v;
+                if (_cineState != CineState.Off) SceneProxies.TracePlayerModel = v && _cineSavedPlayerModel;
+            });
             m.Action("Cinematic camera on / off  [Home]", () => { if (_cineState == CineState.Off) CineEnter(); else if (_cineState != CineState.Render) CineExit(); });
             m.Action("Cinematic: play the path  [P]", () => CinePlay(0f));
             m.Action("Cinematic: render the path  [End]", CineStartRender);
@@ -179,9 +209,10 @@ namespace UltraRT
             _cineOwnsControl = !bench;
             if (_cineOwnsControl) GameControl.TakeControl(_cineSavedPose);
             if (!_cineHooked) { Application.onBeforeRender += CineBeforeRender; _cineHooked = true; }
-            // V1 stays where the player stood: keep it out of the traced scene (shadow, reflections) while the camera flies.
+            // V1 stays where the player stood: keep it out of the traced scene (shadow, reflections) while the camera flies,
+            // unless the shot wants it there (TracePlayer: a mirror shot with the player standing in front of the mirror).
             _cineSavedPlayerModel = SceneProxies.TracePlayerModel;
-            SceneProxies.TracePlayerModel = false;
+            SceneProxies.TracePlayerModel = _cine.tracePlayer && _cineSavedPlayerModel;
             _cineSavedVm = _vmEnabled;
             _vmEnabled = false;
             CineHideHud(true);
@@ -223,6 +254,11 @@ namespace UltraRT
             catch (Exception e) { Logger.LogWarning($"Cinematic camera: restoring the camera failed: {e.Message}"); }
             if (_cineOwnsControl) { GameControl.ReleaseControl(); _cineOwnsControl = false; }
             SceneProxies.TracePlayerModel = _cineSavedPlayerModel;
+            CineShowPlayer(false);
+            CineShopScreensOff(false);
+            _cinePlayerDriven = false;
+            _cinePlayerLastT = float.MaxValue;
+            _cinePlayerAnimator = null;
             _vmEnabled = _cineSavedVm;
             CineHideHud(false);
             CineProtect(false);
@@ -286,6 +322,29 @@ namespace UltraRT
             catch (Exception e) { Logger.LogWarning($"Cinematic camera: HUD {(hide ? "hide" : "restore")} failed: {e.Message}"); }
         }
 
+        /// <summary>The viewmodel back in view while the camera is free (bench "ShowWeapon", for a camera the player
+        /// rides): the HUD camera draws again and the viewmodel is ray traced as in play; the HUD's own canvases, which
+        /// the HUD camera draws too, are switched off. CineExit puts everything back (CineHideHud(false)).</summary>
+        private void CineShowWeapon()
+        {
+            try
+            {
+                _vmEnabled = _cineSavedVm;
+                if (_cineHudCam == null || _cineSavedHudMask == int.MinValue) { Logger.LogWarning("Cinematic camera: no HUD camera, the weapon stays hidden"); return; }
+                _cineHudCam.cullingMask = _cineSavedHudMask;
+                int n = 0;
+                foreach (var c in FindObjectsOfType<Canvas>())
+                    if (c != null && c.isRootCanvas && c.enabled && (c.worldCamera == _cineHudCam || c.gameObject.layer == 13) && !(c.GetComponentInParent<ShopZone>() != null))
+                    {
+                        c.enabled = false;
+                        _cineCanvases.Add(c);
+                        n++;
+                    }
+                Logger.LogInfo($"Cinematic camera: weapon shown (HUD camera mask 0x{_cineSavedHudMask:X}), {n} HUD canvas(es) hidden");
+            }
+            catch (Exception e) { Logger.LogWarning($"Cinematic camera: show weapon failed: {e.Message}"); }
+        }
+
         /// <summary>Enemies blind and the player invincible, without the cheat menu: only the cheats' static state is swapped,
         /// so nothing is saved and the level is not marked as cheated.</summary>
         private void CineProtect(bool on)
@@ -312,6 +371,87 @@ namespace UltraRT
                 }
             }
             catch (Exception e) { Logger.LogWarning($"Cinematic camera: player protection failed: {e.Message}"); _cineCheatsSet = false; }
+        }
+
+        /// <summary>Third-person shots: the camera sees V1's model. Traced: camera rays include its instance mask (bit 16 of
+        /// _UltraRTPlayerRays, Plugin.cs). The game's own image ("off" takes): the main camera draws layer 30, which is
+        /// otherwise only drawn in portal views.</summary>
+        private void CineShowPlayer(bool show)
+        {
+            _cineShowPlayer = show;
+            var cc = GameControl.Cam;
+            var cam = cc != null ? cc.cam : null;
+            if (cam == null) { _cineShowPlayerMask = false; return; }
+            if (show && (cam.cullingMask & (1 << PlayerModelLayer)) == 0) { cam.cullingMask |= 1 << PlayerModelLayer; _cineShowPlayerMask = true; }
+            else if (!show && _cineShowPlayerMask) { cam.cullingMask &= ~(1 << PlayerModelLayer); _cineShowPlayerMask = false; }
+        }
+
+        /// <summary>Shop terminals stay dark (bench "ShopScreensOff"): ShopZone switches its world-space canvas on when the
+        /// player enters its trigger, and the UI then covers the CRT glass (the reflective part). The triggers are off
+        /// while the camera is on, and the canvases are kept inactive; leaving the camera puts the triggers back, which
+        /// turns a screen on again if the player stands in front of it.</summary>
+        private void CineShopScreensOff(bool off)
+        {
+            if (!off)
+            {
+                foreach (var c in _cineShopTriggers) if (c != null) c.enabled = true;
+                _cineShopTriggers.Clear();
+                _cineShopCanvases.Clear();
+                return;
+            }
+            if (_cineShopTriggers.Count > 0 || _cineShopCanvases.Count > 0) return;
+            foreach (var z in FindObjectsOfType<ShopZone>())
+            {
+                foreach (var c in z.GetComponents<Collider>())
+                    if (c.enabled && c.isTrigger) { c.enabled = false; _cineShopTriggers.Add(c); }
+                var cv = z.GetComponentInChildren<Canvas>(true);
+                if (cv != null) { _cineShopCanvases.Add(cv.gameObject); cv.gameObject.SetActive(false); }
+            }
+            Logger.LogInfo($"Cinematic camera: {_cineShopCanvases.Count} shop screen(s) kept off ({_cineShopTriggers.Count} trigger(s))");
+        }
+
+        /// <summary>A take that moves the player: the pose at path time <paramref name="t"/> of <paramref name="route"/>
+        /// (camera positions: the player's eye) goes to GameControl, which applies it after the LateUpdates.</summary>
+        private void CineDrivePlayer(CineSpline route, float t)
+        {
+            float d = route.Duration, tt = Mathf.Clamp(t, 0f, d);
+            var s = route.Sample(tt);
+            var e = s.Rotation.eulerAngles;
+            GameControl.SetPose(new CamPose(s.Position - _cineEye, e.y, -Mathf.DeltaAngle(0f, e.x)));
+            const float h = 1f / 120f;
+            float a = Mathf.Max(0f, tt - h), b = Mathf.Min(d, tt + h);
+            _cinePlayerVel = b - a > 1e-4f ? (route.Sample(b).Position - route.Sample(a).Position) / (b - a) : Vector3.zero;
+            _cinePlayerDriven = true;
+            // A new take (the path time went back): the walk cycle starts over, so every take of a pair animates alike.
+            if (t < _cinePlayerLastT - 0.25f) _cinePlayerRestart = true;
+            _cinePlayerLastT = t;
+        }
+
+        /// <summary>V1's model walks at the route's speed. PlayerAnimations.LateUpdate sets these parameters from
+        /// NewMovement (velocity / 15 in the player's frame, on the ground or not), which the bench has switched off (a
+        /// kinematic body has no velocity); this runs after it (onBeforeRender), and the Animator reads them next frame.</summary>
+        private void CineAnimatePlayer()
+        {
+            var nm = GameControl.Player;
+            if (nm == null) return;
+            if (_cinePlayerAnimator == null)
+            {
+                var pa = nm.GetComponentInChildren<PlayerAnimations>(true);
+                _cinePlayerAnimator = pa != null ? pa.GetComponent<Animator>() : null;
+                if (_cinePlayerAnimator == null) return;
+            }
+            var v = nm.transform.InverseTransformVector(_cinePlayerVel / 15f);
+            var an = _cinePlayerAnimator;
+            if (_cinePlayerRestart)
+            {
+                _cinePlayerRestart = false;
+                an.Play(an.GetCurrentAnimatorStateInfo(0).fullPathHash, 0, 0f);
+            }
+            an.SetBool("Dodging", false);
+            an.SetBool("InAir", false);
+            an.SetBool("Sliding", false);
+            an.SetFloat("VelX", v.x);
+            an.SetFloat("VelY", v.z);
         }
 
         /// <summary>Game speed through TimeController (as the bench's fast-forward); s &lt; 0 restores what it was.</summary>
@@ -388,6 +528,8 @@ namespace UltraRT
                 _cineProjSet = true;
             }
             else if (_cineProjSet) { cam.ResetProjectionMatrix(); _cineProjSet = false; }
+            if (_cinePlayerDriven) CineAnimatePlayer();
+            foreach (var g in _cineShopCanvases) if (g != null && g.activeSelf) g.SetActive(false);
             if (_cineState == CineState.Play)
             {
                 // Live playback: a jump (Cut segment, a long hop) starts the temporal filters over instead of smearing.
@@ -410,6 +552,10 @@ namespace UltraRT
                     return;
                 }
                 if (!CineInLevel()) { CineExit(); return; }
+                // V1's head, chest and gun arm follow CameraController's transform (PlayerAnimations.LateUpdate), which
+                // still has the free camera's rotation from the last frame: give it the player's own view back before the
+                // LateUpdates run, so V1 looks where the player looks, not where the camera does.
+                if (SceneProxies.TracePlayerModel && GameControl.Cam != null) GameControl.Cam.ApplyRotations();
                 if (CineGamePaused())
                 {
                     if (_cineState == CineState.Render) { _cineCancel = true; if (!_cineBench) Toast("Render cancelled (paused)"); }

@@ -1,0 +1,14 @@
+{
+  "Version": 1,
+  "Name": "trailer-1-1-skull-hall-corner",
+  "Scene": "Level 1-1",
+  "Note": "Trailer: along the torch-lit hallway that leads to the red skull, round its corner (the hallway runs east along z 330, then south at x 78.5) and up to the doorway at z 308 with the pavilion outdoors beyond (approach bench/recordings/1-1-red-skull-hall.json; floor y -5).",
+  "Keys": [
+    {"Player": [58.0, -4.5, 330.0], "Yaw": 90, "Pitch": 2, "Fov": 80, "Duration": 1.5, "Ease": "linear"},
+    {"Player": [66.0, -4.5, 329.8], "Yaw": 92, "Pitch": 2, "Fov": 80, "Duration": 1.4, "Ease": "linear"},
+    {"Player": [73.5, -4.5, 328.6], "Yaw": 118, "Pitch": 1, "Fov": 80, "Duration": 1.05, "Ease": "linear"},
+    {"Player": [77.6, -4.5, 325.0], "Yaw": 165, "Pitch": 0, "Fov": 80, "Duration": 0.95, "Ease": "linear"},
+    {"Player": [78.5, -4.4, 320.0], "Yaw": 180, "Pitch": 0, "Fov": 80, "Duration": 2.0, "Ease": "out"},
+    {"Player": [78.5, -4.3, 314.5], "Yaw": 180, "Pitch": 0, "Fov": 80, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

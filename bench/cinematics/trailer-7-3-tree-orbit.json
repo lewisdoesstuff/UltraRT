@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "trailer-7-3-tree-orbit",
+  "Scene": "Level 7-3",
+  "Note": "Trailer: quarter orbit around the 7-3 tree, low on the left rising to the right (scripts/trailer-paths.py from bench/trailer/paths.json; base = end of bench/recordings/7-3-tree-b.json).",
+  "Keys": [
+    {"Player": [-138.287, -15.3, 477.071], "Yaw": 316.1, "Pitch": 32.77, "Fov": 80, "Duration": 2.2, "Ease": "in"},
+    {"Player": [-135.524, -14.4, 480.318], "Yaw": 290.99, "Pitch": 27.48, "Fov": 80, "Duration": 2.2, "Ease": "linear"},
+    {"Player": [-134.842, -13.2, 484.606], "Yaw": 265.96, "Pitch": 21.72, "Fov": 80, "Duration": 2.2, "Ease": "out"},
+    {"Player": [-136.063, -11.8, 488.73], "Yaw": 241.21, "Pitch": 14.53, "Fov": 80, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

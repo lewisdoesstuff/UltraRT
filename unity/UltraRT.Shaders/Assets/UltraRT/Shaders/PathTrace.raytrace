@@ -304,7 +304,7 @@ void RayGenBody(bool full)
     float3 camDir = ray.Direction;
     RayDesc camRay = ray;
     PortalPath path;
-    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE, inFlags, ray, p, path);
+    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_CAMERA), inFlags, ray, p, path);
 
     float3 c, lighting, albedo, emission;
     if (p.t < 0.0)

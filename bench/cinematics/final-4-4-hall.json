@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Name": "final-4-4-hall",
+  "Scene": "Level 4-4",
+  "Note": "Final trailer: the low arc across the 4-4 boss hall (trailer-4-4-hall), slower.",
+  "Keys": [
+    {"Player": [123.104, 660.89, 272.843], "Yaw": 210.89, "Pitch": 7.37, "Fov": 80, "Duration": 3.15, "Ease": "in"},
+    {"Player": [116.989, 661.29, 275.047], "Yaw": 177.2, "Pitch": 4.97, "Fov": 80, "Duration": 3.15, "Ease": "out"},
+    {"Player": [111.118, 662.39, 272.256], "Yaw": 143.51, "Pitch": -0.53, "Fov": 80, "Duration": 2.52, "Ease": "linear"}
+  ]
+}

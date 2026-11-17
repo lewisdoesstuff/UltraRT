@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "trailer-0-1-metal",
+  "Scene": "Level 0-1",
+  "Note": "Trailer: a hand above the metal floor of 0-1's statue room towards the door (base = end of bench/recordings/0-1-metal.json).",
+  "Keys": [
+    {"Player": [35.08, -0.9, 386.2], "Yaw": 38.5, "Pitch": 2.2, "Fov": 80, "Duration": 1.5, "Ease": "in"},
+    {"Player": [36.948, -1.0, 388.548], "Yaw": 38.5, "Pitch": 3.2, "Fov": 80, "Duration": 1.5, "Ease": "linear"},
+    {"Player": [38.815, -1.0, 390.896], "Yaw": 38.5, "Pitch": 4.2, "Fov": 80, "Duration": 1.5, "Ease": "out"},
+    {"Player": [40.371, -0.7, 392.852], "Yaw": 38.5, "Pitch": 4.2, "Fov": 80, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

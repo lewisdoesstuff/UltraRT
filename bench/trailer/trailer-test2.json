@@ -1,0 +1,49 @@
+{
+  "Name": "trailer-test2",
+  "Note": "Second test cut (docs/trailer.md): every shot is an off / pathtrace pair. Sources: the newest bench\\results\\*_trailer-test2_alt run (scripts\\bench.ps1 -Suite trailer-test2 -Slot alt). Cuts sit on the music's bars: the track (0-1, 160 bpm) has a downbeat at 36.34 s and a bar every 1.5 s, so with Start 34.0 the bars fall at 2.34 + 1.5 n seconds of the trailer; every clip is a whole number of bars long.",
+  "Root": "../results",
+  "Width": 1280, "Height": 720, "Fps": 60, "Crf": 17,
+  "Music": { "File": "trailer/music/0-1.wav", "Start": 34.0, "Volume": 0.9, "FadeIn": 0.4, "FadeOut": 2.2 },
+  "Clips": [
+    { "Type": "title", "Name": "title", "Duration": 2.34, "Text": "ULTRART", "Sub": "PATH TRACING FOR ULTRAKILL", "FadeIn": 0.3, "TextEnd": 0.05 },
+
+    { "Type": "wipe", "Name": "7-3 tree wipe",
+      "Before": "*_trailer-test2*_alt/cine_7-3_tree_off", "After": "*_trailer-test2*_alt/cine_7-3_tree_live", "In": 0.8, "Out": 5.3,
+      "Wipe": { "Keys": [[0, 0], [0.9, 0], [2.2, 0.56], [2.9, 0.56], [3.8, 1]], "Slant": 0.18 },
+      "Caption": { "Text": "Emissive light", "Sub": "Every glowing surface lights the scene", "At": 1.0 },
+      "Tag": "7-3  NO SOUND, NO MEMORY" },
+
+    { "Type": "wipe", "Name": "0-1 metal switch",
+      "Before": "*_trailer-test2*_alt/cine_0-1_metal_off", "After": "*_trailer-test2*_alt/cine_0-1_metal_live", "In": 0.7, "Out": 3.7,
+      "Wipe": { "Keys": [[0, 0], [1.499, 0], [1.5, 1]], "Slant": 0 },
+      "Caption": { "Text": "Shadows", "Sub": "Every lamp casts them", "At": 1.5 },
+      "Tag": "0-1  INTO THE FIRE" },
+
+    { "Type": "wipe", "Name": "P-2 hall split",
+      "Before": "*_trailer-test2*_alt/cine_P-2_hall_off", "After": "*_trailer-test2*_alt/cine_P-2_hall_live", "In": 0.4, "Out": 4.9,
+      "Wipe": { "Keys": [[0, 0], [0.4, 0], [1.2, 0.5], [2.3, 0.3], [3.5, 0.72], [4.4, 1]], "Slant": 0 },
+      "Caption": { "Text": "Global illumination", "Sub": "Two bounces, every frame", "At": 0.8 },
+      "Tag": "P-2  WAIT OF THE WORLD" },
+
+    { "Type": "wipe", "Name": "1-1 skull hall wipe",
+      "Before": "*_trailer-test2*_alt/cine_1-1_skull_hall_off", "After": "*_trailer-test2*_alt/cine_1-1_skull_hall_live", "In": 0.3, "Out": 4.8,
+      "Wipe": { "Keys": [[0, 0], [0.7, 0], [2.0, 0.5], [2.8, 0.5], [3.7, 1]], "Slant": -0.18, "Flip": true },
+      "Caption": { "Text": "Torch light", "Sub": "Fire as a light source, with shadows", "At": 0.8 },
+      "Tag": "1-1  HEART OF THE SUNRISE" },
+
+    { "Type": "wipe", "Name": "1-4 mirror switch",
+      "Before": "*_trailer-test2*_alt/cine_1-4_mirror_off", "After": "*_trailer-test2*_alt/cine_1-4_mirror_live", "In": 1.2, "Out": 4.2,
+      "Wipe": { "Keys": [[0, 0], [1.499, 0], [1.5, 1]], "Slant": 0 },
+      "Caption": { "Text": "Mirrors", "Sub": "V1 in the reflection", "At": 1.5 },
+      "Tag": "1-4  CLAIR DE LUNE" },
+
+    { "Type": "wipe", "Name": "4-4 hall sweep",
+      "Before": "*_trailer-test2*_alt/cine_4-4_hall_off", "After": "*_trailer-test2*_alt/cine_4-4_hall_live", "In": 0.3, "Out": 4.8,
+      "Wipe": { "Keys": [[0, 0], [0.75, 0], [1.1, 1]], "Slant": 0.35 },
+      "Caption": { "Text": "Bounce light", "Sub": "Light carries colour across the room", "At": 1.1 },
+      "Tag": "4-4  CLAIR DE SOLEIL" },
+
+    { "Type": "title", "Name": "end card", "Duration": 2.6, "Text": "ULTRART", "Size": 0.11, "Sub": "WORK IN PROGRESS", "TextAt": 0.05, "TextFade": 0.4,
+      "Small": "Test cut 2.  Real-time capture: path tracing + DLSS Ray Reconstruction.  Music: ULTRAKILL OST" }
+  ]
+}

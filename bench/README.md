@@ -87,7 +87,8 @@ A scenario with a `"Cinematic"` block plays and/or renders a saved camera path i
 "Bench: cinematic scenarios"). The level is loaded as for a pose (`Path.Approach` / `Areas` / `Load`); then `"Play": true`
 plays the path in real time in the scenario's first RT mode (frame times, a screenshot halfway) and `"Render": true`
 (the default) renders it offline into `<results>\cine_<scenario>\` (PNG frames, `render.json`, `encode.cmd`, and an MP4
-when ffmpeg is found). Every `[Cinematics]` setting can be overridden per scenario: `Mode`, `Fps`, `Samples`, `Aa`,
+when ffmpeg is found). Every `[Cinematics]` setting can be overridden per scenario: `Mode` (`pathtrace`, `relight`,
+`current`, `off` = the game's image, `live` = the scenario's first RT mode as played), `Fps`, `Samples`, `Aa`,
 `Paths`, `Bounces`, `CacheTail`, `OutputScale`, `MotionBlur`, `Shutter`, `Exposure`, `TimeScale`, `Png16`, `Encode`,
 `Crf`, plus `Start` / `Seconds` (part of the path) and `Preroll`. The summary gets a "Cinematics" table. Offline renders
 take seconds per frame: give long ones `-TimeoutSec`. Suites: `cine-test.json` (smoke test, ~1 min), `cine-test2.json`,

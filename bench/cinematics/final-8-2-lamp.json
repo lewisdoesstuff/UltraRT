@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-8-2-lamp",
+  "Scene": "Level 8-2",
+  "Note": "Final trailer: a slow push towards the standing lamp in 8-2's apartment corridor, its shade throwing the light up and down the wall (base = end of bench/recordings/8-2-lamp-flicker.json).",
+  "Keys": [
+    {"Player": [4.508, 1.5, 488.484], "Yaw": 76.7, "Pitch": 0, "Fov": 80, "Duration": 4.8, "Ease": "smooth"},
+    {"Player": [6.652, 1.6, 488.277], "Yaw": 70.7, "Pitch": -2, "Fov": 80, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

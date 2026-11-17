@@ -1,0 +1,166 @@
+{
+  "Name": "trailer-test2",
+  "Note": "Second test cut (docs/trailer.md): every shot is a before / after pair, an 'off' and a 'live' pathtrace take of one path in one scenario with a frozen world (TimeScale 0, Cinematic.Modes), 720p60 from a 1440p window, frames only (scripts/trailer.py encodes). 1-4 keeps V1 in the traced scene for the mirror (TracePlayer). About 5 minutes of game time; assemble with scripts/trailer.py bench/trailer/trailer-test2.json.",
+  "Scenarios": [
+    {
+      "Name": "7-3 tree",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/7-3-tree-b.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/trailer-7-3-tree-orbit.json",
+        "Modes": [
+          "off",
+          "live"
+        ],
+        "Fps": 60,
+        "OutputScale": 0.5,
+        "TimeScale": 0,
+        "Aa": 1,
+        "Preroll": 30,
+        "Encode": false
+      }
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/trailer-0-1-metal.json",
+        "Modes": [
+          "off",
+          "live"
+        ],
+        "Fps": 60,
+        "OutputScale": 0.5,
+        "TimeScale": 0,
+        "Aa": 1,
+        "Preroll": 30,
+        "Encode": false
+      }
+    },
+    {
+      "Name": "P-2 hall",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/trailer-p-2-hall-reveal.json",
+        "Modes": [
+          "off",
+          "live"
+        ],
+        "Fps": 60,
+        "OutputScale": 0.5,
+        "TimeScale": 0,
+        "Aa": 1,
+        "Preroll": 30,
+        "Encode": false
+      }
+    },
+    {
+      "Name": "1-1 skull hall",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-red-skull-hall.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/trailer-1-1-skull-hall.json",
+        "Modes": [
+          "off",
+          "live"
+        ],
+        "Fps": 60,
+        "OutputScale": 0.5,
+        "TimeScale": 0,
+        "Aa": 1,
+        "Preroll": 30,
+        "Encode": false
+      }
+    },
+    {
+      "Name": "1-4 mirror",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          14.5,
+          2,
+          502.5
+        ],
+        "Yaw": 270,
+        "Pitch": 0,
+        "Duration": 1,
+        "Load": "none"
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/trailer-1-4-mirror.json",
+        "Modes": [
+          "off",
+          "live"
+        ],
+        "Fps": 60,
+        "OutputScale": 0.5,
+        "TimeScale": 0,
+        "Aa": 1,
+        "Preroll": 30,
+        "Encode": false,
+        "TracePlayer": true
+      }
+    },
+    {
+      "Name": "4-4 hall",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/4-4-v2-chair.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/trailer-4-4-hall.json",
+        "Modes": [
+          "off",
+          "live"
+        ],
+        "Fps": 60,
+        "OutputScale": 0.5,
+        "TimeScale": 0,
+        "Aa": 1,
+        "Preroll": 30,
+        "Encode": false
+      }
+    }
+  ]
+}

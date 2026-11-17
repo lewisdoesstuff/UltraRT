@@ -1,0 +1,12 @@
+{
+  "Version": 1,
+  "Name": "trailer-1-1-terminal-walk",
+  "Scene": "Level 1-1",
+  "Note": "Trailer, player route (Cinematic.Player): V1 walks from the first room's hatch up to the shop terminal and stops a little right of its centre, facing the screen (base = 6.5 m in front of the screen, facing it; screen centre about (6.78, 0.9, 266.5)).",
+  "Keys": [
+    {"Player": [4.5, -0.5, 254.5], "Yaw": 16, "Pitch": 0, "Fov": 0, "Duration": 1.3, "Ease": "in"},
+    {"Player": [6.0, -0.5, 259.5], "Yaw": 16, "Pitch": 0, "Fov": 0, "Duration": 1.3, "Ease": "out"},
+    {"Player": [7.3, -0.5, 264.3], "Yaw": -10, "Pitch": 0, "Fov": 0, "Duration": 2.2, "Ease": "linear"},
+    {"Player": [7.32, -0.5, 264.45], "Yaw": -12, "Pitch": 0, "Fov": 0, "Duration": 2.0, "Ease": "linear"}
+  ]
+}
