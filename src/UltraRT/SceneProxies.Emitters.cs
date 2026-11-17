@@ -23,6 +23,8 @@ namespace UltraRT
             public int SubMesh;
             /// <summary>Vertices are in this transform's local space; null = world space.</summary>
             public Transform Space;
+            /// <summary>The game object the submesh was made from (emitter rules with "path"); null for static batches.</summary>
+            public Transform Source;
             /// <summary>Identity of the instance (combined mesh or dynamic proxy). Submeshes with the same owner share Space.</summary>
             public object Owner;
             public bool Static, TwoSided, SkyWall;
@@ -92,6 +94,7 @@ namespace UltraRT
                         Mesh = mesh,
                         SubMesh = i,
                         Space = mr.transform,
+                        Source = d.SourceTransform,
                         Owner = d,
                         Static = false,
                         TwoSided = IsTwoSided(mats[i]),

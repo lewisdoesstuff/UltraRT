@@ -106,6 +106,38 @@ namespace UltraRT
                 // The rooms a checkpoint switches on run their Start()s next frame (and clone themselves there).
                 float until = Time.realtimeSinceStartup + 0.5f + Mathf.Max(0f, spec.Settle);
                 while (Time.realtimeSinceStartup < until) { GameControl.SetPose(pose); GameControl.HideCheatPanels(); yield return null; }
+                if (TourInVoid(pose.Position))
+                {
+                    // A stop with no level under it (0-1's "First Room" is the top of the intro's fall: the views were
+                    // of the void, the user 2026-11-17). Hand the player back to the game and let it fall to where the
+                    // level puts it, then stop there: a fresh load without the teleport, so the level's own opening runs.
+                    Logger.LogInfo($"Benchmark: tour stop {index}: no ground under '{name}': reloading and letting the game place the player");
+                    GameControl.ReleaseControl();
+                    yield return LoadLevel(sc);
+                    _level = new LevelState { Key = key, Spawn = GameControl.CurrentPose() };
+                    ApplyBenchMode("off");
+                    float give = Time.realtimeSinceStartup + 40f, grounded = -1f;
+                    while (Time.realtimeSinceStartup < give)
+                    {
+                        GameControl.HideCheatPanels();
+                        bool on = TourGroundBelow(GameControl.CurrentPose().Position, 3f);
+                        if (!on) grounded = -1f;
+                        else if (grounded < 0f) grounded = Time.realtimeSinceStartup;
+                        else if (Time.realtimeSinceStartup - grounded > 1f) break;
+                        yield return null;
+                    }
+                    pose = GameControl.CurrentPose();
+                    pose.Pitch = 0f;
+                    if (grounded < 0f || TourInVoid(pose.Position))
+                    {
+                        Logger.LogWarning($"Benchmark: tour stop {index} '{name}' has no level around it (still no ground after 40 s); skipped");
+                        continue;
+                    }
+                    Logger.LogInfo($"Benchmark: tour stop {index}: landed at ({pose.Position.x:F1}, {pose.Position.y:F1}, {pose.Position.z:F1})");
+                    GameControl.TakeControl(pose);
+                    until = Time.realtimeSinceStartup + 1.5f;
+                    while (Time.realtimeSinceStartup < until) { GameControl.SetPose(pose); GameControl.HideCheatPanels(); yield return null; }
+                }
                 if (spec.Step > 0f)
                 {
                     // Walk, not jump: a trigger the step crosses must see the player inside it on a physics step.
@@ -179,6 +211,25 @@ namespace UltraRT
         }
 
         /// <summary>The screen as it is now (call after WaitForEndOfFrame), optionally scaled down, as PNG.</summary>
+        private static readonly RaycastHit[] TourHits = new RaycastHit[32];
+
+        /// <summary>A collider that is not the player's within <paramref name="dist"/> below the player (any layer:
+        /// floors are not all on the environment layers).</summary>
+        private static bool TourGroundBelow(Vector3 p, float dist)
+        {
+            var player = GameControl.PlayerTransform;
+            int n = Physics.RaycastNonAlloc(p + Vector3.up * 0.5f, Vector3.down, TourHits, dist + 0.5f, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < n; i++)
+            {
+                var t = TourHits[i].collider != null ? TourHits[i].collider.transform : null;
+                if (t != null && (player == null || !t.IsChildOf(player))) return true;
+            }
+            return false;
+        }
+
+        /// <summary>No collider within 60 m below the player: the stop is in the void.</summary>
+        private static bool TourInVoid(Vector3 p) => !TourGroundBelow(p, 60f);
+
         private static void SaveScreen(string path, float scale)
         {
             var shot = ScreenCapture.CaptureScreenshotAsTexture();

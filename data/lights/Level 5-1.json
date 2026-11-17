@@ -3,7 +3,7 @@
   "scene": "Level 5-1",
   "lights": [],
   "added": [],
-  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.5, fixtures, accents, glows, effect and item lights x1 (reach only). Why: fixtures x2.0 at the First Encounter, tunnel accents x1.7.",
+  "note": "Shipped 2026-11-17 (user: 'they look great! big fan of all of those') (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.5, fixtures, accents, glows, effect and item lights x1 (reach only). Why: fixtures x2.0 at the First Encounter, tunnel accents x1.7.",
   "classes": {
     "fill": {
       "reach": 0,

@@ -3,7 +3,7 @@
   "scene": "Level 5-3",
   "lights": [],
   "added": [],
-  "note": "Proposal 2026-11-17 (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x0.7. Why: lamps, torches and glows x1.9-2.6 in four rooms.",
+  "note": "Shipped 2026-11-17 (user: 'they look great! big fan of all of those') (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x0.7. Why: lamps, torches and glows x1.9-2.6 in four rooms.",
   "classes": {
     "fill": {
       "reach": 0,

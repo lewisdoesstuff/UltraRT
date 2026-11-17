@@ -458,6 +458,7 @@ namespace UltraRT
                     Mesh = mesh,
                     SubMesh = i,
                     Space = mr.transform,
+                    Source = d.SourceTransform,
                     Owner = d,
                     Static = false,
                     TwoSided = IsTwoSided(mats[i]),

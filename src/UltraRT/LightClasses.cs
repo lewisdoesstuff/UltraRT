@@ -163,6 +163,10 @@ namespace UltraRT
         [JsonProperty("material", NullValueHandling = NullValueHandling.Ignore)] public string Material;
         /// <summary>Regex on the name of its emission texture (the albedo, for albedo-as-emission materials).</summary>
         [JsonProperty("texture", NullValueHandling = NullValueHandling.Ignore)] public string Texture;
+        /// <summary>Regex on the hierarchy path of the object the surface belongs to: the rule's "scale" is for those
+        /// objects only (two fixtures that share a material). Objects baked into a static batch have no path and never
+        /// match. A rule with a path gives no "glow": the mask is the material's.</summary>
+        [JsonProperty("path", NullValueHandling = NullValueHandling.Ignore)] public string Path;
         [JsonProperty("scale")] public float Scale = 1f;
         /// <summary>Emitter mask: above 0, a surface the game does not mark as emissive glows with its albedo times
         /// this (SceneProxies.Glow.cs). For such a rule "texture" is the main texture's name.</summary>
@@ -172,7 +176,7 @@ namespace UltraRT
         [JsonProperty("threshold", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Threshold;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
 
-        [JsonIgnore] private Regex _scene, _material, _texture;
+        [JsonIgnore] private Regex _scene, _material, _texture, _path;
         [JsonIgnore] private bool _compiled;
 
         private void Compile()
@@ -180,14 +184,16 @@ namespace UltraRT
             if (_compiled) return;
             _compiled = true;
             Regex Rx(string s) => string.IsNullOrEmpty(s) ? null : new Regex(s, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-            _scene = Rx(Scene); _material = Rx(Material); _texture = Rx(Texture);
+            _scene = Rx(Scene); _material = Rx(Material); _texture = Rx(Texture); _path = Rx(Path);
         }
 
         public bool SceneMatches(string scene) { Compile(); return _scene == null || _scene.IsMatch(scene ?? ""); }
 
-        public bool Matches(string material, string texture)
+        /// <summary><paramref name="path"/> null: the material's rules only (those without a path).</summary>
+        public bool Matches(string material, string texture, string path)
         {
             Compile();
+            if (_path != null && (string.IsNullOrEmpty(path) || !_path.IsMatch(path))) return false;
             return (_material == null || _material.IsMatch(material ?? "")) && (_texture == null || _texture.IsMatch(texture ?? ""));
         }
     }
@@ -225,11 +231,11 @@ namespace UltraRT
         public string EmitterKey { get; private set; } = "";
 
         /// <summary>The scale on the light a surface gives (first matching emitter rule), 1 without one.</summary>
-        public float EmitterScale(string material, string texture, out string rule)
+        public float EmitterScale(string material, string texture, string path, out string rule)
         {
             foreach (var r in _emitters)
             {
-                try { if (r.Matches(material, texture)) { rule = r.Name ?? "(unnamed)"; return Mathf.Max(0f, r.Scale); } }
+                try { if (r.Matches(material, texture, path)) { rule = r.Name ?? "(unnamed)"; return Mathf.Max(0f, r.Scale); } }
                 catch (ArgumentException e) { _log.LogError($"Emitter rule '{r.Name}': bad pattern: {e.Message}"); }
             }
             rule = null;
@@ -241,7 +247,7 @@ namespace UltraRT
         {
             foreach (var r in _emitters)
             {
-                try { if (r.Matches(material, texture)) return new Vector2(Mathf.Max(0f, r.Glow), Mathf.Clamp01(r.Threshold)); }
+                try { if (r.Matches(material, texture, null)) return new Vector2(Mathf.Max(0f, r.Glow), Mathf.Clamp01(r.Threshold)); }
                 catch (ArgumentException e) { _log.LogError($"Emitter rule '{r.Name}': bad pattern: {e.Message}"); }
             }
             return Vector2.zero;
@@ -321,7 +327,7 @@ namespace UltraRT
                 _emitters.AddRange(_globalEmitters.Where(r => r.SceneMatches(scene)));
             }
             catch (ArgumentException e) { _log.LogError($"Emitter rules: bad pattern: {e.Message}"); }
-            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Scale.ToString(CultureInfo.InvariantCulture)}" + (r.Glow > 0f ? $"|g{r.Glow.ToString(CultureInfo.InvariantCulture)}t{r.Threshold.ToString(CultureInfo.InvariantCulture)}" : "")));
+            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Path}|{r.Scale.ToString(CultureInfo.InvariantCulture)}" + (r.Glow > 0f ? $"|g{r.Glow.ToString(CultureInfo.InvariantCulture)}t{r.Threshold.ToString(CultureInfo.InvariantCulture)}" : "")));
         }
 
         /// <summary>The first matching rule, or null.</summary>

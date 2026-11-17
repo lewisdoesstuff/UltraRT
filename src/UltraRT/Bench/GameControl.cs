@@ -24,6 +24,8 @@ namespace UltraRT.Bench
         public static NewMovement Player => MonoSingleton<NewMovement>.Instance;
         public static CameraController Cam => MonoSingleton<CameraController>.Instance;
 
+        public static Transform PlayerTransform { get { var nm = Player; return nm != null ? nm.transform : null; } }
+
         public static CamPose CurrentPose()
         {
             var nm = Player;
