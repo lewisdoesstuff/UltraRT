@@ -83,8 +83,9 @@ renderer by normalised path: the light is on only while that renderer is drawn (
 **Level exposure** (`"exposure": { "rtBrightness": F, "note": ".." }`, 2026-11-17): the level's own RT brightness
 (docs/relight.md, "Follow the game"). The level is shown at least that bright, whatever the user's "RT brightness"
 setting is; the user's file wins over the shipped one, and switching overrides off switches it off too. It is for a
-level whose look was approved under the exposure policy before 2026-11-17: `Level P-2.json` has 1 and no light entries
-(the user likes P-2's street as it is). Bench variant `ae.levelOverride=0` shows the level without it. The editor
+level whose look was approved under the exposure policy before 2026-11-17. No shipped file has one now: `Level
+P-2.json` had 1 and no light entries until the user dropped the exception the same day ("may as well drop the P-2
+exception too"), and the file went with it. Bench variant `ae.levelOverride=0` shows the level without it. The editor
 keeps a user file's block when it saves; the fit's output file does not carry one.
 
 ## Classes and rules (2026-11-17)

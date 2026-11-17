@@ -524,7 +524,7 @@ The user agreed with every recommendation; where the answer adds something it is
 | 12 | P-2 street | **Leave it as it looks now.** It may depend on which lights are active: if a light change alters it, flag it with a before / after instead of pulling it toward the game's red |
 | 13 | Agents | **One agent does all of it, sequentially**, no time limit; research subagents (Sonnet 5.5, low) are fine. The lead runs merge-regress and merges each branch when it is reported ready |
 | 14 | Start room (first light proposal, 2026-11-17) | Its floating lights at half strength are "about right". Some lights are fine where they are needed, but **emissive surfaces should carry a room where possible** |
-| 15 | First light sheets (2026-11-17) | 1-4, 3-1, 6-2, 0-1 and the shared start / final room "look great": on by default. The same approach for the remaining levels, their sheets reviewed in a batch. P-2's exposure exception stays for now (the user likes the street); normal smoothing: "looks reasonably good too", on by default (smooth 1), the setting stays |
+| 15 | First light sheets (2026-11-17) | 1-4, 3-1, 6-2, 0-1 and the shared start / final room "look great": on by default. The same approach for the remaining levels, their sheets reviewed in a batch. P-2's exposure exception: dropped ("may as well drop the p2 exception too"), P-2 follows the general policy; normal smoothing: "looks reasonably good too", on by default (smooth 1), the setting stays |
 
 ## 9. Effort
 
@@ -560,7 +560,7 @@ question, and what happens on yes.
 | ~~R3~~ **approved and shipped 2026-11-17** | 2026-11-17 | `review-3-1.png` | 3-1: room lights x0.5, the Bridge Arena's x0.35 | ship `proposed/Level 3-1.json` | `lc.layer=proposed` |
 | ~~R4~~ **approved and shipped 2026-11-17** | 2026-11-17 | `review-6-2.png` | 6-2: room lights x0.4. (Known: an orange patch by the Organ Hall terminal.) | ship `proposed/Level 6-2.json` | `lc.layer=proposed` |
 | ~~R5~~ **approved and shipped 2026-11-17** | 2026-11-17 | `review-0-1.png` | 0-1: room lights x0.9 with their reach capped | ship `proposed/Level 0-1.json` | `lc.layer=proposed` |
-| R6 | 2026-11-17 | `board-20261117.md` | P-2: keep its brighter exposure exception (x1.57 at shipped settings), or bring the street down? | no change / remove the exception | |
+| ~~R6~~ **answered 2026-11-17: exception dropped** | 2026-11-17 | `board-20261117.md` | P-2: keep its brighter exposure exception (x1.57 at shipped settings), or bring the street down? | no change / remove the exception | |
 | ~~R7~~ **approved 2026-11-17: smooth 1 is the default** | 2026-11-17 | `materials-smooth-1-1-wall.png` | Detail normals smoothed over neighbouring texels ("smooth 1"), or normals off on walls like this (top row, third cell)? | `[Materials] NormalSmoothing` default 1 | `-ultrart-materials-smooth 1` |
 
 Not a question, for information: `3-1-stairs-lit.png` (the Stairways' haze is far weaker than the game's; work for
