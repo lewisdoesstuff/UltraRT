@@ -35,7 +35,7 @@ Updated as branches land. "ready" = reported to the lead for merge-regress and m
 |---|---|---|
 | A1 scoreboard (`tools/lights/score.py`: mean, dark-region delta, revealed share, sheets) | `t3/bright-metrics` | ready 2026-11-17 (docs/lighting-overrides.md, "Scoreboard") |
 | A2 pose coverage: tour of the game's Teleport Menu entries (`Path.Type` "tour"), tour suites for 43 levels | `t3/bright-metrics` | ready 2026-11-17; run on 1-4, 6-2, 3-1 so far (bench/README.md, "Tour") |
-| A2 per-light attribution report | `t3/light-classes` | planned (moved: it shares the class toggles) |
+| A2 per-light attribution report | `t3/light-classes` | ready 2026-11-17 as class and light switches scored per mode (docs/lighting-overrides.md, "Review") |
 | A3 exposure policy and the "RT brightness" setting | `t3/bright-metrics` | ready 2026-11-17: pathtrace median x1.53 -> x1.14 of the game over nine poses; P-2 kept as it was by a level setting, for the user to confirm (docs/relight.md, "Follow the game") |
 | 5.1 profiling pass (frame slot, render-thread and main-thread ms per pass, ETW traces, hitch attribution, `-Floor`); E3 default mode pathtrace | `t3/perf-profile` | ready 2026-11-17 (docs/performance.md, "Profiling") |
 | 5.1 step 5 ray counters; E1 pass scheduler | `t3/perf-dispatch` | planned (P1 was judged on dispatch ms with `footprint` 0 / `bounces=1` as its bounds, so the counters wait for R2) |
