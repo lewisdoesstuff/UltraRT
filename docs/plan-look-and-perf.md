@@ -40,7 +40,7 @@ Updated as branches land. "ready" = reported to the lead for merge-regress and m
 | 5.1 profiling pass (frame slot, render-thread and main-thread ms per pass, ETW traces, hitch attribution, `-Floor`); E3 default mode pathtrace | `t3/perf-profile` | ready 2026-11-17 (docs/performance.md, "Profiling") |
 | 5.1 step 5 ray counters; E1 pass scheduler | `t3/perf-dispatch` | planned (P1 was judged on dispatch ms with `footprint` 0 / `bounces=1` as its bounds, so the counters wait for R2) |
 | P1, P2 footprint-terminated paths; R1 ray generation per mode | `t3/perf-paths` | ready 2026-11-17: P1 + P2 in (one rule, default 1 cell: 0-1 metal 145 -> 176 fps; docs/path-tracing.md, "Footprint"); R1 measured at 0.02-0.04 ms and dropped (docs/performance.md, "Tried: a ray generation per mode") |
-| A4 light classes, flags, prefab layer, class and light toggles, rule diffs | `t3/light-classes` | planned |
+| A4 light classes, flags, prefab layer, class and light toggles, rule diffs | `t3/light-classes` | ready 2026-11-17: a class for every light from rules (`data/lights/_rules.json`), policies per class and level, `reach` / air-only / air strength per light, class switches in the editor and as bench variants, proposal layer, census and rule diff, offline census of all levels. No policy ships yet; the start room's (lights x0.5) is proposed with its sheet. Moved to `t3/light-levels`: the fit v2, per-surface emission scale (emissive first), policies per level (docs/lighting-overrides.md, "Classes and rules", "Review") |
 | B1 in-engine matrix, B2 generator bake-off | offline + `t3/materials-v2` | planned |
 | C1-C5, R2, R3 dispatch and CPU floor | `t3/perf-dispatch` | planned |
 | A6 level roll-out (per-level files and review sheets) | `t3/light-levels` | planned |

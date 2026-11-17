@@ -155,6 +155,7 @@ namespace UltraRT
                 sr.Tour.Add(stop);
             }
             sr.LoadDetail = $"{sr.Tour.Count} stops, {sr.Tour.Sum(s => s.Views.Count)} views";
+            WriteLightCensus(outDir); // -ultrart-light-census (Plugin.LightClasses.cs)
             sr.Lights = _lightCount;
             sr.Instances = (int)(_proxies?.Rtas?.GetInstanceCount() ?? 0);
         }

@@ -1083,6 +1083,7 @@ namespace UltraRT
                 st.WindowsUtc = windows[m];
                 sr.Modes[m] = st;
             }
+            WriteLightCensus(outDir); // -ultrart-light-census (Plugin.LightClasses.cs)
             try { File.WriteAllText(Path.Combine(outDir, $"frames_{Sanitize(sc.Name)}.csv"), csv.ToString()); }
             catch (Exception e) { Logger.LogWarning($"Benchmark: frame log not written: {e.Message}"); }
             sr.Instances = (int)(_proxies?.Rtas?.GetInstanceCount() ?? 0);

@@ -255,6 +255,7 @@ namespace UltraRT
                     case "-ultrart-nolightoverrides": _lightOverrides = false; break; // per-level light overrides (docs/lighting-overrides.md)
                     case "-ultrart-classify-lights": _classifyLights = true; break;  // the light classifier, once per level (Plugin.LightClassifier.cs)
                     case "-ultrart-lights-preview": _lightsPreview = true; break;    // overrides from the classifier's output folder
+                    case "-ultrart-light-census": _lightCensus = true; break;        // bench: lights_<scene>.json per level (Plugin.LightClasses.cs)
                     case "-ultrart-logfixtures": _logFixtures = true; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-noportals": _portals = false; break;
@@ -563,6 +564,7 @@ namespace UltraRT
                 if (_proxies != null) foreach (var line in _proxies.DescribeSkinnedNear(_camera.transform.position, 30f)) Logger.LogInfo($"skinned near camera: {line}");
             }
             _lightCount = 0;
+            for (int i = 0; i < _lightMedium.Length; i++) _lightMedium[i] = 1f;
             BeginLightOverrides(); // per-level light overrides (Plugin.LightOverrides.cs; relight look only)
             _proxies.UpdateOrbHolders(); // statue orbs: their lights pass through the statue holding them (SceneProxies.Orbs.cs)
             // The main sun: the brightest directional light from above the horizon (LowSideLight below).
@@ -574,79 +576,102 @@ namespace UltraRT
                 float lum = (0.2126f * l.color.r + 0.7152f * l.color.g + 0.0722f * l.color.b) * l.intensity;
                 if (lum > mainSunLum) { mainSunLum = lum; mainSun = l; }
             }
+            _mediumOnly.Clear();
             foreach (var l in _activeLights)
             {
                 if (_lightCount >= MaxLights) break;
                 if (l == null || !l.isActiveAndEnabled || l.intensity <= 0f) continue;
-                var ov = LightOverrideFor(l);
-                if ((ov != null && ov.Disabled == true) || SoloHides(l) || ReferenceEquals(l, _fitSkip)) continue;
-                var t = l.transform;
-                var fwd = t.forward;
-                var c = l.color * l.intensity;
-                var pos = t.position;
-                float shadowRadius = 0f; // 0: the global _LightRadius
-                if (ov != null && ov.OwnsGeometry) pos += LightOverrides.Vec(ov.Offset, Vector3.zero); // the entry places it: no lift
-                else if (_fixtureLifts.TryGetValue(l, out var lift))
-                {
-                    pos.y += lift.y;
-                    shadowRadius = lift.w;
-                }
-                else if (_fixtureLift && _proxies.StaticEnclosed.Contains(l)) shadowRadius = EnclosedLightRadius; // lamp shades (SceneProxies.StaticEnclosed)
-                Vector4 l0, l3;
-                switch (l.type)
-                {
-                    case LightType.Point:
-                        l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
-                        // A point light at the eye (the game's player light) shadows nothing the camera sees: evaluate it
-                        // with no ray, outside ReSTIR's competition (Plugin.Noise.cs, EyeLight).
-                        l3 = new Vector4(-1f, 1f, EyeLight(pos) ? 0.75f : 0f, 0);
-                        break;
-                    case LightType.Spot:
-                    {
-                        l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
-                        float a = l.spotAngle * Mathf.Deg2Rad;
-                        float cosHalf = Mathf.Cos(a * 0.5f), cosQuarter = Mathf.Cos(a * 0.25f);
-                        l3 = new Vector4(cosHalf, 1f / Mathf.Max(cosQuarter - cosHalf, 1e-4f), 0, 0);
-                        break;
-                    }
-                    case LightType.Directional:
-                        l0 = new Vector4(-fwd.x, -fwd.y, -fwd.z, 0f);
-                        // Directional lights arriving from below the horizon are fill lights faking ground bounce (the game
-                        // has no shadows). Shadowing them against the floor would remove them, so leave them unshadowed.
-                        // _sunsUnshadowed (diagnostics): every directional light unshadowed (0.75: not a fill, so relight's
-                        // fill cut leaves it).
-                        // Low side lights (LowSideLight) are unshadowed but kept (0.75) as well.
-                        l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : _sunsUnshadowed || LowSideLight(l, mainSun) ? 0.75f : 0f, 0);
-                        break;
-                    default:
-                        continue;
-                }
-                int i = _lightCount * 4;
-                _lightData[i] = l0;
-                _lightData[i + 1] = new Vector4(c.r, c.g, c.b, 0);
-                _lightMasks[_lightCount] = unchecked((uint)l.cullingMask) | BakedLightMask(l); // Plugin.Noise.cs
-                _packedLights[_lightCount] = l;
-                _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, shadowRadius);
-                _lightData[i + 3] = l3;
-                // An orb's light: shadowed, but its rays skip fixtures (the statue holding it; SceneProxies.Orbs.cs).
-                if (l3.z == 0f && SceneProxies.OrbHolders && _proxies.OrbLights.Contains(l)) _lightData[i + 3].z = OrbLightShadowFlag;
-                if (ov != null) ApplyLightOverride(ov, l, _lightCount);
-                // The statue orbs' lights, a touch weaker than the game's (user, 2026-11-15): the orb sits right at the stone
-                // and lights it physically, brighter than the game's thin vertex lighting (docs/scene-proxies.md, "Statue orbs").
-                if (_orbLightScale != 1f && SceneProxies.OrbHolders && _proxies.OrbFixtureLights.Contains(l))
-                {
-                    var oc = _lightData[i + 1];
-                    _lightData[i + 1] = new Vector4(oc.x * _orbLightScale, oc.y * _orbLightScale, oc.z * _orbLightScale, oc.w);
-                }
-                _lightPlaced[_lightCount] = ov != null && ov.OwnsGeometry;
-                _lightCount++;
+                var rl = ResolveLight(l); // class, policy and the light's own entry (Plugin.LightClasses.cs)
+                if ((rl != null && (rl.Disabled || rl.Intensity * rl.Toggle <= 0f)) || SoloHides(l) || ReferenceEquals(l, _fitSkip)) continue;
+                // A light that lights the air only goes after every light surfaces see (_surfLightCount).
+                if (rl != null && !rl.Surfaces) { if (rl.Medium > 0f) _mediumOnly.Add(l); continue; }
+                PackSceneLight(l, rl, mainSun);
             }
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
             AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
+            // Lights [0, _surfLightCount) light surfaces (every surface pass binds that count); the ones after it only
+            // the air (the volumetric pass takes _lightCount). docs/lighting-overrides.md, "Classes and rules".
+            _surfLightCount = _lightCount;
+            foreach (var l in _mediumOnly)
+            {
+                if (_lightCount >= MaxLights) break;
+                PackSceneLight(l, ResolveLight(l), mainSun);
+            }
             FlagPlayerLights();   // Plugin.PlayerLights.cs: V1 never shadows the player's own lights (flashlight, held torch)
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
+        }
+
+        private int _surfLightCount;
+        private readonly List<Light> _mediumOnly = new List<Light>();
+        /// <summary>Per packed light: what it scatters in the air, as a factor (LightPolicy.Medium).</summary>
+        private readonly float[] _lightMedium = new float[MaxLights];
+
+        /// <summary>Packs one scene light at _lightCount (layout: PathTrace.raytrace, _Lights).</summary>
+        private void PackSceneLight(Light l, LightResolved rl, Light mainSun)
+        {
+            var ov = rl?.Entry; // an entry that places the light (offset or area shape)
+            var t = l.transform;
+            var fwd = t.forward;
+            var c = l.color * l.intensity;
+            var pos = t.position;
+            float shadowRadius = 0f; // 0: the global _LightRadius
+            if (ov != null) pos += LightOverrides.Vec(ov.Offset, Vector3.zero); // the entry places it: no lift
+            else if (_fixtureLifts.TryGetValue(l, out var lift))
+            {
+                pos.y += lift.y;
+                shadowRadius = lift.w;
+            }
+            else if (_fixtureLift && _proxies.StaticEnclosed.Contains(l)) shadowRadius = EnclosedLightRadius; // lamp shades (SceneProxies.StaticEnclosed)
+            Vector4 l0, l3;
+            switch (l.type)
+            {
+                case LightType.Point:
+                    l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
+                    // A point light at the eye (the game's player light) shadows nothing the camera sees: evaluate it
+                    // with no ray, outside ReSTIR's competition (Plugin.Noise.cs, EyeLight).
+                    l3 = new Vector4(-1f, 1f, EyeLight(pos) ? 0.75f : 0f, 0);
+                    break;
+                case LightType.Spot:
+                {
+                    l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
+                    float a = l.spotAngle * Mathf.Deg2Rad;
+                    float cosHalf = Mathf.Cos(a * 0.5f), cosQuarter = Mathf.Cos(a * 0.25f);
+                    l3 = new Vector4(cosHalf, 1f / Mathf.Max(cosQuarter - cosHalf, 1e-4f), 0, 0);
+                    break;
+                }
+                case LightType.Directional:
+                    l0 = new Vector4(-fwd.x, -fwd.y, -fwd.z, 0f);
+                    // Directional lights arriving from below the horizon are fill lights faking ground bounce (the game
+                    // has no shadows). Shadowing them against the floor would remove them, so leave them unshadowed.
+                    // _sunsUnshadowed (diagnostics): every directional light unshadowed (0.75: not a fill, so relight's
+                    // fill cut leaves it).
+                    // Low side lights (LowSideLight) are unshadowed but kept (0.75) as well.
+                    l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : _sunsUnshadowed || LowSideLight(l, mainSun) ? 0.75f : 0f, 0);
+                    break;
+                default:
+                    return;
+            }
+            int i = _lightCount * 4;
+            _lightData[i] = l0;
+            _lightData[i + 1] = new Vector4(c.r, c.g, c.b, 0);
+            _lightMasks[_lightCount] = unchecked((uint)l.cullingMask) | BakedLightMask(l); // Plugin.Noise.cs
+            _packedLights[_lightCount] = l;
+            _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, shadowRadius);
+            _lightData[i + 3] = l3;
+            // An orb's light: shadowed, but its rays skip fixtures (the statue holding it; SceneProxies.Orbs.cs).
+            if (l3.z == 0f && SceneProxies.OrbHolders && _proxies.OrbLights.Contains(l)) _lightData[i + 3].z = OrbLightShadowFlag;
+            if (rl != null && (rl.Changes || rl.Toggle != 1f)) ApplyResolved(rl, l, _lightCount);
+            // The statue orbs' lights, a touch weaker than the game's (user, 2026-11-15): the orb sits right at the stone
+            // and lights it physically, brighter than the game's thin vertex lighting (docs/scene-proxies.md, "Statue orbs").
+            if (_orbLightScale != 1f && SceneProxies.OrbHolders && _proxies.OrbFixtureLights.Contains(l))
+            {
+                var oc = _lightData[i + 1];
+                _lightData[i + 1] = new Vector4(oc.x * _orbLightScale, oc.y * _orbLightScale, oc.z * _orbLightScale, oc.w);
+            }
+            _lightPlaced[_lightCount] = ov != null;
+            _lightCount++;
         }
 
         // Lights inside open fixtures (torch bowls, braziers) are moved to just above the rim and get a soft-shadow radius
@@ -1316,11 +1341,11 @@ namespace UltraRT
 
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
-                _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
+                _cmd.SetRayTracingIntParam(shader, "_LightCount", _surfLightCount);
                 long tls = Perf.Now;
                 PathTraceLightsBegin(full, rr); // RR may want another light sampling mode (restored below)
                 _proxies.PortalViewpoints(_camera.transform.position, _lightSampling.ViewPoints); // portal-aware importance
-                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged, kind == Kind.Hybrid);
+                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _surfLightCount, _emissive.SetChanged, kind == Kind.Hybrid);
                 Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSampling.ActiveMode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);

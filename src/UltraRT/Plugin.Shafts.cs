@@ -228,7 +228,7 @@ namespace UltraRT
             for (int i = 0; i < n; i++)
             {
                 _volCone[i * 2] = new Vector4(0, 0, 0, -1f);
-                _volCone[i * 2 + 1] = new Vector4(1f, 0, 0, 0);
+                _volCone[i * 2 + 1] = new Vector4(_lightMedium[i], 0, 0, 0); // x: the light's weight in the air (LightPolicy.Medium)
                 var l = _packedLights[i];
                 if (!_shaftSettings.enabled || ReferenceEquals(l, null) || l == null || !_lightShafts.TryGet(l, out var c)) continue;
                 if (!c.InPlace) continue; // moved away from its mesh (parent-spot cones move with their light)
@@ -239,7 +239,7 @@ namespace UltraRT
                 if (hazeRange > 0f) { float x = r / hazeRange; haze = 1f / (1f + x * x * x); }
                 var axis = c.WorldAxis;
                 _volCone[i * 2] = new Vector4(axis.x, axis.y, axis.z, c.CosHalf);
-                _volCone[i * 2 + 1] = new Vector4(Mathf.Max(0f, _shaftSettings.strength) / Mathf.Max(haze, 1e-3f), c.Sharp, 0, 0);
+                _volCone[i * 2 + 1] = new Vector4(_lightMedium[i] * Mathf.Max(0f, _shaftSettings.strength) / Mathf.Max(haze, 1e-3f), c.Sharp, 0, 0);
             }
             _cmd.SetBufferData(_volConeBuffer, _volCone, 0, 0, Math.Max(1, n) * 2);
             return _volConeBuffer;

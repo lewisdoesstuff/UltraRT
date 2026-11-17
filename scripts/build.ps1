@@ -94,7 +94,14 @@ if ($NoDeploy) {
     if (Test-Path $lightsSrc) {
         $lightsDst = Join-Path $StageDir 'lights'
         New-Item -ItemType Directory -Force $lightsDst | Out-Null
-        Copy-Item (Join-Path $lightsSrc '*.json') $lightsDst -Force
+        # Mirror, subfolders included (layers such as proposed\): a file removed from data\lights must not linger in the stage.
+        Get-ChildItem $lightsDst -File -Recurse -Filter *.json | Remove-Item -Force
+        $srcRoot = (Resolve-Path $lightsSrc).Path.TrimEnd([char]92)
+        foreach ($f in Get-ChildItem $lightsSrc -File -Recurse -Filter *.json) {
+            $d = Join-Path $lightsDst $f.FullName.Substring($srcRoot.Length + 1)
+            New-Item -ItemType Directory -Force (Split-Path $d -Parent) | Out-Null
+            Copy-Item $f.FullName $d -Force
+        }
     }
     if (-not (Test-Path (Join-Path $StageDir 'UltraRT.dll'))) { throw "Nothing staged: UltraRT.dll missing (build skipped or failed?)" }
     $head = (git -C $root rev-parse --short HEAD 2>$null)

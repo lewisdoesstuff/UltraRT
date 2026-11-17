@@ -91,15 +91,23 @@ function Sync-Stage {
     $lightsTo = Join-Path $dest 'lights'
     if (Test-Path $lightsFrom) {
         New-Item -ItemType Directory -Force $lightsTo | Out-Null
+        # Subfolders are layers (lights\proposed\: docs/lighting-overrides.md, "Review"); paths are kept relative.
         $want = @{}
-        foreach ($f in Get-ChildItem $lightsFrom -File -Filter *.json) {
-            $want[$f.Name] = $true
-            $d = Join-Path $lightsTo $f.Name
+        $fromRoot = (Resolve-Path $lightsFrom).Path.TrimEnd([char]92)
+        foreach ($f in Get-ChildItem $lightsFrom -File -Recurse -Filter *.json) {
+            $rel = $f.FullName.Substring($fromRoot.Length + 1)
+            $want[$rel] = $true
+            $d = Join-Path $lightsTo $rel
             if ((Test-Path $d) -and (Get-Item $d).Length -eq $f.Length -and (Get-QuickHash $d) -eq (Get-QuickHash $f.FullName)) { continue }
+            New-Item -ItemType Directory -Force (Split-Path $d -Parent) | Out-Null
             Copy-Item $f.FullName $d -Force
-            $copied += "lights\$($f.Name)"
+            $copied += "lights\$rel"
         }
-        foreach ($f in Get-ChildItem $lightsTo -File -Filter *.json) { if (-not $want.ContainsKey($f.Name)) { Remove-Item $f.FullName -Force; $copied += "-lights\$($f.Name)" } }
+        $toRoot = (Resolve-Path $lightsTo).Path.TrimEnd([char]92)
+        foreach ($f in Get-ChildItem $lightsTo -File -Recurse -Filter *.json) {
+            $rel = $f.FullName.Substring($toRoot.Length + 1)
+            if (-not $want.ContainsKey($rel)) { Remove-Item $f.FullName -Force; $copied += "-lights\$rel" }
+        }
     } elseif (Test-Path $lightsTo) {
         # A stage without shipped overrides (an older build): none of ours may linger.
         foreach ($f in Get-ChildItem $lightsTo -File -Filter *.json) { Remove-Item $f.FullName -Force; $copied += "-lights\$($f.Name)" }

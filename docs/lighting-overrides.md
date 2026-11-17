@@ -8,7 +8,7 @@ files, an in-game editor to review and tweak them, and two automatic passes that
 mechanical fixes, a fit to the game's room brightness and colour).
 
 Code: `src/UltraRT/LightOverrides.cs` (data, matching, packing), `Plugin.LightOverrides.cs` (runtime + editor),
-`Plugin.LightClassifier.cs`, `Plugin.LightFit.cs`; shader side `UltraRTLights.hlsl` (area lights) and `Exposure.compute`
+`LightClasses.cs` and `Plugin.LightClasses.cs` (classes, rules, review switches), `Plugin.LightClassifier.cs`, `Plugin.LightFit.cs`; shader side `UltraRTLights.hlsl` (area lights) and `Exposure.compute`
 (fit statistics). Shipped data: `data/lights/<scene>.json`. Review sheets: `tools/lights/sheet.py`.
 
 ## Where overrides apply
@@ -45,6 +45,8 @@ they change on disk, so hand edits show up live.
   "version": 1,
   "scene": "Level 1-1",
   "exposure": { "rtBrightness": 1 },   // optional, level-wide: see "Level exposure" below
+  "classes": { "fill": { "intensity": 0 } },   // optional: this level's class policies ("Classes and rules")
+  "rules": [ { "name": "entry fog", "path": "1 - Entryway/Lighting/", "class": "fogfill" } ],   // optional, before the global rules
   "lights": [
     {
       "path": "2 - Courtyard/Lamps/Lamp (3)/Point Light",  // hierarchy path, "(Clone)" removed
@@ -54,6 +56,7 @@ they change on disk, so hand edits show up live.
       "range": 1.2,              // x range
       "shadows": false,          // force on / off (absent: as the game / relight decide)
       "disabled": true,
+      "reach": 0, "surfaces": false, "medium": 2,  // "Classes and rules": falloff cap, air only, strength in the air
       "shape": "rect",           // point (no change) | sphere | rect | disc
       "size": [1.2, 0.3],        // m: rect width, height; sphere / disc: diameter in size[0]
       "normal": [0, -1, 0],      // emission side of a rect / disc (default: a spot's forward, else down)
@@ -83,6 +86,100 @@ setting is; the user's file wins over the shipped one, and switching overrides o
 level whose look was approved under the exposure policy before 2026-11-17: `Level P-2.json` has 1 and no light entries
 (the user likes P-2's street as it is). Bench variant `ae.levelOverride=0` shows the level without it. The editor
 keeps a user file's block when it saves; the fit's output file does not carry one.
+
+## Classes and rules (2026-11-17)
+
+Every level light has a **class**, and a class can carry a **policy**: what RT does with all its lights. This is how
+the 13,157 lights of the 43 levels are handled without an entry each (docs/plan-look-and-perf.md, A4). Code:
+`LightClasses.cs` (rules, policies), `Plugin.LightClasses.cs` (resolution per light, review switches, census).
+
+**Where a class comes from**, first match wins:
+
+1. code, for lights that move or that another system owns: `sun`, `skyfill` (a directional light from below),
+   `player`, `enemy` (under an `EnemyIdentifier`), `item`, `effect` (not part of the level at build), `lava`;
+2. the level file's `"rules"` (the user's file, then the shipped one);
+3. `lights\_rules.json` (`data/lights/_rules.json`), for every level;
+4. none matched: `other`.
+
+An entry with `"class"` written by hand or by the editor overrides the rule for that light. The classes in the files
+of 2026-11-15 (`source` `classifier` or `fit`) are the older, coarser ones and are ignored here.
+
+A rule:
+
+```json
+{ "name": "start room", "class": "prefab:firstroom",
+  "path": "(^|/)[^/]*FirstRoom[^/]*/Room/((Pit|Hallway)[^/]*/)?Point Light[^/]*$",   // regex on the hierarchy path, no case
+  "notPath": "...", "scene": "Level 6-2",                    // regex the path must not match; regex on the scene name
+  "type": "point",                                            // point | spot
+  "rangeMin": 12, "rangeMax": 40, "intensityMin": 0, "intensityMax": 8, "saturationMin": 0.5, "saturationMax": 1,
+  "signals": ["fixture", "!scripted"],                        // what only the running game knows, "!" = not
+  "set": { "intensity": 0.5 } }                               // optional: a policy for the lights of this rule
+```
+
+Signals: `fixture` (inside or at a small renderer), `lifted` (an open-fire fixture: docs/relight.md, "Light
+fixtures"), `enclosed` (in a static lamp shade), `orb` (a statue orb's), `scripted` (a script on the light drives it),
+`animated`. Names in paths carry numbers (`Pit (3)`, `Point Light (1)`): write `[^/]*` after a name.
+
+Classes of the shipped rules: `prefab:firstroom|shop|finaldoor|finalroom|checkpoint|door|pit` (the same objects in
+every level), `gameplay` (altars, grapple points, switches, coloured arena lights), `lightning`,
+`fixture:torch|orb|window|screen|lamp`, `scripted`, `accent` (a spot with no fixture), `fill` (a point light with no
+fixture and a range of 12 m or more), `glow` (the same, smaller). `fixture` names all its kinds wherever a class is
+given.
+
+**Policy** (`LightPolicy`), on a class or on one light's entry; every field optional:
+
+| Field | Meaning |
+|---|---|
+| `intensity`, `color`, `range`, `shadows`, `disabled` | as on an entry ("Format"); `intensity` 0 drops the light |
+| `reach` | 1 (default): relight's falloff. 0: never more than the game's own falloff at any distance (the dimmer of the two curves), so what the game's short falloff left dark far from the light stays dark. Steps of 0.25. Not for the player's own lights |
+| `surfaces` | `false`: the light does not light surfaces and stays in the volumetric pass ("air only": a fog fill) |
+| `medium` | factor on what the light scatters in the air (0: none) |
+
+Where policies are written, weak to strong: `"classes"` in `_rules.json`, `"classes"` in the level's file, a rule's
+`"set"`, the light's own entry. Field by field: a level can set `"classes": { "fill": { "intensity": 0 } }` and one
+entry can give a single fill its intensity back. An empty entry of the user's (Shift+Keypad 0) still means "the
+game's values": no policy applies to that light.
+
+Shipped today: **the rules only, no policy** (`"classes": {}`), so nothing looks different until a level's policies
+are reviewed and shipped (below). Mechanics: reach is packed into `_Lights[i*4+1].w` above the player-light flag (no
+buffer changed); air-only lights are packed after every other light, and the surface passes are given the count
+without them, so they cost surfaces nothing.
+
+The offline census, `tools/lights/census.py`, applies the path and number conditions of the rules to every light of
+all levels from the game's bundles, for writing rules (it cannot know the signals: the game's own census, below, is
+the authority). With the rules of 2026-11-17, by name alone: 3,990 enemy, 2,112 fill, 1,412 lamps, 1,349 glow, 1,158
+gameplay, 816 torches, 784 accent, 1,119 prefab lights, 211 directional.
+
+## Review: compare before anything ships (2026-11-17)
+
+No policy ships blind. The tools, in the order of use:
+
+| Tool | What it shows |
+|---|---|
+| Light editor (Insert) | Every light's label carries its class and what RT does with it (red: hidden); the panel names the rule. **Ctrl+Keypad /**: only the selected light's class. **Ctrl+Keypad 0**: that class off / on. **Ctrl+Keypad .**: clear the switches. Parameters `Reach`, `Air only`, `Air` edit one light |
+| Bench variants | `lc.class.NAME=0` (or a factor), `lc.solo=NAME`, `lc.light.TEXT=0` (TEXT: part of the path), `lc.set.CLASS.FIELD=VALUE` (a class policy for that mode: `lc.set.fill.reach=0`), `lc.layer=NAME`. A kind is written with a dot: `prefab.firstroom`. Any number per mode, joined with `+` |
+| Proposal layer | `data/lights/proposed/`: `_rules.json` (its rules come first, its class policies replace those of the same name) and level files (in place of the shipped file of that level). Inactive unless a mode says `lc.layer=proposed` |
+| A/B sheet | A suite with the modes `off`, `pathtrace`, `pathtrace+lc.layer=proposed` and the two at fixed exposure (`+ae.enabled=0`), then `tools/lights/score.py <run> --sheet`: the game, what ships and the proposal side by side with the scoreboard's numbers. `bench/suites/light-review.json` is the template |
+| Census and rule diff | `bench.ps1 ... -Extra "-ultrart-light-census"` writes `lights_<scene>.json` (every light, on or off: class, rule, policy) and one per layer; `tools/lights/rulediff.py <run>` writes `lights_<scene>.md`: the classes of the level with what ships and what is proposed, and one row per group of lights the proposal changes |
+| Attribution | Which lights make a pose too bright: the class switches as modes (`bench/suites/light-classes.json`), then `lc.light.TEXT=0` for single lights; the scoreboard's dark delta per mode is the share |
+
+A level's change is: write it in `data/lights/proposed/`, run its tour with the review modes, read the sheet and the
+rule diff, and move the files up once the sheet has been seen (the taste-sensitive levels by the user).
+
+First use, the start room of every level (`FirstRoom`: four floating orange point lights, range 12-25 m, intensity
+2-8). 1-4's first room at fixed exposure, the game / current / with the lights at half
+(`bench/results/20261117-150631_light-classes_alt`, sheet `bench/results/light-classes/firstroom-v2.png`):
+
+| View | current | lights x0.5 | reach 0 | lights off |
+|---|---|---|---|---|
+| 0 | x1.12, dark +1.5 | x1.07, +0.9 | x1.08, +0.9 | x1.07, +0.5 |
+| 1 | x1.38, dark +3.2 | x1.01, +1.9 | x1.16, +2.2 | x0.71, +0.6 |
+| 2 | x1.49, dark +16.1 | x0.95, +5.3 | x1.16, +9.9 | x0.59, -1.7 |
+
+Half strength lands on the game. It is in the proposal layer (`"prefab:firstroom": { "intensity": 0.5 }`), not
+shipped. The room's glowing wall strips are emissive surfaces already, and by the rule "emissive before lights" they
+should carry the room; with the four lights off they give x0.6-0.7, so that needs a way to scale one surface's
+emitted light (not there yet: `t3/light-levels`).
 
 ## Area lights (shader)
 
@@ -137,7 +234,8 @@ centre.
 |---|---|
 | 5 | select the light under the crosshair (within 12 degrees, nearest wins) |
 | 4 / 6 | previous / next light, by distance (active lights within 80 m, directional lights last, then added lights) |
-| 8 / 2 | previous / next parameter: intensity, red, green, blue, range, shadows, disabled, shape, width, height, move x/y/z |
+| 8 / 2 | previous / next parameter: intensity, red, green, blue, range, shadows, disabled, shape, width, height, move x/y/z, reach, air only, air |
+| Ctrl + / , Ctrl + 0, Ctrl + . | class switches: only the selected light's class; that class off / on; clear ("Review") |
 | + / - | change it (hold to repeat; Shift: a fifth of the step). Intensity and range x1.1 per step, colour 0.05, sizes and moves 5 cm |
 | 7 | rotate a rect 15 degrees about its normal (Shift: back) |
 | 9 | point the emission normal along the view direction |
@@ -160,6 +258,10 @@ colour, range, shadows, disabled, shape and size (session only; the values live 
 "select the light at the crosshair", "next light" and "save".
 
 ## Classifier (stage b)
+
+(2026-11-17: the class of every light now comes from the rules, "Classes and rules". This tool remains for what
+needs geometry: area shapes on glowing parts, the emissive dedupe, lights in walls. Its class names are the older
+ones.)
 
 `-ultrart-classify-lights` (once per level, 4 s after load) or Ctrl+Insert. It looks at every light of the level the RT
 scene tracks (active or not: rooms are off at load), the emissive triangles (`EmissiveLights.WorldTriangles`), the
@@ -343,6 +445,9 @@ a level's own subtitles (6-2's) stay in the frame, in every mode alike.
 
 ## Not done yet
 
+- Policies per level (`t3/light-levels`): nothing but the rules ships yet; the start room's is proposed.
+- Emissive first: a per-surface scale on emitted light, so glowing strips and lamp glass can replace floating lights.
+- The fit with a lower bound of 0, class priors and the dark-region term (plan A4): the fit is unchanged.
 - Sky portals at windows (the format's `kind` field is there; no runtime sky colour, no sampling change).
 - Auto-generated camera poses around rooms (the fit uses saved bench poses only).
 - More levels: the fit is clearly better in 7-3, 1-1 and 0-1, neutral in 2-2 / 3-2 / 6-1 on screen.

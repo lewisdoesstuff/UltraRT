@@ -153,13 +153,16 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
         float gameL = pow(game, 2.2);
         float phys = 0.012820 * (rRef * rRef) / max(d2, 0.01) * window * window;
         phys = min(phys, pow(3.0 * game + 0.05, 2.2));
-        atten = lerp(gameL, phys, saturate(_VolFalloff.x)) * pow(spot, 2.2);
+        // The light's reach (UltraRTLights.hlsl, LightReach): at 0 never more than the game's own falloff.
+        phys = lerp(gameL, phys, saturate(_VolFalloff.x));
+        atten = lerp(min(phys, gameL), phys, 1.0 - 0.25 * floor(l1.w * 0.5)) * pow(spot, 2.2);
     }
     else
     {
         float phys = (1.0 / 7.25) * (rRef * rRef) / max(d2, 0.01) * window * window;
         phys = min(phys, 3.0 * game + 0.05);
-        atten = lerp(game, phys, saturate(_VolFalloff.x)) * spot;
+        phys = lerp(game, phys, saturate(_VolFalloff.x));
+        atten = lerp(min(phys, game), phys, 1.0 - 0.25 * floor(l1.w * 0.5)) * spot;
     }
     return ToLightV(l1.rgb * _VolFalloff.y) * atten * HazeWeight(r) * ScatterWeight(i);
 }

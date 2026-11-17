@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "note": "Proposals under review (docs/lighting-overrides.md, 'Review'): shown with the bench variant lc.layer=proposed next to what ships, and moved into ../_rules.json or a level's file once approved. Class policies here replace those of the same name; rules here come first.",
+  "classes": {
+    "prefab:firstroom": { "intensity": 0.5, "note": "The start room of every level: its floating orange lights at half strength land on the game's brightness (1-4's first room, fixed exposure: x1.12-1.49 -> x0.95-1.07). 2026-11-17." }
+  },
+  "rules": []
+}
