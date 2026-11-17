@@ -150,11 +150,48 @@ namespace UltraRT
         }
     }
 
+    /// <summary>
+    /// A glowing surface as a light source: scales the light an emissive surface gives (its look to the camera and in
+    /// reflections is not changed). The first matching rule wins. "Emissive before lights": where a room has glowing
+    /// surfaces, they carry it and the floating lights the game used instead are dimmed or dropped.
+    /// </summary>
+    public sealed class LightEmitterRule
+    {
+        [JsonProperty("name", NullValueHandling = NullValueHandling.Ignore)] public string Name;
+        [JsonProperty("scene", NullValueHandling = NullValueHandling.Ignore)] public string Scene;
+        /// <summary>Regex on the surface's material name; case-insensitive.</summary>
+        [JsonProperty("material", NullValueHandling = NullValueHandling.Ignore)] public string Material;
+        /// <summary>Regex on the name of its emission texture (the albedo, for albedo-as-emission materials).</summary>
+        [JsonProperty("texture", NullValueHandling = NullValueHandling.Ignore)] public string Texture;
+        [JsonProperty("scale")] public float Scale = 1f;
+        [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
+
+        [JsonIgnore] private Regex _scene, _material, _texture;
+        [JsonIgnore] private bool _compiled;
+
+        private void Compile()
+        {
+            if (_compiled) return;
+            _compiled = true;
+            Regex Rx(string s) => string.IsNullOrEmpty(s) ? null : new Regex(s, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+            _scene = Rx(Scene); _material = Rx(Material); _texture = Rx(Texture);
+        }
+
+        public bool SceneMatches(string scene) { Compile(); return _scene == null || _scene.IsMatch(scene ?? ""); }
+
+        public bool Matches(string material, string texture)
+        {
+            Compile();
+            return (_material == null || _material.IsMatch(material ?? "")) && (_texture == null || _texture.IsMatch(texture ?? ""));
+        }
+    }
+
     /// <summary>lights\_rules.json: the classes' policies and the rules, for every level.</summary>
     public sealed class LightRulesFile
     {
         [JsonProperty("version")] public int Version = 1;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
+        [JsonProperty("emitters", NullValueHandling = NullValueHandling.Ignore)] public List<LightEmitterRule> Emitters;
         [JsonProperty("classes", NullValueHandling = NullValueHandling.Ignore)] public Dictionary<string, LightPolicy> Classes;
         [JsonProperty("rules", NullValueHandling = NullValueHandling.Ignore)] public List<LightRule> Rules;
     }
@@ -176,6 +213,22 @@ namespace UltraRT
         private readonly List<LightRule> _global = new List<LightRule>();
         private readonly Dictionary<string, LightPolicy> _globalClasses = new Dictionary<string, LightPolicy>(StringComparer.OrdinalIgnoreCase);
         private readonly List<LightRule> _active = new List<LightRule>();
+        private readonly List<LightEmitterRule> _globalEmitters = new List<LightEmitterRule>();
+        private readonly List<LightEmitterRule> _emitters = new List<LightEmitterRule>();
+        /// <summary>Changes when the emitter rules in force do (the emissive triangle table is built with them).</summary>
+        public string EmitterKey { get; private set; } = "";
+
+        /// <summary>The scale on the light a surface gives (first matching emitter rule), 1 without one.</summary>
+        public float EmitterScale(string material, string texture, out string rule)
+        {
+            foreach (var r in _emitters)
+            {
+                try { if (r.Matches(material, texture)) { rule = r.Name ?? "(unnamed)"; return Mathf.Max(0f, r.Scale); } }
+                catch (ArgumentException e) { _log.LogError($"Emitter rule '{r.Name}': bad pattern: {e.Message}"); }
+            }
+            rule = null;
+            return 1f;
+        }
         private readonly Dictionary<string, LightPolicy> _levelClasses = new Dictionary<string, LightPolicy>(StringComparer.OrdinalIgnoreCase);
         private DateTime _stamp, _layerStamp;
         private string _path, _layerPath;
@@ -204,6 +257,11 @@ namespace UltraRT
                     if (first) _global.InsertRange(0, rules); else _global.AddRange(rules);
                 }
                 if (f?.Classes != null) foreach (var kv in f.Classes) if (kv.Value != null) _globalClasses[kv.Key] = kv.Value;
+                if (f?.Emitters != null)
+                {
+                    var em = f.Emitters.Where(r => r != null).ToList();
+                    if (first) _globalEmitters.InsertRange(0, em); else _globalEmitters.AddRange(em);
+                }
             }
             catch (Exception e) { _log.LogError($"Light rules: can't read {path}: {e.Message}"); }
         }
@@ -219,14 +277,17 @@ namespace UltraRT
             _layerStamp = layerRulesPath != null ? Stamp(layerRulesPath) : DateTime.MinValue;
             _global.Clear();
             _globalClasses.Clear();
+            _globalEmitters.Clear();
             ReadRules(rulesPath, false);
             ReadRules(layerRulesPath, true);
             _active.Clear();
             _levelClasses.Clear();
             var level = new List<LightRule>();
+            var levelEmitters = new List<LightEmitterRule>();
             foreach (var lf in levelFiles)
             {
                 if (lf == null) continue;
+                if (lf.Emitters != null) levelEmitters.InsertRange(0, lf.Emitters.Where(r => r != null));
                 if (lf.Rules != null) level.InsertRange(0, lf.Rules.Where(r => r != null && !string.IsNullOrEmpty(r.Class)));
                 if (lf.Classes != null) foreach (var kv in lf.Classes) if (kv.Value != null) _levelClasses[kv.Key] = kv.Value;
             }
@@ -236,6 +297,14 @@ namespace UltraRT
                 _active.AddRange(_global.Where(r => r.SceneMatches(scene)));
             }
             catch (ArgumentException e) { _log.LogError($"Light rules: bad pattern: {e.Message}"); }
+            _emitters.Clear();
+            try
+            {
+                _emitters.AddRange(levelEmitters.Where(r => r.SceneMatches(scene)));
+                _emitters.AddRange(_globalEmitters.Where(r => r.SceneMatches(scene)));
+            }
+            catch (ArgumentException e) { _log.LogError($"Emitter rules: bad pattern: {e.Message}"); }
+            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Scale.ToString(CultureInfo.InvariantCulture)}"));
         }
 
         /// <summary>The first matching rule, or null.</summary>

@@ -176,10 +176,41 @@ First use, the start room of every level (`FirstRoom`: four floating orange poin
 | 1 | x1.38, dark +3.2 | x1.01, +1.9 | x1.16, +2.2 | x0.71, +0.6 |
 | 2 | x1.49, dark +16.1 | x0.95, +5.3 | x1.16, +9.9 | x0.59, -1.7 |
 
-Half strength lands on the game. It is in the proposal layer (`"prefab:firstroom": { "intensity": 0.5 }`), not
-shipped. The room's glowing wall strips are emissive surfaces already, and by the rule "emissive before lights" they
-should carry the room; with the four lights off they give x0.6-0.7, so that needs a way to scale one surface's
-emitted light (not there yet: `t3/light-levels`).
+Half strength lands on the game (the user, 2026-11-17: "about right"; "emissive should carry where possible").
+
+### Emitters: a glowing surface as the light (2026-11-17, `t3/light-levels`)
+
+"Emissive before lights": where a room has glowing surfaces, they should light it, and the floating lights the game
+used instead go. An emissive surface gives little light at its texture's own brightness (the start room's strips:
+x0.6-0.7 of the game with the lights off), so an **emitter rule** scales the light one surface gives:
+
+```json
+"emitters": [ { "name": "start room wall strips", "material": "^FinalFrame", "texture": "glow", "scene": "Level", "scale": 4.5 } ]
+```
+
+in `_rules.json`, a layer's `_rules.json` or a level's file (the level's first; first match wins). `material` and
+`texture` are regexes on the surface's material name and its emission texture's name; the census lists both for
+every emissive surface of a level (`"emitters"` in `lights_<scene>.json`: triangles, area, mean radiance). Only the
+table of emissive triangles the light sampling uses is scaled (`EmissiveLights.LightScaleOf`): the surface looks the
+same to the camera and in reflections. The table is rebuilt when the rules change. Bench variant:
+`lc.emit.TEXT=F` (materials whose name contains TEXT). Emitter rules follow the overrides switch in every mode.
+
+The start room with its strips as the light and its floating lights off, 1-4's first room at fixed exposure
+(`bench/results/20261117-151822_light-probe_alt`, sheet `bench/results/light-classes/firstroom-emissive.png`: the
+game, lights x0.5, strips x4):
+
+| View | current | lights x0.5 | strips x4, lights off | strips x8, lights off |
+|---|---|---|---|---|
+| 0 | x1.12, tint 8.0, dark +1.5 | x1.08, 4.2, +0.9 | x1.08, 4.5, +1.2 | x1.17, 10.6, +3.0 |
+| 1 | x1.37, tint 23.2, dark +3.2 | x0.97, 6.6, +1.5 | x0.89, 5.0, +1.5 | x1.27, 8.9, +4.0 |
+| 2 | x1.49, tint 23.6, dark +16.2 | x0.95, 12.7, +5.4 | x0.86, 1.9, +3.9 | x1.35, 6.1, +14.5 |
+
+The strips alone match the game's brightness and match its colour better than the orange lights do. Proposal layer
+(`data/lights/proposed/_rules.json`): strips x4.5, `prefab:firstroom` and `prefab:finalroom` (the same walls) off.
+With strips x5 over six views of 1-4 and 3-1 (`bench/results/20261117-151956_light-review_alt`, sheet
+`bench/results/light-classes/review-firstroom-emissive.png`): pathtrace median x1.17 -> x1.05 at shipped settings,
+x1.47 -> x1.07 at fixed exposure, dark delta +10.7 -> +7.8. Open: the final room has no scored pose yet, and 3-1's
+first view (x1.4, a view out of the room) is other lights.
 
 ## Area lights (shader)
 
@@ -446,7 +477,7 @@ a level's own subtitles (6-2's) stay in the frame, in every mode alike.
 ## Not done yet
 
 - Policies per level (`t3/light-levels`): nothing but the rules ships yet; the start room's is proposed.
-- Emissive first: a per-surface scale on emitted light, so glowing strips and lamp glass can replace floating lights.
+- Emissive first beyond the start room: emitter rules per level; lamp glass painted into lit textures needs emissive masks (materials work).
 - The fit with a lower bound of 0, class priors and the dark-region term (plan A4): the fit is unchanged.
 - Sky portals at windows (the format's `kind` field is there; no runtime sky colour, no sampling change).
 - Auto-generated camera poses around rooms (the fit uses saved bench poses only).

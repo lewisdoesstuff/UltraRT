@@ -119,6 +119,8 @@ namespace UltraRT
         [JsonProperty("classes", NullValueHandling = NullValueHandling.Ignore)] public Dictionary<string, LightPolicy> Classes;
         /// <summary>This level's own rules, tried before the global ones.</summary>
         [JsonProperty("rules", NullValueHandling = NullValueHandling.Ignore)] public List<LightRule> Rules;
+        /// <summary>This level's emitter rules (LightEmitterRule), tried before the global ones.</summary>
+        [JsonProperty("emitters", NullValueHandling = NullValueHandling.Ignore)] public List<LightEmitterRule> Emitters;
         [JsonProperty("lights")] public List<LightOverrideEntry> Lights = new List<LightOverrideEntry>();
         [JsonProperty("added")] public List<LightAddEntry> Added = new List<LightAddEntry>();
     }
@@ -423,6 +425,7 @@ namespace UltraRT
                     Exposure = _userExposure,
                     Classes = _userFile?.Classes,
                     Rules = _userFile?.Rules,
+                    Emitters = _userFile?.Emitters,
                     Lights = _user.Values.OrderBy(e => e.Path, StringComparer.Ordinal).ToList(),
                     Added = _userAdded.Values.OrderBy(a => a.Id, StringComparer.Ordinal).ToList(),
                 };

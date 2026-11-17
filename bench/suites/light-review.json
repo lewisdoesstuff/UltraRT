@@ -19,7 +19,7 @@
         "pathtrace+ae.enabled=0",
         "pathtrace+ae.enabled=0+lc.layer=proposed"
       ],
-      "ShotSettle": 0.8
+      "ShotSettle": 1.5
     },
     {
       "Name": "3-1 first room",
@@ -38,7 +38,7 @@
         "pathtrace+ae.enabled=0",
         "pathtrace+ae.enabled=0+lc.layer=proposed"
       ],
-      "ShotSettle": 0.8
+      "ShotSettle": 1.5
     }
   ]
 }

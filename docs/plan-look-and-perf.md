@@ -41,6 +41,7 @@ Updated as branches land. "ready" = reported to the lead for merge-regress and m
 | 5.1 step 5 ray counters; E1 pass scheduler | `t3/perf-dispatch` | planned (P1 was judged on dispatch ms with `footprint` 0 / `bounces=1` as its bounds, so the counters wait for R2) |
 | P1, P2 footprint-terminated paths; R1 ray generation per mode | `t3/perf-paths` | ready 2026-11-17: P1 + P2 in (one rule, default 1 cell: 0-1 metal 145 -> 176 fps; docs/path-tracing.md, "Footprint"); R1 measured at 0.02-0.04 ms and dropped (docs/performance.md, "Tried: a ray generation per mode") |
 | A4 light classes, flags, prefab layer, class and light toggles, rule diffs | `t3/light-classes` | ready 2026-11-17: a class for every light from rules (`data/lights/_rules.json`), policies per class and level, `reach` / air-only / air strength per light, class switches in the editor and as bench variants, proposal layer, census and rule diff, offline census of all levels. No policy ships yet; the start room's (lights x0.5) is proposed with its sheet. Moved to `t3/light-levels`: the fit v2, per-surface emission scale (emissive first), policies per level (docs/lighting-overrides.md, "Classes and rules", "Review") |
+| A6 emitter rules (emissive first), levels | `t3/light-levels` | in progress 2026-11-17: emitter rules in (a glowing surface's light scaled per material); start room proposed as strips x4.5 with its floating lights off (docs/lighting-overrides.md, "Emitters"). Next: 1-4, 3-1, 6-2, 0-1 |
 | B1 in-engine matrix, B2 generator bake-off | offline + `t3/materials-v2` | planned |
 | C1-C5, R2, R3 dispatch and CPU floor | `t3/perf-dispatch` | planned |
 | A6 level roll-out (per-level files and review sheets) | `t3/light-levels` | planned |
@@ -522,6 +523,7 @@ The user agreed with every recommendation; where the answer adds something it is
 | 11 | Window beams | Replace the game's beam meshes wherever the fit works, keep the game's elsewhere |
 | 12 | P-2 street | **Leave it as it looks now.** It may depend on which lights are active: if a light change alters it, flag it with a before / after instead of pulling it toward the game's red |
 | 13 | Agents | **One agent does all of it, sequentially**, no time limit; research subagents (Sonnet 5.5, low) are fine. The lead runs merge-regress and merges each branch when it is reported ready |
+| 14 | Start room (first light proposal, 2026-11-17) | Its floating lights at half strength are "about right". Some lights are fine where they are needed, but **emissive surfaces should carry a room where possible** |
 
 ## 9. Effort
 

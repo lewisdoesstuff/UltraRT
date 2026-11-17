@@ -58,11 +58,43 @@ namespace UltraRT
         private bool _lightCensus; // -ultrart-light-census
         private readonly HashSet<string> _censusDone = new HashSet<string>();
 
-        private bool LightTogglesActive => _classToggles.Count > 0 || _lightToggles.Count > 0 || _classSolo != null || _variantPolicies.Count > 0;
+        // ---------------------------------------------------------------- emitters (glowing surfaces as light sources)
+
+        /// <summary>Emitter scales set by bench variants (lc.emit.TEXT=F: materials whose name contains TEXT).</summary>
+        private readonly List<KeyValuePair<string, float>> _variantEmitters = new List<KeyValuePair<string, float>>();
+        private string _emitterKey = "";
+
+        private static string CleanMaterialName(string n) => (n ?? "").Replace(" (Instance)", "").Replace(" [UltraRT]", "").Trim();
+
+        /// <summary>EmissiveLights.LightScaleOf: the scale on the light a surface gives ("emitters" rules, bench variants).</summary>
+        private float EmitterLightScale(Material m, Texture emission)
+        {
+            if (!_lightOverrides || _lightOv == null || m == null) return 1f;
+            string name = CleanMaterialName(m.name);
+            foreach (var kv in _variantEmitters)
+                if (name.IndexOf(kv.Key, StringComparison.OrdinalIgnoreCase) >= 0) return kv.Value;
+            return _lightOv.Classes.EmitterScale(name, emission != null ? emission.name : "", out _);
+        }
+
+        /// <summary>EnsureLightOverrides: the emissive triangle table is built with the emitter scales; rebuild it when they change.</summary>
+        private void SyncEmitterScales()
+        {
+            string key = !_lightOverrides ? "off" : _lightOv.Classes.EmitterKey + "#" + string.Join(";", _variantEmitters.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)));
+            if (key == _emitterKey) return;
+            bool first = _emitterKey == "";
+            _emitterKey = key;
+            if (first && _lightOv.Classes.EmitterKey == "" && _variantEmitters.Count == 0) return; // nothing to apply
+            _emissive?.Clear(); // rebuilt on the next traced frame (EmissiveLights.Update)
+            ResetLightHistories();
+            Logger.LogInfo($"Emitter scales changed ({key}): emissive lights rebuild");
+        }
+
+        private bool LightTogglesActive => _classToggles.Count > 0 || _lightToggles.Count > 0 || _classSolo != null || _variantPolicies.Count > 0 || _variantEmitters.Count > 0;
 
         private void ClearLightToggles()
         {
             if (!LightTogglesActive) return;
+            _variantEmitters.Clear();
             _classToggles.Clear();
             _lightToggles.Clear();
             _variantPolicies.Clear();
@@ -126,6 +158,7 @@ namespace UltraRT
         {
             if (key.StartsWith("class.", StringComparison.OrdinalIgnoreCase)) SetClassToggle(key.Substring(6).Replace('.', ':'), ParseScale(value));
             else if (key.StartsWith("set.", StringComparison.OrdinalIgnoreCase)) SetVariantPolicy(key.Substring(4), value);
+            else if (key.StartsWith("emit.", StringComparison.OrdinalIgnoreCase)) { _variantEmitters.Add(new KeyValuePair<string, float>(key.Substring(5), ParseScale(value))); _toggleVersion++; }
             else if (key.StartsWith("light.", StringComparison.OrdinalIgnoreCase))
             {
                 _lightToggles.Add(new KeyValuePair<string, float>(key.Substring(6), ParseScale(value)));
@@ -328,7 +361,12 @@ namespace UltraRT
                             Active = l.isActiveAndEnabled, Class = r.Class, Rule = r.Rule, Policy = r.PolicyText(), Entry = e?.Origin,
                         });
                     }
-                    var doc = new { scene, layer, lights = rows.OrderBy(x => x.Class, StringComparer.Ordinal).ThenBy(x => x.Path, StringComparer.Ordinal).ToList() };
+                    var emitters = _emissive?.Describe().Select(g =>
+                    {
+                        float sc = _lightOv.Classes.EmitterScale(CleanMaterialName(g.Material), g.Texture, out string er);
+                        return new { material = CleanMaterialName(g.Material), texture = g.Texture, triangles = g.Triangles, visible = g.Visible, area = LightOverrides.Round(g.Area), lum = LightOverrides.Round(g.Lum), scale = sc, rule = er };
+                    }).ToList();
+                    var doc = new { scene, layer, emitters, lights = rows.OrderBy(x => x.Class, StringComparer.Ordinal).ThenBy(x => x.Path, StringComparer.Ordinal).ToList() };
                     string file = Path.Combine(outDir, "lights_" + string.Join("_", scene.Split(Path.GetInvalidFileNameChars())) + (layer != null ? "." + layer : "") + ".json");
                     File.WriteAllText(file, JsonConvert.SerializeObject(doc, Formatting.Indented, new JsonSerializerSettings { Culture = CultureInfo.InvariantCulture }));
                     Logger.LogInfo($"Light census: {rows.Count} lights of '{scene}'{(layer != null ? $" (layer {layer})" : "")} -> {file}");

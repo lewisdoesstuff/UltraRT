@@ -1,8 +1,12 @@
 {
   "version": 1,
-  "note": "Proposals under review (docs/lighting-overrides.md, 'Review'): shown with the bench variant lc.layer=proposed next to what ships, and moved into ../_rules.json or a level's file once approved. Class policies here replace those of the same name; rules here come first.",
+  "note": "Proposals under review (docs/lighting-overrides.md, 'Review'): shown with the bench variant lc.layer=proposed next to what ships, and moved into ../_rules.json or a level's file once approved. Class policies here replace those of the same name; rules and emitter rules here come first.",
+  "emitters": [
+    { "name": "start and final room wall strips", "material": "^FinalFrame", "scale": 4.5, "note": "The glowing strips of the start room (and the final room, the same walls) carry the room instead of its floating orange lights. Measured at 4 and 5 (2026-11-17); 4.5 is between them." }
+  ],
   "classes": {
-    "prefab:firstroom": { "intensity": 0.5, "note": "The start room of every level: its floating orange lights at half strength land on the game's brightness (1-4's first room, fixed exposure: x1.12-1.49 -> x0.95-1.07). 2026-11-17." }
+    "prefab:firstroom": { "intensity": 0, "note": "Replaced by the wall strips (emitters). Alone at x0.5 they also land on the game's brightness (user, 2026-11-17: 'about right'), with a larger colour error." },
+    "prefab:finalroom": { "intensity": 0, "note": "As the start room: the same walls. Not verified at a pose yet." }
   },
   "rules": []
 }

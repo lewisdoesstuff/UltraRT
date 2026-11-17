@@ -70,6 +70,41 @@ namespace UltraRT
         /// <summary>True on frames where the set of active emitters changed (pass to LightSampling to shorten history).</summary>
         public bool SetChanged { get; private set; }
 
+        /// <summary>Scale on the light one surface gives, by its proxy material and emission texture (Plugin.LightClasses.cs,
+        /// docs/lighting-overrides.md "Emitters"). Read when the triangle table is built: call Clear() when it changes.</summary>
+        public Func<Material, Texture, float> LightScaleOf;
+
+        public struct EmitterGroup
+        {
+            public string Material, Texture;
+            public int Triangles, Visible;
+            public float Area, Lum;
+        }
+
+        /// <summary>The live emissive triangles by material: count, how many are in the RTAS now, world area (m2), mean
+        /// luminance of the emitted radiance (as stored: with the surface's own scale, before lightScale).</summary>
+        public List<EmitterGroup> Describe()
+        {
+            var d = new Dictionary<string, EmitterGroup>();
+            for (int t = 0; t < _triCount; t++)
+            {
+                var em = _emitters[_triEmitter[t]];
+                if (em.Dead || em.Src?.Material == null) continue;
+                var m = em.Src.Material;
+                var tex = EmissionTexture(m, out _, out _, out _);
+                string key = m.name + "|" + (tex != null ? tex.name : "");
+                d.TryGetValue(key, out var g);
+                g.Material = m.name; g.Texture = tex != null ? tex.name : "";
+                float a = _triArea[t] * _owners[em.Owner].AreaScale;
+                g.Triangles++;
+                if (em.Visible) g.Visible++;
+                g.Lum += _triLum[t] * a;
+                g.Area += a;
+                d[key] = g;
+            }
+            return d.Values.Select(g => { if (g.Area > 0f) g.Lum /= g.Area; return g; }).OrderByDescending(g => g.Lum * g.Area).ToList();
+        }
+
         private const int TexRes = 32;
         private const int MaxOwners = 0xFFFF;
         private const int TriStride = 12; // uints per triangle (3 x uint4)
@@ -702,6 +737,11 @@ namespace UltraRT
             var img = tex != null ? LowRes(tex) : null;
             var baseLe = m.GetColor("_EmissiveColor") * m.GetFloat("_EmissiveIntensity");
             baseLe = new Color(baseLe.r * tint.r, baseLe.g * tint.g, baseLe.b * tint.b);
+            // A surface's own scale on the light it gives (light overrides' "emitters"): only this table, so the surface
+            // looks the same to the camera and in reflections.
+            float own = LightScaleOf != null ? Mathf.Max(0f, LightScaleOf(m, tex)) : 1f;
+            if (own <= 0f) return true;
+            baseLe *= own;
             Color avg = img != null ? Average(img) : Color.white;
             // _EmissiveMask (Proxy.shader): emission x main texture alpha^2.2; the table takes its mean over the texture.
             if (m.HasProperty("_EmissiveMask") && m.GetFloat("_EmissiveMask") > 0.5f && m.HasProperty("_MainTex") && m.GetTexture("_MainTex") is Texture main && main.dimension == TextureDimension.Tex2D)

@@ -85,6 +85,7 @@ namespace UltraRT
             else _lightOv.CheckReload();
             _aeSettings.levelBrightness = _lightOverrides ? _lightOv.LevelRtBrightness : 0f; // the level's "exposure" block
             SyncResolvedLights(); // Plugin.LightClasses.cs
+            SyncEmitterScales();
         }
 
         /// <summary>The light's identity: normalised hierarchy path and the position it had when first seen.</summary>
