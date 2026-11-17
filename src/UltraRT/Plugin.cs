@@ -914,8 +914,8 @@ namespace UltraRT
             ? new Vector4(_relightFalloff, _relightFillCut, _relightExposure, _relightAmbientCut)
             : Vector4.zero;
         private bool _fixtureShadows = true;  // -ultrart-nofixtureshadows
-        /// <summary>-ultrart-aux-every N: the radiance-cache update and the particle-light volume each run every N-th
-        /// frame, on different frames (1 = both every frame). docs/performance.md, "Pass schedule".</summary>
+        /// <summary>-ultrart-aux-every N: the radiance-cache update runs every N-th frame (1 = every frame).
+        /// docs/performance.md, "Pass schedule".</summary>
         public int _auxEvery = 1;
         private RenderTexture _depthCopy;
         private bool _noDepthMatch;

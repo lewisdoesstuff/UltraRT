@@ -1,6 +1,6 @@
 {
   "Name": "bright-core",
-  "Note": "Brightness scoreboard, core poses (docs/lighting-overrides.md, 'Scoreboard'): the game against pathtrace and relight at poses reached through an approach route. pathtrace+ae.rtBrightness=1 is the exposure policy before 2026-11-17; pathtrace+ae.enabled=0 is fixed exposure, for judging the lights themselves. P-2 has its own RT brightness (data/lights/Level P-2.json): there pathtrace+ae.levelOverride=0 is the new policy. Score with tools/lights/score.py.",
+  "Note": "Brightness scoreboard, core poses (docs/lighting-overrides.md, 'Scoreboard'): the game against pathtrace and relight at poses reached through an approach route. pathtrace+ae.rtBrightness=1 is the exposure policy before 2026-11-17; pathtrace+ae.enabled=0 is fixed exposure, for judging the lights themselves. P-2 had its own RT brightness until 2026-11-17 (dropped by the user); pathtrace+ae.levelOverride=0 is now the same as pathtrace there. Score with tools/lights/score.py.",
   "Scenarios": [
     {
       "Name": "start room",
