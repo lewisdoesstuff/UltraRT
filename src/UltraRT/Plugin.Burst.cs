@@ -45,6 +45,7 @@ namespace UltraRT
             _relightForce = (bool)s["relight"].Values.First();
             foreach (var kv in _variantPluginRestore) kv.Key.SetValue(this, kv.Value);
             _variantPluginRestore.Clear();
+            RestoreLightVariants(); // lc.* (Plugin.LightClasses.cs)
             ResetHistories();
         }
 
@@ -123,6 +124,7 @@ namespace UltraRT
                     default:
                     {
                         int dot = k.IndexOf('.');
+                        if (dot > 0 && k.Substring(0, dot) == "lc") { ApplyLightVariant(k.Substring(dot + 1), v); break; } // light classes
                         if (dot > 0 && k.Substring(0, dot) == "plugin")
                         {
                             // Any Plugin field, e.g. plugin._lightRadius=0

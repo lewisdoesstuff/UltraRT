@@ -24,7 +24,6 @@ namespace UltraRT
         private bool _lightOverrides = true; // -ultrart-nolightoverrides; config [Lights] Overrides; Keypad * in the editor (session)
         private bool _lightsPreview;         // -ultrart-lights-preview: read the classifier's output instead of the shipped files
         private LightOverrides _lightOv;
-        private readonly Dictionary<Light, LightOverrideEntry> _ovCache = new Dictionary<Light, LightOverrideEntry>();
         private int _ovCacheVersion = -1;
         private readonly Dictionary<Light, (string path, Vector3 pos)> _lightIdentity = new Dictionary<Light, (string, Vector3)>();
         private bool _ovActiveThisFrame;
@@ -35,7 +34,7 @@ namespace UltraRT
         private void LightOverridesReset()
         {
             _lightIdentity.Clear();
-            _ovCache.Clear();
+            _resolved.Clear();
             _addBind.Clear();
             _addBindVersion = -1;
             _editSel = null;
@@ -84,11 +83,9 @@ namespace UltraRT
                 _editSel = null;
             }
             else _lightOv.CheckReload();
-            if (_ovCacheVersion != _lightOv.Version)
-            {
-                _ovCacheVersion = _lightOv.Version;
-                _ovCache.Clear();
-            }
+            _aeSettings.levelBrightness = _lightOverrides ? _lightOv.LevelRtBrightness : 0f; // the level's "exposure" block
+            SyncResolvedLights(); // Plugin.LightClasses.cs
+            SyncEmitterScales();
         }
 
         /// <summary>The light's identity: normalised hierarchy path and the position it had when first seen.</summary>
@@ -100,20 +97,6 @@ namespace UltraRT
                 _lightIdentity[l] = id;
             }
             return id;
-        }
-
-        /// <summary>The effective override of a scene light this frame, or null (none, identity, or overrides inactive).</summary>
-        private LightOverrideEntry LightOverrideFor(Light l)
-        {
-            if (!_ovActiveThisFrame) return null;
-            if (!_ovCache.TryGetValue(l, out var e))
-            {
-                var id = LightIdentity(l);
-                e = _lightOv.Find(id.path, l.name, id.pos);
-                if (e != null && e.IsIdentity) e = null;
-                _ovCache[l] = e;
-            }
-            return e;
         }
 
         /// <summary>GatherLights, before the loop: are overrides applied this frame?</summary>
@@ -129,24 +112,29 @@ namespace UltraRT
         private bool SoloHides(Light l) => _editorOn && _editSolo && _editSel != null && l.type != LightType.Directional && !ReferenceEquals(_editSel.Light, l);
 
         /// <summary>
-        /// Applies an entry to the light just packed at index <paramref name="k"/> (colour, range, shape, shadows). The
-        /// position (offset, no fixture lift) was handled before packing.
+        /// Applies what was resolved for the light just packed at index <paramref name="k"/> (class policy, rule, entry,
+        /// review switches: colour, range, reach, shape, shadows, its share in the air). The position (offset, no fixture
+        /// lift) was handled before packing.
         /// </summary>
-        private void ApplyLightOverride(LightOverrideEntry e, Light l, int k)
+        private void ApplyResolved(LightResolved r, Light l, int k)
         {
             int i = k * 4;
             var l0 = _lightData[i];
             var c = _lightData[i + 1];
             var l2 = _lightData[i + 2];
             var l3 = _lightData[i + 3];
-            float s = e.Intensity ?? 1f;
-            if (e.Color != null && e.Color.Length >= 3) { c.x *= e.Color[0] * s; c.y *= e.Color[1] * s; c.z *= e.Color[2] * s; }
-            else { c.x *= s; c.y *= s; c.z *= s; }
+            float s = r.Intensity * r.Toggle;
+            c.x *= r.Color.x * s; c.y *= r.Color.y * s; c.z *= r.Color.z * s;
             bool local = l0.w != 0f;
-            if (local && e.Range.HasValue) l0.w = Mathf.Max(l0.w * e.Range.Value, 1e-4f);
+            if (local && r.Range != 1f) l0.w = Mathf.Max(l0.w * r.Range, 1e-4f);
+            // Reach, in quarters, in the colour's w above the player-light flag (UltraRTLights.hlsl, LightReach):
+            // w = flag + 2 x (4 - reach x 4).
+            if (local) c.w = 2f * Mathf.Round((1f - Mathf.Clamp01(r.Reach)) * 4f);
+            _lightMedium[k] = r.Medium;
             // l3.z: 0 shadowed, 0.75 unshadowed, 1 unshadowed fill (relight's fill cut removes it).
-            if (e.Shadows.HasValue) l3.z = e.Shadows.Value ? 0f : (l3.z > 0.9f ? l3.z : 0.75f);
-            int shape = local ? LightOverrides.ShapeCode(e.Shape) : 0;
+            if (r.Shadows.HasValue) l3.z = r.Shadows.Value ? 0f : (l3.z > 0.9f ? l3.z : 0.75f);
+            var e = r.Entry;
+            int shape = local && e != null ? LightOverrides.ShapeCode(e.Shape) : 0;
             if (shape != 0)
             {
                 var fwd = l.transform.forward;
@@ -160,7 +148,7 @@ namespace UltraRT
             _lightData[i + 1] = c;
             _lightData[i + 2] = l2;
             _lightData[i + 3] = l3;
-            OverriddenLightCount++;
+            if (r.Changes) OverriddenLightCount++;
         }
 
         // ---------------------------------------------------------------- added lights
@@ -255,7 +243,8 @@ namespace UltraRT
         private float _editSaveAt = -1f, _editRepeatAt;
         private KeyCode _editRepeatKey;
         private static readonly string[] EditParams =
-            { "Intensity", "Red", "Green", "Blue", "Range", "Shadows", "Disabled", "Shape", "Width", "Height", "Move X", "Move Y", "Move Z" };
+            { "Intensity", "Red", "Green", "Blue", "Range", "Shadows", "Disabled", "Shape", "Width", "Height", "Move X", "Move Y", "Move Z",
+              "Reach (1 relight falloff, 0 capped at the game's)", "Air only (no light on surfaces)", "Air (haze strength)" };
 
         private static bool KeyPressed(KeyCode k)
         {
@@ -275,6 +264,25 @@ namespace UltraRT
             if (KeyPressed(KeyCode.Insert) && !CtrlHeld()) SetLightEditor(!_editorOn); // Ctrl+Insert: the classifier
             if (!_editorOn || _camera == null) return;
             if (_lightOv == null) return;
+            if (CtrlHeld())
+            {
+                // Review switches for the selected light's class (Plugin.LightClasses.cs).
+                string cls = _editSel != null && !_editSel.IsAdded && _editSel.Light != null ? ResolvedFor(_editSel.Light).Class : null;
+                if (KeyPressed(KeyCode.KeypadDivide) && cls != null)
+                {
+                    _classSolo = _classSolo == null ? cls : null;
+                    _toggleVersion++;
+                    Toast(_classSolo != null ? $"Only lights of class '{cls}' (Ctrl+Keypad /)" : "Class solo off");
+                }
+                if (KeyPressed(KeyCode.Keypad0) && cls != null)
+                {
+                    bool off = ClassToggleFor(cls) > 0f;
+                    SetClassToggle(cls, off ? 0f : 1f);
+                    Toast($"Class '{cls}' {(off ? "off" : "on")} (Ctrl+Keypad 0)");
+                }
+                if (KeyPressed(KeyCode.KeypadPeriod)) { ClearLightToggles(); Toast("Class switches cleared"); }
+                return;
+            }
             if (KeyPressed(KeyCode.Keypad5)) SelectAimedLight();
             if (KeyPressed(KeyCode.Keypad6)) CycleLight(+1);
             if (KeyPressed(KeyCode.Keypad4)) CycleLight(-1);
@@ -301,7 +309,7 @@ namespace UltraRT
         private void SetLightEditor(bool on)
         {
             _editorOn = on;
-            if (!on) { _editSolo = false; if (_editSaveAt > 0f) SaveLightEdits(false); }
+            if (!on) { _editSolo = false; ClearLightToggles(); if (_editSaveAt > 0f) SaveLightEdits(false); }
             else if (_editSel == null) SelectAimedLight();
             Toast(on ? "Light editor on (Insert). Numpad: 5 aim-select, 4/6 cycle, 8/2 parameter, +/- change, Enter save" : "Light editor off");
             Logger.LogInfo($"Light editor {(on ? "on" : "off")}");
@@ -501,17 +509,23 @@ namespace UltraRT
                     case 7: return Mathf.Max(LightOverrides.ShapeCode(a.Shape), 1);
                     case 8: return a.Size != null && a.Size.Length > 0 ? a.Size[0] : 0.5f;
                     case 9: return a.Size != null && a.Size.Length > 1 ? a.Size[1] : a.Size != null && a.Size.Length > 0 ? a.Size[0] : 0.5f;
+                    case 13: case 15: return 1f;
+                    case 14: return 0f;
                     default: return a.Position[p - 10];
                 }
             }
             var e = EffectiveEntry(_editSel.Light);
+            var rs = ResolvedFor(_editSel.Light); // the class's policy shows where the entry says nothing
             switch (p)
             {
-                case 0: return e?.Intensity ?? 1f;
-                case 1: case 2: case 3: return e?.Color != null && e.Color.Length >= 3 ? e.Color[p - 1] : 1f;
-                case 4: return e?.Range ?? 1f;
-                case 5: return e?.Shadows == false ? 0f : 1f;
-                case 6: return e?.Disabled == true ? 1f : 0f;
+                case 0: return rs.Intensity;
+                case 1: case 2: case 3: return rs.Color[p - 1];
+                case 4: return rs.Range;
+                case 5: return rs.Shadows == false ? 0f : 1f;
+                case 6: return rs.Disabled ? 1f : 0f;
+                case 13: return rs.Reach;
+                case 14: return rs.Surfaces ? 0f : 1f;
+                case 15: return rs.Medium;
                 case 7: return LightOverrides.ShapeCode(e?.Shape);
                 case 8: return e?.Size != null && e.Size.Length > 0 ? e.Size[0] : 0.3f;
                 case 9: return e?.Size != null && e.Size.Length > 1 ? e.Size[1] : e?.Size != null && e.Size.Length > 0 ? e.Size[0] : 0.3f;
@@ -537,6 +551,7 @@ namespace UltraRT
                     case 8: case 9:
                         var sz = a.Size != null && a.Size.Length >= 2 ? a.Size : new[] { ParamValue(8), ParamValue(9) };
                         sz[p - 8] = Mathf.Max(0.01f, v); a.Size = sz; break;
+                    case 13: case 14: case 15: break; // scene lights only
                     default:
                         var pos = a.Position; pos[p - 10] = v; a.Pos = Arr(pos); break;
                 }
@@ -548,10 +563,19 @@ namespace UltraRT
                 switch (p)
                 {
                     case 0: e.Intensity = Mathf.Max(0f, v); break;
-                    case 1: case 2: case 3: e.Color = e.Color != null && e.Color.Length >= 3 ? e.Color : new[] { 1f, 1f, 1f }; e.Color[p - 1] = Mathf.Max(0f, v); break;
+                    case 1: case 2: case 3:
+                    {
+                        var rc = ResolvedFor(l).Color;
+                        e.Color = e.Color != null && e.Color.Length >= 3 ? e.Color : new[] { rc.x, rc.y, rc.z };
+                        e.Color[p - 1] = Mathf.Max(0f, v);
+                        break;
+                    }
                     case 4: e.Range = Mathf.Max(0.05f, v); break;
                     case 5: e.Shadows = v > 0.5f; break;
-                    case 6: e.Disabled = v > 0.5f ? true : (bool?)null; break;
+                    case 6: e.Disabled = v > 0.5f; break;
+                    case 13: e.Reach = Mathf.Round(Mathf.Clamp01(v) * 4f) / 4f; break;
+                    case 14: e.Surfaces = v <= 0.5f; break;
+                    case 15: e.Medium = Mathf.Max(0f, v); break;
                     case 7:
                         int code = Mathf.Clamp(Mathf.RoundToInt(v), 0, 3);
                         e.Shape = code == 0 ? null : LightOverrides.ShapeNames[code];
@@ -595,7 +619,9 @@ namespace UltraRT
                 case 0: case 4:
                     v = Mathf.Max(v, 0.01f) * Mathf.Pow(1f + 0.1f * fine, dir); break;
                 case 1: case 2: case 3: v = Mathf.Max(0f, v + 0.05f * fine * dir); break;
-                case 5: case 6: v = v > 0.5f ? 0f : 1f; break;
+                case 5: case 6: case 14: v = v > 0.5f ? 0f : 1f; break;
+                case 13: v = Mathf.Clamp01(v + 0.25f * dir); break;
+                case 15: v = Mathf.Max(0f, v + 0.1f * fine * dir); break;
                 case 7: v = ((int)v + dir + 4) % 4; if (_editSel.IsAdded && v == 0) v = dir > 0 ? 1 : 3; break;
                 case 8: case 9: v = Mathf.Max(0.01f, v + 0.05f * fine * dir); break;
                 default: v += 0.05f * fine * dir; break;
@@ -626,11 +652,13 @@ namespace UltraRT
                         if (!t.IsAdded && t.Light.type == LightType.Directional) continue;
                         var p = TargetPosition(t);
                         if (!Project(p, out var sp)) continue;
-                        bool has = t.IsAdded || EffectiveEntry(t.Light) != null;
-                        var col = t.IsAdded ? new Color(0.4f, 1f, 1f, 0.8f) : has ? new Color(1f, 0.8f, 0.2f, 0.8f) : new Color(1f, 1f, 1f, 0.55f);
+                        var rs = t.IsAdded ? null : ResolvedFor(t.Light);
+                        bool has = t.IsAdded || rs.Changes;
+                        bool hidden = rs != null && (rs.Disabled || rs.Intensity * rs.Toggle <= 0f);
+                        var col = t.IsAdded ? new Color(0.4f, 1f, 1f, 0.8f) : hidden ? new Color(1f, 0.35f, 0.35f, 0.8f) : has ? new Color(1f, 0.8f, 0.2f, 0.8f) : new Color(1f, 1f, 1f, 0.55f);
                         Cross(sp, 6f, col);
                         GUI.color = col;
-                        GUI.Label(new Rect(sp.x + 6, sp.y - 8, 300, 20), t.IsAdded ? t.Added.Id : t.Light.name, _editSmall);
+                        GUI.Label(new Rect(sp.x + 6, sp.y - 8, 420, 20), t.IsAdded ? t.Added.Id : $"{t.Light.name}  [{rs.Class}{(has ? ": " + rs.PolicyText() : "")}]", _editSmall);
                     }
                 if (_editSel != null && (_editSel.IsAdded || _editSel.Light != null)) DrawSelected();
                 DrawEditorPanel();
@@ -722,6 +750,9 @@ namespace UltraRT
             sb.Append("<b>UltraRT light editor</b>  ");
             sb.Append(_lightOverrides ? (_relightActive ? "<color=#8f8>overrides on</color>" : "<color=#fa4>overrides on (relight / pathtrace only)</color>") : "<color=#f66>overrides OFF (Keypad *)</color>");
             if (_editSolo) sb.Append("  <color=#ff8>SOLO</color>");
+            if (LightTogglesActive)
+                sb.Append("  <color=#ff8>classes: " + (_classSolo != null ? "only " + _classSolo + " " : "") +
+                          string.Join(" ", _classToggles.Select(kv => kv.Key + (kv.Value <= 0f ? " off" : " x" + kv.Value.ToString("0.##", CultureInfo.InvariantCulture)))) + "</color>");
             sb.Append($"\n{_lightOv?.Scene}: {_lightOv?.EffectiveCount ?? 0} overrides ({_lightOv?.ShippedCount ?? 0} shipped, {_lightOv?.UserCount ?? 0} yours), {_lightOv?.Added.Count ?? 0} added; this frame {OverriddenLightCount} changed, {AddedLightCount} added on, {_lightCount} packed");
             if (_editSel == null) sb.Append("\n\nNo light selected: Keypad 5 selects the light at the crosshair, 4/6 cycle nearby lights.");
             else
@@ -740,6 +771,8 @@ namespace UltraRT
                     var e = EffectiveEntry(l);
                     sb.Append($"\n\n<b>{l.name}</b>  {l.type}, {Vector3.Distance(l.transform.position, _camera.transform.position):F1} m away\n<size=12>{id.path}</size>");
                     sb.Append($"\ngame: colour ({l.color.r:F2}, {l.color.g:F2}, {l.color.b:F2}) x {l.intensity:F2}, range {l.range:F1} m{(l.type == LightType.Spot ? $", spot {l.spotAngle:F0} deg" : "")}");
+                    var rs = ResolvedFor(l);
+                    sb.Append($"\nclass <b>{rs.Class}</b>{(rs.Rule != "" ? $" (rule: {rs.Rule})" : " (no rule)")}; RT: {rs.PolicyText()}{(rs.Toggle != 1f ? $"; switch x{rs.Toggle:0.##}" : "")}");
                     if (e != null)
                     {
                         sb.Append($"\nentry: {e.Origin}{(e.Source != null ? ", " + e.Source : "")}{(e.Class != null ? ", class " + e.Class : "")}{(e.Confidence.HasValue ? $", confidence {e.Confidence:F2}" : "")}");
@@ -755,7 +788,8 @@ namespace UltraRT
                 }
             }
             sb.Append("\n\n<size=12>Numpad: 5 aim-select  4/6 prev/next  8/2 parameter  +/- change (Shift fine)  7 rotate rect  9 face view direction\n" +
-                      "0 drop your edit (Shift: game values)  1 add rect light at crosshair  3 delete added  / solo  * overrides on/off  . labels  Enter save</size>");
+                      "0 drop your edit (Shift: game values)  1 add rect light at crosshair  3 delete added  / solo  * overrides on/off  . labels  Enter save\n" +
+                      "Ctrl + /  only this light's class   Ctrl + 0  this class off / on   Ctrl + .  clear class switches</size>");
             var text = sb.ToString();
             var size = _editStyle.CalcSize(new GUIContent(text));
             float w = Mathf.Min(Mathf.Max(size.x, 560f) + 24f, Screen.width * 0.6f);
@@ -777,7 +811,9 @@ namespace UltraRT
                 case 1: case 2: case 3: return added ? v.ToString("F2") : $"x{v:F2}";
                 case 4: return added ? $"{v:F1} m" : $"x{v:F2}";
                 case 5: return v > 0.5f ? "on" : "off";
-                case 6: return v > 0.5f ? "yes" : "no";
+                case 6: case 14: return v > 0.5f ? "yes" : "no";
+                case 13: return v.ToString("F2");
+                case 15: return $"x{v:F2}";
                 case 7: return LightOverrides.ShapeNames[Mathf.Clamp((int)v, 0, 3)];
                 case 8: case 9: return $"{v:F2} m";
                 default: return added ? $"{v:F2}" : $"{v:+0.00;-0.00;0.00} m";

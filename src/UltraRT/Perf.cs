@@ -22,11 +22,18 @@ namespace UltraRT
             Emissive,     // emissive triangle lights
             Lights,       // light gathering and packing
             LightSampling,// light alias tables / ReSTIR bindings
-            Trace,        // all of Plugin.Trace (includes the sections above)
+            // Main-thread time to record a pass's commands (its GPU and render-thread time are the timer slot of the same name):
+            Cache,        // radiance cache update
+            Particles,    // lit particles' lighting volume
+            Denoise,      // denoiser, auto exposure; DLSS RR and the upsampler
+            Volumetrics,  // sun shafts, halos, fog
+            Vfx,          // bloom, haze, shockwaves
+            Viewmodel,    // the weapon pass (recorded from the HUD camera, outside Plugin.Trace)
+            Trace,        // all of Plugin.Trace (includes the sections above but Viewmodel)
             Count,
         }
 
-        public static readonly string[] Names = { "hier", "rescan", "static", "dynamic", "motion", "emissive", "lights", "lightsamp", "trace" };
+        public static readonly string[] Names = { "hier", "rescan", "static", "dynamic", "motion", "emissive", "lights", "lightsamp", "cache", "particles", "denoise", "volumetrics", "vfx", "viewmodel", "trace" };
 
         private static readonly long[] Ticks = new long[(int)Sec.Count];
         public static readonly double TickMs = 1000.0 / Stopwatch.Frequency;
@@ -52,6 +59,9 @@ namespace UltraRT
         /// finished rendering (culling, our Trace, command submission). Wait = the rest of the frame (render thread / GPU).
         /// </summary>
         public static long FrameStart, RenderStart, RenderEnd;
+        /// <summary>Called on the main thread right before the frame's rendering starts and right after it ends (before
+        /// the present): the GPU timer's whole-frame slot (Plugin.cs, SlotFrame).</summary>
+        public static Action OnRenderStart, OnRenderEnd;
         private static long _curStart, _curRender;
         private static bool _installed;
 
@@ -70,7 +80,7 @@ namespace UltraRT
                 if (subs[i].type == typeof(Initialization)) subs[i] = Insert(subs[i], 0, typeof(MarkFrameStart), () => _curStart = Stopwatch.GetTimestamp());
                 else if (subs[i].type == typeof(PostLateUpdate))
                 {
-                    var s = Insert(subs[i], 0, typeof(MarkRenderStart), () => _curRender = Stopwatch.GetTimestamp());
+                    var s = Insert(subs[i], 0, typeof(MarkRenderStart), () => { _curRender = Stopwatch.GetTimestamp(); OnRenderStart?.Invoke(); });
                     int after = Array.FindIndex(s.subSystemList, x => x.type == typeof(PostLateUpdate.FinishFrameRendering));
                     if (after < 0) after = s.subSystemList.Length - 1;
                     subs[i] = Insert(s, after + 1, typeof(MarkRenderEnd), () =>
@@ -78,6 +88,7 @@ namespace UltraRT
                         FrameStart = _curStart;
                         RenderStart = _curRender;
                         RenderEnd = Stopwatch.GetTimestamp();
+                        OnRenderEnd?.Invoke();
                     });
                 }
             }

@@ -197,6 +197,112 @@ dispatches with it (`vol.shadowPass`, default on). In one launch (`perf-volpass`
 (halo luma on − off: +1.9, +1.5, −1.4, −1.5; the lamp flickers by ±3 on its own). Smaller than hoped: a slim record is
 still a record.
 
+## Profiling (2026-11-17, branch `t3/perf-profile`)
+
+Tools added for the 120 Hz pathtrace / 240 Hz relight work (docs/plan-look-and-perf.md, 5.1). They answer three
+questions the numbers above could not: is a frame bound by the GPU, the main thread or the render thread; what does
+each pass cost on each of the three; and where do the slow frames come from.
+
+| Tool | What it gives |
+|---|---|
+| timer slot `frame` | The whole frame's rendering, the game included, in every mode (also `off`): GPU span from the first to the last render command. Close to the frame time = GPU-bound |
+| render-thread ms per slot | The render thread's own time between a pass's begin and end events (`UltraRT_GetCpuTimings`, docs/gpu-timer.md): shader tables, state, copies. Summary table "GPU ms / render-thread ms per pass", `results.json` `RenderThreadMs` |
+| main-thread ms per pass | Perf sections `cache`, `particles`, `denoise`, `volumetrics`, `vfx`, `viewmodel`: recording the pass's commands |
+| `bench.ps1 -Floor` | `-Perf` at trace scale 0.2: every pass still runs with little GPU work, so the frame is what the CPU side costs |
+| `bench.ps1 -Etw` + `tools/perf/etw_report.py <run>` | A CPU trace of the launch (Windows Performance Recorder), cut to each mode's measured frames: per thread, CPU by function (self and inclusive, with Unity's public symbols) and blocked time by what it waited in. `tools/perf/folded.py` drills into one function |
+| `tools/perf/hitches.py <run>` | Every frame over 12 ms attributed to scripts, rendering, a plugin section, or waiting |
+| suites `perf-core`, `perf-etw` | The standard poses: 0-1 metal (calm), 0-3 ghosts (enemies), the 0-2 run with enemies and gunfire |
+
+### ETW
+A kernel CPU trace needs administrator rights. `scripts\etw-setup.ps1` asks for them once and registers three scheduled
+tasks that run `wpr.exe` elevated with fixed arguments (start, stop to `D:\UltraRT-Bench\etw\ultrart.etl`, cancel);
+`scripts\etw.ps1` and `bench.ps1 -Etw` use them with no further prompt (`etw-setup.ps1 -Remove` deletes them). The
+trace is system-wide while it records and stays on the machine (`trace.etl` in the run's folder, gitignored; never
+commit or upload one). It grows by about 50 MB per second of a running game (4.4 GB for a 90 s launch) and converting
+it takes about ten minutes, so use the short `perf-etw` suite. Symbols come from Microsoft's and Unity's public symbol
+servers (`UnityPlayer.dll` resolves fully for this build; NVIDIA's driver modules have none).
+**Tracing slows the game**: `off` 1.82 -> 3.21 ms, relight 5.81 -> 7.23 ms at 0-1 (stack walks on every context
+switch). Read a trace for shares and call paths, and take frame times from an untraced run.
+
+### Where the frame goes (untraced, `perf-core`, 2560x1440, trace scale 0.5, RTX 5070 Ti)
+
+| Scenario | Mode | frame ms | GPU span of the frame | main thread (scripts + render) | bound by |
+|---|---|---|---|---|---|
+| 0-1 metal | off | 1.82 | 0.24 | 1.80 | main thread |
+| 0-1 metal | relight | 5.81 | 5.63 | 3.55 | **GPU** |
+| 0-1 metal | pathtrace | 8.06 | 7.96 | 3.87 | **GPU** |
+| 0-3 ghosts | relight | 6.95 | 5.65 | 4.69 | GPU, then main thread |
+| 0-3 ghosts | pathtrace | 7.79 | 7.66 | 4.74 | **GPU** |
+| 0-2 run, combat | off | 2.89 | 0.33 | 2.86 | main thread |
+| 0-2 run, combat | relight | 8.95 | 6.80 | 6.67 | **main thread** (and GPU) |
+| 0-2 run, combat | pathtrace | 10.10 | 9.54 | 7.10 | **GPU** |
+
+The game's own GPU work is 0.2-0.3 ms; everything else on the GPU is ours. The plan's reading that relight is
+CPU-bound holds only once its GPU time is under the CPU floor (3.9 ms calm, `-Floor`): at trace scale 0.5 a calm
+relight frame is GPU-bound, and in combat the main thread and the GPU are both near the frame time.
+
+Per pass, relight at 0-1 (GPU / render thread / main-thread record, ms; combat in brackets where it differs):
+
+| Pass | GPU | render thread | main thread |
+|---|---|---|---|
+| main dispatch | 2.89 (3.24) | 0.25 (0.40) | (in `trace`) |
+| denoise + upsample | 0.82 | 0.06 | 0.04 |
+| cache update | 0.29 | 0.31 (0.50) | 0.01 |
+| volumetrics | 0.30 (0.38) | 0.17 (0.25) | 0.03 |
+| viewmodel | 0.28 (0.64) | 0.32 (0.47) | 0.16 |
+| particle light | 0.11 | 0.23 (0.37) | 0.01 |
+| RTAS build | 0.16 | 0.20 (0.35) | |
+| DLSS RR (pathtrace) | 1.62 | 0.64 (0.77) | 0.05 |
+| all of ours | 4.92 (5.48) | 1.32 (2.05) | 0.63 (1.06) + 0.16 |
+
+The four auxiliary dispatches cost the render thread 1.0 ms (1.6 in combat) for 1.0 ms of GPU work; RR's render-thread
+cost (0.64) was not known before.
+
+### What the trace shows (0-1 metal and the 0-2 run; shares, not absolute times)
+
+- **The render thread is not the limit in 0-x.** In relight it works 4.4 ms of a 7.2 ms traced frame and waits 2.9 ms
+  for commands from the main thread (`ThreadedStreamBuffer::HandleOutOfBufferToReadFrom`). The main thread works 5.6 ms
+  and waits 1.5 ms for the swap chain (`SwapChainWaitingContext::WaitOnSwapChain`): the GPU. In combat the main thread
+  works 8.9 of 10.4 ms.
+- **Main thread, what relight adds over `off`** (+2.5 ms traced): managed code +1.3 (our camera callbacks 1.0), executing
+  our command buffers 0.6, of which `RayTracingShader::DispatchRays -> BeforeDispatch ->
+  RayTracingAccelerationStructure::SetInstanceShaders` is 0.33 (five dispatches; each schedules a parallel job over
+  every instance's hit-group shaders and waits for it), the game's UI canvas rebuild +0.19, physics +0.27.
+- **Render thread** (4.4 ms): `DispatchRayTracingProgram` 1.30 (`D3D12RayTracingState::Transition` 0.65,
+  `WriteHitGroupShaderRecords` 0.58), present 0.92 (`QueueExecute` 0.46), `BufferD3D12::InitializeResource` 0.23: a
+  vertex buffer is created anew every frame under `GeometryJobTasks::ScheduleGeometryJobs` (a mesh written each frame
+  that is not marked dynamic; to find and fix), `BuildRayTracingAccelerationStructure` 0.21.
+- **Job workers**: eleven workers spend 1-2 ms each per frame, about a third in `SetHitGroupShadersJob` and as much in
+  waking each other (`lane_wake_buddies`): the per-dispatch shader setup again.
+- **A driver thread compiles all the time**: one NVIDIA thread (`nvrtum64` -> `nvgpucomp64`) uses 90 % of a core
+  during the whole run, in `off` too. It is the driver's background optimisation of the ray-tracing pipelines after a
+  new shader bundle (the "warm up after a new bundle" trap below); whether it ever finishes within a session, and what
+  the frame costs before and after, is not measured yet.
+
+### Hitches
+`hitches.py` on the 0-2 run (untraced): the frames over 12 ms are **the game's script phase when an explosion
+spawns**. The bench spawns one every 0.6 s there, and `off` has the same frames (16 of 3043, +13 ms each); with RT on
+they are +15 ms, and because an RT frame is three times longer the same hitches are a larger share of the frames, which
+is what moves p99 from 5.8 ms to 21 ms. Of 53 slow relight frames 35 are scripts, 11 waiting, 4 rendering, 3 inside
+`Plugin.Trace` (the `lights` section's 6-9 ms frame, once per level). So the p99 of the combat run mostly measures the
+game's explosion instantiate; what RT adds per hitch is about 2 ms.
+
+### Tried: a ray generation per mode (2026-11-17, `t3/perf-paths`, not kept)
+Plan item R1: a `RayGenRelight` entry point with the mode compiled in (`_Mode` as a constant 0 instead of a uniform,
+so the hybrid, reference and debug branches drop out). Measured against the general `RayGen` in one launch
+(`bench/results/20261117-144902_perf-raygen`, and the same pair in `20261117-144613_perf-paths`): main dispatch
+2.887 -> 2.846 / 2.865 ms at 0-1 metal (the same mode twice), 2.739 -> 2.712 / 2.702 at 0-3 ghosts. A gain of
+0.02-0.04 ms is the spread between two equal modes, and a third ray generation is a third pipeline for the driver to
+compile, so the change was removed. The branches on `_Mode` cost nothing measurable; relight's GPU time is in its rays.
+
+### What this changes in the plan
+- Relight 240 Hz: GPU first (4.9 ms of ours against a 4.17 ms frame), then the main thread; the render thread only in
+  8-x. The per-dispatch cost is on **three** threads (main 0.07, render 0.25, workers), which makes fewer dispatches
+  (C2, C3) worth more than estimated.
+- New candidates: the per-frame vertex buffer creation (0.2 ms render thread), RR's 0.64 ms render-thread cost (what
+  in it is ours: the feature inputs or the evaluate call), the UI canvas rebuild the game does more of with RT on.
+- Hitches are mostly not ours; the `lights` frame is.
+
 ## How these were measured (and traps)
 
 - Suites: `perf-1440p` (seven poses, relight + pathtrace interleaved, 8-2/8-3 with `off`), `perf-1440p-short`,

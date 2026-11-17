@@ -29,8 +29,27 @@ namespace UltraRT
         /// brightened towards it (by upStrength), so a dark room stays dark but readable. -ultrart-ae-key-low K.</summary>
         public float keyLow = 0.1f;
         /// <summary>Fraction of the brightening towards the dark key a darker scene gets (1 = all the way, 0 = never
-        /// brightens). Darkening above the key is always full. -ultrart-ae-up F.</summary>
-        public float upStrength = 0.5f;
+        /// brightens: the default since 2026-11-17, a dark place stays as dark as its lights make it and only the game match
+        /// may lift it). Darkening above the key is always full. <see cref="rtBrightness"/> blends this towards the old
+        /// 0.5. -ultrart-ae-up F.</summary>
+        public float upStrength = 0f;
+        /// <summary>
+        /// "RT brightness" (settings menu; -ultrart-rt-brightness F; config [Relight] RtBrightness): 0 = as bright as the
+        /// game (the defaults of <see cref="upStrength"/>, <see cref="gameMatchDown"/>, <see cref="gameMatchBandDown"/>),
+        /// 1 = the look before 2026-11-17 (dark scenes lifted half way to the dark key, 40 % of an excess over the game
+        /// removed beyond 0.35 EV). In between the three values are blended. docs/relight.md, "Game match".
+        /// </summary>
+        public float rtBrightness = 0f;
+        /// <summary>The current level's own RT brightness, from its light override file ("exposure": { "rtBrightness": F },
+        /// docs/lighting-overrides.md): the level is shown at least this bright. Set by the plugin on every level; not a
+        /// setting. <see cref="levelOverride"/> = false ignores it (bench variant ae.levelOverride=0, for before/after).</summary>
+        public float levelBrightness = 0f;
+        public bool levelOverride = true;
+        public float Brightness => Mathf.Clamp01(Mathf.Max(rtBrightness, levelOverride ? levelBrightness : 0f));
+        public const float LegacyUpStrength = 0.5f, LegacyGameMatchDown = 0.4f, LegacyGameMatchBandDown = 0.35f;
+        public float EffectiveUpStrength => Mathf.Lerp(upStrength, Mathf.Max(upStrength, LegacyUpStrength), Brightness);
+        public float EffectiveGameMatchDown => gameMatchDown <= 0f ? 0f : Mathf.Lerp(gameMatchDown, Mathf.Min(gameMatchDown, LegacyGameMatchDown), Brightness);
+        public float EffectiveGameMatchBandDown => Mathf.Lerp(gameMatchBandDown, Mathf.Max(gameMatchBandDown, LegacyGameMatchBandDown), Brightness);
         /// <summary>Dead band in EV: the exposure stops this far short of the target, so a target that wanders by less
         /// than this (noise, flickering torches) never moves it. -ultrart-ae-deadband EV.</summary>
         public float deadBand = 0.05f;
@@ -42,12 +61,15 @@ namespace UltraRT
         /// <summary>
         /// Game match (docs/relight.md, "Game match"): the game's own frame (opaques and sky, before the RT composite) is
         /// metered at the same pixels as the RT image, near ones only (game fog under <see cref="gameMatchFog"/>), and the
-        /// target moves this fraction of the way towards the game's brightness, beyond a dead band of
-        /// <see cref="gameMatchBand"/> EV. Up = the RT image is darker than the game (8-2's alley, lit in game by lights
-        /// shining through walls), down = brighter (torch rooms, 4-1). 0 = off. -ultrart-ae-match UP[,DOWN].
+        /// target moves this fraction of the way towards the game's brightness, beyond a dead band. Up = the RT image is
+        /// darker than the game (8-2's alley, lit in game by lights shining through walls; band
+        /// <see cref="gameMatchBand"/> EV), down = brighter (torch rooms, 4-1; band <see cref="gameMatchBandDown"/> EV).
+        /// 0 = off. Down was 0.4 beyond 0.35 EV until 2026-11-17 ("lit rooms may stay brighter than the game"); now the
+        /// image follows the game's brightness unless <see cref="rtBrightness"/> says otherwise.
+        /// -ultrart-ae-match UP[,DOWN], -ultrart-ae-match-band UP[,DOWN].
         /// </summary>
-        public float gameMatchUp = 0.75f, gameMatchDown = 0.4f;
-        public float gameMatchBand = 0.35f;
+        public float gameMatchUp = 0.75f, gameMatchDown = 0.9f;
+        public float gameMatchBand = 0.35f, gameMatchBandDown = 0.1f;
         /// <summary>Pixels whose game fog factor is above this are not compared (the game's fog replaces their colour).</summary>
         public float gameMatchFog = 0.3f;
         /// <summary>
@@ -83,6 +105,14 @@ namespace UltraRT
                         gameMatchDown = parts.Length > 1 ? F(parts[1], gameMatchDown) : gameMatchUp;
                         break;
                     }
+                    case "-ultrart-ae-match-band":
+                    {
+                        var parts = (Next() ?? "").Split(',');
+                        gameMatchBand = F(parts[0], gameMatchBand);
+                        gameMatchBandDown = parts.Length > 1 ? F(parts[1], gameMatchBandDown) : gameMatchBand;
+                        break;
+                    }
+                    case "-ultrart-rt-brightness": rtBrightness = Mathf.Clamp01(F(Next(), rtBrightness)); break;
                     case "-ultrart-ae-color":
                     {
                         var p = (Next() ?? "").Split(',');
@@ -124,7 +154,7 @@ namespace UltraRT
         }
 
         public override string ToString() =>
-            FormattableString.Invariant($"auto exposure {(enabled ? "on" : "off")}{(ptDn ? " (+pt-dn)" : "")}: key {key} (dark key {keyLow}), EV [{minEV}, {maxEV}], speed up {speedUp}/s down {speedDown}/s, band {lowFraction}-{highFraction}, comp {compensation}, up {upStrength}, dead band {deadBand} EV, meter {meterSpeed}/s, settle {settleTime}s@{settleSpeed}/s, game match {gameMatchUp}/{gameMatchDown}, colour match {colorMatch} (band {colorMatchBand}, max {colorMatchMax})");
+            FormattableString.Invariant($"auto exposure {(enabled ? "on" : "off")}{(ptDn ? " (+pt-dn)" : "")}: key {key} (dark key {keyLow}), EV [{minEV}, {maxEV}], speed up {speedUp}/s down {speedDown}/s, band {lowFraction}-{highFraction}, comp {compensation}, up {EffectiveUpStrength}, dead band {deadBand} EV, meter {meterSpeed}/s, settle {settleTime}s@{settleSpeed}/s, RT brightness {rtBrightness} (level {(levelOverride ? levelBrightness : 0f)}), game match {gameMatchUp}/{EffectiveGameMatchDown} beyond {gameMatchBand}/{EffectiveGameMatchBandDown} EV, colour match {colorMatch} (band {colorMatchBand}, max {colorMatchMax})");
     }
 
     /// <summary>
@@ -245,7 +275,7 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kHistogram, IdGameColor, match ? GameColor : Texture2D.blackTexture);
             cmd.SetComputeVectorParam(cs, IdGameMap, match ? GameMap : Vector4.zero);
             cmd.SetComputeVectorParam(cs, IdGameFog, GameFog);
-            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.gameMatchDown) : 0f,
+            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.EffectiveGameMatchDown) : 0f,
                 Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
             cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), FitTrace != null ? 1f : 0f));
             // Every second pixel in x and y: 16x16 threads cover 32x32 pixels.
@@ -260,10 +290,10 @@ namespace UltraRT
             if (_settleLeft < 0f) _settleLeft = s.settleTime; // first frame after a reset
             bool settling = _settleLeft > 0f;
             _settleLeft = Mathf.Max(0f, _settleLeft - dt);
-            cmd.SetComputeVectorParam(cs, IdParams3, new Vector4(Mathf.Clamp01(s.upStrength), Mathf.Max(0f, s.deadBand),
+            cmd.SetComputeVectorParam(cs, IdParams3, new Vector4(Mathf.Clamp01(s.EffectiveUpStrength), Mathf.Max(0f, s.deadBand),
                 Mathf.Max(0f, s.meterSpeed), settling ? Mathf.Max(0f, s.settleSpeed) : 0f));
-            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.key, 1e-4f)), 2f), 0, 0, 0));
-            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.gameMatchDown) : 0f,
+            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.key, 1e-4f)), 2f), Mathf.Max(0f, s.EffectiveGameMatchBandDown), 0, 0));
+            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.EffectiveGameMatchDown) : 0f,
                 Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
             cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), FitTrace != null ? 1f : 0f));
             cmd.SetComputeBufferParam(cs, _kAdapt, IdHist, _hist);

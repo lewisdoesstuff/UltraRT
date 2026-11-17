@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "note": "Light classes for every level (docs/lighting-overrides.md, 'Classes and rules'). The first matching rule gives a light its class. 'classes' holds what RT does with a class everywhere; a level's own file can add rules and class policies for that level.",
+  "classes": {},
+  "rules": [
+    { "name": "start room", "path": "(^|/)[^/]*FirstRoom[^/]*/Room/((Pit|Hallway)[^/]*/)?Point Light[^/]*$", "class": "prefab:firstroom" },
+    { "name": "shop", "path": "Shop/(Canvas/)?Point Light[^/]*$", "class": "prefab:shop" },
+    { "name": "final door", "path": "FinalDoor/OpenedLight[^/]*$", "class": "prefab:finaldoor" },
+    { "name": "final room", "path": "(^|/)[^/]*FinalRoom[^/]*/((Pit|Hallway|Room|Layer)[^/]*/)*Point Light[^/]*$", "class": "prefab:finalroom" },
+    { "name": "checkpoint", "path": "Checkpoint[^/]*/(Quad|EnabledEffects/Point Light)[^/]*$", "class": "prefab:checkpoint" },
+    { "name": "large door", "path": "(Large ?Door|FerryDoor|GothicDoor)[^/]*/Point Light[^/]*$", "class": "prefab:door" },
+    { "name": "level transition pit", "path": "(Level Transition Pit/|(^|/)Pit[^/]*/(Lights|Layer)[^/]*/Point Light)", "class": "prefab:pit" },
+
+    { "name": "lightning", "path": "Lightning", "class": "lightning" },
+    { "name": "gameplay object", "path": "(Altar|GrapplePoint|HookPoint|Landmine|Switch|OK Light|Door Light|Sequence Light|WarningSign|Lights \\((Blue|Red|Rainbow)\\)|Button|Alarm|Bonus|Pedestal)", "class": "gameplay" },
+
+    { "name": "open fire fixture", "signals": ["lifted"], "class": "fixture:torch" },
+    { "name": "statue orb", "signals": ["orb"], "class": "fixture:orb" },
+    { "name": "statue orb by name", "path": "Sphere_\\d+/Point Light[^/]*$", "class": "fixture:orb" },
+    { "name": "torch by name", "path": "(torch|brazier|candle|flame|campfire|bonfire|/Fire( \\(\\d+\\))?$)", "class": "fixture:torch" },
+    { "name": "window by name", "path": "(window|skylight)[^/]*/[^/]*$", "class": "fixture:window" },
+    { "name": "screen by name", "path": "(screen|monitor|terminal|hologram)[^/]*/[^/]*$", "class": "fixture:screen" },
+    { "name": "lamp by name", "path": "(lamp|lantern|bulb|chandelier|sconce|fluor|neon|streetlight|light ?post|hotellight|officelight|tubelight|ventlight|lightpillar|tunnel light)[^/]*(/[^/]*){0,2}$", "class": "fixture:lamp" },
+    { "name": "in a fixture", "signals": ["fixture"], "class": "fixture:lamp" },
+    { "name": "in a lamp shade", "signals": ["enclosed"], "class": "fixture:lamp" },
+
+    { "name": "scripted", "signals": ["scripted"], "class": "scripted" },
+    { "name": "animated", "signals": ["animated"], "class": "scripted" },
+
+    { "name": "floating spot", "type": "spot", "class": "accent" },
+    { "name": "floating point, room-sized", "type": "point", "rangeMin": 12, "class": "fill" },
+    { "name": "floating point, small", "type": "point", "class": "glow" }
+  ]
+}

@@ -822,6 +822,7 @@ namespace UltraRT
         /// <summary>Measure one scenario in the loaded level (EnsureLevel). routeFrom: see LoadPose.</summary>
         private IEnumerator RunScenario(Scenario sc, ScenarioResult sr, string suiteDir, string outDir, string method, float routeFrom)
         {
+            if ((sc.Path.Type ?? "").ToLowerInvariant() == "tour") { yield return RunTour(sc, sr, outDir); yield break; } // Plugin.Bench.Tour.cs
             var load = new PoseLoad();
             yield return LoadPose(sc, method, suiteDir, load, _level.Spawn, routeFrom);
             sr.Load = load.Method;
@@ -877,6 +878,8 @@ namespace UltraRT
             var frames = sc.Modes.ToDictionary(m => m, _ => new List<float>(8192));
             var gpuSum = sc.Modes.ToDictionary(m => m, _ => new double[SlotCount]);
             var gpuN = sc.Modes.ToDictionary(m => m, _ => new int[SlotCount]);
+            var rtSum = sc.Modes.ToDictionary(m => m, _ => new double[SlotCount]); // render-thread CPU per slot
+            var rtN = sc.Modes.ToDictionary(m => m, _ => new int[SlotCount]);
             // Screenshot times also trigger the burst. -noshots + -noburst (perf runs): nothing is captured, the pose just plays.
             bool wantBurst = sc.Burst > 0 && !_benchNoBursts;
             var shots = new Queue<float>(_benchNoShots && !wantBurst ? new List<float>() : sc.Screenshots.OrderBy(x => x).ToList());
@@ -888,6 +891,9 @@ namespace UltraRT
             var mainSum = sc.Modes.ToDictionary(m => m, _ => new double[2]);
             var gcCount = sc.Modes.ToDictionary(m => m, _ => 0);
             var allocSum = sc.Modes.ToDictionary(m => m, _ => 0.0);
+            // Wall-clock spans of the counted frames per mode (unix seconds), for cutting an ETW trace (bench.ps1 -Etw).
+            var windows = sc.Modes.ToDictionary(m => m, _ => new List<double[]>());
+            bool windowOpen = false;
             var csv = new StringBuilder("t,mode,dt_ms,scripts_ms,render_ms,gc0,alloc_kb," + string.Join(",", Perf.Names.Select(n => n + "_ms")) + ",instances,static_records,dyn_active\n");
             int gc0 = GC.CollectionCount(0);
             long heap = GC.GetTotalMemory(false);
@@ -991,7 +997,7 @@ namespace UltraRT
                     }
 
                     var mode = sc.Modes[(int)(pathT / Mathf.Max(sc.Segment, 0.05f)) % sc.Modes.Count];
-                    if (mode != current) { ApplyBenchMode(mode); current = mode; sinceSwitch = 0; }
+                    if (mode != current) { ApplyBenchMode(mode); current = mode; sinceSwitch = 0; windowOpen = false; }
 
                     if (sc.ReplayArenas && round == 0)
                         while (nextArena < arenas.Count && arenas[nextArena].Time <= pathT) TriggerArena(arenas[nextArena++]);
@@ -1029,19 +1035,28 @@ namespace UltraRT
                     for (int k = 0; k < nSec; k++) csv.Append(',').Append(F(secMs[k]));
                     csv.Append(',').Append(_proxies?.Rtas?.GetInstanceCount() ?? 0).Append(',').Append(_proxies?.StaticRecordsActive ?? 0)
                         .Append(',').Append(_proxies?.ActiveDynamicCount ?? 0).Append('\n');
+                    if (!counted) windowOpen = false;
                     if (counted)
                     {
+                        double unixNow = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+                        var spans = windows[current];
+                        if (!windowOpen) { spans.Add(new[] { unixNow - dt, unixNow }); windowOpen = true; }
+                        else spans[spans.Count - 1][1] = unixNow;
                         for (int k = 0; k < nSec; k++) { cpuSum[current][k] += secMs[k]; cpuMax[current][k] = Math.Max(cpuMax[current][k], secMs[k]); }
                         mainSum[current][0] += scriptsMs;
                         mainSum[current][1] += renderMs;
                         gcCount[current] += gcd;
                         allocSum[current] += allocKb;
                         frames[current].Add(dt * 1000f);
-                        if (_gpu != null && current != "off" && _gpu.ResolvedFrames != lastResolved)
+                        // "off" too: the whole-frame slot is timed in every mode.
+                        if (_gpu != null && _gpu.ResolvedFrames != lastResolved)
                         {
                             lastResolved = _gpu.ResolvedFrames;
                             for (int s = 0; s < SlotCount; s++)
+                            {
                                 if (_gpu.TryGetMs(s, out var ms) && ms > 0f) { gpuSum[current][s] += ms; gpuN[current][s]++; }
+                                if (_gpu.TryGetCpuMs(s, out var cms) && cms >= 0f) { rtSum[current][s] += cms; rtN[current][s]++; }
+                            }
                         }
                     }
                 }
@@ -1051,7 +1066,10 @@ namespace UltraRT
             {
                 var st = Stats(frames[m]);
                 for (int s = 0; s < SlotCount; s++)
+                {
                     if (gpuN[m][s] > 0) st.GpuMs[SlotNames[s]] = (float)(gpuSum[m][s] / gpuN[m][s]);
+                    if (rtN[m][s] > 0) st.RenderThreadMs[SlotNames[s]] = (float)(rtSum[m][s] / rtN[m][s]);
+                }
                 int n = Math.Max(1, st.Frames);
                 for (int k = 0; k < nSec; k++)
                 {
@@ -1062,8 +1080,10 @@ namespace UltraRT
                 st.RenderMs = (float)(mainSum[m][1] / n);
                 st.GcCollections = gcCount[m];
                 st.AllocKbPerFrame = (float)(allocSum[m] / n);
+                st.WindowsUtc = windows[m];
                 sr.Modes[m] = st;
             }
+            WriteLightCensus(outDir); // -ultrart-light-census (Plugin.LightClasses.cs)
             try { File.WriteAllText(Path.Combine(outDir, $"frames_{Sanitize(sc.Name)}.csv"), csv.ToString()); }
             catch (Exception e) { Logger.LogWarning($"Benchmark: frame log not written: {e.Message}"); }
             sr.Instances = (int)(_proxies?.Rtas?.GetInstanceCount() ?? 0);
@@ -1181,6 +1201,22 @@ namespace UltraRT
                                   $" | {m.GcCollections} | {m.AllocKbPerFrame:F1} |");
                 }
             }
+            if (r.Scenarios.Any(s => s.Error == null && s.Modes.Values.Any(m => m.RenderThreadMs.Count > 0)))
+            {
+                // Passes in the order of their cost; "frame" is the whole frame (the game included), in every mode.
+                var slots = SlotNames.Where(n => r.Scenarios.Any(s => s.Error == null && s.Modes.Values.Any(m => m.RenderThreadMs.ContainsKey(n) || m.GpuMs.ContainsKey(n)))).ToList();
+                sb.AppendLine();
+                sb.AppendLine("GPU ms / render-thread ms per pass (native timer: the render thread's own time between a pass's begin and end events). frame = the whole frame's rendering, the game included: its GPU time against the frame time says whether the GPU is the limit:");
+                sb.AppendLine();
+                sb.AppendLine("| Scenario | Mode | frame ms | " + string.Join(" | ", slots) + " |");
+                sb.AppendLine("|---|---|---|" + string.Concat(slots.Select(_ => "---|")));
+                foreach (var sc in r.Scenarios)
+                {
+                    if (sc.Error != null) continue;
+                    foreach (var kv in sc.Modes)
+                        sb.AppendLine($"| {sc.Name} | {kv.Key} | {kv.Value.AvgMs:F2} | " + string.Join(" | ", slots.Select(n => $"{Get2(kv.Value.GpuMs, n)}/{Get2(kv.Value.RenderThreadMs, n)}")) + " |");
+                }
+            }
             sb.AppendLine();
             sb.AppendLine($"How each scenario was reached (level loads {r.Scenarios.Sum(s => s.LevelLoadSeconds):F0} s, pose loads {r.Scenarios.Sum(s => s.LoadSeconds):F0} s in total):");
             sb.AppendLine();
@@ -1195,6 +1231,7 @@ namespace UltraRT
             return sb.ToString();
 
             string Get(Dictionary<string, float> d, string k) => d.TryGetValue(k, out var v) ? v.ToString("F3") : "-";
+            string Get2(Dictionary<string, float> d, string k) => d.TryGetValue(k, out var v) ? v.ToString("F2") : "-";
         }
 
         private static string Sanitize(string s) => new string(s.Select(c => char.IsLetterOrDigit(c) || c == '-' ? c : '_').ToArray());

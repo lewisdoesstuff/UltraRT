@@ -128,6 +128,7 @@ namespace UltraRT
             m.Float("PathTrace", "Bounces", "Bounces per path", 1f, 4f, 0, () => _ptSettings.bounces, v => _ptSettings.bounces = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4), "-ultrart-pt-bounces");
             m.Float("PathTrace", "DirectSamples", "Light samples per pixel (DLSS RR)", 1f, 4f, 0, () => _ptSettings.directSamplesRR, v => _ptSettings.directSamplesRR = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4));
             m.Bool("PathTrace", "CacheTail", "Radiance cache after the last bounce", () => _ptSettings.cacheTail, v => _ptSettings.cacheTail = v, "-ultrart-pt-nocache");
+            m.Float("PathTrace", "Footprint", "End wide paths in the cache (cells; 0 = off)", 0f, 8f, 2, () => _ptSettings.footprint, v => _ptSettings.footprint = Mathf.Max(0f, v), "-ultrart-pt-footprint");
             m.Bool("PathTrace", "SkyAtVertices", "Sky sample at every bounce", () => _ptSettings.skyAtVertices, v => _ptSettings.skyAtVertices = v);
             m.Bool("DLSS", "RayReconstruction", "DLSS RR in relight / pt-dn  [Ctrl+F8]", () => _rrEnabled, v => _rrEnabled = v, "-ultrart-rr", "-ultrart-norr").Legacy();
             m.Bool("DLSS", "Remodulate", "DLSS RR: exact texels (remodulation)", () => _rrRemodulate, v => _rrRemodulate = v, "-ultrart-rr-noremod");
@@ -148,6 +149,7 @@ namespace UltraRT
 
             m.Group = "Auto exposure";
             m.Bool("Relight", "AutoExposure", "Auto exposure  [Ctrl+F4]", () => _aeSettings.enabled, v => { _aeSettings.enabled = v; _autoExposure?.Reset(); }, "-ultrart-relight-autoexposure").Legacy();
+            m.Float("Relight", "RtBrightness", "RT brightness (0 = as the game)", 0f, 1f, 2, () => _aeSettings.rtBrightness, v => _aeSettings.rtBrightness = Mathf.Clamp01(v), "-ultrart-rt-brightness");
             m.Float("Relight", "AutoExposureKey", "Target brightness", 0.1f, 1f, 2, () => _aeSettings.key, v => _aeSettings.key = v, "-ultrart-ae-key");
             m.Float("Relight", "AutoExposureMin", "Darkest exposure (EV)", -6f, 0f, 1, () => _aeSettings.minEV, v => _aeSettings.minEV = v, "-ultrart-ae-min");
             m.Float("Relight", "AutoExposureMax", "Brightest exposure (EV)", 0f, 3f, 1, () => _aeSettings.maxEV, v => _aeSettings.maxEV = v, "-ultrart-ae-max");

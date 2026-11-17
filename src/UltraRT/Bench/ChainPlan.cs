@@ -168,6 +168,7 @@ namespace UltraRT.Bench
             var p = it.Sc.Path;
             string type = (p.Type ?? "spawn").ToLowerInvariant();
             if (type == "recording") return; // replays from the level start and triggers arenas: own load
+            if (type == "tour") return;      // reloads the level for every stop (Plugin.Bench.Tour.cs): own load, leaves it dirty
             it.Method = resolveLoad(p);
             if (it.Method == "approach-fast")
             {

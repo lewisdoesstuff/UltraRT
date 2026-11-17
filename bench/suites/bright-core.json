@@ -1,0 +1,194 @@
+{
+  "Name": "bright-core",
+  "Note": "Brightness scoreboard, core poses (docs/lighting-overrides.md, 'Scoreboard'): the game against pathtrace and relight at poses reached through an approach route. pathtrace+ae.rtBrightness=1 is the exposure policy before 2026-11-17; pathtrace+ae.enabled=0 is fixed exposure, for judging the lights themselves. P-2 has its own RT brightness (data/lights/Level P-2.json): there pathtrace+ae.levelOverride=0 is the new policy. Score with tools/lights/score.py.",
+  "Scenarios": [
+    {
+      "Name": "start room",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "1-4 bridge",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-1 beams",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "6-2 start",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "6-2 hall",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-a.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "P-2 vent smoke",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.levelOverride=0",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "P-2 street",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Position": [
+          6,
+          -18.5,
+          41.5
+        ],
+        "Yaw": 32,
+        "Pitch": -22,
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+ae.levelOverride=0",
+        "pathtrace+ae.rtBrightness=1",
+        "relight",
+        "pathtrace+ae.enabled=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    }
+  ]
+}

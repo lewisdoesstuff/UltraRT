@@ -7,6 +7,7 @@
 #   .\scripts\bench.ps1 -Suite x -Slot alt      # run in the alt install (visual/diagnostic runs)
 #   .\scripts\bench.ps1 -Suite x -KeepOpen      # leave the game running at the main menu; the next call reuses it
 #   .\scripts\bench.ps1 -Stop                   # quit that resident game
+#   .\scripts\bench.ps1 -Suite x -Perf -Etw     # also record a CPU trace (trace.etl; scripts\etw-setup.ps1 once)
 #   .\scripts\bench.ps1 -Compare bench\results\20261113-170000_short
 # Results go to bench\results\<timestamp>_<suite>\ (results.json, summary.md, screenshots). Saves, prefs and Steam
 # stats are blocked in-game for the whole run.
@@ -45,13 +46,21 @@ param(
     # A changed UltraRT.dll or different launch switches (-Scale, -Api, -Extra ...) restart it. Quits itself after 20 idle minutes.
     [switch] $KeepOpen,
     # Quit the resident game of this slot and exit.
-    [switch] $Stop
+    [switch] $Stop,
+    # Record a system-wide CPU trace (Windows Performance Recorder) over the launch: trace.etl in the first suite's
+    # results folder, analysed by tools\perf\etw_report.py. Needs scripts\etw-setup.ps1 once; one launch only (no
+    # -KeepOpen). Keep the suite short: a trace grows by tens of MB per second. docs/performance.md, "ETW".
+    [switch] $Etw,
+    # The CPU floor: -Perf at trace scale 0.2, where the GPU work of the RT passes is small and every pass still runs,
+    # so the frame time is what the main and render threads cost (docs/performance.md, "Profiling").
+    [switch] $Floor
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'lib\slots.ps1')
 if (-not $GameDir) { $GameDir = Get-SlotDir $Slot }
+if ($Floor) { $Perf = $true; $Scale = 0.2 }
 if ($Perf) { $NoScreenshots = $true; $NoBursts = $true }
 
 if ($Stop) {
@@ -137,6 +146,7 @@ function Save-GameLog([string] $dest, [long] $from) {
     } catch { Write-Warning "Could not copy the game log to ${dest}: $($_.Exception.Message)" }
 }
 
+if ($Etw -and ($KeepOpen -or $resident)) { throw '-Etw records one launch: not with -KeepOpen or a resident game (bench.ps1 -Stop first).' }
 if ($KeepOpen -or $resident) {
     # ---- resident game: launch once, hand it commands
     $sig = ($fixed -join ' ')
@@ -192,15 +202,25 @@ if ($KeepOpen -or $resident) {
     $gameArgs += @($fixed | Select-Object -Skip 1)
     $gameArgs += '-ultrart-quit'
     $runs | ForEach-Object { New-Item -ItemType Directory -Force $_.Out | Out-Null }
-    $p = Start-Process $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir -PassThru
-    $deadline = (Get-Date).AddSeconds($limit)
-    $last = $runs[-1].Summary
-    while (-not $p.HasExited -and (Get-Date) -lt $deadline -and -not (Test-Path $last)) { Start-Sleep -Milliseconds 500 }
-    # The summary is the last thing written. Give the game a moment to quit by itself; it sometimes hangs on exit.
-    if (-not $p.HasExited -and -not $p.WaitForExit(20000)) {
-        Stop-Process -Id $p.Id -Force
-        if (Test-Path $last) { Write-Warning 'Game did not quit after finishing; killed it (results are complete).' }
-        else { Write-Warning "Timed out after $limit s; killed. Partial results (if any) in $($runs[-1].Out)" }
+    $tracing = $false
+    if ($Etw) { & (Join-Path $PSScriptRoot 'etw.ps1') start; $tracing = $true }
+    try {
+        $p = Start-Process $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir -PassThru
+        $deadline = (Get-Date).AddSeconds($limit)
+        $last = $runs[-1].Summary
+        while (-not $p.HasExited -and (Get-Date) -lt $deadline -and -not (Test-Path $last)) { Start-Sleep -Milliseconds 500 }
+        # The trace ends with the measurements: the game's exit is not part of it.
+        if ($tracing) { $tracing = $false; & (Join-Path $PSScriptRoot 'etw.ps1') stop -Out (Join-Path $runs[0].Out 'trace.etl') }
+        # The summary is the last thing written. Give the game a moment to quit by itself; it sometimes hangs on exit.
+        if (-not $p.HasExited -and -not $p.WaitForExit(20000)) {
+            Stop-Process -Id $p.Id -Force
+            if (Test-Path $last) { Write-Warning 'Game did not quit after finishing; killed it (results are complete).' }
+            else { Write-Warning "Timed out after $limit s; killed. Partial results (if any) in $($runs[-1].Out)" }
+        }
+    }
+    finally {
+        # Never leave a trace recording.
+        if ($tracing) { try { & (Join-Path $PSScriptRoot 'etw.ps1') cancel } catch { Write-Warning "ETW cancel failed: $($_.Exception.Message)" } }
     }
 }
 if (Test-Path $lockFile) { (Get-Item $lockFile).LastWriteTime = Get-Date }

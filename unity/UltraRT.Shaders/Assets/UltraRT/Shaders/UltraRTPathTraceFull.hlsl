@@ -13,6 +13,9 @@
 //   next segment   the specular lobe with probability by its weight (the composite's SpecularTerms), else cosine
 // The last vertex of a path takes its lighting from the radiance cache (direct + every further bounce) when the tail
 // is on and its cell is valid; that is the only place the cache enters a path.
+// Footprint termination (docs/path-tracing.md, "Footprint"): a vertex whose ray cone is wider there than
+// _PtParams3.z cache cells is the last one, when its cell is valid. After a cosine bounce the cone opens fast, so only
+// near hits (contact shadows, colour bleeding between close surfaces) trace another segment; mirrors keep theirs.
 //
 // Needs, from the includer: Rand, CosineHemisphere, ReflectionDirection, TraceSceneCone, DiffuseCone, GlossyCone, DirectOne, SkyDirect,
 // SkyMissWeight, CacheQueryTotal, EffectsAlong, StainTint, SpecularTerms, _ReflParams, _ReflMaxRadiance, _Ambient, _BounceAmbient,
@@ -26,7 +29,8 @@ float4 _PtParams;
 // without reservoirs, _LightSampling 1)
 float4 _PtParams2;
 // x water / glass / blood in the path (0/1): path rays see the transparent proxies (mask 0x10) and reflect off them by
-// Fresnel or pass through tinted, y how much of the surface colour tints what passes through (0-1)
+// Fresnel or pass through tinted, y how much of the surface colour tints what passes through (0-1), z footprint termination:
+// the ray cone's width at a vertex, in cache cells, from which the path ends in the cache there (0 = off)
 float4 _PtParams3;
 
 float PtLuma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
@@ -98,6 +102,12 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
         }
         if (b == 1) firstDist = travelled + h.t;
         bool last = b == bounces;
+        // The cache at the last vertex, and at any vertex the ray cone has outgrown (which then is the last).
+        float3 light = 0;
+        bool tail = false;
+        bool wide = _PtParams3.z > 0.0 && cone.x >= _PtParams3.z * CacheCellSize(CacheLevel(hp));
+        if ((last || wide) && cacheTail) tail = CacheQueryTotal(hp, hn, light); // not && (no short-circuit in HLSL 2018)
+        if (tail) last = true;
 
         // Emitters the light sampling covers must not count again when a cosine bounce hits them.
         L += T * ToLight(PayloadEmission(h) * (_EmissionScale * (specular ? 1.0 : _EmissiveBounceWeight)));
@@ -115,9 +125,6 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
         float3 diffuse = ToLight(albedo * keep);
         float lit = h.alpha; // 0 = fullbright: shows its albedo whatever the light, and reflects none
 
-        float3 light = 0;
-        bool tail = false;
-        if (last && cacheTail) tail = CacheQueryTotal(hp, hn, light); // not && (no short-circuit in HLSL 2018)
         if (!tail)
         {
             light = DirectOne(hp, hn, PayloadLayer(h), rng);

@@ -66,6 +66,7 @@ That matches the disassembly above. The call runs under SEH. If Unity rejects it
 | `int UltraRT_GetEventBase()` | any | Event IDs: base+0 = Begin(slot), base+1 = End(slot), base+2 = Resolve. Currently 91–93. Slot is passed as the data pointer |
 | `int UltraRT_GetMaxSlots()` | any | 64 |
 | `int UltraRT_GetTimings(float* outMs, int maxSlots)` | any | Newest completed frame. Slots not timed in it are -1. Returns 1 + the highest timed slot (0 before the first result) |
+| `int UltraRT_GetCpuTimings(float* outMs, int maxSlots)` | any | The same frame: the render thread's own time (ms, `QueryPerformanceCounter`) between each slot's Begin and End events, i.e. what executing the commands recorded between them cost that thread. `GpuTimer.TryGetCpuMs`; bench `RenderThreadMs` (docs/performance.md, "Profiling") |
 | `int UltraRT_IsReady()` | any | Query heap and readback buffer exist (created lazily on the first render event) |
 | `const char* UltraRT_GetStatus()` | any | Diagnostic text |
 | `long long UltraRT_GetResolvedFrameCount()` / `UltraRT_GetDroppedFrameCount()` | any | Use to spot stale results or ring overflow |
@@ -141,7 +142,16 @@ if (_gpu != null && _gpu.TryGetMs(SlotDispatch, out var dispatchMs)) { /* ... */
 
 `Graphics.ExecuteCommandBuffer`, `Graphics.Blit` and the second buffer all queue in order on the render thread. All timestamps go to the same direct queue, so a bracket split across two command lists is still valid.
 
+Since 2026-11-17 the plugin resolves at the end of the frame instead of at the end of `Trace()`: `InstallFrameSlot`
+(Plugin.cs) executes one command buffer right before the frame's rendering starts (Begin of the slot `frame`) and one
+right after it (End, then Resolve), from the PlayerLoop markers of `Perf.cs`. Late passes (viewmodel, late
+volumetrics) so land in the same frame as the trace, and `frame` is timed in every mode, `off` included.
+
 ## Caveats
+
+- **Render-thread time** (`TryGetCpuMs`) is that thread's clock between the two events of a slot, valid because a
+  command buffer runs on it as one piece with legacy graphics jobs (the bench default). For `frame` it is the span from
+  the first to the last render command, waiting for the main thread included: not a cost.
 
 - **Latency.** A value is the newest frame whose GPU work has completed, typically 2–4 frames old. Values are single-frame samples; average them yourself, for example over `Measure()`'s window. If no frames are issued (view off), `TryGetMs` keeps returning the last result. Compare `ResolvedFrames` between reads to detect that.
 - **Ring overflow.** If the GPU falls more than 8 frames behind, the frame is skipped (`DroppedFrames`) rather than overwriting queries still in flight.

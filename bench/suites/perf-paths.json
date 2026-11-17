@@ -1,0 +1,94 @@
+{
+  "Name": "perf-paths",
+  "Note": "Footprint-terminated paths (docs/path-tracing.md, 'Footprint'): pathtrace with the termination off (footprint=0, the behaviour before 2026-11-17), at the default, at 0.5 and 2 cells, and with one segment everywhere (bounces=1, the bound). Run with -Perf under an exclusive lock.",
+  "Scenarios": [
+    {
+      "Name": "warm-up",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 6
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 1.5
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 14
+      },
+      "Modes": [
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.footprint=0.5",
+        "pathtrace+ptx.footprint=2",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "0-3 ghosts",
+      "Scene": "Level 0-3",
+      "Enemies": "active",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-3-ghosts.json",
+        "Duration": 12,
+        "ApproachKillEnemies": false
+      },
+      "Modes": [
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.footprint=0.5",
+        "pathtrace+ptx.footprint=2",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [],
+      "Segment": 0.75,
+      "SwitchSkipFrames": 20
+    },
+    {
+      "Name": "0-2 run combat",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/0-2-run.json",
+        "Start": 3,
+        "End": 36
+      },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Weapon": 1,
+      "Effects": {
+        "Kinds": [
+          "revolver"
+        ],
+        "PeriodicKinds": [
+          "revolver",
+          "explosion"
+        ],
+        "Every": 0.6,
+        "Distance": 8
+      },
+      "Modes": [
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.footprint=0.5",
+        "pathtrace+ptx.footprint=2",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [],
+      "Segment": 1.0,
+      "SwitchSkipFrames": 20
+    }
+  ]
+}

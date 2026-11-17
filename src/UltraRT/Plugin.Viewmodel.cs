@@ -237,7 +237,8 @@ namespace UltraRT
             }
             _vmCmd.Clear();
             if (!ViewmodelWanted()) { _vmHistValid = false; return; }
-            try { RecordViewmodel(cam, pp); }
+            long tvm = Perf.Now;
+            try { RecordViewmodel(cam, pp); Perf.Add(Perf.Sec.Viewmodel, tvm); }
             catch (Exception e)
             {
                 _vmCmd.Clear();
@@ -602,7 +603,7 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(rt, "_FrameIndex", (int)_frameIndex);
             cmd.SetRayTracingBufferParam(rt, "_Lights", _lightBuffer);
             cmd.SetRayTracingBufferParam(rt, "_LightMasks", _lightMaskBuffer);
-            cmd.SetRayTracingIntParam(rt, "_LightCount", _lightCount);
+            cmd.SetRayTracingIntParam(rt, "_LightCount", _surfLightCount);
             cmd.SetRayTracingFloatParam(rt, "_LightRadius", _lightRadius);
             cmd.SetRayTracingVectorParam(rt, "_Relight", RelightParams);
             cmd.SetRayTracingFloatParam(rt, "_FixtureShadows", _fixtureShadows ? 1f : 0f);

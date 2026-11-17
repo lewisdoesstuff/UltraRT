@@ -30,6 +30,12 @@ namespace UltraRT
         [JsonProperty("range", NullValueHandling = NullValueHandling.Ignore)] public float? Range;
         [JsonProperty("shadows", NullValueHandling = NullValueHandling.Ignore)] public bool? Shadows;
         [JsonProperty("disabled", NullValueHandling = NullValueHandling.Ignore)] public bool? Disabled;
+        /// <summary>1 = relight's physical falloff, 0 = the game's own (LightPolicy.Reach).</summary>
+        [JsonProperty("reach", NullValueHandling = NullValueHandling.Ignore)] public float? Reach;
+        /// <summary>false: lights the air only, not surfaces (LightPolicy.Surfaces).</summary>
+        [JsonProperty("surfaces", NullValueHandling = NullValueHandling.Ignore)] public bool? Surfaces;
+        /// <summary>Multiplier on what the light scatters in the air (LightPolicy.Medium).</summary>
+        [JsonProperty("medium", NullValueHandling = NullValueHandling.Ignore)] public float? Medium;
         /// <summary>point (no change), sphere, rect or disc.</summary>
         [JsonProperty("shape", NullValueHandling = NullValueHandling.Ignore)] public string Shape;
         /// <summary>Full size in metres: sphere / disc diameter = size[0]; rect width, height.</summary>
@@ -53,6 +59,7 @@ namespace UltraRT
         /// <summary>Changes nothing (an entry the user reset, or one that only carries a note).</summary>
         [JsonIgnore] public bool IsIdentity =>
             (Intensity ?? 1f) == 1f && (Color == null || Color.All(c => c == 1f)) && (Range ?? 1f) == 1f && Shadows == null && Disabled != true &&
+            Reach == null && Surfaces == null && Medium == null && string.IsNullOrEmpty(Class) &&
             (string.IsNullOrEmpty(Shape) || Shape == "point") && !HasOffset;
 
         [JsonIgnore] public bool HasOffset => Offset != null && Offset.Length >= 3 && (Offset[0] != 0f || Offset[1] != 0f || Offset[2] != 0f);
@@ -92,11 +99,28 @@ namespace UltraRT
         public LightAddEntry Clone() => (LightAddEntry)MemberwiseClone();
     }
 
+    /// <summary>Level-wide exposure settings in a light override file ("exposure").</summary>
+    public sealed class LevelExposure
+    {
+        /// <summary>The level's own RT brightness (AutoExposureSettings.rtBrightness, 0-1): the level is shown at least this
+        /// bright, whatever the user's setting. For levels whose look was approved under the exposure policy before
+        /// 2026-11-17 (P-2).</summary>
+        [JsonProperty("rtBrightness", NullValueHandling = NullValueHandling.Ignore)] public float? RtBrightness;
+        [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
+    }
+
     public sealed class LightOverrideFile
     {
         [JsonProperty("version")] public int Version = 1;
         [JsonProperty("scene")] public string Scene;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
+        [JsonProperty("exposure", NullValueHandling = NullValueHandling.Ignore)] public LevelExposure Exposure;
+        /// <summary>This level's class policies (over lights\_rules.json's): "classes": { "fill": { "intensity": 0 } }.</summary>
+        [JsonProperty("classes", NullValueHandling = NullValueHandling.Ignore)] public Dictionary<string, LightPolicy> Classes;
+        /// <summary>This level's own rules, tried before the global ones.</summary>
+        [JsonProperty("rules", NullValueHandling = NullValueHandling.Ignore)] public List<LightRule> Rules;
+        /// <summary>This level's emitter rules (LightEmitterRule), tried before the global ones.</summary>
+        [JsonProperty("emitters", NullValueHandling = NullValueHandling.Ignore)] public List<LightEmitterRule> Emitters;
         [JsonProperty("lights")] public List<LightOverrideEntry> Lights = new List<LightOverrideEntry>();
         [JsonProperty("added")] public List<LightAddEntry> Added = new List<LightAddEntry>();
     }
@@ -125,6 +149,40 @@ namespace UltraRT
         private DateTime _shippedStamp, _userStamp;
         private float _nextCheck;
         public string ShippedNote { get; private set; }
+        private LevelExposure _shippedExposure, _userExposure;
+        /// <summary>The level's own RT brightness ("exposure": { "rtBrightness": F }; the user's file over the shipped
+        /// one), or 0.</summary>
+        public float LevelRtBrightness => Mathf.Clamp01((_userExposure?.RtBrightness ?? _shippedExposure?.RtBrightness) ?? 0f);
+
+        /// <summary>Classes and rules (lights\_rules.json plus this level's own).</summary>
+        public readonly LightClasses Classes;
+        private LightOverrideFile _shippedFile, _userFile;
+        /// <summary>A named layer over the shipped files (bench variant lc.layer=proposed): lights\&lt;layer&gt;\&lt;file&gt; stands
+        /// in for lights\&lt;file&gt; where it exists. For reviewing a proposal against what ships.</summary>
+        public string Layer { get; private set; }
+
+        public bool SetLayer(string layer)
+        {
+            if (string.IsNullOrEmpty(layer)) layer = null;
+            if (layer == Layer) return false;
+            Layer = layer;
+            if (Scene != null) Load(Scene);
+            return true;
+        }
+
+        private string Layered(string file)
+        {
+            if (Layer != null)
+            {
+                var p = Path.Combine(ShippedDir, Layer, file);
+                if (File.Exists(p)) return p;
+            }
+            return Path.Combine(ShippedDir, file);
+        }
+
+        /// <summary>The rules for every level, and the layer's additions to them (null without a layer).</summary>
+        public string RulesPath => Path.Combine(ShippedDir, LightClasses.RulesFileName);
+        public string LayerRulesPath => Layer != null ? Path.Combine(ShippedDir, Layer, LightClasses.RulesFileName) : null;
 
         public int ShippedCount => _shipped.Count;
         public int UserCount => _user.Count;
@@ -135,10 +193,11 @@ namespace UltraRT
             _log = log;
             ShippedDir = shippedDir;
             UserDir = userDir;
+            Classes = new LightClasses(log);
         }
 
         public static string FileName(string scene) => scene + ".json";
-        public string ShippedPath => Path.Combine(ShippedDir, FileName(Scene ?? ""));
+        public string ShippedPath => Layered(FileName(Scene ?? ""));
         public string UserPath => Path.Combine(UserDir, FileName(Scene ?? ""));
 
         // ---------------------------------------------------------------- identity
@@ -200,13 +259,16 @@ namespace UltraRT
             Scene = scene;
             _shipped.Clear(); _user.Clear(); _shippedAdded.Clear(); _userAdded.Clear();
             ShippedNote = null;
+            _shippedExposure = _userExposure = null;
+            _shippedFile = _userFile = null;
             _shippedStamp = Stamp(ShippedPath);
             _userStamp = Stamp(UserPath);
             ReadInto(ShippedPath, "shipped", _shipped, _shippedAdded, true);
             ReadInto(UserPath, "user", _user, _userAdded, false);
+            Classes.Load(RulesPath, LayerRulesPath, scene, new[] { _shippedFile, _userFile });
             Rebuild();
-            if (_shipped.Count + _user.Count + _shippedAdded.Count + _userAdded.Count > 0)
-                _log.LogInfo($"Light overrides '{scene}': {_shipped.Count} shipped + {_shippedAdded.Count} added ({ShippedPath}), {_user.Count} user + {_userAdded.Count} added ({UserPath}); {EffectiveCount} effective");
+            if (_shipped.Count + _user.Count + _shippedAdded.Count + _userAdded.Count > 0 || LevelRtBrightness > 0f || Classes.ActiveRuleCount > 0)
+                _log.LogInfo($"Light overrides '{scene}'{(Layer != null ? $" (layer {Layer})" : "")}: {_shipped.Count} shipped + {_shippedAdded.Count} added ({ShippedPath}), {_user.Count} user + {_userAdded.Count} added ({UserPath}); {EffectiveCount} effective; {Classes.ActiveRuleCount} rules ({RulesPath})" + (LevelRtBrightness > 0f ? $"; level RT brightness {LevelRtBrightness:F2}" : ""));
         }
 
         /// <summary>Once a second: re-read a file that changed on disk (hand edits, a deploy).</summary>
@@ -216,10 +278,12 @@ namespace UltraRT
             _nextCheck = Time.realtimeSinceStartup + 1f;
             var s = Stamp(ShippedPath);
             var u = Stamp(UserPath);
-            if (s == _shippedStamp && u == _userStamp) return false;
+            bool rules = Classes.Changed;
+            if (s == _shippedStamp && u == _userStamp && !rules) return false;
             // Let a writer finish.
-            if ((DateTime.UtcNow - (s > u ? s : u)).TotalSeconds < 0.3) { _nextCheck = Time.realtimeSinceStartup + 0.3f; return false; }
-            _log.LogInfo($"Light overrides: {(s != _shippedStamp ? ShippedPath : UserPath)} changed, reloading");
+            var newest = rules ? LightClasses.Stamp(RulesPath) : s > u ? s : u;
+            if ((DateTime.UtcNow - newest).TotalSeconds < 0.3) { _nextCheck = Time.realtimeSinceStartup + 0.3f; return false; }
+            _log.LogInfo($"Light overrides: {(rules ? RulesPath : s != _shippedStamp ? ShippedPath : UserPath)} changed, reloading");
             Load(Scene);
             return true;
         }
@@ -237,7 +301,8 @@ namespace UltraRT
             {
                 var f = JsonConvert.DeserializeObject<LightOverrideFile>(File.ReadAllText(path));
                 if (f == null) return;
-                if (shipped) ShippedNote = f.Note;
+                if (shipped) { ShippedNote = f.Note; _shippedExposure = f.Exposure; _shippedFile = f; }
+                else { _userExposure = f.Exposure; _userFile = f; }
                 foreach (var e in f.Lights ?? new List<LightOverrideEntry>())
                 {
                     if (string.IsNullOrEmpty(e.Path) || e.Pos == null || e.Pos.Length < 3) continue;
@@ -312,6 +377,7 @@ namespace UltraRT
         public void ResetToGame(LightOverrideEntry u)
         {
             u.Intensity = null; u.Color = null; u.Range = null; u.Shadows = null; u.Disabled = null; u.Shape = null; u.Size = null;
+            u.Reach = null; u.Surfaces = null; u.Medium = null;
             u.Normal = null; u.Tangent = null; u.Offset = null; u.Class = null; u.Confidence = null; u.Note = "reset to the game's values";
             Rebuild();
         }
@@ -356,6 +422,10 @@ namespace UltraRT
                 {
                     Scene = Scene,
                     Note = "UltraRT light overrides edited in game (docs/lighting-overrides.md). Entries here replace the shipped ones for the same light.",
+                    Exposure = _userExposure,
+                    Classes = _userFile?.Classes,
+                    Rules = _userFile?.Rules,
+                    Emitters = _userFile?.Emitters,
                     Lights = _user.Values.OrderBy(e => e.Path, StringComparer.Ordinal).ToList(),
                     Added = _userAdded.Values.OrderBy(a => a.Id, StringComparer.Ordinal).ToList(),
                 };

@@ -1,0 +1,85 @@
+{
+  "Name": "paths-look",
+  "Note": "Look check for footprint-terminated paths: the same poses with the termination off, at the default, at 0.5 cells and with one segment everywhere.",
+  "Scenarios": [
+    {
+      "Name": "start room",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.footprint=0.5",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "0-1 metal",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/0-1-metal.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.footprint=0.5",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.footprint=0.5",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "6-2 hall",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-a.json",
+        "Duration": 5
+      },
+      "Modes": [
+        "off",
+        "pathtrace+ptx.footprint=0",
+        "pathtrace",
+        "pathtrace+ptx.footprint=0.5",
+        "pathtrace+ptx.bounces=1"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 1
+    }
+  ]
+}

@@ -24,6 +24,7 @@ namespace UltraRT
                 "Which generated set to use: ai (PBRify Remix) or proc (procedural). Overridden by -ultrart-materials-source.").Value;
             s.normalStrength = Config.Bind("Materials", "NormalStrength", 1f, "Multiplier on the per-class normal strength (relight, pt-dn, pt). Default 1 since 2026-11-17 (was 2: too bumpy under DLSS RR).").Value;
             s.hybridNormalStrength = Config.Bind("Materials", "HybridNormalStrength", 1f, "Multiplier on the per-class normal strength in hybrid.").Value;
+            s.smooth = Config.Bind("Materials", "NormalSmooth", 0f, "0-1: pulls each texel's normal towards the average of its 3x3 neighbourhood when the maps are loaded, against fragments inside bricks (docs/materials.md, \"Matrix\"). Read when a level loads. Overridden by -ultrart-materials-smooth.").Value;
             s.roughness = Config.Bind("Materials", "Roughness", 1f, "Multiplier on the per-class roughness variation.").Value;
             s.lod = Config.Bind("Materials", "TextureLod", true,
                 "Ray-cone texture LOD for the per-texel detail (docs/materials.md, \"Texture LOD\"): normal detail smaller than a " +
@@ -40,6 +41,7 @@ namespace UltraRT
                 {
                     case "-ultrart-materials": s.enabled = Next() != "off"; break;
                     case "-ultrart-materials-source": s.source = Next(); break;
+                    case "-ultrart-materials-smooth": s.smooth = F(s.smooth); break;
                     case "-ultrart-materials-normal": s.normalStrength = F(s.normalStrength); break;
                     case "-ultrart-materials-hybrid-normal": s.hybridNormalStrength = F(s.hybridNormalStrength); break;
                     case "-ultrart-materials-roughness": s.roughness = F(s.roughness); break;

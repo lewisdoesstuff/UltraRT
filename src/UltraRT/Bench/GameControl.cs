@@ -42,6 +42,18 @@ namespace UltraRT.Bench
             HideCheatPanels();
         }
 
+        private static readonly FieldInfo[] LevelTitleTexts = { AccessTools.Field(typeof(LevelNamePopup), "layerText"), AccessTools.Field(typeof(LevelNamePopup), "nameText") };
+
+        /// <summary>The level title the game types out when a level starts (a teleport starts it) would sit in a tour's
+        /// screenshots: its two texts stop drawing. The popup itself keeps running; a level load brings them back.</summary>
+        public static void HideLevelTitle()
+        {
+            var popup = MonoSingleton<LevelNamePopup>.Instance;
+            if (popup == null) return;
+            foreach (var f in LevelTitleTexts)
+                if (f?.GetValue(popup) is Behaviour b && b != null) b.enabled = false;
+        }
+
         /// <summary>The "CHEATS ENABLED" panels would show up in screenshots.</summary>
         public static void HideCheatPanels()
         {

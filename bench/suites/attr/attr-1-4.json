@@ -1,0 +1,30 @@
+{
+  "Name": "attr-1-4",
+  "Note": "Attribution for Level 1-4 (docs/lighting-overrides.md, 'Review'): each class off in turn at fixed exposure, and the haze off.",
+  "Scenarios": [
+    {
+      "Name": "1-4 tour",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace+ae.enabled=0",
+        "pathtrace+ae.enabled=0+lc.class.fixture=0",
+        "pathtrace+ae.enabled=0+lc.class.fill=0",
+        "pathtrace+ae.enabled=0+lc.class.glow=0",
+        "pathtrace+ae.enabled=0+lc.class.accent=0",
+        "pathtrace+ae.enabled=0+lc.class.gameplay=0",
+        "pathtrace+ae.enabled=0+lc.class.prefab=0",
+        "pathtrace+ae.enabled=0+lc.class.scripted=0",
+        "pathtrace+ae.enabled=0+vol=0"
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

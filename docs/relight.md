@@ -46,8 +46,10 @@ rooms. Relight therefore adapts the exposure to what's on screen, like an eye or
    specks and black corners don't move it), smoothed over time (the *meter*, 4/s). The target:
    - meter above the key: `EV = log2(key) - meter` (full darkening: sunlit areas are pulled down to the key);
    - between the dark key and the key: 0 (rooms keep the look of their own lights);
-   - below the dark key: `up * (log2(keyLow) - meter)`, part of the way up, so a very dark place gets readable but stays
-     darker than a lit one;
+   - below the dark key: `up * (log2(keyLow) - meter)`, part of the way up. `up` is 0 by default since 2026-11-17 (a dark
+     place stays as dark as its lights make it; only the game match below may lift it). It was 0.5 ("a very dark place
+     gets readable"), which lifted near-black scenes about three times over the game; the "RT brightness" setting
+     brings it back;
 
    clamped to [min, max] EV. Then the adapted EV: `ev += aim * (1 - exp(-dt * speed))`, with a separate speed for each
    direction, where `aim` is the error minus a dead band (0.05 EV): a target that wanders by less than that (noise,
@@ -64,7 +66,8 @@ their brightness, so a dim outdoor scene doesn't dull the palette.
 |---|---|---|---|
 | Key | `-ultrart-ae-key` | 0.45 | mean luminance above which the exposure darkens (to the key) |
 | Dark key | `-ultrart-ae-key-low` | 0.1 | mean luminance below which it brightens. Between the two nothing changes: indoor 1-1/4-1/1-4/0-1 measure 0.22-0.34 with the default light reference |
-| Up strength | `-ultrart-ae-up` | 0.5 | fraction of the way to the dark key a darker scene is lifted (0 = never brightens) |
+| Up strength | `-ultrart-ae-up` | 0 (0.5 until 2026-11-17) | fraction of the way to the dark key a darker scene is lifted (0 = never brightens) |
+| RT brightness | `-ultrart-rt-brightness`, config `[Relight] RtBrightness`, settings menu | 0 | 0 = as bright as the game; 1 = the look before 2026-11-17 (up strength 0.5, game match down 0.4 beyond 0.35 EV); in between, blended. See "Game match" |
 | Min / max EV | `-ultrart-ae-min` / `-ultrart-ae-max` | -4 / 1 | relative to the fixed look |
 | Speed | `-ultrart-ae-speed UP[,DOWN]` | 1.5,3 | 1/s, exponential in EV. Up = exposure rising (into the dark, slower, like eyes); down = into the light |
 | Dead band | `-ultrart-ae-deadband` | 0.05 | EV; the exposure stops this far short of the target |
@@ -85,9 +88,9 @@ step ...; target ...; band mean log2 ...; meter ...`).
 ### Game match
 User reports (2026-11-14 evening): relight was "still a touch too bright" in many levels, while 8-2's start was "far too dark" against RT off. Both are global level differences against the game that one fixed key can't follow: 8-2's alley is lit in game by lights shining through walls (the game has no shadows; making its directional lights unshadowed changed almost nothing), torch rooms and 4-1 are brighter by the light reference and the dark-scene lift.
 
-So auto exposure also meters **the game's own frame**: `BindGameMatch` (Plugin.Exposure.cs) copies `PostProcessV2_Handler.mainTex` at the RT injection point (the game's opaques and sky, before our composite), and `Exposure.compute`'s Histogram bins, next to the usual histogram, the RT luminance (before haze) and the game's luminance at the same pixels, near ones only (game fog factor under `gameMatchFog`, 0.3: farther, the game's fog replaces the colour). `Adapt` takes the band mean of both (same 40-95% percentiles) and compares the game's with the RT image as it will be exposed (RT mean + target). Beyond a dead band of `gameMatchBand` (0.35 EV), a share of the difference moves the target: `gameMatchUp` (0.75) where RT is darker than the game, `gameMatchDown` (0.4) where it is brighter, so lit rooms may stay brighter than the game (the RT look) but less so. The correction is smoothed like the meter and the target still clamps to [min, max] EV. It needs at least a quarter of the measured pixels near; otherwise there is no correction. Bench lines show it: `game match: game -1.98 vs RT -3.39 log2 over 123906 near px, correction +0.76 EV`. Flags: `-ultrart-ae-match UP[,DOWN]` (0 = off), bench `ae.gameMatchUp`, `ae.gameMatchDown`, `ae.gameMatchBand`. Cost: a copy of the colour target (only in relight) and two more histograms in the same pass.
+So auto exposure also meters **the game's own frame**: `BindGameMatch` (Plugin.Exposure.cs) copies `PostProcessV2_Handler.mainTex` at the RT injection point (the game's opaques and sky, before our composite), and `Exposure.compute`'s Histogram bins, next to the usual histogram, the RT luminance (before haze) and the game's luminance at the same pixels, near ones only (game fog factor under `gameMatchFog`, 0.3: farther, the game's fog replaces the colour). `Adapt` takes the band mean of both (same 40-95% percentiles) and compares the game's with the RT image as it will be exposed (RT mean + target). Beyond a dead band, a share of the difference moves the target: `gameMatchUp` (0.75, beyond `gameMatchBand` = 0.35 EV) where RT is darker than the game, `gameMatchDown` (0.9, beyond `gameMatchBandDown` = 0.1 EV) where it is brighter. Until 2026-11-17 the down side was 0.4 beyond 0.35 EV, "so lit rooms may stay brighter than the game (the RT look) but less so"; see "Follow the game" below for the change. The correction is smoothed like the meter and the target still clamps to [min, max] EV. It needs at least a quarter of the measured pixels near; otherwise there is no correction. Bench lines show it: `game match: game -1.98 vs RT -3.39 log2 over 123906 near px, correction +0.76 EV`. Flags: `-ultrart-ae-match UP[,DOWN]` (0 = off), `-ultrart-ae-match-band UP[,DOWN]`, bench `ae.gameMatchUp`, `ae.gameMatchDown`, `ae.gameMatchBand`, `ae.gameMatchBandDown`. Cost: a copy of the colour target (only in relight) and two more histograms in the same pass.
 
-Mean screen luma, game / relight before / relight now (game match and the haze rebalance of docs/volumetrics.md "Balance"; HUD and viewmodel left out; `bench/suites/exposure-pm2.json`, `exposure-pm3.json`):
+Mean screen luma, game / relight before / relight now (game match and the haze rebalance of docs/volumetrics.md "Balance"; HUD and viewmodel left out; `bench/suites/exposure-pm2.json`, `exposure-pm3.json`). Measured 2026-11-14 with the down side at 0.4 beyond 0.35 EV and the dark lift at 0.5: with today's defaults the "now" column is closer to the game ("Follow the game" below).
 
 | Pose | game | before | now | before / game | now / game |
 |---|---|---|---|---|---|
@@ -115,6 +118,34 @@ Mean screen luma, game / relight before / relight now (game match and the haze r
 "Before" is the same build with `ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0` (and, for 7-3 and 1-4, `vol.darkFog=0`), measured in the same run. Torch rooms, 6-2's start and 1-4's lamps keep their RT look and stay brighter than the game (1.2x to 2x), just less so; 8-2's alley comes up from 0.55x to 0.73-0.76x; 4-1's green corridor (light reference, docs "Light reference distance") is still the brightest departure.
 
 The game match meters relight's image *before* the haze and before the game's transparents, so it can't see brightness that those add. 3-2's eye cave (x4.4 the game on 2026-11-15) and 3-2's dark rooms / 6-1 (x2.2 / x1.4) were exactly that: relit room-filling particle clouds, bloom picking up the haze, and haze in fog-off or dense-fog rooms (docs/volumetrics.md, "Dark rooms"; now x1.5 / x1.3 / x1.3). Metering the haze in auto exposure (`vol.meterHaze`) would only darken the lit surfaces under it.
+
+#### Follow the game (2026-11-17)
+User report: "still too bright compared to the base game". Most of the mean excess was exposure policy, not lights (docs/plan-look-and-perf.md, workstream A): the dark lift raised near-black scenes half way to the dark key, and the game match removed only 40 % of an excess, and only beyond 0.35 EV. Now:
+
+- the dark lift (`up`) is 0: a dark place is as dark as its lights make it;
+- the game match's down side is 0.9 beyond 0.1 EV (`gameMatchDown`, `gameMatchBandDown`). The up side is unchanged;
+- **RT brightness** (`-ultrart-rt-brightness F`, config `[Relight] RtBrightness`, settings menu, bench `ae.rtBrightness`) blends the three values back: 0 = as the game (default), 1 = the policy before this change;
+- a level can carry its own RT brightness in its light override file (`"exposure": { "rtBrightness": 1 }`, docs/lighting-overrides.md, "Format"): the level is shown at least that bright. **P-2** has 1: the user likes its street as it was. Bench `ae.levelOverride=0` ignores it.
+
+Mean screen luma against the game's, pathtrace, old policy and new (`bench/suites/bright-core.json`, 2026-11-17, scored with `tools/lights/score.py`; "reveal" = share of the frame that is dark in the game and visibly lit in RT, docs/lighting-overrides.md "Scoreboard"):
+
+| Pose | game luma | old / game | new / game | reveal old | reveal new | relight, new / game |
+|---|---|---|---|---|---|---|
+| start room (0-1) | 25.8 | 1.53 | 1.14 | 1.7 % | 1.0 % | 1.13 |
+| 0-1 metal | 48.6 | 0.99 | 0.99 | 2.7 % | 2.7 % | 0.97 |
+| 1-4 lamps | 21.3 | 0.97 | 0.95 | 2.7 % | 2.3 % | 0.93 |
+| 1-4 bridge | 31.1 | 1.20 | 1.08 | 17.0 % | 12.0 % | 1.07 |
+| 3-1 beams | 12.6 | 1.04 | 1.00 | 0.0 % | 0.0 % | 1.03 |
+| 6-2 start | 14.2 | 1.60 | 1.21 | 14.1 % | 1.1 % | 1.24 |
+| 6-2 hall | 10.5 | 1.80 | 1.26 | 18.5 % | 0.8 % | 1.28 |
+| P-2 vent smoke | 9.5 | 1.64 | 1.33 (shipped: 1.63) | 29.1 % | 11.8 % (30.1 %) | 1.66 (shipped) |
+| P-2 street | 10.2 | 2.34 | 1.89 (shipped: 2.17) | 45.9 % | 28.9 % (39.1 %) | 1.88 (shipped, relight) |
+
+Median over the nine: x1.53 before, x1.14 now with P-2 kept as it was. "Shipped" is P-2 with its own RT brightness, which is the old policy there (the vent smoke pose reads x1.63 against x1.64); the street pose is not a still one (x2.98 for the old policy in another run of the same day), so read its numbers to about 15 %.
+
+What the policy does not fix, and is not meant to: 1-4 (the lamp pose has the game's mean, but its far wall, door and trees, black in the game, are lit: light and haze work), 0-1 metal's back wall, and the remainder at 6-2 (haze and bloom, which the match cannot see). With auto exposure off (`ae.enabled=0`) the same poses read x1.63 in the median: the lights themselves are too strong, and the exposure now hides it. That is the next stage (docs/lighting-overrides.md, "Scoreboard").
+
+Stability (`bench/suites/bright-ae.json`, exposure traced per frame over a burst): 6-2 start and 0-1 metal hold their exposure to 0.000 EV sd; 5-2's sea under lightning moves 0.08 EV peak to peak (sd 0.022), against 0.19 EV (sd 0.037) with the old policy, whose dark lift reacted to every strike.
 
 ### Area colour
 User reports (2026-11-14 late): relight lost the per-area colour of several levels. 2-2 (all of layer 2) had no purple
@@ -195,7 +226,7 @@ Without the colour match (`ae.colorMatch=0`, same run): 2-2 50,36,60; 7-3 55,21,
 fix alone); 8-2 88,41,45 (the sky and side lights alone; 59,34,38 with `plugin._lowSideLightDeg=0` as well). 8-2's street
 is now 0.76x the game's luma instead of 0.65x, and its colour matches. 1-1 start, 0-1 metal, 0-5 lava and 6-2 start look
 the same as master: 6-2's and 0-5's gains act on near-empty channels, so their mean colours move by at most 2. 7-3 keeps
-its RT brightness (game match down 0.4, see "Game match") and its white-lit back wall. The colour match is one gain per
+its RT brightness (game match down 0.4 then; 0.9 since 2026-11-17, see "Game match") and its white-lit back wall. The colour match is one gain per
 frame, so a room with both red and white light gets redder overall; it can't make the walls red under white spots.
 
 Cost: two more fixed-point sums per measured pixel in the histogram pass and a multiply in the Composite (not timed

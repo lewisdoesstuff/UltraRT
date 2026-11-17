@@ -8,6 +8,8 @@ stay on your machine (the game's art is copyrighted).
 |---|---|
 | `extract.py` | UnityPy, read-only over `ULTRAKILL_Data`: every 2D texture a material uses as `_MainTex` or `_BlendTex`, plus the StaticSceneOptimizer atlases (`atlas_<bundle>@WxH`, for reference). Writes `<work>/src/<name>@<w>x<h>.png` and `textures.json` (materials, surface types, bundle). |
 | `generate.py` | Per texture, at native resolution: `ai` (PBRify Remix normal + roughness networks through spandrel on CUDA) and `proc` (luminance height, Sobel normal, darkness/contrast roughness). Writes `<work>/<method>/<key>_n.png`, `_r.png` and `manifest.json`. |
+| `variants.py` | From a generated set, three more for the in-engine matrix (docs/materials.md, section 9): `<set>-lp` (slopes low-passed over 3x3 texels), `<set>-hgt` (normals from the least-squares height), `<set>-blk` (that height quantised). numpy and Pillow only. |
+| `matrix.py` | Crop sheet of one pose from the matrix runs: the game, maps off, roughness only and each set, per denoiser. |
 | `compare.py` | Contact sheet: albedo, then per method the normal map, the albedo lit from the upper left with it, and the roughness map. |
 
 ## Setup (once)

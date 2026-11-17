@@ -84,7 +84,8 @@ namespace UltraRT
                     }
                 }
                 var c = _lightData[i * 4 + 1];
-                _lightData[i * 4 + 1] = new Vector4(c.x, c.y, c.z, flag);
+                // w also carries the light's reach, in steps of 2 (ApplyResolved); the player's own lights have none.
+                _lightData[i * 4 + 1] = new Vector4(c.x, c.y, c.z, owned ? 1f : flag + 2f * Mathf.Floor(c.w * 0.5f));
                 if (owned) n++;
             }
             PlayerLightCount = n;

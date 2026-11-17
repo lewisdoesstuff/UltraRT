@@ -210,9 +210,16 @@ static uint g_ShadowRng; // seeded per pixel by each ray-generation shader
 // fades out as V1 walks up to the light instead of popping (Plugin.FlagPlayerLights, docs/relight.md "V1 beside a light").
 bool LightSkipsFixtures(float4 l3) { return l3.z > 0.1 && l3.z < 0.5; }
 
+// _Lights[i*4+1].w also carries the light's reach above that flag: w = flag (0-1) + 2 x code, code 0-4 in quarters
+// (LightPolicy.Reach = 1 - code / 4; Plugin.ApplyResolved, docs/lighting-overrides.md "Classes and rules"). Reach 1 is
+// relight's falloff; reach 0 never exceeds the game's own falloff (the smaller of the two curves at every distance),
+// so what the game's short falloff left dark stays dark.
+float LightPlayerFlag(float w) { return w - 2.0 * floor(w * 0.5); }
+float LightReach(float w) { return 1.0 - 0.25 * floor(w * 0.5); }
+
 bool LightSkipsPlayer(uint i)
 {
-    float w = _Lights[i * 4 + 1].w;
+    float w = LightPlayerFlag(_Lights[i * 4 + 1].w);
     if (w > 0.75) return true;
     if (w <= 0.0) return false;
     return (HashU32(g_ShadowRng += 0x9E3779B9u) & 0xFFFFFFu) / 16777216.0 < 2.0 * w;
@@ -449,9 +456,10 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
 #ifdef ULTRART_PLAYER_LIGHT_NDL_POW
             // The includer's player-light shaping also keeps those lights at or under the game's own falloff (the gun:
             // 7-3's flashlight 10 m behind the eye was 1.4x the game there).
-            if (l1.w > 0.75 && ULTRART_PLAYER_LIGHT_NDL_POW > 1.0) phys = min(phys, gameL);
+            if (LightPlayerFlag(l1.w) > 0.75 && ULTRART_PLAYER_LIGHT_NDL_POW > 1.0) phys = min(phys, gameL);
 #endif
-            gameL = lerp(gameL, phys, saturate(_Relight.x));
+            phys = lerp(gameL, phys, saturate(_Relight.x));
+            gameL = lerp(min(phys, gameL), phys, LightReach(l1.w));
         }
         atten = gameL * pow(saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y), 2.2);
         dist = d;
@@ -472,7 +480,8 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
             // Never more than 3x the game's own brightness: inverse-square near a light (e.g. one carried right next to
             // the camera) would otherwise blow surfaces out to white.
             phys = min(phys, 3.0 * game + 0.05);
-            game = lerp(game, phys, saturate(_Relight.x));
+            phys = lerp(game, phys, saturate(_Relight.x));
+            game = lerp(min(phys, game), phys, LightReach(l1.w));
         }
         atten = game * saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
         dist = d;
@@ -486,7 +495,7 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
     // An includer may shape the cosine of the player's own lights (flag in l1.w) under linear transport
     // (Viewmodel.raytrace: ndl^2.2, so after the composite's ^(1/2.2) the gun shades like the game's gamma-space Lambert;
     // docs/viewmodel.md, "Player lights on the gun").
-    if (lin && l1.w > 0.75) ndl = pow(ndl, ULTRART_PLAYER_LIGHT_NDL_POW);
+    if (lin && LightPlayerFlag(l1.w) > 0.75) ndl = pow(ndl, ULTRART_PLAYER_LIGHT_NDL_POW);
 #endif
     c = ToLight(l1.rgb * scale) * (atten * ndl);
     return true;

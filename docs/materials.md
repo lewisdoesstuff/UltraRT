@@ -170,6 +170,7 @@ secondary set alone.
 |---|---|---|
 | `-ultrart-materials on\|off`, `[Materials] Enabled`, **Ctrl+F1** | on | shader-side switch, instant |
 | `-ultrart-materials-source ai\|proc`, `[Materials] Source` | ai | which cache folder; read at scene build |
+| `-ultrart-materials-smooth F`, `[Materials] NormalSmooth` | 0 | 0-1: each texel's normal pulled to its 3x3 neighbourhood average at load (section 9); read at scene build |
 | `-ultrart-materials-normal F`, `[Materials] NormalStrength` | 1 | global multiplier on the class normal strength (relight, pt-dn, pt). Was 2 until 2026-11-17 (section 8: the bumpiness under RR is mostly the strength); measurements below dated before that were taken at 2. An existing config keeps the value written into it |
 | `-ultrart-materials-hybrid-normal F`, `[Materials] HybridNormalStrength` | 1 | the same in hybrid |
 | `-ultrart-materials-roughness F`, `[Materials] Roughness` | 1 | global multiplier on the roughness variation (menu: Enabled, both strengths and this one, [settings.md](settings.md); the LOD entries are config / flags only) |
@@ -384,3 +385,44 @@ already there; 1-1: 136 textures in 140 ms). The first version (float sums per l
 
 **Bench note.** The alt install had no material-maps cache (`BepInEx\ultrart\materials` was left out of its copy), so
 per-texel detail was silently off in every alt-slot run before 2026-11-15 14:15. The `ai` cache was copied there then.
+
+## 9. Matrix: what makes the relief look wrong (2026-11-17, `t3/materials-v2`)
+
+The complaint: generated relief looks out of place, as irregular light and dark fragments inside bricks. The matrix
+separates the maps from the denoiser (plan B1). Poses: 1-1 indoor a (torch-lit brick at a grazing angle), 0-1 metal;
+native-size screenshots, `bench/suites/mat-matrix.json` for the shipped set and `mat-matrix-src.json` with
+`-Extra "-ultrart-materials-source <name>"` for each other set. Sets, made from the PBRify maps by
+`tools/materials/variants.py` (offline; installed next to `ai` in the alt install):
+
+| Set | What it is |
+|---|---|
+| `ai` | PBRify as shipped |
+| `ai-lp` | each texel's slope averaged with its 3x3 neighbourhood (1-2-1, wrapped) |
+| `ai-hgt` | height first: the slopes projected onto the nearest field that is the gradient of one height (Frankot-Chellappa, exact on a tiling texture), normals from that height's central differences |
+| `ai-blk` | the same height quantised to four levels first ("every texel a block") |
+
+Each under DLSS RR at 1/3 scale, RR at 0.67 (`ptx.scale=0.67`) and UltraRT's denoiser, plus the shipped set with the
+maps off and with roughness only (`mat.normalStrength=0`). Runs `bench/results/20261117-184557_mat-matrix_alt`,
+`-184738` (lp), `-184857` (hgt), `-185016` (blk); sheets (local) `bench/results/materials-v2/m-11wall-all.png`,
+`m-01metal.png`, made by `tools/materials/matrix.py`.
+
+What the 1-1 wall shows:
+
+- **It is the maps, not RR's resolution.** The fragments are as strong at 0.67 scale as at 1/3 (a little crisper),
+  and UltraRT's denoiser shows them too. So fading the normals by footprint under RR (plan B5) would not fix it.
+- **It is the normals.** With roughness only the wall is as clean as with the maps off.
+- **The cause is texel-to-texel disagreement.** `ai-lp` keeps the relief (mortar recessed, brick faces catching the
+  torch) and loses the fragments, under all three denoisers. `ai-hgt` is between the two: making the field
+  integrable removes part of the noise, not the single odd texels. `ai-blk` is no better than `ai-hgt`.
+- On the metal pose the sets differ little: slightly less grain on flat panels with `ai-lp`.
+
+So the low-pass is in the plugin, applied when a map is loaded, and needs no regenerated maps:
+`-ultrart-materials-smooth F` / `[Materials] NormalSmooth` (0-1, `MaterialMaps.SmoothNormals`; the baked atlases are
+composed from the smoothed texels). At 1 the frame matches the offline `ai-lp` set (mean difference 1.5 of 255 on
+the wall crop, against 4.9 for the shipped maps; `20261117-185318_mat-matrix-src_alt`, sheet `m-11wall-smooth.png`).
+**Default 0 until the user has picked from the sheet**; proposed default 1.
+
+Not answered by this matrix: the start room (the tour stop of 1-4 looks out of the room), printed and painted
+surfaces (section 1: per-texture rules, plan B4), and whether another generator does better than PBRify + low-pass
+(plan B2: DeepBump is a small ONNX model with a command line and can be run offline; PBRFusion's model page needs a
+sign-in, so its licence and files are unconfirmed).

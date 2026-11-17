@@ -1,0 +1,44 @@
+{
+  "Name": "light-review",
+  "Note": "Review sheet for the proposal layer (data/lights/proposed): the game, what ships and the proposal, at shipped settings and at fixed exposure. Here: the start room in two levels. Run with -Extra \"-ultrart-light-census\", then tools/lights/score.py <run> --sheet and tools/lights/rulediff.py <run>.",
+  "Scenarios": [
+    {
+      "Name": "1-4 first room",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 1
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+lc.layer=proposed",
+        "pathtrace+ae.enabled=0",
+        "pathtrace+ae.enabled=0+lc.layer=proposed"
+      ],
+      "ShotSettle": 1.5
+    },
+    {
+      "Name": "3-1 first room",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 1
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+lc.layer=proposed",
+        "pathtrace+ae.enabled=0",
+        "pathtrace+ae.enabled=0+lc.layer=proposed"
+      ],
+      "ShotSettle": 1.5
+    }
+  ]
+}

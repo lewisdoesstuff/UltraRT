@@ -102,10 +102,32 @@ namespace UltraRT
 
         private void Awake()
         {
+            // The default mode is pathtrace where DLSS Ray Reconstruction can run (an NVIDIA GPU and nvngx_dlssd.dll beside the
+            // plugin; docs/dlss.md), relight elsewhere (pathtrace without RR is the slower fallback denoiser). Set before
+            // InitSettings, which remembers the code defaults (the menu's "reset").
+            string pluginDir = Path.GetDirectoryName(Info.Location) ?? "";
+            bool rrPresent = SystemInfo.graphicsDeviceVendor.IndexOf("NVIDIA", StringComparison.OrdinalIgnoreCase) >= 0
+                && File.Exists(Path.Combine(pluginDir, "nvngx_dlssd.dll")) && File.Exists(Path.Combine(pluginDir, GpuTimer.DllName));
+            _mode = Mathf.Max(0, Array.FindIndex(Modes, m => m.name == (rrPresent ? "pathtrace" : "relight")));
             InitSettings(); // SettingsMenu.cs: register the settings and remember the code defaults before any entry or flag changes them
             // Starting view mode: BepInEx/config/ooo.lew.ultrart.cfg ([View] DefaultMode), overridden by -ultrart-view.
-            var defaultMode = Config.Bind("View", "DefaultMode", "relight",
-                "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.").Value;
+            var defaultModeEntry = Config.Bind("View", "DefaultMode", rrPresent ? "pathtrace" : "relight",
+                "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.");
+            // BepInEx writes a default into the file, so a config made before 2026-11-17 still says relight although nobody
+            // chose it. Once per config: such an entry moves to the new default. Picking relight again afterwards sticks.
+            var configVersion = Config.Bind("View", "ConfigVersion", 0, "Internal: which default migrations this file has had. Do not edit.");
+            // Not in a bench launch: the user's own start of the game does it (a bench never changes their settings).
+            bool benchLaunch = Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
+            if (configVersion.Value < 1 && !benchLaunch)
+            {
+                if (rrPresent && defaultModeEntry.Value.Equals("relight", StringComparison.OrdinalIgnoreCase))
+                {
+                    defaultModeEntry.Value = "pathtrace";
+                    Logger.LogInfo("Config: [View] DefaultMode was the old default (relight): now pathtrace. Set it back in the settings menu to keep relight.");
+                }
+                configVersion.Value = 1;
+            }
+            string defaultMode = defaultModeEntry.Value;
             int dm = Array.FindIndex(Modes, m => m.name.Equals(defaultMode, StringComparison.OrdinalIgnoreCase));
             if (dm >= 0) _mode = dm;
             ParseArgs();
@@ -151,7 +173,11 @@ namespace UltraRT
             {
                 // Opt-in dev tool: the native DLL registers itself with Unity through an internal routine.
                 var nativePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", GpuTimer.DllName);
-                if (GpuTimer.TryCreate(nativePath, out _gpu, out var gpuError)) Logger.LogInfo($"GPU timer: {_gpu.Status}");
+                if (GpuTimer.TryCreate(nativePath, out _gpu, out var gpuError))
+                {
+                    Logger.LogInfo($"GPU timer: {_gpu.Status}");
+                    InstallFrameSlot();
+                }
                 else Logger.LogWarning($"GPU timer unavailable: {gpuError}");
             }
 
@@ -167,7 +193,7 @@ namespace UltraRT
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
-            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings };
+            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -229,6 +255,7 @@ namespace UltraRT
                     case "-ultrart-nolightoverrides": _lightOverrides = false; break; // per-level light overrides (docs/lighting-overrides.md)
                     case "-ultrart-classify-lights": _classifyLights = true; break;  // the light classifier, once per level (Plugin.LightClassifier.cs)
                     case "-ultrart-lights-preview": _lightsPreview = true; break;    // overrides from the classifier's output folder
+                    case "-ultrart-light-census": _lightCensus = true; break;        // bench: lights_<scene>.json per level (Plugin.LightClasses.cs)
                     case "-ultrart-logfixtures": _logFixtures = true; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-noportals": _portals = false; break;
@@ -537,6 +564,7 @@ namespace UltraRT
                 if (_proxies != null) foreach (var line in _proxies.DescribeSkinnedNear(_camera.transform.position, 30f)) Logger.LogInfo($"skinned near camera: {line}");
             }
             _lightCount = 0;
+            for (int i = 0; i < _lightMedium.Length; i++) _lightMedium[i] = 1f;
             BeginLightOverrides(); // per-level light overrides (Plugin.LightOverrides.cs; relight look only)
             _proxies.UpdateOrbHolders(); // statue orbs: their lights pass through the statue holding them (SceneProxies.Orbs.cs)
             // The main sun: the brightest directional light from above the horizon (LowSideLight below).
@@ -548,79 +576,102 @@ namespace UltraRT
                 float lum = (0.2126f * l.color.r + 0.7152f * l.color.g + 0.0722f * l.color.b) * l.intensity;
                 if (lum > mainSunLum) { mainSunLum = lum; mainSun = l; }
             }
+            _mediumOnly.Clear();
             foreach (var l in _activeLights)
             {
                 if (_lightCount >= MaxLights) break;
                 if (l == null || !l.isActiveAndEnabled || l.intensity <= 0f) continue;
-                var ov = LightOverrideFor(l);
-                if ((ov != null && ov.Disabled == true) || SoloHides(l) || ReferenceEquals(l, _fitSkip)) continue;
-                var t = l.transform;
-                var fwd = t.forward;
-                var c = l.color * l.intensity;
-                var pos = t.position;
-                float shadowRadius = 0f; // 0: the global _LightRadius
-                if (ov != null && ov.OwnsGeometry) pos += LightOverrides.Vec(ov.Offset, Vector3.zero); // the entry places it: no lift
-                else if (_fixtureLifts.TryGetValue(l, out var lift))
-                {
-                    pos.y += lift.y;
-                    shadowRadius = lift.w;
-                }
-                else if (_fixtureLift && _proxies.StaticEnclosed.Contains(l)) shadowRadius = EnclosedLightRadius; // lamp shades (SceneProxies.StaticEnclosed)
-                Vector4 l0, l3;
-                switch (l.type)
-                {
-                    case LightType.Point:
-                        l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
-                        // A point light at the eye (the game's player light) shadows nothing the camera sees: evaluate it
-                        // with no ray, outside ReSTIR's competition (Plugin.Noise.cs, EyeLight).
-                        l3 = new Vector4(-1f, 1f, EyeLight(pos) ? 0.75f : 0f, 0);
-                        break;
-                    case LightType.Spot:
-                    {
-                        l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
-                        float a = l.spotAngle * Mathf.Deg2Rad;
-                        float cosHalf = Mathf.Cos(a * 0.5f), cosQuarter = Mathf.Cos(a * 0.25f);
-                        l3 = new Vector4(cosHalf, 1f / Mathf.Max(cosQuarter - cosHalf, 1e-4f), 0, 0);
-                        break;
-                    }
-                    case LightType.Directional:
-                        l0 = new Vector4(-fwd.x, -fwd.y, -fwd.z, 0f);
-                        // Directional lights arriving from below the horizon are fill lights faking ground bounce (the game
-                        // has no shadows). Shadowing them against the floor would remove them, so leave them unshadowed.
-                        // _sunsUnshadowed (diagnostics): every directional light unshadowed (0.75: not a fill, so relight's
-                        // fill cut leaves it).
-                        // Low side lights (LowSideLight) are unshadowed but kept (0.75) as well.
-                        l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : _sunsUnshadowed || LowSideLight(l, mainSun) ? 0.75f : 0f, 0);
-                        break;
-                    default:
-                        continue;
-                }
-                int i = _lightCount * 4;
-                _lightData[i] = l0;
-                _lightData[i + 1] = new Vector4(c.r, c.g, c.b, 0);
-                _lightMasks[_lightCount] = unchecked((uint)l.cullingMask) | BakedLightMask(l); // Plugin.Noise.cs
-                _packedLights[_lightCount] = l;
-                _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, shadowRadius);
-                _lightData[i + 3] = l3;
-                // An orb's light: shadowed, but its rays skip fixtures (the statue holding it; SceneProxies.Orbs.cs).
-                if (l3.z == 0f && SceneProxies.OrbHolders && _proxies.OrbLights.Contains(l)) _lightData[i + 3].z = OrbLightShadowFlag;
-                if (ov != null) ApplyLightOverride(ov, l, _lightCount);
-                // The statue orbs' lights, a touch weaker than the game's (user, 2026-11-15): the orb sits right at the stone
-                // and lights it physically, brighter than the game's thin vertex lighting (docs/scene-proxies.md, "Statue orbs").
-                if (_orbLightScale != 1f && SceneProxies.OrbHolders && _proxies.OrbFixtureLights.Contains(l))
-                {
-                    var oc = _lightData[i + 1];
-                    _lightData[i + 1] = new Vector4(oc.x * _orbLightScale, oc.y * _orbLightScale, oc.z * _orbLightScale, oc.w);
-                }
-                _lightPlaced[_lightCount] = ov != null && ov.OwnsGeometry;
-                _lightCount++;
+                var rl = ResolveLight(l); // class, policy and the light's own entry (Plugin.LightClasses.cs)
+                if ((rl != null && (rl.Disabled || rl.Intensity * rl.Toggle <= 0f)) || SoloHides(l) || ReferenceEquals(l, _fitSkip)) continue;
+                // A light that lights the air only goes after every light surfaces see (_surfLightCount).
+                if (rl != null && !rl.Surfaces) { if (rl.Medium > 0f) _mediumOnly.Add(l); continue; }
+                PackSceneLight(l, rl, mainSun);
             }
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
             AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
+            // Lights [0, _surfLightCount) light surfaces (every surface pass binds that count); the ones after it only
+            // the air (the volumetric pass takes _lightCount). docs/lighting-overrides.md, "Classes and rules".
+            _surfLightCount = _lightCount;
+            foreach (var l in _mediumOnly)
+            {
+                if (_lightCount >= MaxLights) break;
+                PackSceneLight(l, ResolveLight(l), mainSun);
+            }
             FlagPlayerLights();   // Plugin.PlayerLights.cs: V1 never shadows the player's own lights (flashlight, held torch)
             _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
+        }
+
+        private int _surfLightCount;
+        private readonly List<Light> _mediumOnly = new List<Light>();
+        /// <summary>Per packed light: what it scatters in the air, as a factor (LightPolicy.Medium).</summary>
+        private readonly float[] _lightMedium = new float[MaxLights];
+
+        /// <summary>Packs one scene light at _lightCount (layout: PathTrace.raytrace, _Lights).</summary>
+        private void PackSceneLight(Light l, LightResolved rl, Light mainSun)
+        {
+            var ov = rl?.Entry; // an entry that places the light (offset or area shape)
+            var t = l.transform;
+            var fwd = t.forward;
+            var c = l.color * l.intensity;
+            var pos = t.position;
+            float shadowRadius = 0f; // 0: the global _LightRadius
+            if (ov != null) pos += LightOverrides.Vec(ov.Offset, Vector3.zero); // the entry places it: no lift
+            else if (_fixtureLifts.TryGetValue(l, out var lift))
+            {
+                pos.y += lift.y;
+                shadowRadius = lift.w;
+            }
+            else if (_fixtureLift && _proxies.StaticEnclosed.Contains(l)) shadowRadius = EnclosedLightRadius; // lamp shades (SceneProxies.StaticEnclosed)
+            Vector4 l0, l3;
+            switch (l.type)
+            {
+                case LightType.Point:
+                    l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
+                    // A point light at the eye (the game's player light) shadows nothing the camera sees: evaluate it
+                    // with no ray, outside ReSTIR's competition (Plugin.Noise.cs, EyeLight).
+                    l3 = new Vector4(-1f, 1f, EyeLight(pos) ? 0.75f : 0f, 0);
+                    break;
+                case LightType.Spot:
+                {
+                    l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
+                    float a = l.spotAngle * Mathf.Deg2Rad;
+                    float cosHalf = Mathf.Cos(a * 0.5f), cosQuarter = Mathf.Cos(a * 0.25f);
+                    l3 = new Vector4(cosHalf, 1f / Mathf.Max(cosQuarter - cosHalf, 1e-4f), 0, 0);
+                    break;
+                }
+                case LightType.Directional:
+                    l0 = new Vector4(-fwd.x, -fwd.y, -fwd.z, 0f);
+                    // Directional lights arriving from below the horizon are fill lights faking ground bounce (the game
+                    // has no shadows). Shadowing them against the floor would remove them, so leave them unshadowed.
+                    // _sunsUnshadowed (diagnostics): every directional light unshadowed (0.75: not a fill, so relight's
+                    // fill cut leaves it).
+                    // Low side lights (LowSideLight) are unshadowed but kept (0.75) as well.
+                    l3 = new Vector4(-1f, 1f, -fwd.y < -0.05f ? 1f : _sunsUnshadowed || LowSideLight(l, mainSun) ? 0.75f : 0f, 0);
+                    break;
+                default:
+                    return;
+            }
+            int i = _lightCount * 4;
+            _lightData[i] = l0;
+            _lightData[i + 1] = new Vector4(c.r, c.g, c.b, 0);
+            _lightMasks[_lightCount] = unchecked((uint)l.cullingMask) | BakedLightMask(l); // Plugin.Noise.cs
+            _packedLights[_lightCount] = l;
+            _lightData[i + 2] = new Vector4(fwd.x, fwd.y, fwd.z, shadowRadius);
+            _lightData[i + 3] = l3;
+            // An orb's light: shadowed, but its rays skip fixtures (the statue holding it; SceneProxies.Orbs.cs).
+            if (l3.z == 0f && SceneProxies.OrbHolders && _proxies.OrbLights.Contains(l)) _lightData[i + 3].z = OrbLightShadowFlag;
+            if (rl != null && (rl.Changes || rl.Toggle != 1f)) ApplyResolved(rl, l, _lightCount);
+            // The statue orbs' lights, a touch weaker than the game's (user, 2026-11-15): the orb sits right at the stone
+            // and lights it physically, brighter than the game's thin vertex lighting (docs/scene-proxies.md, "Statue orbs").
+            if (_orbLightScale != 1f && SceneProxies.OrbHolders && _proxies.OrbFixtureLights.Contains(l))
+            {
+                var oc = _lightData[i + 1];
+                _lightData[i + 1] = new Vector4(oc.x * _orbLightScale, oc.y * _orbLightScale, oc.z * _orbLightScale, oc.w);
+            }
+            _lightPlaced[_lightCount] = ov != null;
+            _lightCount++;
         }
 
         // Lights inside open fixtures (torch bowls, braziers) are moved to just above the rim and get a soft-shadow radius
@@ -1290,11 +1341,11 @@ namespace UltraRT
 
                 _cmd.SetRayTracingBufferParam(shader, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(shader, "_LightMasks", _lightMaskBuffer);
-                _cmd.SetRayTracingIntParam(shader, "_LightCount", _lightCount);
+                _cmd.SetRayTracingIntParam(shader, "_LightCount", _surfLightCount);
                 long tls = Perf.Now;
                 PathTraceLightsBegin(full, rr); // RR may want another light sampling mode (restored below)
                 _proxies.PortalViewpoints(_camera.transform.position, _lightSampling.ViewPoints); // portal-aware importance
-                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged, kind == Kind.Hybrid);
+                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _surfLightCount, _emissive.SetChanged, kind == Kind.Hybrid);
                 Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSampling.ActiveMode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
@@ -1316,7 +1367,9 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
                 _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
+                long tc = Perf.Now;
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
+                Perf.Add(Perf.Sec.Cache, tc);
                 BindTransparents(shader, denoised); // water and glass (Plugin.Transparent.cs)
                 BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
                 BindStains(shader, kind == Kind.Denoised || kind == Kind.Hybrid || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
@@ -1345,7 +1398,10 @@ namespace UltraRT
             if (_diagDispatches > 0 && pt) DiagDispatches(invViewProj); // bench: per-dispatch render-thread cost (docs/performance.md)
             _proxies.RecordMotionCopies(_cmd); // this frame's skinned poses become next frame's previous poses
             if (kind == Kind.PathTrace) TraceCacheDebug(mode);
+            long tpl = Perf.Now;
             if (pt) TraceParticleLight(kind); // lit particles' lighting volume (Plugin.Particles.cs)
+            Perf.Add(Perf.Sec.Particles, tpl);
+            long tdn = Perf.Now;
 
             _displayed = _output;
             if (resolve)
@@ -1436,6 +1492,7 @@ namespace UltraRT
                 upsampled = true;
             }
 
+            Perf.Add(Perf.Sec.Denoise, tdn); // reflections filter, denoiser or RR, exposure, upsampler
             // Composite into the camera's current target without changing render-target bindings.
             _gpu?.Begin(_cmd, SlotBlit);
             _cmd.SetGlobalTexture(UltraRTImageId, _displayed);
@@ -1472,15 +1529,14 @@ namespace UltraRT
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);
+            long tv = Perf.Now;
             TraceVolumetrics(kind, upsampled); // sun shafts, light halos, the game's fog on RT pixels (Plugin.Volumetrics.cs)
+            Perf.Add(Perf.Sec.Volumetrics, tv);
             CopyPreAlpha(); // refraction background for the water overlays (Plugin.Transparent.cs)
+            long tx = Perf.Now;
             TraceVfx(kind); // bloom, heat haze, shockwaves, underwater: after the transparents (Plugin.Vfx.cs)
-            _gpu?.End(_cmd, SlotTotal);
-            if (_gpu != null)
-            {
-                _gpu.EndFrame(_cmd);
-                SampleGpuTimings();
-            }
+            Perf.Add(Perf.Sec.Vfx, tx);
+            _gpu?.End(_cmd, SlotTotal); // the frame's queries are resolved at the end of the frame (InstallFrameSlot)
 
             ViewmodelTraced(kind); // the HUD camera lights the viewmodel against this frame (Plugin.Viewmodel.cs)
             _frameIndex++;
@@ -1520,13 +1576,39 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotCount = 22; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotFrame = 22, SlotCount = 23; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace", "frame" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;
         private readonly double[] _gpuSum = new double[SlotCount];
         private readonly int[] _gpuN = new int[SlotCount];
+
+        private CommandBuffer _frameBeginCmd, _frameEndCmd;
+
+        /// <summary>
+        /// The whole-frame slot ("frame"): from right before the frame's rendering starts on the main thread to right after
+        /// it ends, before the present, in every mode including off. Its GPU time is the span the GPU took for the frame's
+        /// commands (the game's and ours), so a frame is GPU-bound when it is close to the frame time; its render-thread
+        /// time is the span from the first to the last of them on that thread. The frame's queries are resolved here, after
+        /// every camera, so late passes (viewmodel, late volumetrics) land in the same frame as the trace.
+        /// </summary>
+        private void InstallFrameSlot()
+        {
+            Perf.InstallFrameMarkers();
+            _frameBeginCmd = new CommandBuffer { name = "UltraRT frame begin" };
+            _gpu.Begin(_frameBeginCmd, SlotFrame);
+            _frameEndCmd = new CommandBuffer { name = "UltraRT frame end" };
+            _gpu.End(_frameEndCmd, SlotFrame);
+            _gpu.EndFrame(_frameEndCmd);
+            Perf.OnRenderStart = () => { if (_gpu != null) Graphics.ExecuteCommandBuffer(_frameBeginCmd); };
+            Perf.OnRenderEnd = () =>
+            {
+                if (_gpu == null) return;
+                Graphics.ExecuteCommandBuffer(_frameEndCmd);
+                SampleGpuTimings();
+            };
+        }
 
         /// <summary>Accumulate each newly resolved frame's per-slot timings (values lag 2-4 frames).</summary>
         private void SampleGpuTimings()

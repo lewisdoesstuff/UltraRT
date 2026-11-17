@@ -161,7 +161,7 @@ namespace UltraRT
             var ambient = RenderSettings.ambientLight;
             _cmd.SetRayTracingBufferParam(u, "_Lights", _lightBuffer);
             _cmd.SetRayTracingBufferParam(u, "_LightMasks", _lightMaskBuffer);
-            _cmd.SetRayTracingIntParam(u, "_LightCount", _lightCount);
+            _cmd.SetRayTracingIntParam(u, "_LightCount", _surfLightCount);
             _cmd.SetRayTracingFloatParam(u, "_LightRadius", _lightRadius);
             _cmd.SetRayTracingVectorParam(u, "_Relight", RelightParams);
             _cmd.SetRayTracingFloatParam(u, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
