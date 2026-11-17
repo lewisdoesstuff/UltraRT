@@ -1,0 +1,158 @@
+{
+  "Name": "plan-bright",
+  "Note": "docs/plan-look-and-perf.md evidence: the game against pathtrace and relight at the places the user named, with one-setting attribution variants.",
+  "Scenarios": [
+    {
+      "Name": "0-1 route",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/0-1-metal.json"
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "relight",
+        "pathtrace+plugin._lightOverrides=0",
+        "pathtrace+ae.gameMatchDown=1+ae.gameMatchBand=0.05+ae.upStrength=0"
+      ],
+      "Screenshots": [
+        5,
+        8,
+        10.5,
+        12.5,
+        15.5
+      ],
+      "ShotSettle": 0.6
+    },
+    {
+      "Name": "1-4 lamps",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-lamps.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "relight",
+        "pathtrace+plugin._skyScale=0",
+        "pathtrace+vol.enabled=0",
+        "pathtrace+ae.gameMatchDown=1+ae.gameMatchBand=0.05+ae.upStrength=0",
+        "pathtrace+plugin._relightRef=0.5"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "1-4 drift a",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+plugin._skyScale=0",
+        "pathtrace+vol.enabled=0",
+        "pathtrace+ae.gameMatchDown=1+ae.gameMatchBand=0.05+ae.upStrength=0"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-1 start",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "relight",
+        "pathtrace+ae.gameMatchDown=1+ae.gameMatchBand=0.05+ae.upStrength=0"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-1 beams",
+      "Scene": "Level 3-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1115-3-1-eye-beams.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "relight",
+        "pathtrace+vol.enabled=0",
+        "pathtrace+ae.gameMatchDown=1+ae.gameMatchBand=0.05+ae.upStrength=0",
+        "pathtrace+plugin._relightRef=0.5"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "6-2 a",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-a.json",
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "relight",
+        "pathtrace+vol.enabled=0",
+        "pathtrace+ae.gameMatchDown=1+ae.gameMatchBand=0.05+ae.upStrength=0",
+        "pathtrace+plugin._relightRef=0.5"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "P-2 puddle",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Position": [
+          6,
+          -18.5,
+          41.5
+        ],
+        "Yaw": 32,
+        "Pitch": -22,
+        "Duration": 6
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "relight",
+        "pathtrace+wet.rain=0",
+        "pathtrace+ae.gameMatchDown=1+ae.gameMatchBand=0.05+ae.upStrength=0"
+      ],
+      "Screenshots": [
+        3
+      ],
+      "ShotSettle": 1
+    }
+  ]
+}
