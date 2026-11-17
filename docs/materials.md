@@ -170,7 +170,7 @@ secondary set alone.
 |---|---|---|
 | `-ultrart-materials on\|off`, `[Materials] Enabled`, **Ctrl+F1** | on | shader-side switch, instant |
 | `-ultrart-materials-source ai\|proc`, `[Materials] Source` | ai | which cache folder; read at scene build |
-| `-ultrart-materials-normal F`, `[Materials] NormalStrength` | 2 | global multiplier on the class normal strength (relight, pt-dn, pt) |
+| `-ultrart-materials-normal F`, `[Materials] NormalStrength` | 1 | global multiplier on the class normal strength (relight, pt-dn, pt). Was 2 until 2026-11-17 (section 8: the bumpiness under RR is mostly the strength); measurements below dated before that were taken at 2. An existing config keeps the value written into it |
 | `-ultrart-materials-hybrid-normal F`, `[Materials] HybridNormalStrength` | 1 | the same in hybrid |
 | `-ultrart-materials-roughness F`, `[Materials] Roughness` | 1 | global multiplier on the roughness variation (menu: Enabled, both strengths and this one, [settings.md](settings.md); the LOD entries are config / flags only) |
 | `-ultrart-materials-guided on\|off` | on | hybrid composite: albedo-guided trace texel pick |
@@ -260,8 +260,8 @@ kept).
 
 ### Recommended defaults
 
-- **On, PBRify (`ai`) maps**, strength 2 in relight / pt-dn / pt, 1 in hybrid, per-class table as in section 3,
-  guided pick on. Detail matters most in relight, which shades with the normals directly. If the +0.3-0.4 ms in
+- **On, PBRify (`ai`) maps**, strength 1 in relight / pt-dn / pt (2 until 2026-11-17: too bumpy under DLSS RR,
+  section 8), 1 in hybrid, per-class table as in section 3, guided pick on. Detail matters most in relight, which shades with the normals directly. If the +0.3-0.4 ms in
   metal-heavy rooms matters more than the relief, 1.5 is a reasonable middle.
 - Procedural maps only as a fallback where no AI maps exist: they are cheap to generate but mostly add albedo noise.
 - Keep `"detail": 0` overrides in mind for printed art the class table misses (signs and posters on lit materials).
@@ -372,6 +372,9 @@ The bumpiness at the 8-2 street is texel-scale relief (mortar lines and brick be
 LOD rightly keeps: at strength 2 it reads as dark, dirty mortar; at 1 the courses still read with half the depth; 0.4
 is nearly flat (`normals-final` crops `8-2_a_2.0s_*`, `1-1_start_2.0s_*`). That is a taste call; **1** looks like the
 best balance under RR. The default stays 2 (and the user's config at 0.4) until the user decides.
+**Decided 2026-11-17: the default is 1.** The trailer's first render (alt install, strength 2 written in its config)
+still showed noisy 8-2 bricks with the LOD on. Configs that already hold a value keep it (BepInEx writes the default
+on first run), so an install still at 2 needs its entry changed by hand.
 
 **Cost.** GPU (`normals-perf`, `-Perf`, exclusive hold, LOD off/on alternating in one pass): total +0.00 / +0.01 ms in
 8-2 a and 1-1 start (relight and pathtrace), +0.03 / +0.07 ms in 0-1 metal. Load: the mip build adds about 0.7 ms per

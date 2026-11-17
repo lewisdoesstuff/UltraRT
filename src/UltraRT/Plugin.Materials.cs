@@ -22,7 +22,7 @@ namespace UltraRT
                 "(docs/materials.md). Overridden by -ultrart-materials on|off; Ctrl+F1 toggles in game.").Value;
             s.source = Config.Bind("Materials", "Source", "ai",
                 "Which generated set to use: ai (PBRify Remix) or proc (procedural). Overridden by -ultrart-materials-source.").Value;
-            s.normalStrength = Config.Bind("Materials", "NormalStrength", 2f, "Multiplier on the per-class normal strength (relight, pt-dn, pt).").Value;
+            s.normalStrength = Config.Bind("Materials", "NormalStrength", 1f, "Multiplier on the per-class normal strength (relight, pt-dn, pt). Default 1 since 2026-11-17 (was 2: too bumpy under DLSS RR).").Value;
             s.hybridNormalStrength = Config.Bind("Materials", "HybridNormalStrength", 1f, "Multiplier on the per-class normal strength in hybrid.").Value;
             s.roughness = Config.Bind("Materials", "Roughness", 1f, "Multiplier on the per-class roughness variation.").Value;
             s.lod = Config.Bind("Materials", "TextureLod", true,

@@ -16,7 +16,7 @@ namespace UltraRT
         /// <summary>-ultrart-materials-source ai|proc: the cache folder under BepInEx/ultrart/materials (tools/materials).</summary>
         public string source = "ai";
         /// <summary>-ultrart-materials-normal F: global multiplier on the per-class normal strength (relight, pt-dn, pt).</summary>
-        public float normalStrength = 2f;
+        public float normalStrength = 1f;
         /// <summary>-ultrart-materials-hybrid-normal F: the same in hybrid, whose shadow ratio scales the game's lit colour
         /// (half-resolution, ambient included), so it takes less before texel rows look dirty.</summary>
         public float hybridNormalStrength = 1f;
