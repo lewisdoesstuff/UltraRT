@@ -15,6 +15,10 @@ namespace UltraRT
         public bool enabled = true;
         /// <summary>-ultrart-materials-source ai|proc: the cache folder under BepInEx/ultrart/materials (tools/materials).</summary>
         public string source = "ai";
+        /// <summary>-ultrart-materials-smooth F ([Materials] NormalSmooth), 0-1: how far each texel's normal is pulled to
+        /// the 3x3 average of its neighbourhood when a map is loaded (wrapped). PBRify tilts every texel on its own,
+        /// which shows as fragments inside bricks under any denoiser (docs/materials.md, "Matrix"). Read at scene build.</summary>
+        public float smooth = 0f;
         /// <summary>-ultrart-materials-normal F: global multiplier on the per-class normal strength (relight, pt-dn, pt).</summary>
         public float normalStrength = 1f;
         /// <summary>-ultrart-materials-hybrid-normal F: the same in hybrid, whose shadow ratio scales the game's lit colour
@@ -177,6 +181,41 @@ namespace UltraRT
             return e.Tex != null ? e : null;
         }
 
+        /// <summary>Pulls each texel's normal xy (r, g) towards the 1-2-1 average of its 3x3 neighbourhood, wrapped like
+        /// the texture tiles (tools/materials/variants.py's "lp" set, done at load).</summary>
+        private static void SmoothNormals(Color32[] px, int w, int h, float amount)
+        {
+            if (w < 3 || h < 3) return;
+            var x = new float[px.Length];
+            var y = new float[px.Length];
+            for (int i = 0; i < px.Length; i++) { x[i] = px[i].r; y[i] = px[i].g; }
+            var tx = new float[px.Length];
+            var ty = new float[px.Length];
+            for (int r = 0; r < h; r++)
+            {
+                int row = r * w;
+                for (int c = 0; c < w; c++)
+                {
+                    int l = row + (c == 0 ? w - 1 : c - 1), m = row + c, rr = row + (c == w - 1 ? 0 : c + 1);
+                    tx[m] = 0.25f * x[l] + 0.5f * x[m] + 0.25f * x[rr];
+                    ty[m] = 0.25f * y[l] + 0.5f * y[m] + 0.25f * y[rr];
+                }
+            }
+            for (int r = 0; r < h; r++)
+            {
+                int up = (r == 0 ? h - 1 : r - 1) * w, mid = r * w, dn = (r == h - 1 ? 0 : r + 1) * w;
+                for (int c = 0; c < w; c++)
+                {
+                    float sx = 0.25f * tx[up + c] + 0.5f * tx[mid + c] + 0.25f * tx[dn + c];
+                    float sy = 0.25f * ty[up + c] + 0.5f * ty[mid + c] + 0.25f * ty[dn + c];
+                    var p = px[mid + c];
+                    p.r = (byte)Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(x[mid + c], sx, amount)), 0, 255);
+                    p.g = (byte)Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(y[mid + c], sy, amount)), 0, 255);
+                    px[mid + c] = p;
+                }
+            }
+        }
+
         /// <summary>"&lt;key&gt;_d.png" (generate.py write_detail: rg normal, b roughness - mean + 0.5, a 1), decoded straight
         /// into the detail texture (linear, point, repeat). It stays readable for atlas composition.</summary>
         private void Load(Entry e)
@@ -196,6 +235,7 @@ namespace UltraRT
                 // Decoded once on the CPU: the mip chain (with slope variance) is built from it, and atlas composition
                 // reads it later. The GPU texture is a fresh one with mips.
                 e.Pixels = t.GetPixels32();
+                if (Settings.smooth > 0f) SmoothNormals(e.Pixels, t.width, t.height, Mathf.Clamp01(Settings.smooth));
                 MsRead += (System.Diagnostics.Stopwatch.GetTimestamp() - t1) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
                 int w = t.width, h = t.height;
                 UnityEngine.Object.Destroy(t);
