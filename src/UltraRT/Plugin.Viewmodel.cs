@@ -746,7 +746,15 @@ namespace UltraRT
             _gpu?.Begin(cmd, SlotVmComposite);
             cmd.SetRenderTarget(color.colorBuffer);
             cmd.EnableScissorRect(rect);
-            cmd.DrawProcedural(Matrix4x4.identity, mat, hybrid ? 1 : 0, MeshTopology.Triangles, 3);
+            var hdrLate = hybrid ? null : HdrLateForViewmodel(mat);
+            if (hdrLate != null)
+            {
+                // The gun's glowing parts into the HDR late map the screen-effects pass wrote this frame (docs/hdr.md).
+                cmd.SetRandomWriteTarget(1, hdrLate);
+                cmd.DrawProcedural(Matrix4x4.identity, mat, 2, MeshTopology.Triangles, 3);
+                cmd.ClearRandomWriteTargets();
+            }
+            else cmd.DrawProcedural(Matrix4x4.identity, mat, hybrid ? 1 : 0, MeshTopology.Triangles, 3);
             cmd.DisableScissorRect();
             cmd.SetRenderTarget(color.colorBuffer, depth.depthBuffer); // the HUD camera's own targets, for its transparents
             _gpu?.End(cmd, SlotVmComposite);

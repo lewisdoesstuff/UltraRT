@@ -314,6 +314,7 @@ namespace UltraRT
                     break;
                 }
             }
+            if (HdrLateFrame(out frame.hdrFx, out frame.hdrTop)) frame.hdrGain = _vfx.EnsureHdrGain(target);
             if (!_vfx.Wanted(frame)) return;
             if (Time.realtimeSinceStartup >= _vfxNextSummary)
             {
@@ -322,7 +323,7 @@ namespace UltraRT
             }
             bool bloom = _vfxSettings.bloom && _vfxSettings.bloomStrength > 0f;
             _gpu?.Begin(_cmd, SlotVfx);
-            if (bloom)
+            if (bloom || frame.hdrGain != null)
             {
                 frame.pre = _vfx.EnsurePre(target);
                 _cmd.CopyTexture(target, frame.pre);
@@ -331,6 +332,7 @@ namespace UltraRT
             _gpu?.Begin(_vfxLateCmd, SlotVfxLate);
             _vfx.Execute(_vfxLateCmd, frame);
             _gpu?.End(_vfxLateCmd, SlotVfxLate);
+            if (frame.hdrGain != null) HdrSubmitLate(_vfxLateCmd, frame.hdrGain, frame.hdrTop);
         }
 
         /// <summary>For bench logs.</summary>

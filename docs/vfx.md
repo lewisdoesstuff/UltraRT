@@ -135,6 +135,10 @@ From linear light, before the tone curve, output SDR. Three sources, added in th
 
 Without an HDR source (hybrid) the brightest part of the displayed RT image stands in for 1 and 2.
 
+**HDR displays** (docs/hdr.md, "Effects and bloom"): with HDR output on, the final pass is pass 4, the same code plus a
+UAV write of the HDR late gain map: effects the transparents made bright get `HDREffects`, and glow the shoulder above
+squeezed under white gets `HDRBloom` more room. The SDR result is the same; pass 3 is unchanged.
+
 Six mips, 4-tap downsample, tent upsample added back with each wider level weighted `bloomSpread` 0.55 of the one
 before; composited as `(scene^2.2 + strength x bloom)^(1/2.2)` with `bloomStrength` 0.5 and a soft shoulder that
 never adds more than `bloomMaxAdd` 0.25. Pixels that are already bright get up to `bloomProtect` 80% less of it: the

@@ -288,6 +288,12 @@ curve; RR's `Prepare`/`Finish`). Its texels are exact at screen resolution, beca
 G-buffer after RR. Gun luma, pathtrace against relight with RR on: 1-1 start 93 / 102, 1-4 lamps 69 / 72, 7-3 58 / 60. There
 was no seam or exposure jump between the gun and the RR world, so nothing needed changing. Cost is the same as in relight.
 
+### HDR displays (2026-11-18)
+With HDR output on and a late gain map this frame (docs/hdr.md, "Effects and bloom"), the composite draws with pass 2:
+pass 0 unchanged, plus a UAV write of the gain of the gun's glowing parts (`HDREmissive`, `UltraRTHdrEmissive`) and the
+gun's own colour into the late map, so the charge pips go above paper white and the world's gain behind the gun can't
+leak onto it. Not in hybrid. The game's transparents on the gun (muzzle flash, charge sprites) stay at paper white.
+
 ### Cost (`viewmodel-cost2`, `-Perf`, exclusive)
 
 | Pose | relight | hybrid | pathtrace | of which rays |
