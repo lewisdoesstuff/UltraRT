@@ -108,6 +108,8 @@ namespace UltraRT
         [JsonProperty("rtBrightness", NullValueHandling = NullValueHandling.Ignore)] public float? RtBrightness;
         /// <summary>0-1: the level follows the game's brightness downwards (AutoExposureSettings.levelFollowGame).</summary>
         [JsonProperty("followGame", NullValueHandling = NullValueHandling.Ignore)] public float? FollowGame;
+        /// <summary>0-1: the level follows the game's brightness upwards (AutoExposureSettings.levelFollowGameUp).</summary>
+        [JsonProperty("followGameUp", NullValueHandling = NullValueHandling.Ignore)] public float? FollowGameUp;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
     }
 
@@ -156,6 +158,7 @@ namespace UltraRT
         /// one), or 0.</summary>
         public float LevelRtBrightness => Mathf.Clamp01((_userExposure?.RtBrightness ?? _shippedExposure?.RtBrightness) ?? 0f);
         public float LevelFollowGame => Mathf.Clamp01((_userExposure?.FollowGame ?? _shippedExposure?.FollowGame) ?? 0f);
+        public float LevelFollowGameUp => Mathf.Clamp01((_userExposure?.FollowGameUp ?? _shippedExposure?.FollowGameUp) ?? 0f);
 
         /// <summary>Classes and rules (lights\_rules.json plus this level's own).</summary>
         public readonly LightClasses Classes;

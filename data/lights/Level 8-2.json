@@ -55,6 +55,18 @@
       "set": {
         "intensity": 0
       }
+    },
+    {
+      "name": "door lights",
+      "path": "DoorLight[^/]*/[^/]*$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^Ceiling_Light$"
+      },
+      "note": "User, 2026-11-18 (8-2 pose 3): 'a light that doesn't cast a shadow'. The 56 lamps over doors each have a light floating in front of them (classified as fills); their own glowing panel carries the light now, like the ceiling panels."
     }
   ],
   "emitters": [
@@ -72,5 +84,9 @@
     }
   ],
   "lights": [],
-  "added": []
+  "added": [],
+  "exposure": {
+    "followGame": 0.75,
+    "note": "User, 2026-11-18: the night street (pose 2) is too bright, the day side about right. The street is lit by the sky alone (every level light off: the same picture), so the exposure follows the game there; 0.75 rather than 1 because it also pulls the offices down (pose 4: 75 -> 58 at 1, the game 54)."
+  }
 }

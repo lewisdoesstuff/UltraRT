@@ -280,8 +280,8 @@ Evidence: bench effect `holditem` (V1 picks up a skull; bench/README.md), suite 
 **7-1's posed dummy (pose 5)**: the user saw a displaced, slightly larger faint copy of a mannequin dummy beside it,
 standing still. Not reproduced in six bench launches with this branch (the dummy's pose is random per load; each
 capture was clean, sheets `mannequin_*.png`). No cause was found by reading: one `SkinnedMeshRenderer` per dummy, no
-layer change, no scale change in place. The user read the captures as fixed (2026-11-18); if it comes back, the
-log lines above are the first thing to look for.
+layer change, no scale change in place. **Open, unreproduced** (lead, 2026-11-18: the ghost was there when the user walked in, not only after shooting the
+dummy). The log lines above are the first thing to look for in a session that shows it.
 
 ## New objects
 
