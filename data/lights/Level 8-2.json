@@ -13,23 +13,28 @@
     },
     "fixture": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 0.5,
+      "medium": 0.55
     },
     "accent": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 0.5,
+      "medium": 0.55
     },
     "glow": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 0.5,
+      "medium": 0.55
     },
     "effect": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 0.5,
+      "medium": 0.55
     },
     "item": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 0.5,
+      "medium": 0.55
     }
   },
   "rules": [

@@ -3,5 +3,37 @@
   "scene": "Level 5-1",
   "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
   "lights": [],
-  "added": []
+  "added": [],
+  "classes": {
+    "fixture": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55,
+      "note": "Stays at x1.8: at x2.5 the white corridors blow out (highlights 24 % of the frame, the game 2.5 %)."
+    },
+    "accent": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55,
+      "note": "Stays at x1.8: at x2.5 the white corridors blow out (highlights 24 % of the frame, the game 2.5 %)."
+    },
+    "glow": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55,
+      "note": "Stays at x1.8: at x2.5 the white corridors blow out (highlights 24 % of the frame, the game 2.5 %)."
+    },
+    "effect": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55,
+      "note": "Stays at x1.8: at x2.5 the white corridors blow out (highlights 24 % of the frame, the game 2.5 %)."
+    },
+    "item": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55,
+      "note": "Stays at x1.8: at x2.5 the white corridors blow out (highlights 24 % of the frame, the game 2.5 %)."
+    }
+  }
 }
