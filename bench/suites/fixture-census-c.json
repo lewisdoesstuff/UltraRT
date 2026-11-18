@@ -1,0 +1,201 @@
+{
+  "Name": "fixture-census-c",
+  "Note": "Fixture census (docs/lighting-overrides.md, 'Emissive fixtures'): one view at each level's first checkpoint, only to write lights_<scene>.json. Run with -Extra \"-ultrart-light-census\"; read with tools/lights/fixtures.py. With -a and -b: every campaign level.",
+  "Scenarios": [
+    {
+      "Name": "0-2 census",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "0-4 census",
+      "Scene": "Level 0-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "0-5 census",
+      "Scene": "Level 0-5",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "1-2 census",
+      "Scene": "Level 1-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "1-3 census",
+      "Scene": "Level 1-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "2-1 census",
+      "Scene": "Level 2-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "2-3 census",
+      "Scene": "Level 2-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "3-2 census",
+      "Scene": "Level 3-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "4-2 census",
+      "Scene": "Level 4-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "4-4 census",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "5-2 census",
+      "Scene": "Level 5-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "5-4 census",
+      "Scene": "Level 5-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    },
+    {
+      "Name": "6-1 census",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    }
+  ]
+}

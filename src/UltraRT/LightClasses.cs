@@ -79,6 +79,8 @@ namespace UltraRT
         [JsonProperty("signals", NullValueHandling = NullValueHandling.Ignore)] public string[] Signals;
         [JsonProperty("class")] public string Class;
         [JsonProperty("set", NullValueHandling = NullValueHandling.Ignore)] public LightPolicy Set;
+        /// <summary>The light's job goes to the glowing part of its fixture (Plugin.Handover.cs).</summary>
+        [JsonProperty("handover", NullValueHandling = NullValueHandling.Ignore)] public LightHandover Handover;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
 
         [JsonIgnore] private Regex _scene, _path, _notPath;
@@ -120,6 +122,44 @@ namespace UltraRT
             if (_notPath != null && _notPath.IsMatch(f.Path)) return false;
             return true;
         }
+    }
+
+    /// <summary>
+    /// "Emissive over lights" for a fixture (docs/lighting-overrides.md, "Handover"): the lights a rule matches hand
+    /// their output to the glowing part of their fixture. The part's emissive triangles are scaled so that together
+    /// they emit what the light did (its colour, strength with the class policy, range), and the light itself is
+    /// dropped or, for a hooded fixture whose part cannot light the ground, kept at a fraction ("keep": the hybrid).
+    /// A light whose fixture has no such part stays as it is.
+    /// </summary>
+    public sealed class LightHandover
+    {
+        /// <summary>Regex on the material name of the glowing part; case-insensitive.</summary>
+        [JsonProperty("part")] public string Part;
+        /// <summary>Above 0: the part is not emissive in the game and gets an emitter mask with this glow (what the camera
+        /// sees of it: albedo x glow; LightEmitterRule.Glow). Its light output is the handed-over one either way.</summary>
+        [JsonProperty("glow", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Glow;
+        [JsonProperty("threshold", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Threshold;
+        /// <summary>Multiplier on the handed-over output (on top of LightClasses.HandoverGain).</summary>
+        [JsonProperty("gain", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Gain = 1f;
+        /// <summary>Hybrid: the light stays at this fraction of its strength (a factor like "intensity"). 0 = off.</summary>
+        [JsonProperty("keep", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Keep;
+        /// <summary>Hybrid: the kept light's share in the air ("medium"); absent = the class's.</summary>
+        [JsonProperty("keepMedium", NullValueHandling = NullValueHandling.Ignore)] public float? KeepMedium;
+
+        [JsonIgnore] private Regex _part;
+        [JsonIgnore] private bool _compiled;
+
+        public bool PartMatches(string material)
+        {
+            if (!_compiled)
+            {
+                _compiled = true;
+                _part = string.IsNullOrEmpty(Part) ? null : new Regex(Part, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+            }
+            return _part != null && _part.IsMatch(material ?? "");
+        }
+
+        public string Key => string.Format(CultureInfo.InvariantCulture, "{0}|g{1}t{2}x{3}k{4}", Part, Glow, Threshold, Gain, Keep);
     }
 
     /// <summary>What a rule can test about a light.</summary>
@@ -217,6 +257,10 @@ namespace UltraRT
     public sealed class LightClasses
     {
         public const string RulesFileName = "_rules.json";
+        /// <summary>Handover: the share of a light's far-field output its glowing part gets. 1 would equal the light's
+        /// inverse-square curve at every distance; the fixtures tuned by eye before (1-4's and 8-2's lamps against the
+        /// game) sit at 0.13-0.2 of that.</summary>
+        public const float HandoverGain = 0.25f;
 
         /// <summary>Classes the code assigns before any rule (lights that move, or that another system owns).</summary>
         public const string Sun = "sun", SkyFill = "skyfill", Player = "player", Effect = "effect", Enemy = "enemy", Item = "item", Lava = "lava", Other = "other";
@@ -229,6 +273,8 @@ namespace UltraRT
         private readonly List<LightEmitterRule> _emitters = new List<LightEmitterRule>();
         /// <summary>Changes when the emitter rules in force do (the emissive triangle table is built with them).</summary>
         public string EmitterKey { get; private set; } = "";
+        /// <summary>A rule in force hands lights over to their fixtures' glowing parts.</summary>
+        public bool HasHandovers { get; private set; }
 
         /// <summary>The scale on the light a surface gives (first matching emitter rule), 1 without one.</summary>
         public float EmitterScale(string material, string texture, string path, out string rule)
@@ -327,7 +373,13 @@ namespace UltraRT
                 _emitters.AddRange(_globalEmitters.Where(r => r.SceneMatches(scene)));
             }
             catch (ArgumentException e) { _log.LogError($"Emitter rules: bad pattern: {e.Message}"); }
-            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Path}|{r.Scale.ToString(CultureInfo.InvariantCulture)}" + (r.Glow > 0f ? $"|g{r.Glow.ToString(CultureInfo.InvariantCulture)}t{r.Threshold.ToString(CultureInfo.InvariantCulture)}" : "")));
+            // A handover whose part is not emissive in the game: its mask, after the files' own emitter rules.
+            foreach (var r in _active)
+                if (r.Handover != null && r.Handover.Glow > 0f && !string.IsNullOrEmpty(r.Handover.Part))
+                    _emitters.Add(new LightEmitterRule { Name = r.Name, Material = r.Handover.Part, Glow = r.Handover.Glow, Threshold = r.Handover.Threshold });
+            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Path}|{r.Scale.ToString(CultureInfo.InvariantCulture)}" + (r.Glow > 0f ? $"|g{r.Glow.ToString(CultureInfo.InvariantCulture)}t{r.Threshold.ToString(CultureInfo.InvariantCulture)}" : "")))
+                         + "#h:" + string.Join(";", _active.Where(r => r.Handover != null).Select(r => r.Path + "|" + r.Handover.Key));
+            HasHandovers = _active.Any(r => r.Handover != null);
         }
 
         /// <summary>The first matching rule, or null.</summary>

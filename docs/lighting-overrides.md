@@ -780,6 +780,212 @@ back at x1 (the entries are gone). x2 on P-2 would be a taste call (more contras
 Sheets: `bench/results/review/dark-7-3/` (`trailer-poses.jpg`: first master / ships at both shots; the candidate
 rounds; `tour-7-3.png`).
 
+## Handover: a fixture's glowing part carries its light (2026-11-18, `t3/emissive-all`)
+
+The user: "if something can be emissive instead of using a light, it should". A rule in `_rules.json` (or in a level file)
+with a `handover` block hands a fixture's light to the fixture's own glowing part:
+
+```json
+{ "name": "street lamp bulbs", "path": "Streetlight(?!Fraud)[^/]*(/[^/]*){0,2}$", "signals": ["!scripted"],
+  "class": "fixture:lamp", "handover": { "part": "^(Light|LightPillar 5C)$", "gain": 2 } }
+```
+
+- `part`: a regex on the material name of the mesh that glows, searched under the light's first three ancestors (at
+  most 24 renderers). `gain` (default 1) scales the output; `keep` (default 0) is the share of the light that stays, for
+  a **hybrid**; `keepMedium` its air share.
+- The part's triangles join the emissive triangle table with a radiance that makes their total output equal the
+  light's: `lin(colour x intensity x class policy, clamped to gamma 3)^2.2 x gain x pi x K x range^2 x cone`
+  (`K` 0.003205 as in the light model, `cone` = 0.5 (1 - cos(spot angle / 2)) for a spot, 1 for a point light), times
+  `LightClasses.HandoverGain` 0.25. The light's colour is kept. A part the game does not mark emissive (a fullbright
+  bulb) joins the table as a "forced" part with its albedo as the pattern; nothing changes for the camera.
+- Static-batched parts are found by their bounds inside the batch, so each lamp gets its own light's output.
+- The light is switched off (or cut to `keep`) **only once its part has triangles in the table**
+  (`EmissiveLights.PowerFulfilled`). A part that is not traced as an emitter costs no light (census: `part not traced`).
+- Scripted lights (`!scripted`) are left alone: a light the level switches or animates would leave a part that glows
+  on. 8-2's 106 office lights are such lights; its other 114 ceiling panels are handed over.
+- Code: `Plugin.Handover.cs`, `EmissiveLights.ApplyPower`, `LightHandover` in `LightClasses.cs`. Log:
+  `Handover (<scene>): N lights to M parts and B baked parts; per rule ...`. Bench variants `lc.handover=0` (the rules
+  do nothing) and `lc.hgain=F` (on every gain). `tools/lights/handover.py bench/results [--detail]` counts a census.
+
+Sixteen global rules: ceiling panels, lounge lamps, floor lamps, pipe lights, candle piles, hooded street lamps (hybrid),
+street lamp bulbs, standing lamps, lanterns, glowing orbs, dome lamps, glowing mushrooms, computer screens, bone lights,
+hotel wall lights, hotel desk lamps. 8-2 keeps its hand-tuned level rules for the street lamps (light x1.3 next to
+heads x2) and standing lamps. 1-4's hand-tuned lamp rules are gone; its lamps and orbs run at three times the global
+gain (at the global gain the lamp garden's walls read at p95 x0.62 of the game's, at x4 x1.22 with the dark end up 18).
+
+**Hybrid.** 8-3's hooded street lamps (58): the head under its hood lights the hood and the pole, not the street, so
+the light stays at 0.52 (air x0.5) and the head gets gain 0.2. 8-2's 33 street lamps are the same idea by its level
+rule.
+
+### Counts per level
+
+Fixture-class lights without the pooled blood-splatter lights, from the censuses of the all-level tours
+(`bench/suites/fixture-census-a` to `-d` list the levels). `handed` = the light is off and the part gives its output;
+`emissive` = off by an older level rule next to an emitter rule (8-2's standing lamps); `flame` = a fire sprite or
+particles, no surface (the flame-driven lights, below, are for these); kept: `no part` = lit materials only or baked
+into the level, `beam` = the only glowing mesh is a light-shaft mesh, `part, kept` = it has a glowing part and no rule
+hands it over (scripted, or a level rule decides), `no fixture` = the light hangs in the air.
+
+| Level | fixture lights | handed | hybrid | emissive | flame | no part | beam | part, kept | no fixture |
+|---|---|---|---|---|---|---|---|---|---|
+| 0-1 | 61 | 4 |  |  |  | 49 | 8 |  |  |
+| 0-2 | 25 | 4 |  |  |  | 19 |  |  | 2 |
+| 0-3 | 123 | 2 |  |  |  | 26 | 87 | 1 | 7 |
+| 0-4 | 12 |  |  |  |  | 10 | 2 |  |  |
+| 0-5 | 12 |  |  |  |  | 12 |  |  |  |
+| 1-1 | 53 |  |  |  | 44 | 9 |  |  |  |
+| 1-2 | 64 |  |  |  | 47 | 17 |  |  |  |
+| 1-3 | 99 |  |  |  | 65 | 29 | 4 |  | 1 |
+| 1-4 | 45 | 24 |  |  | 11 | 10 |  |  |  |
+| 2-1 | 65 | 38 |  |  |  | 7 | 20 |  |  |
+| 2-2 | 64 | 6 |  |  | 23 | 10 | 23 |  | 2 |
+| 2-3 | 41 | 11 |  |  |  | 13 | 17 |  |  |
+| 2-4 | 5 |  |  |  | 1 | 2 |  |  | 2 |
+| 3-1 | 22 | 6 |  |  |  | 10 | 6 |  |  |
+| 3-2 | 2 |  |  |  |  | 2 |  |  |  |
+| 4-1 | 88 |  |  |  | 82 | 6 |  |  |  |
+| 4-2 | 28 |  |  |  | 21 | 7 |  |  |  |
+| 4-3 | 163 |  |  |  | 160 | 3 |  |  |  |
+| 4-4 | 109 |  |  |  | 106 | 3 |  |  |  |
+| 5-1 | 72 | 35 |  |  |  | 19 | 18 |  |  |
+| 5-2 | 43 | 18 |  |  | 19 | 4 |  | 2 |  |
+| 5-3 | 250 | 32 |  |  | 151 | 62 | 2 | 3 |  |
+| 5-4 | 34 | 32 |  |  |  | 2 |  |  |  |
+| 6-1 | 84 | 32 |  |  | 21 | 19 |  |  | 12 |
+| 6-2 | 30 | 22 |  |  | 6 | 2 |  |  |  |
+| 7-1 | 93 | 75 |  |  | 14 | 4 |  |  |  |
+| 7-2 | 37 | 6 |  |  | 9 | 21 |  |  | 1 |
+| 7-3 | 7 |  |  |  | 3 | 4 |  |  |  |
+| 7-4 | 10 |  |  |  |  | 8 |  | 2 |  |
+| 8-1 | 219 | 128 |  |  | 11 | 79 |  | 1 |  |
+| 8-2 | 309 | 125 |  | 8 | 9 | 28 | 2 | 137 |  |
+| 8-3 | 370 | 192 | 58 |  | 33 | 73 | 4 | 1 | 9 |
+| 8-4 | 56 | 13 |  |  | 8 | 8 | 27 |  |  |
+| 0-E | 56 | 4 |  |  |  | 28 | 23 |  | 1 |
+| 0-S | 3 |  |  |  |  | 3 |  |  |  |
+| 1-E | 71 | 8 |  |  | 31 | 30 |  |  | 2 |
+| 1-S | 3 |  |  |  |  | 3 |  |  |  |
+| 4-S | 100 |  |  |  | 88 | 3 |  | 9 |  |
+| 5-S | 21 | 2 |  |  | 15 | 4 |  |  |  |
+| 7-S | 16 |  |  |  | 2 | 5 |  | 9 |  |
+| P-1 | 4 | 2 |  |  |  | 2 |  |  |  |
+| P-2 | 42 | 32 |  |  | 6 | 2 |  | 1 | 1 |
+| **all** | 3011 | 853 | 58 | 8 | 986 | 657 | 243 | 166 | 40 |
+
+Kept, per level (the largest groups):
+
+- **0-1**: BloodWindow x36 (no part); FloorLamp x8 (beam); Sphere_8 x8 (no part); Cube x3 (no part); Frank x1 (no part); Hank x1 (no part)
+- **0-2**: Sphere_8 x17 (no part); 10B Contents x2 (no fixture); Frank x1 (no part); Hank x1 (no part)
+- **0-3**: Light x84 (beam); Sphere_8 x24 (no part); Lights x4 (no fixture); FloorLamp x3 (beam); 11 Contents x2 (no fixture); NeoBreakable x1 (part, kept); Boss Arena Contents x1 (no fixture); Frank x1 (no part)
+- **0-4**: Sphere_8 x8 (no part); FloorLamp x2 (beam); Frank x1 (no part); Hank x1 (no part)
+- **0-5**: Sphere_8 x10 (no part); Frank x1 (no part); Hank x1 (no part)
+- **1-1**: Sphere_8 x6 (no part); Temple Entrance x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **1-2**: Breakable Wall x4 (no part); Sphere_8 x4 (no part); Sky Broken x2 (no part); Wall 1 Broken x2 (no part); Wall 2 Broken x2 (no part); Temple Entrance x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **1-3**: Sphere_8 x26 (no part); LightPillar x4 (beam); B2-B Nonstuff x1 (no fixture); Temple Entrance x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **1-4**: Sphere_8 x7 (no part); Temple Entrance x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **2-1**: StreetlightBlue Variant x20 (beam); Sphere_8 x3 (no part); Streetlight x2 (no part); Frank x1 (no part); Hank x1 (no part)
+- **2-2**: StreetlightBlue Variant x20 (beam); Breakable x6 (no part); FloorLamp x3 (beam); 4 Stuff x2 (no fixture); Sphere_8 x2 (no part); Frank x1 (no part); Hank x1 (no part)
+- **2-3**: StreetlightBlue Variant x9 (beam); LightPillarSolid x7 (no part); FloorLamp x6 (beam); Breakable x3 (no part); Sphere_8 x2 (beam); Frank x1 (no part); Hank x1 (no part); Sphere_8 x1 (no part)
+- **2-4**: Window Room x2 (no fixture); Frank x1 (no part); Hank x1 (no part)
+- **3-1**: Sphere_8 x8 (no part); Eyeball x6 (beam); Frank x1 (no part); Hank x1 (no part)
+- **3-2**: Frank x1 (no part); Hank x1 (no part)
+- **4-1**: Sphere_8 x3 (no part); SpawnEffect 2 x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **4-2**: Sphere_8 x5 (no part); Frank x1 (no part); Hank x1 (no part)
+- **4-3**: Frank x1 (no part); Hank x1 (no part); Sphere_8 x1 (no part)
+- **4-4**: RedArmPickup x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **5-1**: LightPillar x12 (beam); StreetlightBlue Variant x5 (beam); Tunnel A x5 (no part); Tunnel B x5 (no part); Tunnel Center x5 (no part); Sphere_8 x2 (no part); Breakable x1 (beam); Frank x1 (no part)
+- **5-2**: Cylinder x2 (part, kept); Sphere_8 x2 (no part); Frank x1 (no part); Hank x1 (no part)
+- **5-3**: Dome x52 (no part); Sphere_8 x8 (no part); ChandelierLights x2 (beam); Hologram x2 (part, kept); Frank x1 (no part); Hank x1 (no part); Hologram Master x1 (part, kept)
+- **5-4**: Frank x1 (no part); Hank x1 (no part)
+- **6-1**: Breakable x17 (no part); SoulTubeLights x12 (no fixture); Frank x1 (no part); Hank x1 (no part)
+- **6-2**: Frank x1 (no part); Hank x1 (no part)
+- **7-1**: Sphere_8 x2 (no part); Frank x1 (no part); Hank x1 (no part)
+- **7-2**: Sphere_8 x13 (no part); Canvas x6 (no part); Waiting Hall x1 (no fixture); Frank x1 (no part); Hank x1 (no part)
+- **7-3**: Diamond x1 (no part); Frank x1 (no part); Hank x1 (no part); Sphere_8 x1 (no part)
+- **7-4**: Sphere_8 x5 (no part); Sphere_8 x2 (part, kept); BeamSphere x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **8-1**: Dome x54 (no part); ApartmentLamp x8 (no part); HotelDeskLamp x6 (no part); HotelLight x4 (no part); Sphere_8 x4 (no part); PlanetSphere x1 (part, kept); GlassDoor x1 (no part); Frank x1 (no part)
+- **8-2**: OfficeLight x100 (part, kept); StreetlightFraud x33 (part, kept); Dome x9 (no part); OfficeLight x6 (no part); Sphere_8 x5 (no part); SupermarketLamp x3 (no part); SupermarketLamp x2 (part, kept); Dome x2 (part, kept)
+- **8-3**: Dome x46 (no part); Sphere_8 x11 (no part); OfficeLight x8 (no part); GabrielWeaponBreak x5 (no fixture); OfficeDeskSet x4 (no fixture); FloorLamp x4 (beam); Temple Entrance x3 (no part); Frank x1 (no part)
+- **8-4**: Dome x27 (beam); Dome x3 (no part); ApartmentLamp x3 (no part); Frank x1 (no part); Hank x1 (no part)
+- **0-E**: Sphere_8 x24 (no part); Light x12 (beam); FloorLamp x11 (beam); Cube x2 (no part); Lighting x1 (no fixture); Frank x1 (no part); Hank x1 (no part)
+- **0-S**: Frank x1 (no part); Hank x1 (no part); Sphere_8 x1 (no part)
+- **1-E**: Sphere_8 x23 (no part); 4 Unburned x4 (no part); 13 Nonstuff x2 (no fixture); Temple Entrance x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **1-S**: Temple Entrance x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **4-S**: Sphere_8 x9 (part, kept); Cube x1 (no part); Frank x1 (no part); Hank x1 (no part)
+- **5-S**: Fishing Rod x1 (no part); Frank x1 (no part); Hank x1 (no part); Sphere_8 x1 (no part)
+- **7-S**: GhostDroneEnemy x8 (part, kept); Sphere_8 x2 (no part); Lounge Lamp x1 (part, kept); Frank x1 (no part); Hank x1 (no part); Windows_Inside x1 (no part)
+- **P-1**: Frank x1 (no part); Hank x1 (no part)
+- **P-2**: Streetlight x1 (part, kept); Decorations x1 (no fixture); Frank x1 (no part); Hank x1 (no part)
+
+The large kept groups: the statue orbs `Sphere_8` (their ball is not traced as an emitter: the orb rule already hides
+it from its own light), the baked `Dome` lamps of 5-3, 8-1 and 8-3 (no part of their own in the batch), 0-1's 36
+`BloodWindow` lights (their glow is the shared `BloodPool` material), 0-3's 84 `Light` fixtures and the
+`StreetlightBlue Variant` lamps (beam meshes only), 8-2's scripted office lights.
+
+### Result
+
+All 43 levels toured with three modes (the game, pathtrace with `lc.handover=0`, pathtrace), no exceptions. Medians per
+level, lights -> handover (`tools/lights/punch.py`; p95, chroma and contrast against the game's frame):
+
+| Level | hi% game | hi% | p95 | chroma | contrast | dark delta |
+|---|---|---|---|---|---|---|
+| 0-1 | 0.8 | 0.8 -> 0.9 | x1.06 -> x1.07 | x1.19 -> x1.19 | x0.86 -> x0.86 | +6.3 -> +7.6 |
+| 0-2 | 0.9 | 1.3 -> 1.1 | x1.15 -> x1.12 | x0.97 -> x0.93 | x0.96 -> x0.94 | +5.4 -> +5.2 |
+| 0-3 | 0.8 | 1.2 -> 1.1 | x1.18 -> x1.17 | x1.32 -> x1.30 | x0.52 -> x0.52 | +9.9 -> +10.6 |
+| 0-4 | 1.2 | 1.9 -> 1.9 | x1.01 -> x1.02 | x1.29 -> x1.29 | x0.77 -> x0.79 | +11.2 -> +11.3 |
+| 0-5 | 6.0 | 6.8 -> 6.8 | x1.05 -> x1.05 | x1.15 -> x1.15 | x0.74 -> x0.74 | +nan -> +nan |
+| 1-1 | 20.4 | 19.3 -> 18.7 | x1.03 -> x1.03 | x0.89 -> x0.87 | x0.91 -> x0.91 | +nan -> +nan |
+| 1-2 | 3.7 | 7.4 -> 7.4 | x1.13 -> x1.14 | x1.17 -> x1.17 | x0.76 -> x0.76 | +6.3 -> +6.3 |
+| 1-3 | 2.2 | 6.5 -> 6.6 | x1.17 -> x1.17 | x1.24 -> x1.22 | x0.92 -> x0.92 | +24.2 -> +24.0 |
+| 1-4 | 2.5 | 2.6 -> 1.6 | x1.44 -> x1.03 | x1.12 -> x1.07 | x0.73 -> x0.69 | +7.8 -> +9.4 |
+| 2-1 | 1.6 | 1.7 -> 1.7 | x0.97 -> x0.89 | x1.00 -> x0.91 | x0.85 -> x0.84 | +3.7 -> +4.5 |
+| 2-2 | 1.6 | 1.8 -> 1.9 | x1.04 -> x1.04 | x0.88 -> x0.84 | x0.92 -> x0.90 | +5.0 -> +4.9 |
+| 2-3 | 0.8 | 1.0 -> 1.0 | x1.04 -> x1.00 | x0.98 -> x0.97 | x0.97 -> x0.93 | +2.3 -> +2.3 |
+| 2-4 | 0.9 | 2.2 -> 2.3 | x1.26 -> x1.26 | x1.08 -> x1.09 | x0.99 -> x0.99 | +4.1 -> +4.7 |
+| 3-1 | 0.7 | 0.8 -> 0.8 | x1.10 -> x1.05 | x1.06 -> x1.03 | x1.23 -> x1.17 | +1.9 -> +1.8 |
+| 3-2 | 0.8 | 0.9 -> 0.9 | x0.89 -> x0.89 | x0.77 -> x0.76 | x0.79 -> x0.79 | +1.3 -> +1.2 |
+| 4-1 | 4.0 | 15.1 -> 15.6 | x1.22 -> x1.23 | x1.32 -> x1.33 | x0.94 -> x0.94 | +9.6 -> +9.6 |
+| 4-2 | 81.8 | 63.3 -> 63.2 | x1.01 -> x1.01 | x0.93 -> x0.93 | x1.16 -> x1.16 | +22.2 -> +22.3 |
+| 4-3 | 0.7 | 0.7 -> 0.7 | x1.21 -> x1.09 | x1.16 -> x1.26 | x0.95 -> x0.95 | +1.3 -> +1.3 |
+| 4-4 | 10.5 | 11.5 -> 11.5 | x0.93 -> x0.93 | x1.01 -> x1.01 | x0.69 -> x0.70 | +4.7 -> +4.7 |
+| 5-1 | 1.6 | 3.3 -> 3.3 | x1.34 -> x1.34 | x0.90 -> x0.91 | x0.81 -> x0.81 | +8.7 -> +8.8 |
+| 5-2 | 0.7 | 0.9 -> 0.8 | x1.09 -> x1.06 | x1.14 -> x1.12 | x0.90 -> x0.90 | +7.5 -> +8.3 |
+| 5-3 | 0.8 | 1.0 -> 1.0 | x1.42 -> x1.42 | x1.39 -> x1.39 | x1.14 -> x1.14 | +8.5 -> +8.5 |
+| 5-4 | 1.0 | 0.6 -> 0.5 | x1.01 -> x1.00 | x1.04 -> x1.04 | x0.80 -> x0.79 | +6.5 -> +7.1 |
+| 6-1 | 0.7 | 0.8 -> 0.8 | x0.98 -> x0.97 | x0.96 -> x0.97 | x0.89 -> x0.88 | +1.3 -> +1.4 |
+| 6-2 | 1.0 | 1.2 -> 1.3 | x1.32 -> x1.32 | x1.16 -> x1.16 | x0.91 -> x0.91 | +3.3 -> +3.3 |
+| 7-1 | 68.8 | 4.4 -> 4.4 | x0.77 -> x0.73 | x1.12 -> x1.13 | x1.06 -> x1.05 | +11.7 -> +10.1 |
+| 7-2 | 3.9 | 6.9 -> 7.0 | x0.99 -> x0.98 | x0.92 -> x0.90 | x1.02 -> x1.03 | +6.0 -> +5.4 |
+| 7-3 | 4.1 | 0.8 -> 0.8 | x0.77 -> x0.77 | x1.25 -> x1.23 | x0.31 -> x0.31 | +15.9 -> +15.9 |
+| 7-4 | 2.8 | 2.9 -> 2.9 | x1.00 -> x1.00 | x1.00 -> x1.00 | x1.00 -> x1.00 | +0.0 -> +0.0 |
+| 8-1 | 2.0 | 7.0 -> 4.8 | x1.68 -> x1.11 | x1.31 -> x0.90 | x1.17 -> x1.03 | +10.5 -> +4.2 |
+| 8-2 | 6.7 | 3.8 -> 3.2 | x0.93 -> x0.95 | x1.25 -> x1.26 | x0.85 -> x0.85 | +10.3 -> +10.3 |
+| 8-3 | 1.9 | 5.1 -> 5.2 | x1.12 -> x1.10 | x1.17 -> x1.17 | x0.96 -> x0.96 | +6.7 -> +6.7 |
+| 8-4 | 3.5 | 5.7 -> 5.4 | x1.25 -> x1.20 | x1.27 -> x1.21 | x1.05 -> x1.03 | +5.3 -> +5.1 |
+| 0-E | 0.9 | 1.3 -> 1.3 | x1.16 -> x1.14 | x1.14 -> x1.14 | x1.22 -> x1.22 | +45.8 -> +45.8 |
+| 0-S | 4.3 | 5.0 -> 5.1 | x1.22 -> x1.17 | x1.70 -> x1.76 | x0.40 -> x0.41 | +23.0 -> +22.4 |
+| 1-E | 0.7 | 0.8 -> 0.8 | x1.08 -> x1.08 | x1.10 -> x1.09 | x0.99 -> x0.99 | +3.9 -> +4.9 |
+| 1-S | 26.8 | 31.6 -> 31.7 | x1.01 -> x1.01 | x1.03 -> x1.03 | x1.02 -> x1.02 | +24.0 -> +24.0 |
+| 4-S | 8.9 | 8.7 -> 8.8 | x1.00 -> x1.00 | x1.00 -> x1.00 | x1.00 -> x1.00 | +0.0 -> +0.0 |
+| 5-S | 8.4 | 9.9 -> 9.7 | x1.06 -> x1.05 | x1.35 -> x1.35 | x0.57 -> x0.56 | +22.2 -> +22.2 |
+| 7-S | 5.0 | 2.5 -> 2.6 | x0.90 -> x0.90 | x2.51 -> x2.53 | x1.12 -> x1.12 | +nan -> +nan |
+| P-1 | 1.4 | 1.0 -> 1.3 | x1.10 -> x1.27 | x1.24 -> x1.35 | x1.00 -> x1.13 | +1.5 -> +2.5 |
+| P-2 | 0.7 | 0.8 -> 0.7 | x0.97 -> x1.01 | x0.96 -> x1.10 | x0.88 -> x0.82 | +0.7 -> +0.8 |
+
+Most levels do not move: an emitter with the light's output lights the room like the light did. What moves:
+
+- **8-1** (130 handed): highlights 7.0 -> 4.8 % (the game 2.0), p95 x1.68 -> x1.11, dark end +10.5 -> +4.2. The lamps'
+  x2.5 point lights lit whole walls; the lamp shades and wall lights now light their surroundings. Darker in the dark,
+  still above the game at the top.
+- **1-4**: p95 x1.44 -> x1.03, chroma x1.12 -> x1.07 at its level gain (above).
+- **P-1** p95 x1.10 -> x1.27 and **P-2** chroma x0.96 -> x1.10: the street lamp bulbs at gain 2.
+- **2-1** p95 x0.97 -> x0.89: slightly under the lights it replaces.
+
+Sheets: `bench/results/review/emissive-all/handover-<level>.png` (game, lights, handover per view).
+
+**HDR.** A forced part is not emissive for the camera, so the HDR gain map (docs/hdr.md) does not see it as a highlight;
+parts the game marks emissive are unchanged.
+
 ## Area lights (shader)
 
 Area lights keep the 4 x float4 per-light layout, so no buffer, UAV or payload changed (still 8 UAVs in PathTrace, 64-byte

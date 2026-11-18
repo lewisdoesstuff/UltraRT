@@ -39,6 +39,19 @@ namespace UltraRT
         /// matters (revolver, railcannon) has its own Light.
         /// </summary>
         public bool virtualTrailsAndMeshes = false;
+        /// <summary>
+        /// Flame-driven lights (docs/emissive-lights.md, "Flame-driven lights"): the game light a flame sits on (a torch's,
+        /// a candle's) becomes a sphere light at the flame, the size of the flame, in the flame's colour, flickering
+        /// with it; its mean strength stays the game light's (with its class policy). The game's point in the cup is gone.
+        /// </summary>
+        public bool flameDriven = false;
+        /// <summary>The sphere's radius: this x the flame's bounds radius, clamped to [0.05, flameMaxRadius] m.</summary>
+        public float flameRadius = 0.45f, flameMaxRadius = 0.6f;
+        /// <summary>How much of the flame's own colour the light takes (0 = the game light's colour, 1 = the flame's hue
+        /// at the game light's luminance).</summary>
+        public float flameHue = 0.6f;
+        /// <summary>The flicker range of a flame-driven light (flickerRange for the others).</summary>
+        public float flameFlickerRange = 0.5f;
     }
 
     /// <summary>
@@ -110,6 +123,8 @@ namespace UltraRT
             public Color Hue;         // normalised colour (max channel 1)
             public float Strength;    // 0..1
             public bool Flame;        // named like a fire: heat haze rises from it (CollectFlames)
+            public Vector3 DrivePos;  // flame-driven light: the smoothed centre
+            public int DriveFrame = -100000;
         }
 
         private readonly List<Emitter> _emitters = new List<Emitter>(256);
@@ -123,7 +138,9 @@ namespace UltraRT
         private readonly MaterialPropertyBlock _mpb = new MaterialPropertyBlock();
         private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         private const int TexRes = 16;
-        private const int MaxFlickers = 16;
+        private const int MaxFlickers = 48;
+        /// <summary>Lights driven by a flame in the last frame (flameDriven).</summary>
+        public int DrivenLights { get; private set; }
 
         private struct MatInfo { public bool Glows; public Color Color; }
 
@@ -572,18 +589,44 @@ namespace UltraRT
         private void ApplyFlicker(Vector4[] data, Light[] packed, int count)
         {
             float range = Mathf.Clamp(Settings.flickerRange, 0f, 0.9f);
+            float driveRange = Mathf.Clamp(Settings.flameFlickerRange, 0f, 0.9f);
+            DrivenLights = 0;
             foreach (var e in _flickers)
             {
                 if (e.CoverLight == null || e.R == null || !e.Go.activeInHierarchy || !e.R.enabled || e.Strength <= 0f) continue;
+                bool drive = Settings.flameDriven && e.Flame;
                 // Brightness x size (flames flicker by swapping sprites and by scaling), against its running mean over
                 // ~1 s at 60+ fps: the light keeps the game's intensity on average.
                 float b = e.Strength * e.Radius * e.Radius;
                 e.Mean = e.Mean < 0f ? b : Mathf.Lerp(e.Mean, b, 0.03f);
-                float k = Mathf.Clamp(b / Mathf.Max(e.Mean, 1e-6f), 1f - range, 1f + range);
+                float rg = drive ? driveRange : range;
+                float k = Mathf.Clamp(b / Mathf.Max(e.Mean, 1e-6f), 1f - rg, 1f + rg);
                 for (int i = 0; i < count; i++)
                 {
                     if (!ReferenceEquals(packed[i], e.CoverLight)) continue;
                     var c = data[i * 4 + 1];
+                    var l3 = data[i * 4 + 3];
+                    if (drive && l3.x > -1.5f && l3.x < -0.5f) // a plain point light: not a spot, not an area light already
+                    {
+                        // The light is the flame: a sphere at its centre (smoothed: particle bounds breathe), its size,
+                        // its hue at the game light's luminance.
+                        e.DrivePos = _frame - e.DriveFrame <= 8 ? Vector3.Lerp(e.DrivePos, e.Pos, 0.25f) : e.Pos;
+                        e.DriveFrame = _frame;
+                        var l0 = data[i * 4];
+                        data[i * 4] = new Vector4(e.DrivePos.x, e.DrivePos.y, e.DrivePos.z, l0.w);
+                        float rad = Mathf.Clamp(e.Radius * Settings.flameRadius, 0.05f, Mathf.Max(0.05f, Settings.flameMaxRadius));
+                        LightOverrides.PackArea(1, Vector3.down, Vector3.right, rad, rad, l3.z, l3.w, out var a2, out var a3);
+                        data[i * 4 + 2] = a2;
+                        data[i * 4 + 3] = a3;
+                        float lg = 0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z;
+                        float lh = 0.2126f * e.Hue.r + 0.7152f * e.Hue.g + 0.0722f * e.Hue.b;
+                        if (lh > 1e-4f && lg > 0f)
+                        {
+                            float w = Mathf.Clamp01(Settings.flameHue), s = lg / lh;
+                            c = new Vector4(Mathf.Lerp(c.x, e.Hue.r * s, w), Mathf.Lerp(c.y, e.Hue.g * s, w), Mathf.Lerp(c.z, e.Hue.b * s, w), c.w);
+                        }
+                        DrivenLights++;
+                    }
                     data[i * 4 + 1] = new Vector4(c.x * k, c.y * k, c.z * k, c.w);
                     _logFlicker++;
                     _flickerMin = Mathf.Min(_flickerMin, k);
