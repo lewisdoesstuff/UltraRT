@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "Level 2-2",
-  "note": "Punch policy (docs/lighting-overrides.md, 'Punch'; user-approved 2026-11-17): every level light reaches no further than in the game, fills at full strength, fixtures / accents / glows / effect and item lights x1.8 with their haze held (medium 1/1.8).",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
   "lights": [
     {
       "path": "1 - First District/1 Nonstuff/Decorations/StreetlightBlue Variant (4)/Point Light",
@@ -227,38 +227,5 @@
       "note": "wall: moved 0.34 m into the room [wall]"
     }
   ],
-  "added": [],
-  "classes": {
-    "fill": {
-      "reach": 0
-    },
-    "scripted": {
-      "reach": 0
-    },
-    "fixture": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
-    },
-    "accent": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
-    },
-    "glow": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
-    },
-    "effect": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
-    },
-    "item": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
-    }
-  }
+  "added": []
 }

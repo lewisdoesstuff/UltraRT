@@ -84,6 +84,7 @@ namespace UltraRT
             }
             else _lightOv.CheckReload();
             _aeSettings.levelBrightness = _lightOverrides ? _lightOv.LevelRtBrightness : 0f; // the level's "exposure" block
+            _aeSettings.levelFollowGame = _lightOverrides ? _lightOv.LevelFollowGame : 0f;
             SyncResolvedLights(); // Plugin.LightClasses.cs
             SyncEmitterScales();
         }

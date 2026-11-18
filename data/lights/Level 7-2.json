@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "scene": "Level 7-2",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply; the gameplay light of the Windtunnel-side room x0.6 and the player's light x0.85 as proposed in the third batch.",
+  "classes": {
+    "gameplay": {
+      "reach": 0,
+      "intensity": 0.6
+    },
+    "player": {
+      "intensity": 0.85
+    }
+  },
+  "lights": [],
+  "added": []
+}

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "scene": "Level 7-1",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply, except: fixtures and the like at x1 and the exposure follows the game ('followGame'): the game keeps these halls near black, and both a boost and an exposure above the game turn them grey.",
+  "exposure": {
+    "followGame": 1,
+    "note": "The game keeps these halls near black with a few white lights: an exposure above the game turns the black walls grey."
+  },
+  "classes": {
+    "fixture": {
+      "reach": 0,
+      "intensity": 1.0,
+      "medium": 1.0
+    },
+    "accent": {
+      "reach": 0,
+      "intensity": 1.0,
+      "medium": 1.0
+    },
+    "glow": {
+      "reach": 0,
+      "intensity": 1.0,
+      "medium": 1.0
+    },
+    "effect": {
+      "reach": 0,
+      "intensity": 1.0,
+      "medium": 1.0
+    },
+    "item": {
+      "reach": 0,
+      "intensity": 1.0,
+      "medium": 1.0
+    }
+  }
+}

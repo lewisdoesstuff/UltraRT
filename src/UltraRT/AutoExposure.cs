@@ -49,8 +49,30 @@ namespace UltraRT
         public float Brightness => Mathf.Clamp01(Mathf.Max(rtBrightness, levelOverride ? levelBrightness : 0f));
         public const float LegacyUpStrength = 0.5f, LegacyGameMatchDown = 0.4f, LegacyGameMatchBandDown = 0.35f;
         public float EffectiveUpStrength => Mathf.Lerp(upStrength, Mathf.Max(upStrength, LegacyUpStrength), Brightness);
-        public float EffectiveGameMatchDown => gameMatchDown <= 0f ? 0f : Mathf.Lerp(gameMatchDown, Mathf.Min(gameMatchDown, LegacyGameMatchDown), Brightness);
-        public float EffectiveGameMatchBandDown => Mathf.Lerp(gameMatchBandDown, Mathf.Max(gameMatchBandDown, LegacyGameMatchBandDown), Brightness);
+        /// <summary>The current level's "follow the game" ("exposure": { "followGame": F } in its light override file,
+        /// 0-1): at 1 an image brighter than the game is brought down to it as between 2026-11-17 and the punch defaults
+        /// (0.9 beyond 0.1 EV). For levels the game keeps near black with a few white lights (7-1, 7-3), where an
+        /// exposure above the game turns the black walls grey. Ignored with <see cref="levelOverride"/> off.</summary>
+        public float levelFollowGame = 0f;
+        public const float FollowGameMatchDown = 0.9f, FollowGameMatchBandDown = 0.1f;
+        private float Follow => levelOverride ? Mathf.Clamp01(levelFollowGame) : 0f;
+        public float EffectiveGameMatchDown
+        {
+            get
+            {
+                if (gameMatchDown <= 0f) return 0f;
+                float v = Mathf.Lerp(gameMatchDown, Mathf.Min(gameMatchDown, LegacyGameMatchDown), Brightness);
+                return Mathf.Lerp(v, Mathf.Max(v, FollowGameMatchDown), Follow);
+            }
+        }
+        public float EffectiveGameMatchBandDown
+        {
+            get
+            {
+                float v = Mathf.Lerp(gameMatchBandDown, Mathf.Max(gameMatchBandDown, LegacyGameMatchBandDown), Brightness);
+                return Mathf.Lerp(v, Mathf.Min(v, FollowGameMatchBandDown), Follow);
+            }
+        }
         /// <summary>Dead band in EV: the exposure stops this far short of the target, so a target that wanders by less
         /// than this (noise, flickering torches) never moves it. -ultrart-ae-deadband EV.</summary>
         public float deadBand = 0.05f;

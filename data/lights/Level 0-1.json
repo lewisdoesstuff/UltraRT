@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "Level 0-1",
-  "note": "Shipped light overrides (docs/lighting-overrides.md): classifier fixes + per-light fit. Fitted 2026-11-15 on the lights-fit-a/b poses. Shipped 2026-11-17 (user: 'look great') (docs/lighting-overrides.md, 'Levels'): the floating room lights never reach further than in the game (they are this level's room lighting: x0.9).",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
   "lights": [
     {
       "path": "11 - Projectile Zombies Room/11 Nonstuff/Point Light (5)",
@@ -331,15 +331,5 @@
       "note": "fill: intensity x0.50 (bounce covers it)"
     }
   ],
-  "added": [],
-  "classes": {
-    "fill": {
-      "reach": 0,
-      "intensity": 0.9
-    },
-    "scripted": {
-      "reach": 0,
-      "intensity": 0.9
-    }
-  }
+  "added": []
 }

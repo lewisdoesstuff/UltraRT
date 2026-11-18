@@ -3,38 +3,12 @@
   "scene": "Level 0-3",
   "lights": [],
   "added": [],
-  "note": "Punch policy (docs/lighting-overrides.md, 'Punch'; user-approved 2026-11-17): every level light reaches no further than in the game, fills at full strength, fixtures / accents / glows / effect and item lights x1.8 with their haze held (medium 1/1.8).",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply; the fixtures' haze is cut further (medium 0.15): the lava pillars' lights fog the void around them, which the game leaves black.",
   "classes": {
-    "fill": {
-      "reach": 0
-    },
-    "scripted": {
-      "reach": 0
-    },
     "fixture": {
       "reach": 0,
       "intensity": 1.8,
-      "medium": 0.55
-    },
-    "accent": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
-    },
-    "glow": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
-    },
-    "effect": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
-    },
-    "item": {
-      "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55
+      "medium": 0.15
     }
   }
 }
