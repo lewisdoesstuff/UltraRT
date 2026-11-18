@@ -254,6 +254,35 @@ total)`, M being the ones whose mesh no earlier dynamic instance used (the chair
 `-ultrart-trace-proxies <text>` logs every add and remove of the matching proxies. The cost is one extra remove and add per
 new proxy, spread over the frames the proxies are made in.
 
+### Scale changes in place (2026-11-18, `t3/ghosting`)
+
+A skinned instance's transform is updated only when its root bone's position or rotation changes
+(`SkinnedTransformUpdates`). A root that changes scale, or is mirrored, while staying in place kept its old size in
+the RTAS. Now the root's whole matrix is compared as well (`SkinnedScaleUpdates`, bench `plugin._skinScale=0`): a
+change gets an instance update, a change of the determinant's sign a remove and re-add with the other winding. The
+first 12 are logged (`Skinned root scale changed without moving`). Written while looking for the 7-1 dummy's ghost
+(below); in 7-1 it fires only for the revolver's parts on V1's arm, not for a mannequin.
+
+## Held items and other things the camera stops drawing (2026-11-18, `t3/ghosting`)
+
+User, playtest of bc987a8: a ghost of the skull behind the skull V1 carries. A carried item moves to a layer the main
+camera does not draw (the HUD camera draws it instead), but its proxy stayed in the RTAS at the hand's place: the
+traced image had a second skull behind the game's.
+
+`SceneProxies.HeldHidden`: a dynamic proxy whose source object is on a layer the main camera does not draw (and
+that is not a portal layer or the player's own mask) leaves the RTAS, checked with the `renderer.enabled` quarter
+phase (within 4 frames), and comes back when the layer does. The first 12 are logged (`Hidden by layer`). Bench
+`plugin._hideHeld=0` = old behaviour.
+
+Evidence: bench effect `holditem` (V1 picks up a skull; bench/README.md), suite `ghosting`: the ghost is there with
+`plugin._hideHeld=0` and gone with the default (`bench/results/review/ghost/skull_off_before_after.png`).
+
+**7-1's posed dummy (pose 5)**: the user saw a displaced, slightly larger faint copy of a mannequin dummy beside it,
+standing still. Not reproduced in six bench launches with this branch (the dummy's pose is random per load; each
+capture was clean, sheets `mannequin_*.png`). No cause was found by reading: one `SkinnedMeshRenderer` per dummy, no
+layer change, no scale change in place. The user read the captures as fixed (2026-11-18); if it comes back, the
+log lines above are the first thing to look for.
+
 ## New objects
 
 Everything found after the build goes through one path, `AddHierarchy` (`src/UltraRT/SceneProxies.cs`):

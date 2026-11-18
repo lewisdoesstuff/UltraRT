@@ -1,0 +1,33 @@
+{
+ "Name": "ghost-move",
+ "Note": "Moving skinned enemies (user, 2026-11-18: a ghost outline beside a 7-1 mannequin; the bench's 7-1 mannequin stands still): the 0-2 combat run with active enemies, frames in motion.",
+ "Scenarios": [
+  {
+   "Name": "0-2 run combat",
+   "Scene": "Level 0-2",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/0-2-run.json",
+    "Start": 3,
+    "End": 36
+   },
+   "Enemies": "active",
+   "ReplayArenas": true,
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    12,
+    15,
+    18,
+    21,
+    24,
+    27,
+    30,
+    33
+   ],
+   "ShotSettle": 0.0
+  }
+ ]
+}

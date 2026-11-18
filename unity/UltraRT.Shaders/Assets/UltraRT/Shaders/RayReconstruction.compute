@@ -227,7 +227,7 @@ float4 _OutDim;   // W, H, 1/W, 1/H
 float4 _TraceMap; // xy trace px per screen px, zw guard band (trace px)
 float4 _TraceRay; // xy trace ndc -> view ray slope
 float4 _ZParams;  // eye depth = 1 / (z * raw + w)
-float4 _Match;    // x depth tolerance (relative), y (absolute, m)
+float4 _Match;    // x depth tolerance (relative), y (absolute, m), z plane test: allowed bend of 1/z (relative; 0 = off), w slope tolerance in trace texels (0 = off; also turns on thin geometry from the screen-resolution history)
 float4 _RRMap;    // xy RR output px per screen px (1 unless the bench's 1440p cost probe renders RR larger), zw RR size
 int4   _RROffset; // xy: where screen pixel (0, 0) is in the RR output (exact-grid mode: the output overscans the screen)
 
@@ -250,6 +250,11 @@ void Finish(uint3 id : SV_DispatchThreadID)
     int2 tdim = (int2)_Dim.xy;
     float a = 0;
     int2 kHit = clamp(kn, 0, tdim - 1);
+    // A floor at a grazing angle: its depth changes by more than the tolerance from one trace texel to the next, so no
+    // sample matched and the game's pixel was kept, as bright rows on far floors and ledges (7-1, user 2026-11-18).
+    // 1 / view depth is linear on the screen for a plane: predict it at this pixel from the centre sample and its four
+    // neighbours, if those lie on one plane (no bend), and compare that.
+    float wS[9];
     [unroll] for (int j = 0; j < 9; j++)
     {
         int2 k = clamp(kn + int2(j % 3 - 1, j / 3 - 1), 0, tdim - 1);
@@ -260,15 +265,51 @@ void Finish(uint3 id : SV_DispatchThreadID)
         float z = t / rayLen;
         int ix = _InstanceId[k].x;
         uint pt = (uint)ix >> 16;
-        bool hit = abs(z - zg) <= tol;
+        // A surface seen edge-on (a grass blade's quad, a ledge's side) changes depth fast across one texel, and the
+        // game's raster and the ray never land on exactly the same place: allow what one texel's step can change,
+        // z x texel angle x tan(angle to the normal). Without it the game's pixel was kept there (7-1's grass: white
+        // blades, sparkling as the jitter moved; user 2026-11-18).
+        float tolK = tol;
+        if (_Match.w > 0.0)
+        {
+            float cn = abs(dot(normalize(_NormalDepth[k].xyz + 1e-6), Dir(k)));
+            tolK += z * (2.0 * _TraceRay.y * _Dim.w) * _Match.w * sqrt(saturate(1.0 - cn * cn)) / max(cn, 0.05);
+        }
+        bool hit = abs(z - zg) <= tolK;
         if (!hit && ix > 65535 && pt != 0u) hit = abs(f16tof32(pt) / rayLen - zg) <= tol; // portal plane (docs/portals.md)
         if (hit) { a = 1; kHit = k; break; }
+    }
+    if (a == 0.0 && _Match.z > 0.0)
+    {
+        [unroll] for (int j2 = 0; j2 < 9; j2++)
+        {
+            int2 k = clamp(kn + int2(j2 % 3 - 1, j2 / 3 - 1), 0, tdim - 1);
+            float t = _NormalDepth[k].w;
+            float2 ndc = ((float2)k + 0.5 + _Jitter.xy) * _Dim.zw * 2.0 - 1.0;
+            float rayLen = length(float3(ndc * _TraceRay.xy, 1.0));
+            int ix = _InstanceId[k].x;
+            uint pt = (uint)ix >> 16;
+            float zs = (ix > 65535 && pt != 0u) ? f16tof32(pt) / rayLen : t / rayLen;
+            wS[j2] = t < 0.0 ? -1.0 : 1.0 / max(zs, 1e-4);
+        }
+        float wc = wS[4];
+        if (wc > 0.0 && wS[1] > 0.0 && wS[3] > 0.0 && wS[5] > 0.0 && wS[7] > 0.0
+            && abs(wS[3] + wS[5] - 2.0 * wc) <= wc * _Match.z && abs(wS[1] + wS[7] - 2.0 * wc) <= wc * _Match.z)
+        {
+            float2 d = q - ((float2)kn + 0.5 + _Jitter.xy);
+            float wp = wc + 0.5 * (wS[5] - wS[3]) * d.x + 0.5 * (wS[7] - wS[1]) * d.y;
+            if (wp > 1e-5 && abs(1.0 / wp - zg) <= tol) { a = 1; kHit = clamp(kn, 0, tdim - 1); }
+        }
     }
     if (Remodulate())
     {
         // Back to the image: x the demodulation colour at screen resolution (the matching trace sample's where the
         // upsampler has nothing yet).
         float4 dh = _DemodHi[p];
+        // Geometry thinner than a trace texel (grass blades, ledge tops): no sample of this frame matches the game's
+        // depth, but the screen-resolution history has this pixel's surface from an earlier jitter. Then it is a
+        // traced pixel: RR's lighting x that colour, not the game's own pixel (7-1's grass sparkled with them).
+        if (a == 0.0 && _Match.w > 0.0 && dh.a > 0.0) a = 1;
         hdr = Display(RRAt(p)) * (dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb);
         c = saturate(UltraRTToneMap(hdr));
     }

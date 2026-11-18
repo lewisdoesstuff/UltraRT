@@ -14,7 +14,15 @@
 // x ripple strength (0 = flat), y time (s, wrapped), z fade-out distance (m), w refraction strength (overlay only)
 float4 _UltraRTWater;
 
-float3 WaterNormal(float3 n, float3 p, float viewDist)
+// 1 = the reflection ray's ripples are band-limited to its texel's footprint (global; bench plugin._waterBand=0).
+float _UltraRTWaterBand;
+
+// footprint: the size on the surface (m) of what one sample stands for (the reflection ray at pathtrace's trace scale: a
+// third of the screen, and ten times wider along the view at a grazing angle). A ripple of a few footprints tilts each
+// sample its own way, and the mirror image of a wall 30 m away lands metres apart from one texel to the next: a
+// mottled, boiling reflection (8-2's pool, user 2026-11-18). A ripple fades out between eight and four footprints
+// per wavelength, so far water is a calm mirror and near water keeps its ripples. 0 = every ripple (the overlay).
+float3 WaterNormalBand(float3 n, float3 p, float viewDist, float footprint)
 {
     float strength = _UltraRTWater.x * saturate(1.0 - viewDist / max(_UltraRTWater.z, 1.0));
     if (strength <= 0.0) return n;
@@ -34,11 +42,14 @@ float3 WaterNormal(float3 n, float3 p, float viewDist)
     {
         float k = 6.2831853 / waves[i].z;
         float omega = sqrt(9.81 * k) * 0.5; // slowed down: full speed looks frantic at this scale
-        g += waves[i].xy * (waves[i].w * cos(k * dot(waves[i].xy, uv) - omega * _UltraRTWater.y));
+        float band = footprint > 0.0 ? saturate(waves[i].z / (4.0 * footprint) - 1.0) : 1.0;
+        g += waves[i].xy * (waves[i].w * band * cos(k * dot(waves[i].xy, uv) - omega * _UltraRTWater.y));
     }
     g *= 0.06 * strength;
     return normalize(n - g.x * t - g.y * b);
 }
+
+float3 WaterNormal(float3 n, float3 p, float viewDist) { return WaterNormalBand(n, p, viewDist, 0.0); }
 
 float SchlickFresnel(float f0, float NdotV)
 {

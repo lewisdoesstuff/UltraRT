@@ -107,6 +107,7 @@ namespace UltraRT
             // frame (rigid: the proxy's localToWorld; skinned: the root bone's position and rotation).
             public int Slot;
             public Matrix4x4 CurM, PrevM;
+            public Matrix4x4 RootWorld; // skinned: the root bone's full matrix at the last instance update (scale included)
             public bool Moved;
             public Transform Root;
             public Vector3 AddedRootPos; // diagnostics: where the root was when the instance entered the RTAS
@@ -745,7 +746,7 @@ namespace UltraRT
             for (int k = _active.Count - 1; k >= 0; k--)
             {
                 var d = _active[k];
-                if (d.Source == null || ((k & 3) == _enabledPhase && (d.Proxy == null || !d.Source.enabled))) { Evaluate(d); continue; }
+                if (d.Source == null || ((k & 3) == _enabledPhase && (d.Proxy == null || !d.Source.enabled || HeldHidden(d)))) { Evaluate(d); continue; }
                 if (d.SkinnedProxy != null)
                 {
                     // DynamicGeometry: Build() re-reads the skinned vertices (in root-bone space) every frame, but not the
@@ -753,7 +754,27 @@ namespace UltraRT
                     for (int i = 0; i < d.BlendShapes; i++) d.SkinnedProxy.SetBlendShapeWeight(i, d.SkinnedSource.GetBlendShapeWeight(i));
                     // The instance transform is the root bone's: follow it (see SkinnedTransformUpdates).
                     var m = MotionMatrix(d);
-                    if (SkinnedTransformUpdates && m != d.CurM) { Rtas.UpdateInstanceTransform(d.Proxy); SkinnedTransformUpdateCount++; }
+                    if (SkinnedTransformUpdates && m != d.CurM) { Rtas.UpdateInstanceTransform(d.Proxy); SkinnedTransformUpdateCount++; if (d.Root != null) d.RootWorld = d.Root.localToWorldMatrix; }
+                    else if (SkinnedScaleUpdates && d.Root != null && d.Root.localToWorldMatrix != d.RootWorld)
+                    {
+                        // The root's scale changed (or it was mirrored) while it stayed in place: the position and
+                        // rotation test above does not see that, and the instance would keep its old size.
+                        var w = d.Root.localToWorldMatrix;
+                        bool flipped = (w.determinant < 0f) != (d.RootWorld.determinant < 0f);
+                        if (_scaleLogs < 12)
+                        {
+                            _scaleLogs++;
+                            _log.LogInfo($"Skinned root scale changed without moving: '{GameControlPath(d.Source.transform)}' (root '{d.Root.name}' scale {d.Root.lossyScale:F3}{(flipped ? ", mirrored: re-added" : "")})");
+                        }
+                        d.RootWorld = w;
+                        if (flipped)
+                        {
+                            Rtas.RemoveInstance(d.Proxy);
+                            Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                        }
+                        else Rtas.UpdateInstanceTransform(d.Proxy);
+                        SkinnedTransformUpdateCount++;
+                    }
                     // Skinned: root motion as a matrix, the pose itself from last frame's copy (RecordMotionCopies).
                     long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     d.PrevM = d.CurM;
@@ -870,9 +891,34 @@ namespace UltraRT
             return n;
         }
 
+        /// <summary>A world object that moved to the viewmodel layer after its proxy was made: an item V1 picked up (a
+        /// skull, a torch). The game puts it on layer 13 and the HUD camera draws it at the hand, with its own field of
+        /// view; the proxy stayed in the RTAS at the hand's world place, and the main camera traced a second, larger
+        /// copy beside the drawn one (user, 2026-11-18: "ghost" of the held skull). Out while held, back when put down
+        /// (the dormant poll re-evaluates it). V1's own model has the player mask and is not affected.</summary>
+        public static bool HideHeldItems = true;
+        /// The test is the one a renderer passes to get a proxy at all (the main camera draws its layer), asked again
+        /// while it is in the RTAS: so anything else the game hides by moving it to a layer the camera does not draw
+        /// leaves too. Portal-layer and player proxies are in the RTAS under their own rules.
+        private bool HeldHidden(DynamicProxy d)
+        {
+            if (!HideHeldItems || d.Mask == PlayerMask || d.SourceObject == null) return false;
+            int layer = d.SourceObject.layer;
+            bool hidden = !LayerIncluded(layer) && !IsPortalLayer(layer);
+            if (hidden && d.Visible && _heldLogs < 12)
+            {
+                _heldLogs++;
+                _log.LogInfo($"Hidden by layer: '{GameControlPath(d.SourceObject.transform)}' is on layer {layer} now, which the camera does not draw: out of the RTAS");
+            }
+            return hidden;
+        }
+        private int _heldLogs, _scaleLogs;
+        /// <summary>A skinned root whose scale changes in place gets an instance update (bench plugin._skinScale=0: off).</summary>
+        public static bool SkinnedScaleUpdates = true;
+
         private void Evaluate(DynamicProxy d)
         {
-            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d) && !FrostedHidden(d);
+            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d) && !FrostedHidden(d) && !HeldHidden(d);
             if (visible == d.Visible) return;
             if (!string.IsNullOrEmpty(TraceFilter) && d.Source != null && GameControlPath(d.Source.transform).IndexOf(TraceFilter, StringComparison.OrdinalIgnoreCase) >= 0)
                 _log.LogInfo($"Trace '{GameControlPath(d.Source.transform)}': {(visible ? "add" : "remove")} at frame {Time.frameCount} (proxy made {d.CreatedFrame}), pos {d.SourceTransform.position:F2}, " +
@@ -885,6 +931,7 @@ namespace UltraRT
                 _active.Add(d);
                 // Newly in the RTAS: no motion history (it appears where it is).
                 d.CurM = d.PrevM = MotionMatrix(d);
+                if (d.Root != null) d.RootWorld = d.Root.localToWorldMatrix;
                 if (d.Root != null) d.AddedRootPos = d.Root.position;
                 CountTransparent(d, true);
                 d.Moved = false;

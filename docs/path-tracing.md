@@ -323,6 +323,32 @@ windows; run-to-run spread 0.2-0.35), `bench/results/20261115-014817_pt2-c` and 
   (RR uses them to size its filter; we pass only the specular ones), which needs one more trace output.
 - `plugin._rrGuard` (RR evaluates the guard band too, off by default) stays as an option.
 
+## The game's pixels in the traced image (2026-11-18, `t3/ghosting`)
+
+DLSS RR's last step (`RayReconstruction.compute`, kernel `Finish`) decides per screen pixel whether RR's output is
+used. A pixel counts as traced only when a trace sample in the 3x3 around it lies at the game's depth (`_Match`:
+3 % or 0.05 m). Otherwise the game's own pixel is kept: that is how sprites, the HUD's world parts and anything the
+RTAS does not hold stay visible. Where the game's picture is much brighter than the traced one (7-1's white halls)
+every kept pixel shows, as white rows, dashes or sparkle. The user's playtest of bc987a8 had three such cases, and
+each got its own rule:
+
+| Case | Why no sample matched | Rule | Switch (bench) |
+|---|---|---|---|
+| Grazing floors (7-1 poses 3, 4): rows of game pixels across a landing | along a floor seen at a low angle, depth changes by more than 3 % from one trace sample to the next | **plane test**: when no sample matched and the centre sample and its 4 neighbours lie on one plane (second difference of 1/depth within `GrazingMatch` = 2 %), predict the depth at the pixel from that plane and compare | `plugin._grazingMatch=0` |
+| Sloped surfaces in general | the same, less extreme | **slope tolerance**: each sample's tolerance grows by the depth change across one trace texel, from the sample's normal against its ray (`SlopeTexels` = 1) | with `_thinMatch` |
+| Thin geometry (7-1 pose 2 grass, grates) | a blade is narrower than a trace texel: the game drew it, no sample hit it | **thin match**: a pixel with no match that RR itself drew at a hit (`a == 0` but the remodulated sample is a surface) is taken as traced | `plugin._thinMatch=0` |
+
+Measured (`bench/suites/ghost-graze.json`, pathtrace, 1440p, DLSS RR; sheets `bench/results/review/ghost/`):
+- 7-1 poses 3 and 4: the rows across the landings are gone (`graze_before_after.png`). **Left**: short dashes on the
+  top edge of ledges, where the 3x3 holds two surfaces and neither rule applies.
+- 7-1 pose 2 grass: kept game pixels in the grass crop 8.73 % -> 6.18 %; 16-frame burst sigma over the crop 2.85 ->
+  1.93 (all pixels), 0.84 -> 0.65 (8-frame block means). It still sparkles: the remaining kept pixels are blades with
+  no traced counterpart in the 3x3 at all. **Not solved**; the real fix is tracing at a resolution where the blade
+  exists, or taking the blade's game pixel and relighting it.
+- 1-3 pose 1 (control, sprites and lava): no visible change.
+
+Cost: not measured with a perf run yet (the rules reuse the 3x3 the kernel already reads, plus one normal read per sample).
+
 ## Blood stains in reflections
 
 The game draws its blood stains as screen-space decals multiplied over the finished frame (`CompositeBlood`), so no ray
