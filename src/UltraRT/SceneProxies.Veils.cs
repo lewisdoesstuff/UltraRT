@@ -1,0 +1,203 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using UnityEngine;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
+using Object = UnityEngine.Object;
+
+namespace UltraRT
+{
+    /// <summary>Blended veils behind portals (docs/scene-proxies.md, "Blended veils"). Read every frame unless noted.</summary>
+    internal sealed class VeilSettings
+    {
+        /// <summary>-ultrart-noveils: no veil proxies (read at the scene build) and no veil pass.</summary>
+        public bool enabled = true;
+        /// <summary>Multiplies the layers' colour.</summary>
+        public float gain = 1f;
+        /// <summary>Multiplies how much of the image the layers cover.</summary>
+        public float cover = 0.6f;
+        /// <summary>The game's distance fog for the path behind a portal (the fog pass stops at the portal's plane):
+        /// 0 = none, 1 = the game's. Needs the volumetrics' game fog (vol.gameFog).</summary>
+        public float fog = 1f;
+        /// <summary>The fog alone (no veil in view) runs the pass only if the level's fog ends within this distance
+        /// (m; linear fog) or is exponential: a mirror in a level with thin fog is not worth a dispatch.</summary>
+        public float fogOnlyWithin = 20000f;
+        /// <summary>Veil pass resolution against the screen's.</summary>
+        public float scale = 0.5f;
+        /// <summary>Debug: 1 = also on pixels not seen through a portal (there the game draws the layers itself: doubled).</summary>
+        public int everywhere = 0;
+        /// <summary>Materials whose name contains one of these (comma separated) are not veils for the pass.</summary>
+        public string skip = "";
+    }
+
+    /// <summary>
+    /// Veil proxies: each renderer with a <see cref="BlendedVeil"/> material gets a proxy with only those submeshes,
+    /// UltraRT/VeilProxy materials (any-hit only) and the transparent mask (0x10). Scene rays never see them; the veil
+    /// ray of VeilTrace.raytrace collects them. Static-batched veils are skipped (none known).
+    /// </summary>
+    internal sealed partial class SceneProxies
+    {
+        /// <summary>Set by the plugin before a scene build (null = no veil proxies).</summary>
+        public static Shader VeilShader;
+        public static VeilSettings Veils = new VeilSettings();
+
+        private sealed class VeilEntry
+        {
+            public Renderer Source;
+            public DynamicProxy Proxy;
+            public Material[] Materials; // our per-renderer veil materials (null slots: not a veil)
+        }
+
+        private readonly List<VeilEntry> _veils = new List<VeilEntry>();
+        private readonly List<string> _veilLog = new List<string>();
+        private static MaterialPropertyBlock _veilBlock;
+
+        /// <summary>Veil renderers with a proxy.</summary>
+        public int VeilCount => _veils.Count;
+        /// <summary>Veil proxies in the RTAS this frame (UpdateVeils).</summary>
+        public int VeilsVisible { get; private set; }
+
+        private static bool VeilSkipped(Material m)
+        {
+            if (string.IsNullOrEmpty(Veils.skip)) return false;
+            foreach (var part in Veils.skip.Split(','))
+                if (part.Length > 0 && m.name.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        /// <summary>Registers the renderer's veil submeshes, if any. Returns true if a veil proxy was made.</summary>
+        private bool TryAddVeil(MeshRenderer r, Mesh mesh)
+        {
+            if (!Veils.enabled || VeilShader == null) return false;
+            var mats = r.sharedMaterials;
+            if (!mats.Any(BlendedVeil)) return false;
+            if (r.isPartOfStaticBatch)
+            {
+                if (_veilLog.Count < 24) _veilLog.Add($"  skipped static-batched '{GameControlPath(r.transform)}'");
+                return false;
+            }
+            var flags = new RayTracingSubMeshFlags[Math.Max(1, mesh.subMeshCount)];
+            var proxyMats = new Material[flags.Length];
+            var ours = new Material[flags.Length];
+            bool any = false;
+            for (int i = 0; i < flags.Length; i++)
+            {
+                var m = i < mats.Length ? mats[i] : null;
+                bool veil = BlendedVeil(m) && !VeilSkipped(m);
+                // Any-hit only, once per triangle: a second call would blend the layer twice.
+                flags[i] = veil ? RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.UniqueAnyHitCalls : RayTracingSubMeshFlags.Disabled;
+                if (veil) { ours[i] = VeilProxyMaterial(m); any = true; }
+                proxyMats[i] = veil ? ours[i] : _disabledMaterial;
+            }
+            if (!any) return false;
+            var proxy = CreateMeshProxy($"{r.name} (veil) [UltraRT]", r.transform, mesh, proxyMats);
+            AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: true);
+            _veils.Add(new VeilEntry { Source = r, Proxy = _dynamic[_dynamic.Count - 1], Materials = ours });
+            if (_veilLog.Count < 24)
+            {
+                var src = mats.First(BlendedVeil);
+                _veilLog.Add($"  '{GameControlPath(r.transform)}' mat '{src.name}' layer {r.gameObject.layer} size {r.bounds.size:F0}" +
+                             $"{(r.gameObject.activeInHierarchy ? "" : " (inactive)")}{(r.GetComponent<ScrollingTexture>() != null ? " scrolling" : "")}");
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The game draws a veil with SrcAlpha, OneMinusSrcAlpha: colour = _MainTex x _Color x vertex colour (unlit), alpha
+        /// the same product's (times _Opacity). Lit veils (VERTEX_LIGHTING) get the same colour: their lighting is not known here.
+        /// </summary>
+        private Material VeilProxyMaterial(Material src)
+        {
+            var m = new Material(VeilShader) { name = src.name + " [UltraRT veil]" };
+            if (src.HasProperty("_MainTex") && Tex2D(src, "_MainTex") is Texture tex)
+            {
+                m.SetTexture("_MainTex", tex);
+                m.SetTextureScale("_MainTex", src.GetTextureScale("_MainTex"));
+                m.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
+            }
+            var c = src.HasProperty("_Color") ? src.GetColor("_Color") : Color.white;
+            if (src.HasProperty("_Opacity")) c.a *= src.GetFloat("_Opacity");
+            m.SetColor("_Tint", c);
+            m.SetFloat("_VertexColors", src.IsKeywordEnabled("_VERTEXCOLORS_ON") || src.IsKeywordEnabled("VERTEX_COLORS") ? 1f : 0f);
+            if (src.IsKeywordEnabled("SCROLLING") && src.HasProperty(IdScrollSpeed)) m.SetVector(IdScrollSpeed, src.GetVector(IdScrollSpeed));
+            if (_veilLog.Count < 24) _veilLog.Add("  material " + DescribeVeilMaterial(src));
+            return m;
+        }
+
+        /// <summary>The source material's colours and non-zero numbers, for matching the game's look.</summary>
+        private static string DescribeVeilMaterial(Material src)
+        {
+            var inv = CultureInfo.InvariantCulture;
+            var parts = new List<string>();
+            var sh = src.shader;
+            for (int i = 0; i < sh.GetPropertyCount(); i++)
+            {
+                string n = sh.GetPropertyName(i);
+                switch (sh.GetPropertyType(i))
+                {
+                    case ShaderPropertyType.Color:
+                    case ShaderPropertyType.Vector:
+                        var v = src.GetVector(n);
+                        if (v != Vector4.zero && v != Vector4.one) parts.Add($"{n}=({v.x.ToString("G3", inv)},{v.y.ToString("G3", inv)},{v.z.ToString("G3", inv)},{v.w.ToString("G3", inv)})");
+                        break;
+                    case ShaderPropertyType.Float:
+                    case ShaderPropertyType.Range:
+                        float f = src.GetFloat(n);
+                        if (f != 0f && parts.Count < 60) parts.Add($"{n}={f.ToString("G3", inv)}");
+                        break;
+                    case ShaderPropertyType.Texture:
+                        var t = src.GetTexture(n);
+                        if (t != null) parts.Add($"{n}='{t.name}' {t.width}x{t.height} ST ({src.GetTextureScale(n).x.ToString("G3", inv)},{src.GetTextureScale(n).y.ToString("G3", inv)})");
+                        break;
+                }
+            }
+            return $"'{src.name}': {string.Join(" ", parts)}";
+        }
+
+        /// <summary>Per traced frame, before the dispatch: scroll offsets and clock; counts the veils in the RTAS.</summary>
+        public void UpdateVeils()
+        {
+            VeilsVisible = 0;
+            if (_veils.Count == 0) return;
+            if (_veilBlock == null) _veilBlock = new MaterialPropertyBlock();
+            float time = Time.timeSinceLevelLoad; // the game's _Time.y
+            foreach (var e in _veils)
+            {
+                if (!e.Proxy.Visible || e.Source == null) continue;
+                VeilsVisible++;
+                Vector4 offset = Vector4.zero;
+                if (e.Source.HasPropertyBlock())
+                {
+                    e.Source.GetPropertyBlock(_veilBlock);
+                    offset = _veilBlock.GetVector(ScrollOffsetId);
+                }
+                foreach (var m in e.Materials)
+                {
+                    if (m == null) continue;
+                    m.SetVector(ScrollOffsetId, offset);
+                    m.SetFloat(ScrollTimeId, time);
+                }
+            }
+        }
+
+        private void LogVeilProxies()
+        {
+            if (_veils.Count == 0 && _veilLog.Count == 0) return;
+            _log.LogInfo($"Veil proxies: {_veils.Count} renderers (mask 0x{TransparentMask:X2}, collected behind portals by the veil pass)" +
+                         $"{(VeilShader == null ? " (veil shader missing)" : "")}");
+            foreach (var line in _veilLog) _log.LogInfo(line);
+            _veilLog.Clear();
+        }
+
+        private void DisposeVeils()
+        {
+            foreach (var e in _veils)
+                foreach (var m in e.Materials)
+                    if (m != null) Object.Destroy(m);
+            _veils.Clear();
+            VeilsVisible = 0;
+        }
+    }
+}

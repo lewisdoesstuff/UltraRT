@@ -257,6 +257,7 @@ namespace UltraRT
                     case "-ultrart-classify-lights": _classifyLights = true; break;  // the light classifier, once per level (Plugin.LightClassifier.cs)
                     case "-ultrart-lights-preview": _lightsPreview = true; break;    // overrides from the classifier's output folder
                     case "-ultrart-noenemyglow": _enemyGlowSettings.enabled = false; break; // Plugin.EnemyGlow.cs
+                    case "-ultrart-noveils": SceneProxies.Veils.enabled = false; break; // Plugin.Veils.cs
                     case "-ultrart-enemy-survey": _enemySurvey = true; break;        // bench: enemies_<scene>.txt per level (Plugin.EnemySurvey.cs)
                     case "-ultrart-light-census": _lightCensus = true; break;        // bench: lights_<scene>.json per level (Plugin.LightClasses.cs)
                     case "-ultrart-logfixtures": _logFixtures = true; break;
@@ -384,6 +385,7 @@ namespace UltraRT
             LoadTransparentShaders(bundle);
             LoadLavaShader(bundle);
             LoadVolumetricsShaders(bundle);
+            LoadVeilShaders(bundle);
             LoadViewmodelShaders(bundle);
             LoadDlssShader(bundle);
             LoadEffectShaders(shaders);
@@ -1242,6 +1244,7 @@ namespace UltraRT
             if (_readdDynamic) { _readdDynamic = false; Logger.LogInfo($"Re-added {_proxies.ReAddDynamic()} dynamic instances (diagnostic)"); }
             _proxies.SyncDynamic();
             _proxies.UpdateLava(); // scroll offsets of the lava proxies (SceneProxies.Lava.cs)
+            _proxies.UpdateVeils(); // the same for the veil proxies (SceneProxies.Veils.cs)
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;
             SceneProxies.TraceMirrors = _rtMirrors;
@@ -1543,6 +1546,7 @@ namespace UltraRT
             _gpu?.End(_cmd, SlotBlit);
             long tv = Perf.Now;
             TraceVolumetrics(kind, upsampled); // sun shafts, light halos, the game's fog on RT pixels (Plugin.Volumetrics.cs)
+            TraceVeils(kind, mode); // behind portals: the rest of the game's fog, blended veils (Plugin.Veils.cs)
             Perf.Add(Perf.Sec.Volumetrics, tv);
             CopyPreAlpha(); // refraction background for the water overlays (Plugin.Transparent.cs)
             long tx = Perf.Now;

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using ULTRAKILL.Portal;
@@ -197,7 +198,8 @@ namespace UltraRT
                     _log.LogInfo($"Portal side {s.Index}: '{Bench.GameControl.PathOf(portal.transform)}' {(portal.mirror ? "mirror" : exitSide ? "exit" : "enter")} " +
                                  $"{shape.width:F2}x{shape.height:F2} at {side.GetColumn(3)} fwd {side.GetColumn(2)}, render {portal.renderSettings}, " +
                                  $"recursions {portal.maxRecursions}, disableRange {portal.disableRange}, appearsInRecursions {portal.appearsInRecursions}, " +
-                                 $"canSeeItself {portal.canSeeItself}, canSeePortalLayer {portal.canSeePortalLayer}, clipping {portal.clippingMethod}");
+                                 $"canSeeItself {portal.canSeeItself}, canSeePortalLayer {portal.canSeePortalLayer}, clipping {portal.clippingMethod}" +
+                                 (portal.enableOverrideFog ? FormattableString.Invariant($", fog override {(exitSide ? (portal.useFogExit ? "on" : "off") : (portal.useFogEnter ? "on" : "off"))} colour {(exitSide ? portal.overrideFogColorExit : portal.overrideFogColorEnter)} {(exitSide ? portal.overrideFogStartExit : portal.overrideFogStartEnter):F0}-{(exitSide ? portal.overrideFogEndExit : portal.overrideFogEndEnter):F0} m") : ""));
                 s.Pose = Matrix4x4.zero;
             }
             if (s.Proxy == null) return; // destroyed with the scene
@@ -242,6 +244,37 @@ namespace UltraRT
                 var v = s.Travel.MultiplyPoint3x4(camPos);
                 if ((v - camPos).sqrMagnitude > 1f) output.Add(v);
             }
+        }
+
+        private Vector4[] _portalFogRows = new Vector4[2];
+
+        /// <summary>
+        /// Per portal side, the fog the game renders its view with (Portal.enableOverrideFog; NativePortalScene: the enter
+        /// side's view takes the Enter values): 2 rows, (rgb colour, 0 = the level's fog, 1 = this fog, 2 = no fog),
+        /// (start, end, 0, 0). For the veil pass (Plugin.Veils.cs). Returns true if a side in the RTAS overrides the fog.
+        /// </summary>
+        public bool PortalFogRows(out Vector4[] rows)
+        {
+            int need = Mathf.Max(1, _portalSideList.Count) * 2;
+            if (_portalFogRows.Length < need) _portalFogRows = new Vector4[Mathf.NextPowerOfTwo(need)];
+            bool any = false;
+            foreach (var s in _portalSideList)
+            {
+                var p = s.Portal;
+                Vector4 a = Vector4.zero, b = Vector4.zero;
+                if (p != null && p.enableOverrideFog)
+                {
+                    bool use = s.Exit ? p.useFogExit : p.useFogEnter;
+                    Color c = s.Exit ? p.overrideFogColorExit : p.overrideFogColorEnter;
+                    a = new Vector4(c.r, c.g, c.b, use ? 1f : 2f);
+                    b = new Vector4(s.Exit ? p.overrideFogStartExit : p.overrideFogStartEnter, s.Exit ? p.overrideFogEndExit : p.overrideFogEndEnter, 0f, 0f);
+                    any |= s.InRtas;
+                }
+                _portalFogRows[s.Index * 2] = a;
+                _portalFogRows[s.Index * 2 + 1] = b;
+            }
+            rows = _portalFogRows;
+            return any;
         }
 
         private void BindPortalBuffer()

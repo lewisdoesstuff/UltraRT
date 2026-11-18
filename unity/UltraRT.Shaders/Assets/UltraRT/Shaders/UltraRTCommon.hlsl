@@ -39,6 +39,10 @@ struct RayPayload
 // ray gen -> hit: p.albedo.xy carries a ray cone (texture LOD, docs/materials.md "Texture LOD"): x the cone's width at
 // the ray's origin, y its spread angle (width grows by y per unit of distance). TraceScene fills it per segment (g_Cone).
 #define ULTRART_PAYLOAD_CONE 0x04000000u
+// ray gen -> hit: the veil ray (VeilTrace.raytrace, docs/scene-proxies.md "Blended veils"): veil proxies (VeilProxy.shader)
+// blend into the payload (albedo: sum of colour x alpha, normal.x: sum of alpha, alpha: transmittance) and ignore every
+// other ray.
+#define ULTRART_PAYLOAD_VEILS 0x02000000u
 #define ULTRART_FLAG_DETAIL 0x8u // ray gen -> hit: apply per-texel detail (primary rays only; reflection, bounce, cache and
                                  // volumetric rays skip it). Hit -> ray gen: p.normal carries a per-texel detail normal; on
                                  // primary rays (WANT_MOTION) the vertex normal is in p.primitive bits 0-23 (PackOct24)
