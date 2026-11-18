@@ -239,6 +239,9 @@ namespace UltraRT
 
         public void Reset() { _historyValid = false; _beamHistoryValid = false; }
 
+        /// <summary>The camera went through a portal: last frame's view of this frame's world (docs/portals.md, "Temporal").</summary>
+        public void RemapHistory(Matrix4x4 nowToOld, Matrix4x4 oldToNow) { _prevVP = _prevVP * nowToOld; _prevCamPos = oldToNow.MultiplyPoint3x4(_prevCamPos); }
+
         /// <summary>
         /// The medium for the level's current fog (RenderSettings, which the game changes per area). x: extinction per metre.
         /// Linear fog maps to the density whose transmittance is 50% in the middle of the fog range; exponential fog uses

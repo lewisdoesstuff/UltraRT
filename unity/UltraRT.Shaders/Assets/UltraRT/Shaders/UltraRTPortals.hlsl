@@ -25,6 +25,7 @@
 #ifndef ULTRART_PORTALS_DEFINES_ONLY
 
 StructuredBuffer<float4> _UltraRTPortals; // per portal side: 3 rows of its 3x4 travel matrix (world -> world)
+StructuredBuffer<float4> _UltraRTPortalsPrev; // the same, last traced frame's (a moving portal: docs/portals.md, "Temporal")
 int _UltraRTPortalHops; // teleports per ray (SceneProxies.PortalHops, default 3); global, set every frame
 // 1: camera rays reflect off portal mirrors like any portal (-ultrart-rtmirrors); 0 (default): they stop there and the
 // game's mirror view is kept. Global, set every frame.
@@ -49,6 +50,11 @@ struct PortalPath
     float travelled;  // path length before the last segment (0 without a portal)
     float firstT;     // distance to the first portal surface; -1 without a portal
     uint first;       // that portal side's index (valid with firstT >= 0)
+    // Last frame's version of the whole path's transform (camera side -> hit side): x -> mul(prevRot, x) + prevOff.
+    // moved: one of the path's portals has another travel matrix than last frame.
+    float3x3 prevRot;
+    float3 prevOff;
+    bool moved;
     uint hops;
     float mirrorT;    // ULTRART_TRACE_STOP_AT_MIRROR: the ray stopped at a portal mirror this far along the path (p.t = -1); else -1
 };
@@ -68,6 +74,9 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     path.travelled = 0.0;
     path.firstT = -1.0;
     path.first = 0u;
+    path.prevRot = path.rot;
+    path.prevOff = 0.0;
+    path.moved = false;
     path.hops = 0u;
     path.mirrorT = -1.0;
     bool stopAtMirror = (inFlags & ULTRART_TRACE_STOP_AT_MIRROR) != 0u;
@@ -109,6 +118,13 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         float4 r0 = _UltraRTPortals[s], r1 = _UltraRTPortals[s + 1u], r2 = _UltraRTPortals[s + 2u];
         float4 h = float4(ray.Origin + ray.Direction * p.t, 1.0);
         float3x3 m = float3x3(r0.xyz, r1.xyz, r2.xyz);
+        {
+            float4 q0 = _UltraRTPortalsPrev[s], q1 = _UltraRTPortalsPrev[s + 1u], q2 = _UltraRTPortalsPrev[s + 2u];
+            if (any(q0 != r0) || any(q1 != r1) || any(q2 != r2)) path.moved = true;
+            float3x3 pm = float3x3(q0.xyz, q1.xyz, q2.xyz);
+            path.prevOff = mul(pm, path.prevOff) + float3(q0.w, q1.w, q2.w);
+            path.prevRot = mul(pm, path.prevRot);
+        }
         float3 d = normalize(mul(m, ray.Direction));
         path.travelled += p.t;
         path.rot = mul(m, path.rot);

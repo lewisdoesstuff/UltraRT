@@ -236,6 +236,10 @@ namespace UltraRT
         /// <summary>Drop the reservoir history (scene change, shader reload, camera cut, respawn, view re-enabled).</summary>
         public void Reset() => _historyValid = false;
 
+        /// <summary>The camera went through a portal: last frame's view of this frame's world. The stored planes are not
+        /// moved, so reservoirs and the visibility memory fail their match and restart (docs/portals.md, "Temporal").</summary>
+        public void RemapHistory(Matrix4x4 nowToOld) { _prevViewProj = _prevViewProj * nowToOld; }
+
         /// <summary>
         /// Build this frame's light tables and bind everything UltraRTLights.hlsl reads.
         /// </summary>

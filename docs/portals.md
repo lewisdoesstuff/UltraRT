@@ -146,8 +146,62 @@ The far side is now as calm as the near side. "Side 2" has a flickering lamp in 
 - **Bounce and reflection rays from a surface seen through a portal** start a fresh path: they don't see layer-30 props.
 - **Lights through portals**: a light in room A does not light room B through a portal between them, and shadow rays ignore portals. The game fakes this for `PortalAwareLight`s (up to 16 transformed copies, clipped by the far plane). Doing it in RT means virtual lights (a light's image through each nearby portal, sampled with a plane clip and a shadow ray that is teleported back) in the light list.
 - **Per-portal overrides** the game applies to a portal view are not applied to rays: `overrideSkyboxEnter/Exit`, `canSeeItself`, per-portal `maxRecursions` (one global limit of 3 instead), the fog-end distance cull, and `supportInfiniteRecursion`'s fake textures. `appearsInRecursions` and `canSeePortalLayer` are honoured. Fog overrides (and the level's fog behind a portal) are applied by the veil pass since 2026-11-18, for the first portal on a camera ray (docs/scene-proxies.md, "Blended veils").
-- **Moving portals and objects seen through a portal**: the motion of objects behind a portal is rotated into camera space, but a portal that itself moves makes the virtual scene move without motion vectors: history is rejected there (correct, but noisier) until it stops.
+- **Moving portals and crossing a portal** had no temporal handling until 2026-11-18: see section 8.
 - **The game's own cubemap reflection** reconstructed for hybrid (`GameCubeTerm`) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
 - **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere.
 - **Portal clones**: `PortalAwareRenderer` copies objects whose bounds cross a portal (V1 jumping into 8-2's pool, enemies in doorways) with `new GameObject` + `AddComponent`, which the Instantiate hooks never saw (only the 120 s rescan did). A Harmony postfix on its private `CreateClone` now registers the copy's hierarchy like a spawn (`Patches.PortalClonePostfix`; logged as `Portal clone hook installed` and counted in the `Material sync` line). Copies of V1 keep layer 30, so rays see them only after a portal hop, as the game's views do.
 - **8-2's starting pool** is a floor portal (15 x 60 m, `Opening Hallway/1 Nonstuff/Portal`) into a copy of the street 300 m away, not a mirror. The game shows V1 in it only while V1's bounds cross the pool plane (the clones above); standing at the edge or above it, the game's own view (RT off) shows no V1 either (`bench/suites/materials-pm.json`, "8-2 pool"). The clone path is not verified in game (a bench pose can't put V1 through the plane).
+
+## 8. Temporal: moving portals and walking through one (2026-11-18, `t3/portal-temporal`)
+
+User report, from the 8-3 route: the walls of the Shifting Hallway seen through its doorways smear sideways, the
+theatre behind the Shifting Arena's scrolling strips smears up and down, and the image is noisy and soft for a moment
+after walking through a portal. Two causes, both in what the histories are told about the previous frame.
+
+**A moving portal.** The far side seen through a portal is a rigid copy of it in front of the camera (section 3). When
+the portal's travel matrix changes (8-3: the hallway's exits slide along z, the arena's strips scroll every frame),
+that copy moves, and nothing said so: the motion vector of a through-portal pixel was only the hit object's own
+motion, rotated. The denoiser's plane test rejects a big step, but a scroll of a few centimetres per frame passes, so
+it (and DLSS RR, which trusts the vectors) blended each frame with the previous one a little off: a smear along the
+portal's motion. Now `SceneProxies` keeps last traced frame's travel rows (`_UltraRTPortalsPrev`), `TraceScene`
+composes last frame's version of the path's transform next to this frame's (`PortalPath.prevRot`, `prevOff`, `moved`),
+and for a primary hit behind a moved portal `PathTrace.raytrace` writes the motion of the camera-side image: where
+last frame's path, inverted, puts the point the hit was at then, minus where it is seen now. A static portal takes the
+old code path (`moved` false), so its vectors are bit-identical. `plugin._portalMotion=0` turns it off.
+
+**Walking through a portal.** The camera jumps to the other side. What it sees there is what it saw through the portal
+a frame ago, but every history looked the previous frame up with the previous camera, 10 to 800 m away, found
+nothing and restarted. The jump is the portal's travel matrix T, so the previous frame's view of this frame's world is
+`prevViewProj x T^-1`. `Plugin.PortalTemporal.cs` detects the crossing (the camera moved more than 1.5 m in a frame,
+it was at an active non-mirror side, and that side's matrix takes the old position to within 0.9 of the jump, at most
+12 m, of the new one) and remaps once: DLSS RR's and the upsamplers' previous view-projection, the reflection
+filter's, light sampling's, the volumetrics' and the particle volume's (with their previous camera position), and for
+the denoiser a `_HistoryXform` applied to the looked-up position and normal, because its history stores positions.
+Light sampling's stored planes are not moved, so reservoirs and the visibility memory still restart at a crossing.
+`plugin._portalRemap=0` turns it off; the log has `Portal crossing: through '<side>', <jump> m, residual <m>`.
+
+**The bench could not show a crossing.** A recording's camera path is a spline through 30 Hz samples, so at a portal
+the replayed camera glided across the gap, through the walls, for the length of a sample; part of the bad moment in
+the 8-3 run was that. `CameraPath` now cuts where two samples are more than 6 m and under 0.1 s apart (the fastest
+fall in the recordings is 4.5 m per sample): the camera jumps, as in play. In the Shifting Hallway the exits move, so
+a replay lands 2 to 8 m from where the portal leads in that run; the remap uses the portal's matrix alone and leaves
+that remainder as camera motion (a real crossing leaves one step). `plugin._portalJumpDiag=1` logs every camera jump
+near a portal with what each side makes of it.
+
+**Evidence** (`bench/suites/portal-motion.json`, 8-3-b; sheets in `bench/results/review/portal-temporal/`). The
+portals are at another point of their cycle in every pass, so two columns never show the same view:
+- `arena-smear-off-on.png`: held shots in the Shifting Arena at real frame rate, pathtrace. Off: everything behind the
+  scrolling strips is streaked vertically (curtains, chandeliers, wallpaper). On: sharp. The user confirmed this is
+  the smear they saw.
+- `hallway-crossing-off-on.png`: frames in motion 10 to 20 frames after the two hallway crossings, pathtrace. Off:
+  the walls are grainy and the next doorway's view is streaked. On: clean walls, sharp view.
+- The door portal at 12.4 s (static; the crossing is detected with a 0.74 m remainder) shows no gain: the rooms
+  behind it only switch on at the crossing, so there is no earlier view of them.
+- relight's own denoiser: its history-length view showed no surface keeping its history across the hallway crossings
+  with the remap on. Not explained (the replay lands off the exit there; the static door has nothing to keep), so for
+  relight the crossing remap is unproven. Its moving-portal vectors work (the history length behind a moving doorway
+  goes from half to full).
+- Six levels' first rooms (`sky-8-1`) with the final build: no exceptions.
+
+Cost: three more buffer loads and two small matrix products per portal hop, on every ray that crosses a portal; one
+compare per traced frame on the CPU. Not measured separately.

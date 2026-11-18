@@ -82,6 +82,8 @@ namespace UltraRT
         private int _cur;
         private bool _historyValid;
         private Matrix4x4 _prevScreenVP;
+        /// <summary>The camera went through a portal: last frame's view of this frame's world (docs/portals.md, "Temporal").</summary>
+        public void RemapHistory(Matrix4x4 nowToOld) { _prevScreenVP = _prevScreenVP * nowToOld; }
         private uint _jitterIndex;
 
         /// <summary>The upsampled colour of the last Execute (screen res; a = 0 where there is no RT surface).</summary>

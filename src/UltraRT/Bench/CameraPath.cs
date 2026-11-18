@@ -65,12 +65,26 @@ namespace UltraRT.Bench
             var k1 = _keys[i];
             var k2 = _keys[i + 1];
             float u = (t - k1.Time) / Mathf.Max(k2.Time - k1.Time, 1e-6f);
+            // A cut: the player went through a portal (or was teleported) between two samples. The camera jumps, as it
+            // did in play; it used to glide across the gap, through walls, for the length of a sample.
+            if (Cut(k1, k2)) return u < 0.5f ? k1.Pose : k2.Pose;
             var k0 = _keys[Math.Max(i - 1, 0)];
             var k3 = _keys[Math.Min(i + 2, _keys.Count - 1)];
+            // The spline's outer points stay on this side of a cut.
+            if (Cut(k0, k1)) k0 = k1;
+            if (Cut(k2, k3)) k3 = k2;
             return new CamPose(
                 CatmullRom(k0.Pose.Position, k1.Pose.Position, k2.Pose.Position, k3.Pose.Position, u),
                 Mathf.Lerp(k1.Pose.Yaw, k2.Pose.Yaw, u),
                 Mathf.Lerp(k1.Pose.Pitch, k2.Pose.Pitch, u));
+        }
+
+        /// <summary>More than 6 m in under 0.1 s (above 60 m/s, and at least 6 m at once): faster than any fall or dash
+        /// between two 30 Hz samples (the fastest in the recordings is 4.5 m).</summary>
+        private static bool Cut(PathKey a, PathKey b)
+        {
+            float d = (b.Pose.Position - a.Pose.Position).magnitude;
+            return d > 6f && b.Time - a.Time < 0.1f;
         }
 
         private int _lastSegment;

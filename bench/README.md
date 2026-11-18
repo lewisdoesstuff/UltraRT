@@ -148,6 +148,8 @@ take seconds per frame: give long ones `-TimeoutSec`. Suites: `cine-test.json` (
 
 A recording stores the player's position and look angles at 60 Hz, plus every arena (`ActivateArena`) that triggered and when. On replay the camera follows the path exactly and the same arenas trigger at the same times, so fights happen in the same places.
 
+The replayed path is a spline through the samples. Where two samples are more than 6 m and under 0.1 s apart (a portal crossing, a teleport) the path cuts instead: the camera jumps, as it did in play (2026-11-18; it used to glide across the gap). A portal that moves (8-3's Shifting Hallway) is elsewhere in every run, so after such a cut the replayed camera is a few metres from where the portal leads.
+
 Replays are *statistically* repeatable, not identical. Enemy AI, physics and gore still vary between runs, even with a fixed seed. Raw keyboard/mouse replay would drift after a few seconds for the same reason, so we record the resulting path instead.
 
 Recording itself doesn't enable cheats or block saves. It's just normal play.

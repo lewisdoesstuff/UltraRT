@@ -139,6 +139,14 @@ namespace UltraRT
 
         public void Reset() { _historyValid = false; Valid = false; }
 
+        /// <summary>The camera went through a portal: last frame's view of this frame's world (docs/portals.md, "Temporal").</summary>
+        public void RemapHistory(Matrix4x4 nowToOld, Matrix4x4 oldToNow)
+        {
+            _prevVP = _prevVP * nowToOld;
+            _prevCam = oldToNow.MultiplyPoint3x4(_prevCam);
+            _prevFwd = oldToNow.MultiplyVector(_prevFwd);
+        }
+
         private static RenderTexture Make3D(int x, int y, int z, string name)
         {
             var desc = new RenderTextureDescriptor(x, y, RenderTextureFormat.ARGBHalf, 0)
