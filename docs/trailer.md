@@ -408,6 +408,8 @@ layer returns under the end card and fades over 4.5 s. Every cut, switch and gun
 
 ### Shot list
 
+Candidate for the next cut (user, 2026-11-18): a camera sweep at 2-1 (`bench/recordings/u1118-2-1-1.json`, the pose is its last sample), for ray-traced reflections.
+
 All comparisons are paired live takes (the game's image / real-time path tracing with RR); "beauty" is one traced take.
 
 | # | Start | s | Shot | Level | Treatment | Caption |

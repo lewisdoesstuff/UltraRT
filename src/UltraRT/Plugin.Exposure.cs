@@ -13,7 +13,9 @@ namespace UltraRT
     ///   -ultrart-relight-autoexposure on|off   (config [Relight] AutoExposure)
     ///   -ultrart-ae-key K, -ultrart-ae-min EV, -ultrart-ae-max EV, -ultrart-ae-speed UP[,DOWN], -ultrart-ae-band LO,HI,
     ///   -ultrart-ae-comp EV, -ultrart-ae-ptdn
-    ///   -ultrart-relight-tonemap lum|max       shoulder on luminance (the old curve) or on the largest channel
+    ///   -ultrart-relight-tonemap film[,K]|lum|max   film (default): luminance shoulder + highlight rolloff to white, K = the
+    ///                                          share of its room a channel may use untouched (0.8); lum: the shoulder alone
+    ///                                          (saturated colours clip per channel); max: shoulder on the largest channel
     ///   -ultrart-relight-knee K                where the shoulder starts (default 0.75)
     ///   -ultrart-relight-toe S[,END]           toe strength (0 = none) and where it joins the identity
     /// Ctrl+F4: toggle auto exposure.
@@ -25,7 +27,8 @@ namespace UltraRT
         private ComputeShader _denoiseShader;
         private int _denoiseCompositeKernel = -1;
         private int _aeLastFrame = -10;
-        private float _tonemapCurve = 0f; // 0 = luminance shoulder (default, the original curve), 1 = max-channel shoulder
+        private float _tonemapCurve = 2f; // 0 = luminance shoulder (the original curve), 1 = max-channel shoulder, 2 = film (default since 2026-11-18)
+        private float _tonemapSat = 0.8f; // film: share of the room above luminance a channel may use before the rolloff (UltraRTToneCurve.hlsl)
         private float _tonemapKnee = 0.75f;
         private float _tonemapToe = 0.6f, _tonemapToeEnd = 0.25f; // toe strength (0 = none; 0.6 since the punch defaults, 2026-11-17) and where it ends (UltraRTToneCurve.hlsl)
 
@@ -45,7 +48,13 @@ namespace UltraRT
                 string Next() => i + 1 < a.Length ? a[++i] : null;
                 switch (a[i].ToLowerInvariant())
                 {
-                    case "-ultrart-relight-tonemap": _tonemapCurve = (Next() ?? "").ToLowerInvariant() == "max" ? 1f : 0f; break;
+                    case "-ultrart-relight-tonemap":
+                    {
+                        var p = (Next() ?? "").ToLowerInvariant().Split(',');
+                        _tonemapCurve = p[0] == "max" ? 1f : p[0] == "lum" ? 0f : 2f;
+                        if (p.Length > 1 && float.TryParse(p[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var ks)) _tonemapSat = Mathf.Clamp(ks, 0.05f, 0.98f);
+                        break;
+                    }
                     case "-ultrart-relight-knee":
                         if (float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var k)) _tonemapKnee = Mathf.Clamp(k, 0.05f, 0.99f);
                         break;
@@ -59,7 +68,7 @@ namespace UltraRT
                 }
             }
             InitHdr(); // HDR display output (Plugin.Hdr.cs, docs/hdr.md)
-            Logger.LogInfo($"Relight: {_aeSettings}; tone map {(_tonemapCurve > 0.5f ? "max-channel" : "luminance")} shoulder, knee {_tonemapKnee}, white {_relightWhite}, toe {_tonemapToe} to {_tonemapToeEnd}");
+            Logger.LogInfo($"Relight: {_aeSettings}; tone map {(_tonemapCurve > 1.5f ? $"film (rolloff from {_tonemapSat})" : _tonemapCurve > 0.5f ? "max-channel shoulder" : "luminance shoulder")}, knee {_tonemapKnee}, white {_relightWhite}, toe {_tonemapToe} to {_tonemapToeEnd}");
         }
 
         private void LoadExposureShader(AssetBundle bundle, ComputeShader denoise)
@@ -117,7 +126,7 @@ namespace UltraRT
             _cmd.SetGlobalFloat(UltraRTAutoExposureId, ae ? 1f : 0f);
             bool tonemap = _relightActive || ae;
             _cmd.SetGlobalFloat("_UltraRTTonemapWhite", tonemap ? _relightWhite : 0f);
-            _cmd.SetGlobalVector(UltraRTTonemapParamsId, new Vector4(_tonemapCurve, _tonemapKnee, _tonemapToe, Mathf.Min(_tonemapToeEnd, _tonemapKnee)));
+            _cmd.SetGlobalVector(UltraRTTonemapParamsId, new Vector4(_tonemapCurve > 1.5f ? 2f + Mathf.Clamp(_tonemapSat, 0.05f, 0.98f) : _tonemapCurve, _tonemapKnee, _tonemapToe, Mathf.Min(_tonemapToeEnd, _tonemapKnee)));
         }
 
         /// <summary>After the denoiser: measure this frame and adapt (used from the next frame on).</summary>

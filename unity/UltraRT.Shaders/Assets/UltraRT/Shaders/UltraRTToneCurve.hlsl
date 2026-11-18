@@ -2,8 +2,9 @@
 // reflection overlay (TransparentOverlay.shader) so both always use the same curve. Plain functions, no resources.
 //
 //   white   luminance (or max channel) that maps to 1; <= 0 = no tone map (values are only saturated by the caller)
-//   params  x curve (0 = luminance shoulder, 1 = max-channel shoulder), y knee (0 = 0.75),
-//           z toe strength (0 = no toe), w toe end (where the toe joins the identity; 0 = 0.25)
+//   params  x curve (0 = luminance shoulder, 1 = max-channel shoulder, 2 + k = film: the luminance shoulder plus the
+//           highlight rolloff below, k = the share of the room above luminance a channel may use untouched),
+//           y knee (0 = 0.75), z toe strength (0 = no toe), w toe end (where the toe joins the identity; 0 = 0.25)
 
 #ifndef ULTRART_TONECURVE_INCLUDED
 #define ULTRART_TONECURVE_INCLUDED
@@ -15,9 +16,59 @@
 //   point; above it the brightest channel saturates first, which desaturates towards white like film.
 // Toe: below the toe end, luminance v becomes lerp(v, v^2/t * (2 - v/t), strength): same value and slope at t, slope
 // 1 - strength at black. Deepens shadows a little (contrast) without crushing them; hue is kept.
+//   Curve 2 (film, the default since 2026-11-18): curve 0, then the highlight rolloff. Curve 0 looks at luminance only,
+//   and a saturated colour has little: pure red at 1 has luminance 0.21, so a red-lit wall went to 1.0 and far beyond
+//   in the red channel while the shoulder never saw it, and the caller's saturate cut it flat (the user's "solid
+//   orange/red with no gradation", 0-1 and 0-3). Film does not clip a channel, it loses saturation: the rolloff does
+//   that. A channel may stand above the pixel's luminance L by up to k x (top - L) untouched; beyond that the excess
+//   is rolled off towards top - L and all three channels are pulled towards L by the same factor. Luminance and hue
+//   are kept, no channel passes top, and the hotter the pixel the whiter it gets, so a gradient in the light stays a
+//   gradient in the image. Neutral colours and anything below k of its room are bit-identical to curve 0.
+float3 UltraRTFilm(float3 c, float top, float white, float4 params, bool toe)
+{
+    float knee = params.y > 0.0 ? params.y : 0.75;
+    float k = clamp(params.x - 2.0, 0.05, 0.98);
+    float l = dot(c, float3(0.2126, 0.7152, 0.0722));
+    if (l > knee)
+    {
+        float x = l - knee, room = top - knee, range = max(white - knee, 1e-3);
+        float mapped = min(knee + room * x * (1.0 + x / (range * range) * room) / (x + room), top);
+        c *= mapped / l;
+        l = mapped;
+    }
+    else if (toe && params.z > 0.0)
+    {
+        float t = params.w > 0.0 ? params.w : 0.25;
+        if (l > 1e-6 && l < t)
+        {
+            float tl = lerp(l, l * l / t * (2.0 - l / t), saturate(params.z));
+            c *= tl / l;
+            l = tl;
+        }
+    }
+    float e = max(c.r, max(c.g, c.b)) - l, h = max(top - l, 0.0);
+    if (e > k * h)
+    {
+        float rest = (1.0 - k) * h, y = e - k * h;
+        float e2 = k * h + (rest > 1e-6 ? rest * y / (y + rest) : 0.0);
+        c = l + (c - l) * (e2 / e);
+    }
+    return c;
+}
+
+// Whether the film curve changes this colour above its toe (shoulder or rolloff): the HDR gain uses the SDR colour where
+// it does not.
+bool UltraRTFilmActs(float3 c, float4 params)
+{
+    float knee = params.y > 0.0 ? params.y : 0.75;
+    float l = dot(c, float3(0.2126, 0.7152, 0.0722));
+    return l > knee || max(c.r, max(c.g, c.b)) - l > clamp(params.x - 2.0, 0.05, 0.98) * (1.0 - l);
+}
+
 float3 UltraRTToneCurve(float3 c, float white, float4 params)
 {
     if (white <= 0.0) return c;
+    if (params.x > 1.5) return UltraRTFilm(c, 1.0, white, params, true);
     float knee = params.y > 0.0 ? params.y : 0.75;
     float v = params.x > 0.5 ? max(c.r, max(c.g, c.b)) : dot(c, float3(0.2126, 0.7152, 0.0722));
     if (v > knee)
@@ -56,8 +107,9 @@ float UltraRTHdrPack(float3 c)
 //          peak (0 = the SDR white point), w largest gain
 // The HDR curve is the same shoulder with more room: identical to the SDR curve up to the knee (gain exactly 1, so the
 // look of everything that isn't a highlight is unchanged), then it rolls off to the display peak instead of to SDR white.
-// Returns rgb = the per-channel gain in linear light (>= 1; per channel, so a highlight that clipped to white in SDR gets
-// its colour back), a = the SDR colour packed (UltraRTHdrPack), by which the present pass recognises that the pixel is
+// Returns rgb = the per-channel gain in linear light (>= 1; per channel, so a highlight that went to white in SDR gets
+// its colour back: the channel that leads is raised, the others stay at the little the SDR rolloff gave them, which
+// in linear light is next to nothing beside it), a = the SDR colour packed (UltraRTHdrPack), by which the present pass recognises that the pixel is
 // still the composite's.
 float4 UltraRTHdrGain(float3 hdr, float3 shown, float scale, float white, float4 params, float4 hp)
 {
@@ -65,6 +117,13 @@ float4 UltraRTHdrGain(float3 hdr, float3 shown, float scale, float white, float4
     float top = max(hp.y, 1.0);
     float3 hc;
     if (white <= 0.0) hc = h; // no tone curve in this mode: SDR clips at 1, HDR at the peak
+    else if (params.x > 1.5)
+    {
+        // Film: the same shoulder and rolloff with the display peak as the top, so a saturated highlight keeps its
+        // colour for as long as the display has room and whitens only above that.
+        if (UltraRTFilmActs(h, params)) hc = UltraRTFilm(h, top, max(hp.z > 0.0 ? hp.z : white, top), params, true);
+        else hc = shown * max(scale, 1.0);
+    }
     else
     {
         float knee = params.y > 0.0 ? params.y : 0.75;
