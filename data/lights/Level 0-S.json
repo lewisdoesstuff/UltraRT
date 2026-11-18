@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "scene": "Level 0-S",
+  "note": "User, 2026-11-18: 0-S is meant to be pitch black, the only light the held skull's. The start rooms stay as they are: the exposure only follows the game where the picture is brighter than the game's (spawn 39.6 -> 38.7, game 35.5; the dark corridor 76.4 -> 30.5, game 27.5).",
+  "exposure": {
+    "followGame": 1,
+    "note": "A dark level: an exposure above the game's shows the whole corridor."
+  },
+  "lights": [],
+  "added": []
+}

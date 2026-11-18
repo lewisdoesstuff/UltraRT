@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "scene": "Level 4-1",
+  "note": "User, 2026-11-18 (4-1 pose 1): the flame sprites are barely visible. Under the x2.5 policy the walls behind the torches burn out to near white green and the game's flames have nothing darker to stand against.",
+  "classes": {
+    "fixture": {
+      "reach": 0,
+      "intensity": 1.25,
+      "medium": 0.8,
+      "note": "Half the global x2.5: the flames read against the wall again (frame mean 82 -> about 50, the game 47)."
+    }
+  },
+  "lights": [],
+  "added": []
+}
