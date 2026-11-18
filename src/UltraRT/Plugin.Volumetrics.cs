@@ -163,6 +163,7 @@ namespace UltraRT
                 falloff = new Vector4(_relightActive ? _relightFalloff : 0f, lightExposure, 1f, 0f),
                 localLightCount = _lightCount,
                 applyGameFog = upsampled && kind != Kind.Hybrid,
+                surface = upsampled && kind != Kind.Hybrid ? _gSurface : null,
                 autoExposure = AutoExposureFor(name),
                 exposure = _autoExposure?.ExposureBuffer,
                 composite = _volCompositeMat,

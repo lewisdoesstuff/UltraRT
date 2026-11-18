@@ -58,7 +58,7 @@ namespace UltraRT
 
         private readonly MaterialClassifier _classifier;
         private readonly HashSet<Material> _atlasProxies = new HashSet<Material>();
-        private readonly Dictionary<(Material, MaterialParams, MaterialParams?, bool, int), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?, bool, int), Material>();
+        private readonly Dictionary<(Material, MaterialParams, MaterialParams?, bool, int, bool), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?, bool, int, bool), Material>();
         private int _atlasSlotsHook, _atlasSlotsFootstep, _atlasSlotsUnknown;
 
         private readonly ManualLogSource _log;
@@ -369,12 +369,14 @@ namespace UltraRT
             bool alphaTest = SourceAlphaTested(original) || SourceAlphaTested(OriginalMaterials.Dominant(mats, counts, SourceAlphaTested));
             // A "lit" rule on the original (SceneProxies.Unlit.cs): the slot's lit weight is lerp(rule, 1, vertex alpha).
             float lit = AtlasLitOf(original);
-            if (!DumpMaterialClasses && !alphaTest && lit < 0f && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
+            bool noFog = NoFog(original); // 1-4's stained glass windows are atlas slots
+            if (!DumpMaterialClasses && !alphaTest && lit < 0f && !noFog && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
 
-            var key = (atlasProxy, p, secondary, alphaTest, Mathf.RoundToInt(lit * 255f));
+            var key = (atlasProxy, p, secondary, alphaTest, Mathf.RoundToInt(lit * 255f), noFog);
             if (_atlasVariants.TryGetValue(key, out var v)) return v;
-            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}{(lit >= 0f ? $" / lit {lit:0.##}" : "")}" };
+            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}{(lit >= 0f ? $" / lit {lit:0.##}" : "")}{(noFog ? " / no fog" : "")}" };
             MaterialParams.Apply(v, p, secondary);
+            if (noFog) v.SetFloat(IdNoFog, 1f);
             if (lit >= 0f) { v.SetFloat(IdLitOverride, lit); _atlasLit[v] = lit; }
             if (alphaTest)
             {
@@ -1113,6 +1115,11 @@ namespace UltraRT
         /// <summary>Reflection parameters of a source material (the viewmodel G-buffer, docs/viewmodel.md).</summary>
         internal MaterialParams ClassifyMaterial(Material m) => _classifier.Classify(m, out _);
 
+        private static readonly int IdNoFog = Shader.PropertyToID("_NoFog");
+
+        /// <summary>The game draws this material without its distance fog (Master's _FOG_OFF): 1-4's stained glass.</summary>
+        internal static bool NoFog(Material m) => m != null && m.IsKeywordEnabled("_FOG_OFF");
+
         internal static bool SourceAlphaTested(Material m)
         {
             if (m == null) return false;
@@ -1383,6 +1390,8 @@ namespace UltraRT
             // Enemies keep part of the RT lighting, so they still sit in the scene's shadows; "lit" rules set any material's
             // weight (SceneProxies.Unlit.cs).
             ApplyLitWeight(src, m);
+            // The game draws it without its distance fog: so does the fog pass (VolumetricsComposite.shader, ULTRART_FLAG_NOFOG).
+            if (NoFog(src)) m.SetFloat(IdNoFog, 1f);
             // BLOOD_FILLER (7-3's tree): the noise for the fill edge; the fill itself comes from the renderer's property block.
             if (src.IsKeywordEnabled("BLOOD_FILLER") && src.HasProperty("_BloodNoiseTex") && Tex2D(src, "_BloodNoiseTex") is Texture noise)
                 m.SetTexture("_BloodNoiseTex", noise);

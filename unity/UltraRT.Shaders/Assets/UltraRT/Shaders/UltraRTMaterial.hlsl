@@ -91,6 +91,12 @@ uint4 SurfaceSetGameCube(uint4 s, float k) { return uint4(s.x | 0x80000000u, s.y
 bool SurfaceHasGameCube(uint4 s) { return (s.x >> 31) != 0u; }
 float SurfaceGameCubeKeep(uint4 s) { return FromUnorm8(s.z >> 24); }
 
+// No fog (z bit 31 while x bit 31 is clear; the game cubemap's keep factor uses that byte only with x bit 31, which only
+// hybrid sets, and hybrid pixels keep the game's own fog): the game draws the material without its distance fog
+// (_FOG_OFF, ULTRART_FLAG_NOFOG), so VolumetricsComposite's fog pass leaves the pixel alone (1-4's stained glass).
+uint4 SurfaceSetNoFog(uint4 s) { return (s.x >> 31) != 0u ? s : uint4(s.x, s.y, s.z | 0x80000000u, s.w); }
+bool SurfaceNoFog(uint4 s) { return (s.x >> 31) == 0u && (s.z >> 31) != 0u; }
+
 // _HybridLight.w: lit weight unorm8 | game cubemap term C (rgb unorm8, 0 when not removed) << 8.
 uint PackHybridW(float litWeight, float3 gameCube)
 {

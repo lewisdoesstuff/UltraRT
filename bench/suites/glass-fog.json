@@ -1,0 +1,25 @@
+{
+ "Name": "glass-fog",
+ "Note": "Branch t3/stained-glass: 1-4 pose 4 windows: game fog on traced pixels (the glass is _FOG_OFF in the game).",
+ "Scenarios": [
+  {
+   "Name": "1-4 pose 4",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 3,
+    "Load": "checkpoint"
+   },
+   "Modes": [
+    "off",
+    "pathtrace+vol.noFogSurfaces=0",
+    "pathtrace",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

@@ -512,6 +512,7 @@ void RayGenBody(bool full)
                 gameCube *= lerp(1.0, UnshadowedAll(pos, nv, layer) + _Ambient.rgb, lightContribution);
             surface = SurfaceSetGameCube(surface, FromUnorm8(p.uvHalf >> 24));
         }
+        if ((p.flags & ULTRART_FLAG_NOFOG) != 0u && path.hops == 0u) surface = SurfaceSetNoFog(surface);
         _Surface[id] = surface;
         _NormalDepth[id] = float4(PortalToVirtual(path, n), tTotal);
         float3 un = g_DirectUnshadowed; // same samples as `direct`, without visibility

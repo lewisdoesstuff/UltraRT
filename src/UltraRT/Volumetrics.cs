@@ -69,6 +69,9 @@ namespace UltraRT
         public float maxSample = 2f;
         /// <summary>Apply the game's own distance fog to ray-traced pixels (the replace modes lost it).</summary>
         public bool gameFog = true;
+        /// <summary>...except on materials the game draws without fog (_FOG_OFF: 1-4's stained glass), as the game does.
+        /// Bench vol.noFogSurfaces=0 fogs them too (the look before 2026-11-18).</summary>
+        public bool noFogSurfaces = true;
         public float alphaMin = 0.03f;
         public float maxHistory = 64f;
         /// <summary>Spatial Gaussian of this frame's samples (low-res px; 5x5 taps).</summary>
@@ -150,6 +153,7 @@ namespace UltraRT
         public Vector4 falloff;            // _VolFalloff
         public float localLightCount;
         public bool applyGameFog;          // replaced pixels are marked in _UltraRTUpsampled
+        public Texture surface;            // the trace's _Surface: no-fog materials (_FOG_OFF) skip the fog pass; null = fog everywhere
         public bool autoExposure;
         public ComputeBuffer exposure;
         public Material composite;
@@ -212,7 +216,7 @@ namespace UltraRT
             IdSceneColor = Shader.PropertyToID("_VolSceneColor"), IdVolHist = Shader.PropertyToID("_VolHist"),
             IdVolDepthTex = Shader.PropertyToID("_VolDepthTex"), IdVolExposure = Shader.PropertyToID("_VolExposure"),
             IdVolViewRay = Shader.PropertyToID("_VolViewRay"), IdVolFog = Shader.PropertyToID("_VolFog"),
-            IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
+            IdVolFogColor = Shader.PropertyToID("_VolFogColor"), IdUltraRTSurface = Shader.PropertyToID("_UltraRTSurface"), IdVolComposite = Shader.PropertyToID("_VolComposite"),
             IdVolMaxAdd = Shader.PropertyToID("_VolMaxAdd"), IdVolToe = Shader.PropertyToID("_VolToe"),
             IdVolEmissive = Shader.PropertyToID("_VolEmissive"), IdVolClamp = Shader.PropertyToID("_VolClamp"),
             IdVolSamples = Shader.PropertyToID("_VolSamples"), IdVolLightShape = Shader.PropertyToID("_VolLightShape"),
@@ -389,7 +393,9 @@ namespace UltraRT
             float fogMode = !RenderSettings.fog ? 0f : RenderSettings.fogMode == FogMode.Linear ? 1f : RenderSettings.fogMode == FogMode.Exponential ? 2f : 3f;
             m.SetVector(IdVolFog, new Vector4(fogMode, RenderSettings.fogStartDistance, RenderSettings.fogEndDistance, RenderSettings.fogDensity));
             var fc = RenderSettings.fogColor;
-            m.SetVector(IdVolFogColor, new Vector4(fc.r, fc.g, fc.b, f.applyGameFog && s.gameFog && fogMode > 0f ? 1f : 0f));
+            bool noFog = f.surface != null && s.noFogSurfaces;
+            if (noFog) m.SetTexture(IdUltraRTSurface, f.surface);
+            m.SetVector(IdVolFogColor, new Vector4(fc.r, fc.g, fc.b, f.applyGameFog && s.gameFog && fogMode > 0f ? (noFog ? 2f : 1f) : 0f));
             m.SetVector(IdVolComposite, new Vector4(Mathf.Max(0f, s.strength), f.autoExposure && f.exposure != null ? 1f : 0f, 1f, s.debugView));
             m.SetFloat(IdVolMaxAdd, Mathf.Max(0f, s.maxAdd));
             m.SetFloat(IdVolToe, Mathf.Max(0f, s.toe));

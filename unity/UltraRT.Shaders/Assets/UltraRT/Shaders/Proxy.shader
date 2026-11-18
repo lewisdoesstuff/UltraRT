@@ -19,6 +19,7 @@ Shader "UltraRT/Proxy"
         _BlendTex ("Blend atlas", 2D) = "white" {}
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
+        _NoFog ("The game draws it without fog (_FOG_OFF)", Float) = 0
         // ULTRAKILL/Master SCROLLING: uv * _MainTex_ST + _ScrollOffset + _ScrollSpeed * _Time.y (5-2's sea current, conveyor
         // belts, opaque lava). _ScrollOffset is ScrollingTexture's per-renderer property block value (SceneProxies.Sync.cs).
         _Scrolling ("Texture scrolls (SCROLLING)", Float) = 0
@@ -141,6 +142,7 @@ Shader "UltraRT/Proxy"
             float _AtlasMode;
             float _SkyWall;
             float _AlphaTest;
+            float _NoFog;
             float _CameraSkip;
             float _Transparent;
             float _TransOpacity;
@@ -728,6 +730,7 @@ Shader "UltraRT/Proxy"
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls)
                         | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT);
+                if (_NoFog > 0.5) p.flags |= ULTRART_FLAG_NOFOG;
 
                 // Hybrid primary hits: the game's cubemap term for the composite to remove. uvHalf / primitive are debug-only
                 // otherwise; PathTrace's primary rays never read them.

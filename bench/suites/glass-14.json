@@ -1,0 +1,7 @@
+{
+ "Name": "glass-14",
+ "Note": "Branch t3/stained-glass: 1-4 pose 4 via a checkpoint load (approach-fast came out black).",
+ "Scenarios": [
+  { "Name": "1-4 pose 4 cp", "Scene": "Level 1-4", "Path": { "Type": "static", "Approach": "../recordings/u1118-1-4-4.json", "Duration": 4, "Load": "checkpoint" }, "Modes": [ "off", "pathtrace" ], "Screenshots": [ 2 ] }
+ ]
+}
