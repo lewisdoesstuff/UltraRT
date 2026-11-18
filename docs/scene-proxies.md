@@ -482,6 +482,11 @@ traced image replaces the game's portal view, so there the veil was missing. Now
   Measured (`bench/suites/portal-pair.json`, pathtrace, the far wall's mean colour): through the portal / from
   inside was 0.89, now 1.02; 59 veil renderers in 8-2. The cone's lower edge is a little harder than in the game's
   own view (no `_FADING_ON` distance fade in the proxy).
+  **Cost trap, fixed the same day**: with light cones as veils, levels without any portal have veil proxies too (6-2:
+  20), and the pass ran there every frame for nothing (merge-regress: 6-2 start pathtrace 5.63 -> 6.99 ms, GPU +0.4 ms,
+  one more DispatchRays on the render thread). The pass now needs a portal side in the RTAS. Measured after the fix
+  (`bench/suites/veil-gate-perf.json`, `-Perf`, everything of the branch off against on, one launch): 6-2 start
+  pathtrace 5.82 / 5.83 ms, relight 6.16 / 6.15; 0-3 ghosts pathtrace 6.11 / 6.13, relight 6.41 / 6.39.
 - **When it runs**: relight, pt-dn, pathtrace (not hybrid, not the debug views), and only with a veil proxy in the RTAS,
   or with a portal side in the RTAS and fog that can matter: a portal with its own fog, exponential fog, or linear fog
   ending within `veil.fogOnlyWithin` (20 km). No portal and no veil: no dispatch.
