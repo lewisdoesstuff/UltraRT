@@ -87,6 +87,8 @@ level whose look was approved under the exposure policy before 2026-11-17. No sh
 P-2.json` had 1 and no light entries until the user dropped the exception the same day ("may as well drop the P-2
 exception too"), and the file went with it. Bench variant `ae.levelOverride=0` shows the level without it. The editor
 keeps a user file's block when it saves; the fit's output file does not carry one.
+The block also takes `"followGame": F` (2026-11-18, "Punch on every level"): the level's exposure follows the game
+downwards (0.9 beyond 0.1 EV at 1).
 
 ## Classes and rules (2026-11-17)
 
@@ -464,6 +466,192 @@ all of them:
 of 18 views dim as shipped (`20261117-225749_review-7-2_alt`): softened, and still the one to look at (five of its
 views are dim before any change). P-2 without its exposure exception already reads x1.06 as shipped. All eight are
 proposals (`data/lights/proposed/`, review R13); nothing ships.
+
+## Punch: the target after the user's second look (2026-11-17, `t3/light-punch`; shipped 2026-11-18)
+
+The user on the shipped batches: "a little too dark ... While the previous lighting was definitely too bright, the
+colours also had a lot more pop ... There are large lights that should be very bright, brighter than the base game,
+sometimes maybe quite a bit so ... The game has lots of bright, harsh lighting that we should be trying to take
+advantage of" (0-3 the example). Matching the game's mean brightness was the wrong target. The target is contrast:
+the game's dark areas stay dark, key lights and fixtures are bright (brighter than the game is fine) and coloured.
+
+**What made it dull**, measured on 0-3 (`20261117-232130_punch-try_alt`): the class factors (fills x0.35 took the
+tunnel's and the hall's key lights with them: they are floating lights, `fill` by class), and the exposure, which
+since 2026-11-17 follows the game's brightness by 0.9 beyond 0.1 EV (before: 0.4 beyond 0.35 EV, "lit rooms may stay
+brighter than the game").
+
+**The score.** `tools/lights/punch.py <run> [--modes ...] [--labels ...] [--sheet out.png]` measures, per view
+against the game's frame: `hi%` (share of the frame at luma 150 or more), `p95` (the bright end), `sat` and `chroma`
+(mean channel spread: colour that is saturated and bright), `contrast`, and the dark-pixel delta of the scoreboard,
+which is the part that must not move. More highlight and chroma than the game is allowed.
+
+**The proposal** (`bench/suites/punch.json`; `data/lights/proposed/Level 0-3.json`, `0-4`, `2-2`):
+
+- every level light keeps `reach` 0 (no further than in the game): that is what keeps the map's edges dark;
+- fills and scripted lights at full strength again;
+- fixtures, accents, glows, effect and item lights x2.5, with `medium` 0.4 so their haze stays what it is (boosted
+  without it, 0-3's pillar room fogs over);
+- exposure: game match down 0.4 beyond 0.35 EV again (`ae.gameMatchDown`, `ae.gameMatchBandDown`;
+  `-ultrart-ae-match 0.75,0.4 -ultrart-ae-match-band 0.35,0.35`), without the old build's lift of dark scenes;
+- a shadow toe on the tone curve, 0.6 (`plugin._tonemapToe`; `-ultrart-relight-toe 0.6`): it takes a third off the
+  dark delta. The max-channel shoulder was tried and dropped: it removes highlights (hi% 1.8 -> 1.1 on 0-4).
+
+Tour medians (`20261117-233456_punch-try_alt`; sheets `bench/results/review/punch-0-3.png`, `punch-0-4.png`,
+`punch-2-2.png`: the game, the old bright build, what ships, fixtures x1.6, fixtures x2.5, every view):
+
+| Level | | hi% (game) | p95 | chroma | contrast | dark delta |
+|---|---|---|---|---|---|---|
+| 0-3 | old bright build | 2.2 (0.8) | x1.28 | x1.74 | x0.59 | +15.3 |
+| | ships | 0.8 | x1.07 | x0.96 | x0.45 | +7.8 |
+| | punch, fixtures x1.6 | 1.2 | x1.19 | x1.17 | x0.46 | +9.8 |
+| | punch, fixtures x2.5 | 1.1 | x1.22 | x1.29 | x0.46 | +9.1 |
+| 0-4 | old bright build | 2.2 (1.3) | x1.06 | x1.34 | x0.72 | +12.0 |
+| | ships | 1.6 | x0.97 | x1.13 | x0.79 | +7.5 |
+| | punch, fixtures x1.6 | 1.9 | x1.01 | x1.12 | x0.86 | +7.1 |
+| | punch, fixtures x2.5 | 1.9 | x1.02 | x1.30 | x0.81 | +8.1 |
+| 2-2 | old bright build | 1.3 (1.6) | x1.04 | x0.94 | x0.73 | +8.7 |
+| | ships | 1.2 | x0.93 | x0.80 | x0.76 | +5.7 |
+| | punch, fixtures x1.6 | 1.6 | x1.03 | x0.82 | x0.90 | +3.8 |
+| | punch, fixtures x2.5 | 2.0 | x1.04 | x0.88 | x1.00 | +5.0 |
+
+("Old bright build" = `plugin._lightOverrides=0+ae.rtBrightness=1`: no light policies and the exposure of before.)
+Colour and highlights come most of the way back with the dark areas near what ships, far below the old build. Not
+there yet: 0-3's chroma (x1.29 against the old x1.74); 0-3's pillar room, whose void fogs with the fills back at
+full (dark +16 in that view, +10 as shipped, +15 in the old build); contrast against the game stays x0.46 on 0-3
+because path-traced bounce lights what the game leaves black.
+
+The proposal files as committed, run once more (`20261117-234452_punch_alt`, suite `punch`, 0 exceptions), ships -> proposal:
+0-3 hi% 0.8 -> 1.2, chroma x0.96 -> x1.36, dark +7.8 -> +9.6 (old build +17.0); 0-4 hi% 1.5 -> 1.8, chroma x1.13 -> x1.29,
+dark +7.5 -> +6.6 (old +11.8); 2-2 hi% 1.2 -> 1.9, chroma x0.80 -> x0.88, contrast x0.74 -> x0.96, dark +5.6 -> +4.2 (old
++8.7). (`--labels` follow `--modes`; without `--modes` the modes are sorted by name.)
+
+**Verdict and what ships (2026-11-18).** The user: "this looks great! much much better!", fixtures "x1.6, maybe a
+touch brighter at 1.8x", the exposure and the toe as defaults. So:
+
+- `AutoExposure`: game match down 0.4 beyond 0.35 EV by default (docs/relight.md, "Punch"); tone curve toe 0.6;
+- `data/lights/Level 0-3.json`, `Level 0-4.json`, `Level 2-2.json`: fills and scripted lights `reach` 0 at full
+  strength; fixtures, accents, glows, effect and item lights `reach` 0, x1.8, `medium` 0.55 (1/1.8: their haze as
+  before).
+
+As shipped (`20261117-235645_punch_alt`, suite `punch`, 0 exceptions; old bright build -> ships): 0-3 hi% 1.9 -> 1.1
+(game 0.8), chroma x1.60 -> x1.24, dark +14.6 -> +8.6; 0-4 hi% 2.2 -> 1.8 (game 1.2), chroma x1.32 -> x1.12, dark
++8.9 -> +5.7; 2-2 hi% 1.3 -> 1.7 (game 1.6), chroma x0.87 -> x0.83, contrast x0.83 -> x0.85, dark +7.0 -> +4.0.
+(Runs differ by a few tenths: the tour's exposure settles from where the previous view left it.)
+
+**0-3's void haze** (a first fix is in "Punch on every level" below: it is the fixtures' haze). In the lava-pillar rooms (tour stops 1 and 3) the game shows black beyond
+the pillar and the path-traced image an orange haze (dark +22 to +43 in those views). It is not the punch policy's:
+the old bright build has it (+37 to +44), what shipped before had it (+34 to +41), and holding the fills' haze
+(`lc.set.fill.medium=0.35` or `0.6`, `20261117-235645_punch-haze_alt`) changes nothing. The source is something
+other than the level's fill lights (the lava pillar's own light in the air, or bounce on the far walls): to find
+with `vol.strength=0` and `lc.solo=none` at those stops.
+
+### Punch on every level (2026-11-18, `t3/light-punch-all`, shipped)
+
+The user, going to bed: "assume I accept the rest of the batches". The punch policy is now the **global** class
+policy (`data/lights/_rules.json`, "classes"): `fill` and `scripted` `reach` 0 at full strength; `fixture`, `accent`,
+`glow`, `effect`, `item` `reach` 0, x1.8, `medium` 0.55. Every level gets it; a level file carries only what
+differs. The proposal layer is empty again (third batch included: its fill factors are gone, its player and
+gameplay factors kept).
+
+Every campaign level was toured with three modes: the game, **before** (what shipped until now with the exposure of
+2026-11-17: `ae.gameMatchDown=0.9+ae.gameMatchBandDown=0.1+plugin._tonemapToe=0`) and **punch** (a scratch layer with
+the policy; converted into the shipped files afterwards). Medians per level, before -> punch, against the game
+(`tools/lights/punch.py`; sheets `bench/results/review/punch-all/punch-<level>.png` with `index.md`):
+
+| Level | hi% game | hi% | p95 | chroma | contrast | dark delta | run |
+|---|---|---|---|---|---|---|---|
+| 0-1 | 0.8 | 0.8 -> 0.8 | x1.02 -> x1.06 | x1.08 -> x1.15 | x0.80 -> x0.86 | +7.5 -> +6.8 | `20261118-000500` |
+| 0-2 | 0.9 | 1.0 -> 1.1 | x1.09 -> x1.11 | x1.07 -> x0.97 | x0.86 -> x0.98 | +7.8 -> +4.7 | `20261118-003715` |
+| 0-5 | 6.0 | 6.6 -> 6.6 | x1.04 -> x1.03 | x1.17 -> x1.13 | x0.70 -> x0.74 | +nan -> +nan | `20261118-003715` |
+| 1-1 | 20.4 | 16.4 -> 19.2 | x1.02 -> x1.02 | x0.87 -> x0.89 | x0.80 -> x0.90 | +nan -> +nan | `20261118-001509` |
+| 1-2 | 6.2 | 5.7 -> 7.2 | x0.90 -> x0.95 | x0.82 -> x0.86 | x0.64 -> x0.74 | +7.7 -> +5.7 | `20261118-003715` |
+| 1-3 | 2.2 | 3.7 -> 4.8 | x1.01 -> x1.09 | x0.92 -> x1.02 | x0.83 -> x0.90 | +20.9 -> +23.0 | `20261118-002609` |
+| 1-4 | 2.5 | 1.5 -> 1.6 | x0.83 -> x1.00 | x0.79 -> x0.87 | x0.51 -> x0.64 | +4.7 -> +6.6 | `20261118-000500` |
+| 2-1 | 1.4 | 1.6 -> 1.5 | x0.82 -> x0.85 | x0.98 -> x0.91 | x0.62 -> x0.74 | +5.6 -> +4.4 | `20261118-003715` |
+| 2-3 | 0.8 | 0.8 -> 0.9 | x0.96 -> x0.99 | x1.01 -> x0.94 | x0.79 -> x0.91 | +4.5 -> +1.5 | `20261118-003715` |
+| 2-4 | 0.9 | 1.1 -> 2.3 | x1.01 -> x1.27 | x1.13 -> x1.08 | x0.82 -> x1.04 | +5.1 -> +3.1 | `20261118-002609` |
+| 3-1 | 0.7 | 0.7 -> 0.8 | x0.84 -> x1.06 | x0.88 -> x0.96 | x0.89 -> x1.21 | +0.9 -> +2.3 | `20261118-000500` |
+| 3-2 | 0.8 | 0.9 -> 0.9 | x1.02 -> x0.84 | x1.16 -> x0.72 | x0.79 -> x0.84 | +3.6 -> -0.4 | `20261118-002609` |
+| 4-1 | 4.0 | 4.8 -> 12.0 | x1.04 -> x1.18 | x1.09 -> x1.28 | x0.81 -> x0.95 | +9.2 -> +9.4 | `20261118-005348` |
+| 4-2 | 81.6 | 63.2 -> 63.2 | x0.99 -> x1.01 | x0.93 -> x0.93 | x1.13 -> x1.15 | +19.8 -> +22.4 | `20261118-005348` |
+| 4-3 | 0.7 | 0.7 -> 0.7 | x0.90 -> x1.35 | x1.04 -> x1.22 | x0.79 -> x0.93 | +0.1 -> +1.5 | `20261118-004340` |
+| 4-4 | 10.6 | 11.6 -> 11.6 | x0.91 -> x0.92 | x1.08 -> x1.01 | x0.51 -> x0.62 | +5.4 -> +3.6 | `20261118-002609` |
+| 5-1 | 1.6 | 0.9 -> 2.7 | x0.81 -> x1.38 | x0.80 -> x0.95 | x0.71 -> x0.84 | +4.4 -> +9.2 | `20261118-001509` |
+| 5-2 | 0.7 | 0.7 -> 1.0 | x1.04 -> x1.07 | x1.11 -> x1.13 | x0.80 -> x0.90 | +6.7 -> +8.4 | `20261118-005348` |
+| 5-3 | 0.8 | 0.8 -> 1.0 | x0.94 -> x1.45 | x0.83 -> x1.42 | x0.93 -> x1.13 | +4.9 -> +8.3 | `20261118-004340` |
+| 5-4 | 1.0 | 0.6 -> 0.4 | x1.01 -> x1.03 | x1.03 -> x1.04 | x0.83 -> x0.80 | +5.0 -> +7.0 | `20261118-005348` |
+| 6-1 | 0.7 | 0.8 -> 0.8 | x0.98 -> x0.99 | x0.97 -> x0.96 | x0.82 -> x0.89 | +1.4 -> +1.3 | `20261118-005348` |
+| 6-2 | 1.0 | 1.1 -> 1.2 | x0.89 -> x1.35 | x0.85 -> x1.17 | x0.83 -> x0.93 | +1.6 -> +3.1 | `20261118-000500` |
+| 7-1 | 68.6 | 4.5 -> 4.4 | x0.80 -> x0.68 | x1.12 -> x1.13 | x1.04 -> x1.05 | +15.8 -> +9.4 | `20261118-013305` |
+| 7-2 | 3.9 | 4.1 -> 5.8 | x0.90 -> x0.99 | x0.88 -> x0.89 | x0.93 -> x1.02 | +8.3 -> +5.8 | `20261118-002609` |
+| 7-3 | 4.1 | 0.8 -> 0.8 | x0.68 -> x0.58 | x1.11 -> x1.09 | x0.28 -> x0.28 | +12.2 -> +9.1 | `20261118-013305` |
+| 7-4 | 2.8 | 2.9 -> 2.9 | x1.00 -> x1.00 | x1.00 -> x1.00 | x1.00 -> x1.00 | +0.0 -> +0.0 | `20261118-010233` |
+| 8-1 | 2.0 | 2.6 -> 4.1 | x1.14 -> x1.56 | x1.13 -> x1.25 | x0.93 -> x1.18 | +7.4 -> +8.3 | `20261118-010233` |
+| 8-2 | 6.7 | 2.4 -> 3.7 | x0.85 -> x0.93 | x1.24 -> x1.24 | x0.78 -> x0.85 | +14.7 -> +15.1 | `20261118-011644` |
+| 8-3 | 1.9 | 2.4 -> 3.8 | x1.01 -> x1.10 | x1.09 -> x1.12 | x0.83 -> x0.97 | +6.5 -> +5.8 | `20261118-010233` |
+| 8-4 | 3.6 | 5.7 -> 5.6 | x1.16 -> x1.23 | x1.22 -> x1.25 | x0.95 -> x1.05 | +5.1 -> +5.0 | `20261118-002609` |
+| 0-E | 0.9 | 1.3 -> 1.1 | x1.15 -> x1.17 | x1.22 -> x1.11 | x1.01 -> x1.22 | +45.4 -> +46.0 | `20261118-011644` |
+| 0-S | 2.9 | 3.0 -> 3.4 | x1.01 -> x1.21 | x1.27 -> x1.52 | x0.41 -> x0.47 | +9.7 -> +10.9 | `20261118-003715` |
+| 1-E | 0.7 | 0.7 -> 0.8 | x1.03 -> x1.09 | x1.10 -> x1.10 | x0.93 -> x1.05 | +4.1 -> +3.4 | `20261118-011644` |
+| 1-S | 26.2 | 31.5 -> 31.4 | x1.01 -> x1.01 | x1.03 -> x1.03 | x0.96 -> x1.01 | +24.3 -> +23.1 | `20261118-010233` |
+| 4-S | 8.7 | 8.8 -> 8.9 | x1.00 -> x1.00 | x1.00 -> x1.00 | x1.00 -> x1.00 | +0.0 -> +0.1 | `20261118-010233` |
+| 5-S | 8.6 | 8.5 -> 9.2 | x1.02 -> x1.02 | x1.07 -> x1.29 | x0.61 -> x0.56 | +18.8 -> +21.7 | `20261118-011644` |
+| 7-S | 3.2 | 3.1 -> 1.4 | x0.88 -> x0.87 | x2.05 -> x2.19 | x1.03 -> x1.10 | +nan -> +nan | `20261118-011644` |
+| P-1 | 1.7 | 0.8 -> 1.4 | x0.92 -> x1.27 | x1.03 -> x1.19 | x0.92 -> x1.09 | +0.4 -> +1.4 | `20261118-001509` |
+| P-2 | 0.7 | 0.7 -> 0.7 | x1.01 -> x1.04 | x1.05 -> x0.96 | x0.86 -> x0.84 | +1.3 -> +0.4 | `20261118-001509` |
+
+Levels that differ from the global policy, and why:
+
+| Level | What | Why |
+|---|---|---|
+| 0-3 | fixtures `medium` 0.15 | the lava pillars' lights (class `fixture`, found with `lc.class.fixture=0`: dark +41 -> +16 in the worst view; fills do nothing there) fog the void around them. At 0.15: +41 -> +30 in that view, median +9.9 -> +7.3 (`20261118-004340_pn-v_alt`). The rest is those lights' bounce |
+| 4-3, 5-3 | fixtures and the like x1.2, `medium` 0.8 | at x1.8 the bright end is x1.4-1.7 of the game's and the first hall of 4-3 clips to yellow (`20261118-000500_pn-a_alt`) |
+| 7-1 | fixtures and the like x1; exposure `followGame` 1 | black halls with a few white lights: the boost and an exposure above the game both turn the walls grey (dark +45 at x1.8, +31 at x1 without `followGame`, +9.4 with it; before +15.8) |
+| 7-3 | the strengths of 2026-11-17 (fills x0.5, fixtures x0.7, player x0.6); `followGame` 1 | as 7-1: +18.9 without `followGame`, +9.1 with it (before +12.2) |
+| 8-2 | the strengths of 2026-11-17 (fills x0.35, fixtures x0.5) | under the plain policy the offices' dark walls come out lit (storage room dark +82 against +42); kept: +15.1 (before +14.7) |
+| 7-2 | gameplay x0.6, player x0.85 | third batch |
+| P-2 | player x0.6 | third batch |
+
+**`followGame`** (`"exposure": { "followGame": F }` in a level file, 0-1; `AutoExposureSettings.levelFollowGame`): the
+level's exposure follows the game downwards as between 2026-11-17 and the punch defaults (0.9 beyond 0.1 EV). For
+levels whose look is black with white lights. Bench `ae.levelOverride=0` ignores it.
+
+The shipped files, spot-checked on six levels (`20261118-013703_punch-all_alt`, suite `punch-all`, 0 exceptions): 0-3 p95
+x1.16, chroma x1.21, dark +7.9; 4-3 x1.33, x1.16, +1.3; 7-3 x0.60, x1.01, +9.9; 2-4 x1.31, x1.07, +3.3; P-2 x1.00, x0.96,
++0.3; 1-4 x1.00, x0.87, +6.6: as the layer measured.
+
+Seen on the way, not from this policy:
+
+- **0-S** needs no rule of its own: the prefab light that read x1.66 now reads p95 x1.21 with the dark delta where it
+  was (+9.7 -> +10.9).
+- **0-E** is far above the game in its dark pixels before and after (+45): not the lights' reach or strength
+  (unchanged by the policy). Open.
+- **7-4 and 4-S**: the path-traced frames of their tour views equal the game's (all ratios x1.00): ray tracing is not
+  applied at those views (7-4's are a cutscene camera). **2-S** has no tour stops. Not looked into.
+- **5-2**, one view (stop 3, view 0) is x4.8 in the punch frame: a lightning flash in that frame, not the policy.
+- **7-1 and 7-3** stay below the game at the bright end (p95 x0.58-0.68): the game's white windows are not bright in
+  the path-traced image (window beams, plan A5).
+- **1-3** (+23) and **1-S** (+23): lava and sky bounce on walls the game leaves black, the same before.
+
+### 8-2's street lamps: the lights back on (2026-11-18, `t3/lamp-cones`, shipped)
+
+The trailer's "8-2 street" shot ("Soft beams in the air, pools of light on the ground") lost both when the street
+lamps became emissive (their lights at 0, heads x4): at its pose the game has a cone and a pool under each lamp and
+the path-traced image had neither (`20261118-030343_lamp-try_alt`: highlights 1.4 % with or without the heads). The
+glowing head is a small surface under a hood: it lights the hood and the pole, not the street. Tried at the trailer's
+pose and the pool pose (`20261118-030212`, `-030343`, `-030552`, `-031005`; suite `bench/suites/lamps-8-2.json`):
+
+| Street lamps | Result |
+|---|---|
+| lights off, heads x4 (shipped 2026-11-17) | no pool, no cone |
+| lights in the air only (`surfaces` false), heads x4 or x8 | haze, no pool |
+| lights x1.8, air x1, heads x2 | pool and cone, but the street fogs white (highlights 5.3 % against the game's 1.3 %) |
+| **lights x1.3, air x0.5, heads x2** | pool and cone; street pose highlights 2.0 % (game 1.3 %), p95 x1.06; pool pose p95 x1.19 |
+
+Shipped: the last row (`Level 8-2.json`: rule "street lamps" `intensity` 1.3, `medium` 0.5; emitter "street lamp
+heads" x2). The level's tour median moves from dark +15.1 to +20.4 (the lamps' bounce in the street views): the cost
+of having the lamps. The emissive principle stands where the glowing part can carry the light (the standing lamps,
+1-4's lamps); a hooded street lamp is "a light where needed".
 
 ## Area lights (shader)
 

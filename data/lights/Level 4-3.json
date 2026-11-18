@@ -1,37 +1,34 @@
 {
   "version": 1,
   "scene": "Level 4-3",
-  "lights": [],
-  "added": [],
-  "note": "Shipped 2026-11-17 (user: 'they look great! big fan of all of those') (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x0.5. Why: torches x4.5 of the game in the Generator Room Hallway at fixed exposure.",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply; here fixtures, accents, glows, effect and item lights x1.2 instead of x1.8: at x1.8 the bright end is x1.7 of the game's in the first hall.",
   "classes": {
-    "fill": {
-      "reach": 0,
-      "intensity": 0.35
-    },
-    "scripted": {
-      "reach": 0,
-      "intensity": 0.35
-    },
     "fixture": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 1.2,
+      "medium": 0.8
     },
     "accent": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 1.2,
+      "medium": 0.8
     },
     "glow": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 1.2,
+      "medium": 0.8
     },
     "effect": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 1.2,
+      "medium": 0.8
     },
     "item": {
       "reach": 0,
-      "intensity": 0.5
+      "intensity": 1.2,
+      "medium": 0.8
     }
-  }
+  },
+  "lights": [],
+  "added": []
 }

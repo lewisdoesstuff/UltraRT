@@ -47,6 +47,7 @@ namespace UltraRT
                         break;
                     case "-ultrart-shaft-keepfakes": _shaftSettings.keepFakes = true; break;
                     case "-ultrart-beams": _shaftSettings.beams = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
+                    case "-ultrart-window-beams": _shaftSettings.windowBeams = string.Equals(Next(), "on", StringComparison.OrdinalIgnoreCase); break;
                 }
             }
             Logger.LogInfo($"Lamp cones: {(_shaftSettings.enabled ? "on" : "off")}, strength {_shaftSettings.strength}{(_shaftSettings.keepFakes ? ", fakes kept" : "")}, beam channel {(_shaftSettings.beams ? "on" : "off")}");
@@ -86,36 +87,58 @@ namespace UltraRT
                     foreach (var h in c.Hulls)
                     {
                         if (!h.Live(_lightShafts.HiddenByBeams(h.Renderer))) continue;
-                        var centre = h.Local ? h.Light.transform.TransformPoint(h.Center) : h.Center;
-                        float radius = h.Local ? h.Radius * MaxScale(h.Light.transform.lossyScale) : h.Radius;
+                        var centre = h.Local ? h.Space.TransformPoint(h.Center) : h.Center;
+                        float radius = h.Local ? h.Radius * MaxScale(h.Space.lossyScale) : h.Radius;
                         float dist = Mathf.Max(0f, Vector3.Distance(cam, centre) - radius);
                         if (dist > 300f) continue;
                         _beamPick.Add((dist, h));
                     }
                 }
+                if (_shaftSettings.windowBeams)
+                    foreach (var h in _lightShafts.FreeHulls)
+                    {
+                        if (!h.Live(_lightShafts.HiddenByBeams(h.Renderer))) continue;
+                        var centre = h.Local ? h.Space.TransformPoint(h.Center) : h.Center;
+                        float radius = h.Local ? h.Radius * MaxScale(h.Space.lossyScale) : h.Radius;
+                        float dist = Mathf.Max(0f, Vector3.Distance(cam, centre) - radius);
+                        if (dist > 300f) continue;
+                        _beamPick.Add((dist, h));
+                    }
                 _beamPick.Sort((a, b) => a.dist.CompareTo(b.dist));
                 int max = Mathf.Clamp(_shaftSettings.maxBeamHulls, 0, MaxBeamHulls);
                 float k = Mathf.Max(0f, _shaftSettings.beamStrength);
                 foreach (var (dist, h) in _beamPick)
                 {
                     if (count >= max) break;
-                    var lt = h.Light.transform;
+                    var lt = h.Local ? h.Space : (h.Light != null ? h.Light.transform : null);
                     var m = h.Local ? lt.localToWorldMatrix : Matrix4x4.identity;
                     // Planes: n_w = (M^-1)^T n_l (normalised), through the transformed point n_l d_l.
                     var inv = h.Local ? lt.worldToLocalMatrix : Matrix4x4.identity;
                     var centre = m.MultiplyPoint3x4(h.Center);
                     float radius = h.Local ? h.Radius * MaxScale(lt.lossyScale) : h.Radius;
-                    var axis = lt.forward;
-                    var cone = _lightShafts.TryGet(h.Light, out var c) ? c : null;
-                    if (cone != null) axis = cone.WorldAxis;
+                    Vector3 axis, lp;
+                    float start = h.Start;
+                    if (h.Free)
+                    {
+                        // A window beam: the shadow rays go to a point far behind the source end and stop at its plane.
+                        axis = m.MultiplyVector(h.FreeAxis).normalized;
+                        lp = m.MultiplyPoint3x4(h.Source);
+                        start = Mathf.Max(Vector3.Dot(m.MultiplyPoint3x4(h.SourceEnd) - lp, axis), 0.35f);
+                    }
+                    else
+                    {
+                        axis = h.Light.transform.forward;
+                        var cone = _lightShafts.TryGet(h.Light, out var c) ? c : null;
+                        if (cone != null) axis = cone.WorldAxis;
+                        lp = h.Light.transform.position;
+                    }
                     int o = count * BeamFloat4;
                     int faces = _shaftSettings.beamFaces == 1 ? 1 : _shaftSettings.beamFaces == 2 ? 2 : (h.Entry ? 1 : 0) + (h.Exit ? 2 : 0);
                     float flags = faces + (h.Fog ? 4f : 0f);
                     _volBeams[o] = new Vector4(h.Add.r * k, h.Add.g * k, h.Add.b * k, flags);
                     _volBeams[o + 1] = new Vector4(centre.x, centre.y, centre.z, radius);
-                    var lp = lt.position;
                     _volBeams[o + 2] = new Vector4(lp.x, lp.y, lp.z, h.FadeNear);
-                    _volBeams[o + 3] = new Vector4(axis.x, axis.y, axis.z, h.Start);
+                    _volBeams[o + 3] = new Vector4(axis.x, axis.y, axis.z, start);
                     _volBeams[o + 4] = new Vector4(h.FadeFar, 0, 0, 0);
                     var tr = (Vector3)inv.GetColumn(3);
                     for (int p = 0; p < 8; p++)

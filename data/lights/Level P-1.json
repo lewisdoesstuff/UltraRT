@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "scene": "Level P-1",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
+  "lights": [],
+  "added": []
+}

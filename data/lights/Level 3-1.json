@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "Level 3-1",
-  "note": "Shipped 2026-11-17 (user: 'look great') (docs/lighting-overrides.md, 'Levels'): the floating room lights never reach further than in the game; x0.5, the Bridge Arena's switched ones x0.35. The opening's and the last rooms' keep their strength.",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
   "rules": [
     {
       "name": "opening",
@@ -32,16 +32,6 @@
       }
     }
   ],
-  "classes": {
-    "fill": {
-      "reach": 0,
-      "intensity": 0.5
-    },
-    "scripted": {
-      "reach": 0,
-      "intensity": 0.35
-    }
-  },
   "lights": [],
   "added": []
 }

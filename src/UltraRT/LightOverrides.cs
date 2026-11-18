@@ -106,6 +106,8 @@ namespace UltraRT
         /// bright, whatever the user's setting. For levels whose look was approved under the exposure policy before
         /// 2026-11-17 (P-2).</summary>
         [JsonProperty("rtBrightness", NullValueHandling = NullValueHandling.Ignore)] public float? RtBrightness;
+        /// <summary>0-1: the level follows the game's brightness downwards (AutoExposureSettings.levelFollowGame).</summary>
+        [JsonProperty("followGame", NullValueHandling = NullValueHandling.Ignore)] public float? FollowGame;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
     }
 
@@ -153,6 +155,7 @@ namespace UltraRT
         /// <summary>The level's own RT brightness ("exposure": { "rtBrightness": F }; the user's file over the shipped
         /// one), or 0.</summary>
         public float LevelRtBrightness => Mathf.Clamp01((_userExposure?.RtBrightness ?? _shippedExposure?.RtBrightness) ?? 0f);
+        public float LevelFollowGame => Mathf.Clamp01((_userExposure?.FollowGame ?? _shippedExposure?.FollowGame) ?? 0f);
 
         /// <summary>Classes and rules (lights\_rules.json plus this level's own).</summary>
         public readonly LightClasses Classes;

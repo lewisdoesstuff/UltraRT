@@ -27,7 +27,7 @@ namespace UltraRT
         private int _aeLastFrame = -10;
         private float _tonemapCurve = 0f; // 0 = luminance shoulder (default, the original curve), 1 = max-channel shoulder
         private float _tonemapKnee = 0.75f;
-        private float _tonemapToe = 0f, _tonemapToeEnd = 0.25f; // toe strength (0 = none) and where it ends (UltraRTToneCurve.hlsl)
+        private float _tonemapToe = 0.6f, _tonemapToeEnd = 0.25f; // toe strength (0 = none; 0.6 since the punch defaults, 2026-11-17) and where it ends (UltraRTToneCurve.hlsl)
 
         private static readonly int
             UltraRTAutoExposureId = Shader.PropertyToID("_UltraRTAutoExposure"),

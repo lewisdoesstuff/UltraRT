@@ -1,0 +1,91 @@
+{
+  "Name": "window-beams",
+  "Note": "Window beams (docs/volumetrics.md, 'Window beams'; off by default): the game, the game's beam meshes over the path-traced image (the default), and the beam channel with traced shadows (shaft.windowBeams=1).",
+  "Scenarios": [
+    {
+      "Name": "6-2 tour",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+shaft.windowBeams=1"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "0-1 tour",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+shaft.windowBeams=1"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "1-1 tour",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+shaft.windowBeams=1"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "4-4 tour",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+shaft.windowBeams=1"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "6-1 tour",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+shaft.windowBeams=1"
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

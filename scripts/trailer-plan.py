@@ -105,7 +105,7 @@ def main():
                    "Note": "Written by scripts/trailer-plan.py from bench/trailer/%s (tier %s, run %s): do not edit, change the plan." %
                            (os.path.basename(a.plan), tier, n),
                    "Scenarios": group}
-            with open(os.path.join(suites, doc["Name"] + ".json"), "w", encoding="utf-8", newline="\r\n") as f:
+            with open(os.path.join(suites, doc["Name"] + ".json"), "w", encoding="utf-8", newline="\n") as f:
                 json.dump(doc, f, indent=2)
                 f.write("\n")
         # edit list
@@ -119,7 +119,7 @@ def main():
             edit["Exports"] = q["Exports"]
         edit["Clips"] = clips
         path = os.path.join(here, "%s-%s.json" % (name, tier))
-        with open(path, "w", encoding="utf-8", newline="\r\n") as f:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write("{\n")
             head = [k for k in edit if k != "Clips"]
             for k in head:

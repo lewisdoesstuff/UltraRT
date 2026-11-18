@@ -1,0 +1,102 @@
+{
+  "Name": "punch-all",
+  "Note": "Punch on every level (docs/lighting-overrides.md): a spot check of what ships on six levels, one of each kind of exception. Score with tools/lights/punch.py <run> --per-view.",
+  "Scenarios": [
+    {
+      "Name": "0-3 tour",
+      "Scene": "Level 0-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "4-3 tour",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "7-3 tour",
+      "Scene": "Level 7-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "2-4 tour",
+      "Scene": "Level 2-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "P-2 tour",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "1-4 tour",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

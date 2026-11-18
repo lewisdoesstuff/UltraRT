@@ -1,39 +1,7 @@
 {
   "version": 1,
   "scene": "Level 8-2",
-  "note": "Shipped 2026-11-17 (user: 'they look great! big fan of all of those') (docs/lighting-overrides.md, 'Emissive fixtures'): the street lamps' glowing heads carry their light, and the standing lamps' bulbs theirs (an emitter mask); the lights inside them are off. Also (docs/lighting-overrides.md, 'Levels, second batch'): no level light reaches further than in the game; fills and scripted x0.35, fixtures, accents, glows, effect and item lights x0.5. Why: fills in most rooms, office and supermarket lamps, the Mirror Reaper Arena's effect lights.",
-  "rules": [
-    {
-      "name": "street lamps",
-      "path": "StreetlightFraud[^/]*/[^/]*$",
-      "class": "fixture:streetlamp",
-      "set": {
-        "intensity": 0
-      }
-    },
-    {
-      "name": "standing lamps",
-      "path": "ApartmentLamp[^/]*/[^/]*$",
-      "class": "fixture:lamp",
-      "set": {
-        "intensity": 0
-      }
-    }
-  ],
-  "emitters": [
-    {
-      "name": "street lamp heads",
-      "material": "^Streetlight$",
-      "scale": 4,
-      "note": "pool pose 2026-11-17: x4 keeps the yard's pink (tint 1.6), x8 and up wash it out (tint 4.8-5.8)"
-    },
-    {
-      "name": "standing lamp bulbs",
-      "material": "^Light$",
-      "glow": 20,
-      "note": "x1.04 of the game at the lamp pose, the fake light x0.93"
-    }
-  ],
+  "note": "The class strengths shipped 2026-11-17 are kept (fills and scripted x0.35, fixtures and the like x0.5; the standing lamps by their bulbs; the street lamps by their lights (x1.3) and glowing heads (x2)): under the punch policy the offices' dark walls come out lit (dark-pixel delta +82 in the storage room against +42).",
   "classes": {
     "fill": {
       "reach": 0,
@@ -64,6 +32,40 @@
       "intensity": 0.5
     }
   },
+  "rules": [
+    {
+      "name": "street lamps",
+      "path": "StreetlightFraud[^/]*/[^/]*$",
+      "class": "fixture:streetlamp",
+      "set": {
+        "intensity": 1.3,
+        "medium": 0.5
+      },
+      "note": "2026-11-18: on again (x1.3, air x0.5) next to the glowing heads: the heads alone give no pool on the ground and no cone in the air (the game has both; trailer shot '8-2 street'). x1.8 with air x1 fogs the street white."
+    },
+    {
+      "name": "standing lamps",
+      "path": "ApartmentLamp[^/]*/[^/]*$",
+      "class": "fixture:lamp",
+      "set": {
+        "intensity": 0
+      }
+    }
+  ],
+  "emitters": [
+    {
+      "name": "street lamp heads",
+      "material": "^Streetlight$",
+      "scale": 2,
+      "note": "x2 since 2026-11-18, with the lamps' own lights back on (x4 was for the heads alone, 2026-11-17)."
+    },
+    {
+      "name": "standing lamp bulbs",
+      "material": "^Light$",
+      "glow": 20,
+      "note": "x1.04 of the game at the lamp pose, the fake light x0.93"
+    }
+  ],
   "lights": [],
   "added": []
 }

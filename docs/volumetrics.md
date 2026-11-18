@@ -561,3 +561,42 @@ Limits and taste calls:
 - The visibility is the lit fraction along the whole ray inside a hull, at 1/4 resolution: thin shafts narrower than about
   4 screen pixels blur, and a moving camera shows the temporal filter's lag like the haze.
 - Only meshes under a spot light are drawn this way (`parentSpots`); lamp cones (8-2) keep the cone haze.
+
+#### Window beams (2026-11-18, branch `t3/window-beams`; **off by default**, `shaft.windowBeams`)
+
+Plan A5: the beam meshes that have no light (a shaft of daylight through a window: 1-1's hall and corridors, 0-1's
+Grand Hall, 6-1, 6-2, 4-4) stay raster and unshadowed. First step, behind a switch: they go through the beam channel
+with a **fitted source** instead of a light.
+
+- **Fit** (`LightShafts.MatchFree`, per mesh no lamp cone or parent spot took): the axis is the direction from the
+  bright vertices to the dark ones (the game fades its beams away from the source; every mesh fitted so far had this
+  gradient), else the long axis from the narrow end to the wide end, else downwards; no gradient and not elongated, or
+  no way to tell the ends apart: the game keeps the mesh. The hull is the beam channel's (`FitHull`: convex, at most 8
+  planes and 64 vertices), in the mesh's own transform when it is not static.
+- **Source.** The shadow rays go to a point far behind the source end (4 beam lengths, at least 60 m: nearly parallel
+  to the beam) and stop at the source end's plane. The mesh usually starts in or behind the window's wall, so that end
+  is moved to the room side of whatever level collider lies in the beam's first 40 % (physics rays down the centre
+  and from every vertex of the end; log `source end moved N m past the window`). No shader change: the hull buffer
+  carries the virtual point as its light.
+- **Colour**: the game's own mesh, as for the eye beams.
+
+Fitted (`20261118-015523_window-beams_alt`): 6-1 61 of 127 shaft meshes (30 more are lamp cones), 6-2 33 of 39, 4-4
+15 of 32, 1-1 12 of 27, 0-1 10 of 26. Left to the game: hulls of 9-12 planes, meshes of over 64 vertices (4-4's
+`LightRays`), flat sprites, 1.8 m stubs.
+
+**Why it is off.** In the frames (`20261118-020616_wb-quick_alt`, 1-1's hall and torch corridor, 6-2) the traced
+version does not read as shafts cut by pillars: it takes the beams' glow out of large parts of the room (mean luma
+-3.1 and -4.9 of 255 in the two 1-1 views; nothing visible in 6-2's views). The game's beam meshes are wide slabs
+that fill much of a room and reach through seating and walls; light that really came through the window would not be
+there, so the trace removes it, and the room loses a glow the level was drawn with. What it needs before it can be
+a default:
+
+1. the pool of light and the air glow from a real source at the window (the plan's rect light with a narrow lobe),
+   so what the trace removes from the fake is given back where light would be;
+2. the stop surface along the wall instead of a plane square to the beam (the source end moved 8.3 m in 0-1's Grand
+   Hall to clear a tilted wall: the first 8 m of those beams are then unshadowed);
+3. a pose per level that looks along a beam with something standing in it (the tours do not), to judge the shafts.
+
+`-ultrart-window-beams on`, bench `shaft.windowBeams=1`, suite `bench/suites/window-beams.json`. A switch of the
+setting fits the scene again. Cost not measured (off).
+

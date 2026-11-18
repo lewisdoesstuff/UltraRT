@@ -1,22 +1,7 @@
 {
   "version": 1,
   "scene": "Level 1-4",
-  "note": "Shipped 2026-11-17 (user: 'they look great! big fan of all of those') (docs/lighting-overrides.md, 'Emissive fixtures'): the shipped file, plus the street lamps lit by their bulbs (an emitter mask) with the lights inside them off. The statue orbs share the bulbs' material: their spheres carry them at scale 0.2 and their lights are off (Main Hall x1.92 of the game without that, x1.14 with).",
-  "classes": {
-    "fill": {
-      "reach": 0,
-      "intensity": 0.4
-    },
-    "fixture": {
-      "reach": 0
-    },
-    "fixture:lamp": {
-      "reach": 0,
-      "intensity": 0.5
-    }
-  },
-  "lights": [],
-  "added": [],
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
   "rules": [
     {
       "name": "street lamps",
@@ -49,5 +34,7 @@
       "glow": 6,
       "note": "lamps pose: x1.05 of the game, the fake lights x0.83; glow 20 is x1.42"
     }
-  ]
+  ],
+  "lights": [],
+  "added": []
 }
