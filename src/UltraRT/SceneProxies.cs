@@ -507,6 +507,7 @@ namespace UltraRT
         private void ProcessMeshRenderer(MeshRenderer r, Dictionary<Mesh, List<MeshRenderer>> batches, ScanStats stats)
         {
             if (IsProxyClone(r)) return; // our own proxies (and copies of them)
+            if (NoteOrbShell(r)) return; // a white orb's glow shell: drawn by the game, not traced (SceneProxies.OrbShells.cs)
             NoteSky(r);
             bool player = IsPlayerModel(r); // V1's third-person model (SceneProxies.Player.cs), on layer 30
             bool portalLayer = !player && IsPortalLayer(r.gameObject.layer); // seen only through portals (SceneProxies.Portals.cs)
@@ -1220,6 +1221,7 @@ namespace UltraRT
             var mr = parent != null ? parent.GetComponent<MeshRenderer>() : null;
             var m = mr != null ? mr.sharedMaterial : null;
             if (m == null || !mr.bounds.Contains(orb.center)) return false;
+            if (IsOpaqueOrbShell(mr, out _) || m.name.EndsWith("[UltraRT orb shell]")) return true; // a white orb (SceneProxies.OrbShells.cs)
             if (m.HasProperty("_PLDstBlend") && m.shader != null && m.shader.name.StartsWith("UltraRT/")) return Mathf.RoundToInt(m.GetFloat("_PLDstBlend")) == (int)BlendMode.One;
             return m.IsKeywordEnabled("TRANSPARENCY") && m.HasProperty("_DstBlend") && Mathf.RoundToInt(m.GetFloat("_DstBlend")) == (int)BlendMode.One;
         }
@@ -1475,6 +1477,7 @@ namespace UltraRT
 
         public void Dispose()
         {
+            RestoreOrbShells();
             Rtas?.Dispose();
             Rtas = null;
             DisposePortals();

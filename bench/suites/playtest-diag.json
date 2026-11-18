@@ -1,0 +1,10 @@
+{
+ "Name": "playtest-diag",
+ "Note": "Diagnostics for the open playtest items of 2026-11-18 (run with -ultrart-viewprobe and -ultrart-light-census): 0-1 cogs, 0-3 pillars, 1-1 fountain checkerboard, 1-4 white orbs. Each with every level light off as the second traced mode.",
+ "Scenarios": [
+  { "Name": "0-1 pose 2", "Scene": "Level 0-1", "Path": { "Type": "static", "Approach": "../recordings/u1118-0-1-2.json", "Duration": 4 }, "Modes": ["off", "pathtrace", "pathtrace+lc.solo=none"], "Screenshots": [2] },
+  { "Name": "0-3 pose 1", "Scene": "Level 0-3", "Path": { "Type": "static", "Approach": "../recordings/u1118-0-3-1.json", "Duration": 4 }, "Modes": ["off", "pathtrace", "pathtrace+lc.solo=none"], "Screenshots": [2] },
+  { "Name": "1-1 pose 2", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/u1118-1-1-2.json", "Duration": 4 }, "Modes": ["off", "pathtrace"], "Screenshots": [2] },
+  { "Name": "1-4 pose 3", "Scene": "Level 1-4", "Path": { "Type": "static", "Approach": "../recordings/u1118-1-4-3.json", "Duration": 4 }, "Modes": ["off", "pathtrace"], "Screenshots": [2] }
+ ]
+}

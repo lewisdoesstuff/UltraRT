@@ -91,6 +91,8 @@ The block also takes `"followGame": F` (2026-11-18, "Punch on every level"): the
 downwards (0.9 beyond 0.1 EV at 1).
 And `"followGameUp": F` (2026-11-18, `t3/level-look-3`): the exposure follows the game upwards as well (see
 "Playtest of 2026-11-18" below).
+And `"coneGain": F` (2026-11-18, `t3/playtest-lights`): the game's light cones (additive `LightPillar*` materials)
+x F while frames are traced (see "Playtest items, third part" below).
 
 ## Classes and rules (2026-11-17)
 
@@ -946,6 +948,19 @@ dark corridor (the middle of tour stop 0, view 0), pathtrace.
   are the suspects. The walls near the skull are a little darker than the game's (21.8 against 27.6). Sheets:
   `bench/results/review/dark0s/` (`corridor_before_after.png`, `spawn_before_after.png`, `litcorridor_before_after.png`;
   `diag.png` is master with `lc.solo=none` and without the level's exposure).
+
+## Playtest items, third part (2026-11-18, `t3/playtest-lights`)
+
+Items left open by `t3/materials-fx-2` (docs/handoff-2026-11-18.md). Suite `playtest-lights` (as shipped, each with
+its "before" as a variant), `gabriel` and `playtest-diag` (the viewprobe and census run that found the causes). Sheets:
+`bench/results/review/ptl/`.
+
+| Item | Cause | Change | Evidence |
+|---|---|---|---|
+| 6-2 pose 4: Gabriel's wings do not light the ground | the wings (`GabrielWings`, queue 3000) are not traced; his own light (`gabrielRigged_Swords_Held/metarig/Root/spine/Point Light`, blue, x5, range 10) ends before the floor. Only 6-2's intro rig has it (offline census): 3-2's Gabriel lights are 25-50 m already | rule `gabriel's light` in `_rules.json`, class `boss:gabriel` x1.5, `range` x1.5 (reach as relight's) | within one load (the cutscene runs on, so loads cannot be compared): frame 13.9 -> 17.1, the floor in front of him and the organ wall behind lit blue as in the game's own frame (`gabriel2.png`, runs `20261118-233430_gabriel_alt`). x2.5 with range 25 (the first try) flooded the hall |
+| 0-3 pose 1: light pillars "too transparent" | the game's additive cone (`LightPillar 1E Outlines`, alpha 0.5, `SrcAlpha One`) at its fixed strength over a traced room brighter than the game's, burnt-out strips behind | level `"exposure": { "coneGain": 1.6 }` in `Level 0-3.json` (`Plugin.Beams.cs`): the 14 additive `LightPillar*` materials x1.6 while frames are traced (alpha first, then colour), the game's values back otherwise. Bench `plugin._coneGainOverride` | the pillar reads as a solid column again (`pillars.png`); 2.2 looks the same as 1.6 (the alpha is at 1 by then) |
+| 1-4 pose 3: the white Cerberus orbs | not a missing shell: the white orbs' shell, `Sphere_8`, has the opaque white unlit `Light` material where the orange ones have the additive `ExplosionSphere`, so the apple inside is hidden and the orb is a flat white ball (in the game too) | while traced, such a shell is drawn as an additive glow tinted with the orb light's colour (x0.35) and kept out of the RT scene; the orb counts as an orb fixture like the orange ones (docs/scene-proxies.md, "White orbs") | the apple shows through a glow rim (`orb_look_crop.png`); 6 shells in 1-4. The gain hardly matters between 0.15 and 0.6 |
+| Lamp, dome, mushroom and screen parts with no light beside them | already emitters: unlit `Light`, `GlowingShroom`, `ComputerScreen*` are in the emissive table at x1 (1-4's census: `Light` lum 5.5, no rule) | none: they light their surroundings at their own strength, without the x2.5 punch handed-over parts get. A `glow` rule per material would add that; not done without the user's review | `lights_Level 1-4.json` of `20261118-232200_playtest-diag_alt` |
 
 ## Handover: a fixture's glowing part carries its light (2026-11-18, `t3/emissive-all`)
 

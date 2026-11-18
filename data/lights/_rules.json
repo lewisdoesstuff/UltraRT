@@ -79,9 +79,20 @@
       "reach": 0,
       "intensity": 0.25,
       "note": "User, 2026-11-18 (1-1 pose 1): 'something casts light onto the shop terminals'. The terminal's own white light (range 2 m, intensity 15) sits on its marquee; at the game's strength the traced marquee burns out."
+    },
+    "boss:gabriel": {
+      "intensity": 1.5,
+      "range": 1.5,
+      "note": "Gabriel's own light (6-2's intro: blue, x5, range 10) reaches the floor under him and the organ wall behind, as his wings suggest (user, playtest 2026-11-18). x1.5 lights the wall about as the game's frame does."
     }
   },
   "rules": [
+    {
+      "name": "gabriel's light",
+      "class": "boss:gabriel",
+      "path": "(^|/)gabrielRigged[^/]*/metarig/Root/spine/Point Light[^/]*$",
+      "note": "Only 6-2's intro rig carries it (offline census, 2026-11-18)."
+    },
     {
       "name": "start room: under the entrance shaft",
       "path": "(^|/)[^/]*FirstRoom[^/]*/Room/Point Light$",

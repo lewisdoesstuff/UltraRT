@@ -99,6 +99,9 @@ namespace UltraRT
                 Logger.LogInfo($"Lit particles: {(_particleSettings.enabled ? "on" : "off")}");
                 Toast($"Lit particles {(_particleSettings.enabled ? "on" : "off")} (Ctrl+F7)");
             }
+            // White statue orbs: a glow shell while frames are traced, the game's material otherwise (SceneProxies.OrbShells.cs).
+            SceneProxies.OrbShellGain = _orbShellGain;
+            _proxies?.SetOrbShells(_viewEnabled && _proxies.Rtas != null && Time.frameCount - _rtTracedFrame < 30);
             if (_litParticles == null) return;
 
             var (name, kind, _) = Modes[_mode];
