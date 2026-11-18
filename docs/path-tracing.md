@@ -357,9 +357,70 @@ pixels in the grass crop went 5.17 % -> 1.34 % and burst sigma (all pixels) 2.25
 bright yellow (also with the in-front restriction): depth alone cannot tell a blade no ray hit from something the game
 draws over a traced surface. So it stays off (`ThinNear = 0`). The way out is to identify the blade pixels instead of
 guessing from depth: trace the cutout instances (their own instance mask) at screen resolution, or mark the pixels the
-game keeps on purpose (lava, acid, untraced sprites) in a screen mask.
+game keeps on purpose (lava, acid, untraced sprites) in a screen mask. The cutout pass below does the first.
 
 Cost: not measured with a perf run yet (the rules reuse the 3x3 the kernel already reads, plus one normal read per sample).
+
+### Cutout pass (2026-11-18, `t3/cutout-pass`; on by default)
+
+The pixels the rules above leave are blades the trace has no sample for. The cutout pass traces them at screen
+resolution, against the cutout instances only (`src/UltraRT/Plugin.Cutout.cs`, `SceneProxies.CutoutPass.cs`,
+`CutoutTrace.raytrace`, kernel `CutoutPrep` in `RayReconstruction.compute`; recorded by `DlssRR.Execute` just before
+`Finish`, so DLSS RR only):
+
+1. **Cutout RTAS.** A second acceleration structure holds only the alpha-tested submeshes (`_AlphaTest` proxy
+   materials) of the instances in the main RTAS: dynamic proxies (not skinned ones) and static group parts, with the
+   main structure's ids, culling and transforms. It is synced every traced frame (add, remove, transforms of dynamic
+   proxies; a changed mesh or slot set re-adds) and built only on frames the pass runs. Levels have few: 8 to 15
+   instances in 7-1, 8-3, 1-3. Why its own structure: the instance mask has no free bit (0x01-0x80 are all taken),
+   and Unity builds the shader table of a DispatchRays from every instance of the structure it traces. Against the
+   whole scene that cost 0.45-0.9 ms of render thread a frame, more than the rays.
+2. **Gate.** The pass runs only while a cutout instance is in the camera's frustum within `CutoutRange` (150 m;
+   cached bounds, dynamic ones refreshed 32 per frame). The log says `Cutout pass: on|idle|off (N cutout instances in
+   its RTAS, none in view)`.
+3. **`CutoutPrep`** (compute, screen res) marks the pixels that need a ray: not the game's sky, the nearest trace
+   sample not an emitter or fullbright (any emission: lava, sprites, screens; without this 1-3's lava sent a ray from
+   every pixel), and no trace sample of the 3x3 at the game's depth (the plain match). It writes the game's view depth
+   there (ray tracing shaders can't read the depth buffer).
+4. **`CutoutTrace`** (one ray per marked pixel, through the trace's jittered camera, as `Finish` maps the pixel)
+   looks for an alpha-tested surface up to the game's depth plus the match tolerance. The first one the any-hit's
+   alpha test accepts ends the search (`RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH`). Output: the blade's albedo and
+   `-(depth + 8)`, or a reason code for the debug view.
+5. **`Finish`**: a still-unmatched pixel with a blade is drawn as traced: RR's lighting times the blade's albedo as
+   the demodulation colour (`_Match2.y`).
+
+Why a blade **in front of** the game's depth counts too: the debug view on 7-1 pose 2 showed most of the white was
+the reverse of a missed blade. Our blade lies in front of the game's depth, and the game shows the ground there
+(white in the fog): its alpha test samples the mipmapped grass texture, so distant blades thin out, while ours tests
+mip 0. The pixel then shows our blade, as the trace samples around it do. Lava, sprites, walls and anything else the
+game draws nearer stop the ray, so they keep the game's pixel.
+
+Debug view `plugin._cutoutDebug=1` (bench variant): green = drawn by the pass; kept pixels blue (no blade in front of
+the game's surface), yellow (fullbright blade), cyan (emitter), grey (no ray: prep skipped it). `plugin._cutoutFlip=1`
+flips the rays' y (a check of the ray mapping: the blades then miss). Off: `[PathTrace] CutoutPass = false`,
+`-ultrart-cutout-pass off`, bench `plugin._cutoutPass=0`.
+
+Measured (2026-11-18, pathtrace, 1440p, DLSS RR; `bench/suites/cutout-look.json`,
+`bench/results/20261118-231309_cutout-look`):
+- 7-1 pose 2: the white grass sparkle is gone. Burst sigma (all pixels, 16 frames) 2.12 without the pass -> 1.51
+  with it; block sigma 0.83 -> 0.78. Without the thin match it is 1.69 / 0.82, so **the thin match stays** (the pass
+  does not beat it everywhere: the thin match also catches non-cutout thin geometry).
+- 1-3 pose 1: lava unchanged (game-identical pixels 13.3 % without, 13.8 % with).
+- 8-3 pose 1, 1-1 grass: no visible change.
+
+Cost (`-Perf`, exclusive lock, RTX 5070 Ti, `bench/suites/cutout-perf.json`, `bench/results/20261118-231937_cutout-perf`;
+off -> on; rr = the RR pass, GPU / render thread):
+
+| Pose | avg frame ms | GPU total ms | rr GPU | rr render thread |
+|---|---|---|---|---|
+| 7-1 pose 2 | 6.87 -> 7.23 | 5.53 -> 5.91 | 1.66 -> 2.03 | 0.69 -> 0.78 |
+| 8-3 pose 1 | 13.87 -> 14.56 (noisy: an earlier run measured 14.74 -> 14.71) | 5.74 -> 5.91 | 1.70 -> 1.85 | 1.06 -> 1.27 |
+| 1-3 pose 1 | 10.96 -> 11.20 | 4.30 -> 4.52 | 1.64 -> 1.83 | 1.03 -> 1.14 |
+
+The first version traced the whole scene and sent a ray from every unmatched pixel, lava included: 7-1 +0.33 ms,
+8-3 +0.71 ms, 1-3 +0.94 ms a frame, mostly render thread (`bench/results/20261118-230113_cutout-perf`). What is left
+is about 0.15-0.4 ms of GPU: the full-screen prep and ray launch, plus the rays through the grass. The first-hit flag
+made no measurable difference. Levels with no cutout in view pay nothing.
 
 ## Blood stains in reflections
 

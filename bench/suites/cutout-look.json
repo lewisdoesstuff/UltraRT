@@ -1,0 +1,22 @@
+{
+ "Name": "cutout-look",
+ "Note": "Branch t3/cutout-pass: the cutout pass (plugin._cutoutPass) against the thin match (plugin._thinMatch) on 7-1 pose 2's grass (burst), 1-3 pose 1 (lava must stay the game's pixel), 1-1 grass and 8-3 pose 1; plugin._cutoutDebug=1 paints the pixels the game keeps.",
+ "Scenarios": [
+  { "Name": "7-1 pose 2", "Scene": "Level 7-1",
+    "Path": { "Type": "static", "Approach": "../recordings/u1118-7-1-2.json", "Duration": 4 },
+    "Modes": [ "off", "pathtrace+plugin._cutoutPass=0", "pathtrace", "pathtrace+plugin._thinMatch=0", "pathtrace+plugin._cutoutDebug=1" ],
+    "Screenshots": [ 2 ], "Burst": 16, "BurstModes": [ "pathtrace+plugin._cutoutPass=0", "pathtrace", "pathtrace+plugin._thinMatch=0" ] },
+  { "Name": "1-3 pose 1", "Scene": "Level 1-3",
+    "Path": { "Type": "static", "Approach": "../recordings/u1118-1-3-1.json", "Duration": 4 },
+    "Modes": [ "off", "pathtrace+plugin._cutoutPass=0", "pathtrace", "pathtrace+plugin._thinMatch=0", "pathtrace+plugin._cutoutDebug=1" ],
+    "Screenshots": [ 2 ] },
+  { "Name": "1-1 grass", "Scene": "Level 1-1",
+    "Path": { "Type": "static", "Approach": "../recordings/1-1-grass-approach.json", "Duration": 4 },
+    "Modes": [ "off", "pathtrace+plugin._cutoutPass=0", "pathtrace", "pathtrace+plugin._thinMatch=0", "pathtrace+plugin._cutoutDebug=1" ],
+    "Screenshots": [ 2 ] },
+  { "Name": "8-3 pose 1", "Scene": "Level 8-3",
+    "Path": { "Type": "static", "Approach": "../recordings/u1118-8-3-1.json", "Duration": 4 },
+    "Modes": [ "off", "pathtrace+plugin._cutoutPass=0", "pathtrace", "pathtrace+plugin._thinMatch=0", "pathtrace+plugin._cutoutDebug=1" ],
+    "Screenshots": [ 2 ] }
+ ]
+}

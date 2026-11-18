@@ -102,6 +102,7 @@ namespace UltraRT
             public bool Visible;
             public int CreatedFrame;
             public bool EverAdded, NewMesh; // QueueReAdd
+            public bool Cutout;             // an enabled submesh is alpha-tested (SceneProxies.CutoutPass.cs)
 
             // Motion vectors (MotionVectors.cs). CurM / PrevM: the matrix that drives the instance this frame and last
             // frame (rigid: the proxy's localToWorld; skinned: the root bone's position and rotation).
@@ -641,6 +642,7 @@ namespace UltraRT
                 Mask = mask ?? OrbHolderMask(source, mats.Where(Traceable).All(SourceSkyWall) ? SkyWallMask : IsLightFixture(source) ? (IsGlowing(source) ? EmitterMask : FixtureMask) : GeometryMask),
             };
             entry.CreatedFrame = Time.frameCount;
+            entry.Cutout = HasCutoutSubmesh(flags, mats);
             _dynamic.Add(entry);
             TryDisplace(entry, mats); // VERTEX_DISPLACEMENT sources: a displaced mesh copy (SceneProxies.Displaced.cs)
             var tracker = proxy.gameObject.AddComponent<ProxyTracker>();
@@ -1477,6 +1479,7 @@ namespace UltraRT
         {
             Rtas?.Dispose();
             Rtas = null;
+            DisposeCutoutRtas();
             DisposePortals();
             RestorePlayerAnimatorCulling();
             foreach (var go in _proxyObjects) if (go != null) Object.Destroy(go);

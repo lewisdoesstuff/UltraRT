@@ -278,6 +278,7 @@ namespace UltraRT
                 exposure = _autoExposure?.ExposureBuffer,
                 frameTime = Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime,
             };
+            CutoutPassFrame(); // the cutout pass inside Finish (Plugin.Cutout.cs)
             _gpu?.Begin(_cmd, SlotRR);
             bool ok = _rr.Execute(_cmd, inputs, _gpu, SlotRREval);
             _gpu?.End(_cmd, SlotRR);

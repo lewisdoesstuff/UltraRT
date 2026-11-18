@@ -1,0 +1,9 @@
+{
+ "Name": "regress-unlit",
+ "Note": "CPU check of the t3/unlit-lit merge (lead, 2026-11-18): merge-regress's 0-3 ghosts, 6-2 start and 0-5 lava, relight and pathtrace, -Perf; run at f5e8053, 8198414 and t3/cutout-pass.",
+ "Scenarios": [
+  { "Name": "0-3 ghosts", "Scene": "Level 0-3", "Path": { "Type": "static", "Approach": "../recordings/0-3-ghosts.json", "Duration": 10 }, "Modes": [ "relight", "pathtrace" ] },
+  { "Name": "6-2 start", "Scene": "Level 6-2", "Path": { "Type": "static", "Approach": "../recordings/6-2-start.json", "Duration": 10 }, "Modes": [ "relight", "pathtrace" ] },
+  { "Name": "0-5 lava", "Scene": "Level 0-5", "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 10 }, "Modes": [ "relight", "pathtrace" ] }
+ ]
+}

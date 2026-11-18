@@ -512,4 +512,9 @@ Enemy lit weight stays **0.5**. Comparison sheet (game / 0.5 / 0.65 / 0.8 on the
 Mannequin, 1-1 outdoors): `bench/results/20261118-220500_enemy-lit_alt/enemy-lit-sheet.png`. Higher weights take on the
 room's tint and shading (2-3's blue); 0.5 is closest to the game's flat colours.
 
-Cost: none measurable (a property per proxy material; atlas variants only for slots whose original has a rule).
+Cost: none measurable (a property per proxy material, resolved when the proxy material is made; atlas variants only
+for slots whose original has a rule; per frame only `RefreshUnlitIfChanged`'s signature of the settings). A merge-regress
+rise after the merge (0-3 relight 6.20 -> 7.05 ms) did not reproduce in a direct `-Perf` A/B, f5e8053 against 8198414
+(2026-11-18, `bench/suites/regress-unlit.json`, `bench/results/20261118-225844_regress-unlit` and `-230000_`): 0-3
+ghosts relight 7.46 -> 6.57 ms, pathtrace 7.21 -> 6.25; 6-2 start relight 6.44 -> 5.87, pathtrace 6.50 -> 5.66; 0-5
+lava relight 6.51 -> 6.43, pathtrace 6.02 -> 6.20. Equal or faster: run-to-run noise.

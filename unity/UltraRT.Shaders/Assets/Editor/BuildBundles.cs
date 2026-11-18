@@ -49,6 +49,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/PathTrace.raytrace",
                     "Assets/UltraRT/Shaders/Portal.shader",
                     "Assets/UltraRT/Shaders/Proxy.shader",
+                    "Assets/UltraRT/Shaders/CutoutTrace.raytrace",
                     "Assets/UltraRT/Shaders/RayReconstruction.compute",
                     "Assets/UltraRT/Shaders/StainGrid.compute",
                     "Assets/UltraRT/Shaders/SkyConvert.shader",

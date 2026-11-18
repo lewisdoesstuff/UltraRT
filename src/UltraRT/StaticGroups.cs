@@ -139,6 +139,8 @@ namespace UltraRT
             public bool InRtas;
             public int Records, FullRecords;
             public bool FullStale;          // a slot's material changed: rebuild Full before using it
+            public Material[] CutoutChecked; // the materials HasCutout was computed for (SceneProxies.CutoutPass.cs)
+            public bool HasCutout;
         }
 
         private sealed class CheckpointWatch
