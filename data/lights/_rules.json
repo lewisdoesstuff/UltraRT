@@ -7,6 +7,20 @@
       "material": "^FinalFrame",
       "scale": 4.5,
       "note": "The glowing strips of the start room (and the final room, the same walls) carry the room instead of its floating orange lights. Measured at 4 and 5 (2026-11-17); 4.5 is between them. Shipped 2026-11-17 (user: the sheets 'look great')."
+    },
+    {
+      "name": "enemy: drone eye",
+      "material": "^Drone$",
+      "glow": 2,
+      "chroma": 0.7,
+      "note": "The drone's magenta eye and visor stripes are painted into its unlit texture: the chroma mask picks them (the purple shell stays under 0.7). A drone is a plain mesh, so the eye's triangles are in the emissive table."
+    },
+    {
+      "name": "enemy: Swordsmachine sword",
+      "material": "^SwordsMachine.*Sword$",
+      "glow": 2,
+      "chroma": 0.5,
+      "note": "The blade's glow, painted into the unlit sword texture. Skinned: an enemy glow light follows the blade's bone (Plugin.EnemyGlow.cs)."
     }
   ],
   "classes": {

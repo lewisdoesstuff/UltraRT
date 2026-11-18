@@ -256,6 +256,8 @@ namespace UltraRT
                     case "-ultrart-nolightoverrides": _lightOverrides = false; break; // per-level light overrides (docs/lighting-overrides.md)
                     case "-ultrart-classify-lights": _classifyLights = true; break;  // the light classifier, once per level (Plugin.LightClassifier.cs)
                     case "-ultrart-lights-preview": _lightsPreview = true; break;    // overrides from the classifier's output folder
+                    case "-ultrart-noenemyglow": _enemyGlowSettings.enabled = false; break; // Plugin.EnemyGlow.cs
+                    case "-ultrart-enemy-survey": _enemySurvey = true; break;        // bench: enemies_<scene>.txt per level (Plugin.EnemySurvey.cs)
                     case "-ultrart-light-census": _lightCensus = true; break;        // bench: lights_<scene>.json per level (Plugin.LightClasses.cs)
                     case "-ultrart-logfixtures": _logFixtures = true; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
@@ -593,6 +595,7 @@ namespace UltraRT
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
             AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
+            AppendEnemyGlowLights(); // Plugin.EnemyGlow.cs: the glowing parts of skinned enemies
             // Lights [0, _surfLightCount) light surfaces (every surface pass binds that count); the ones after it only
             // the air (the volumetric pass takes _lightCount). docs/lighting-overrides.md, "Classes and rules".
             _surfLightCount = _lightCount;

@@ -13,7 +13,7 @@ Shader "UltraRT/Proxy"
         // ULTRAKILL/Master _EmissiveMask: the emission is multiplied by the main texture's alpha^2.2 (decompiled).
         _EmissiveMask ("Emissive Mask (albedo alpha)", Float) = 0
         // Emitter mask by rule (SceneProxies.Glow.cs): above 0, only texels whose luminance passes it glow.
-        _EmissiveThreshold ("Emissive Threshold (luminance)", Float) = 0
+        _EmissiveThreshold ("Emissive Threshold (luminance; 1 + chroma)", Float) = 0
         _Cutoff ("Alpha cutoff", Float) = 0
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
         _BlendTex ("Blend atlas", 2D) = "white" {}
@@ -646,7 +646,10 @@ Shader "UltraRT/Proxy"
                     if (_UseAlbedoAsEmissive < 0.5) e = _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_EmissiveTex, lodAlbedo, lodCap)).rgb; // not ?: (both sides run)
                     emission = e * _EmissiveColor.rgb * _EmissiveIntensity;
                     if (_EmissiveMask > 0.5) emission *= pow(saturate(albedo.a), 2.2);
-                    if (_EmissiveThreshold > 0.0) emission *= smoothstep(_EmissiveThreshold - 0.1, _EmissiveThreshold + 0.1, dot(e, float3(0.2126, 0.7152, 0.0722)));
+                    // Above 1: a chroma mask (threshold - 1 on max - min of rgb), for saturated glows painted into an
+                    // unlit texture (a drone's eye) that a luminance step misses.
+                    if (_EmissiveThreshold > 1.0) emission *= smoothstep(_EmissiveThreshold - 1.1, _EmissiveThreshold - 0.9, max(e.r, max(e.g, e.b)) - min(e.r, min(e.g, e.b)));
+                    else if (_EmissiveThreshold > 0.0) emission *= smoothstep(_EmissiveThreshold - 0.1, _EmissiveThreshold + 0.1, dot(e, float3(0.2126, 0.7152, 0.0722)));
                 }
                 // Fresh explosion debris glows and cools; the texture's light and dark texels stay readable.
                 if (_HotDebris > 0.5) emission += _UltraRTDebrisGlow.rgb * (0.4 + 1.2 * dot(albedo.rgb, float3(0.2126, 0.7152, 0.0722)));

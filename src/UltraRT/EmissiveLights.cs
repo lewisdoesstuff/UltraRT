@@ -94,6 +94,39 @@ namespace UltraRT
         public int FlameTriangles { get; private set; }
         private readonly HashSet<Transform> _liveSpaces = new HashSet<Transform>();
 
+        /// <summary>What a submesh emits, summed, in the mesh's own space: for a skinned mesh that cannot be in the table
+        /// (Plugin.EnemyGlow.cs). Power = sum of Le x area; centre and normal are weighted by luminance x area; radius is
+        /// the weighted RMS distance from the centre. False when nothing emits or the mesh could not be read.</summary>
+        public bool Summarise(SceneProxies.TracedSubmesh s, out Vector3 centre, out Vector3 normal, out float radius, out float area, out Vector3 power, out bool naturally)
+        {
+            centre = normal = power = Vector3.zero;
+            radius = area = 0f;
+            naturally = s.Material != null && NaturallyEmissive(s.Material);
+            if (!naturally) return false;
+            var cands = new List<Candidate>();
+            int dark = 0;
+            if (!Extract(s, cands, ref dark) || cands.Count == 0) return false;
+            float w = 0f;
+            foreach (var c in cands)
+            {
+                float k = c.Lum * c.Area;
+                var mid = c.P0 + (c.E1 + c.E2) / 3f;
+                centre += mid * k;
+                normal += Vector3.Cross(c.E1, c.E2).normalized * k;
+                power += new Vector3(c.Le.r, c.Le.g, c.Le.b) * c.Area;
+                area += c.Area;
+                w += k;
+            }
+            if (!(w > 0f)) return false;
+            centre /= w;
+            float r2 = 0f;
+            foreach (var c in cands) r2 += (c.P0 + (c.E1 + c.E2) / 3f - centre).sqrMagnitude * c.Lum * c.Area;
+            radius = Mathf.Sqrt(r2 / w);
+            if (SceneProxies.FrontCounterClockwise) normal = -normal;
+            normal = normal.sqrMagnitude > 1e-12f ? normal.normalized : Vector3.zero;
+            return true;
+        }
+
         private void AddFlameQuads(List<Candidate> cands)
         {
             FlameTriangles = 0;
@@ -907,7 +940,10 @@ namespace UltraRT
                 for (int i = 0; i < img.Length; i++)
                 {
                     var c = img[i];
-                    cut[i] = c * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(thr - 0.1f, thr + 0.1f, Lum(new Color(c.r * tint.r, c.g * tint.g, c.b * tint.b))));
+                    var tc = new Color(c.r * tint.r, c.g * tint.g, c.b * tint.b);
+                    float key = thr > 1f ? Mathf.Max(tc.r, Mathf.Max(tc.g, tc.b)) - Mathf.Min(tc.r, Mathf.Min(tc.g, tc.b)) : Lum(tc); // above 1: chroma
+                    float t0 = thr > 1f ? thr - 1f : thr;
+                    cut[i] = c * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(t0 - 0.1f, t0 + 0.1f, key));
                 }
                 img = cut;
             }

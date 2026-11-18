@@ -338,6 +338,67 @@ The 5 s log line also names the flames driving flicker (`flicker now: Sprite 'Fi
 'Fire'`). The 8-2 standing-lamp "flicker" (user report) was not this: no emitter sits on that light, and the burst is the
 same with `fx.flicker=0` (bench variant target `fx`); see docs/relight.md, "Lamp shades".
 
+## Enemy glows (2026-11-18, `t3/emissive-all`)
+
+The user: "glowing parts on enemies would also be great!" What the enemies have, from a survey of eight levels
+(`-ultrart-enemy-survey` writes `enemies_<scene>.txt`: renderers, materials, lights per enemy type;
+`bench/suites/enemy-survey.json`):
+
+| Enemy | Drawn as | Glowing part | Now |
+|---|---|---|---|
+| filth, stray, schism, soldier | one skinned mesh, one unlit texture (`ENEMY`, no glow map), no light | none: flesh, bone and blood. A chroma mask finds only the blood | nothing to carry |
+| drone | two plain meshes, unlit texture, no light | the magenta eye and visor stripes, painted | **emitter rule** `enemy: drone eye` (glow 2, chroma 0.7): its triangles are in the emissive table |
+| Malicious Face | skinned, vertex-lit grey texture, no light | none at rest (its charge and beam are effects with their own lights) | nothing to carry |
+| Swordsmachine | skinned body with a glow map, skinned sword, no light | the blade (painted); the "Tundra" body's glow map has no texel above the table's minimum, "Agony" has | **glow light** on the blade's bone (rule `enemy: Swordsmachine sword`, chroma 0.5); the body's by its glow map where it emits |
+| cerberus | skinned, vertex-lit; the orb in its hand has one of the game's lights | the orb | the game's light kept (no double) |
+| Mindflayer | skinned, unlit; two of the game's lights | hands | the game's lights kept |
+| virtue, idol | meshes and skinned wings; one of the game's lights | the whole body | the game's light kept |
+| streetcleaner, stalker, sentry, hideous mass | skinned; game lights at the flame / can / eye; sentry, stalker and mass also have glow maps | | the game's lights kept |
+
+So of the eleven common enemies two had a glow that nothing carried (the drone's eye, the Swordsmachine's blade); four
+have none; five already carry a light of the game's at the glowing part.
+
+**How.** A skinned mesh cannot be in the emissive triangle table: its vertices only exist skinned, on the GPU
+(`CollectDynamicSubmeshes` skips skinned proxies). `Plugin.EnemyGlow.cs` instead sums what a skinned enemy submesh
+emits once per mesh and material in the bind pose (`EmissiveLights.Summarise`: the same extraction as the table's,
+so glow maps and emitter rules both count): total output, centre and facing weighted by luminance x area, spread.
+Each frame one **sphere light** per part follows the bone whose bind position is nearest to that centre, pushed out of
+the mesh along the glow's facing by its radius (spread, clamped to 0.05 to 0.5 m), with the strength that gives the
+glowing area's output (the handover's formula backwards, `eg.gain` 1, at most gamma 3). At most `eg.max` 12 lights, the
+nearest within `eg.maxDistance` 45 m. An enemy with one of the game's lights enabled on it (not its spawn effect) gets
+none (`eg.skipLit`). These are light proxies, not per-triangle sampling: one light per glowing submesh, so a body with
+glows at both ends is lit from between them. `-ultrart-noenemyglow` / `eg.enabled=0` turns them off. Log: `Enemy glow:
+<type> '<mesh>' / '<material>': output ..., spread ..., bone N` or `nothing emits`, once per mesh and material.
+
+**Chroma masks.** Emitter rules (`_rules.json`, "emitters") gained `"chroma": c` next to `"threshold"`: only texels whose
+chroma (max - min of rgb) passes `c` glow. A luminance threshold on the drone picked the highlights of its shell, not
+the eye. In the proxy material it is `_EmissiveThreshold` above 1 (1 + c); bench `lc.glow.TEXT=G,1.7` is chroma 0.7.
+The table reads masks from a 32 x 32 copy of the texture, so a small eye's output is approximate.
+
+**Bench.** Effects kind `enemy:<EnemyType>` (e.g. `enemy:Drone`) puts a copy of one of the level's own enemies of that
+type in front of the camera, facing it, once per level load; further kinds stand beside it. With the scenario's
+`Enemies` "blind" (the default) they idle. A tour runs a scenario's `Effects` at its first view.
+`bench/suites/enemy-glow.json`: 1-3 (Swordsmachine, drone, cerberus), 2-3 (soldier, stray, schism, filth, drone,
+Mindflayer), 5-1 (virtue, drone, Malicious Face, sentry); sheet `bench/results/review/emissive-all/enemy-glow.png`
+(the game, pathtrace without the rules and glow lights, pathtrace). Visible change: the drone's eye and its halo on
+the shell. The blade's light is not visible in the 1-3 frame.
+
+**Combat cost.** `bench/suites/enemy-glow-perf.json`, the recorded 0-2 combat run (filth, strays, Swordsmachines; so
+blade lights only), pathtrace at 1440p, one pair on 2026-11-18 (`-Perf`, exclusive):
+
+| | frame ms | GPU total ms | dispatch ms |
+|---|---|---|---|
+| `eg.enabled=0` | 8.45 | 5.59 | 2.85 |
+| on | 8.58 | 6.06 | 3.26 |
+
++0.13 ms per frame (1.5 %). The GPU columns differ by more (+0.47 ms) than a few sphere lights should cost; it is one
+pair, not a repeated measurement, so read it as "under half a millisecond". A level with drones adds their eye
+triangles to the emissive table, not lights (not measured in combat: no recorded run has drones).
+
+Not done: enemies outside the survey's eight levels (their materials with a glow map get a glow light automatically;
+painted glows need a rule each); the 6,054 enemy lights of the census are untouched (most are spawn effects, off
+except while an enemy spawns).
+
 ## Costs
 
 Measured on an RTX 5070 Ti at 1920x1080, trace scale 0.5, effects suite.

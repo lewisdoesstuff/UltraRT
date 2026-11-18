@@ -183,6 +183,14 @@ namespace UltraRT
                     string prefix = $"{Sanitize(sc.Name)}-s{index:00}-v{v}";
                     GameControl.SetPose(view);
                     GameControl.HideLevelTitle();
+                    if (sc.Effects != null)
+                    {
+                        // Effects at a tour view (bench enemies stand where the first view looks: "enemy:<type>" spawns once).
+                        yield return null;
+                        EffectSpawner.Spawn(sc.Effects);
+                        float fxUntil = Time.realtimeSinceStartup + Mathf.Max(v == 0 ? 1.5f : 0f, sc.Effects.ShotDelay);
+                        while (Time.realtimeSinceStartup < fxUntil) { GameControl.SetPose(view); GameControl.HideCheatPanels(); yield return null; }
+                    }
                     bool probedView = false;
                     foreach (var m in sc.Modes)
                     {
@@ -214,6 +222,7 @@ namespace UltraRT
             }
             sr.LoadDetail = $"{sr.Tour.Count} stops, {sr.Tour.Sum(s => s.Views.Count)} views";
             WriteLightCensus(outDir); // -ultrart-light-census (Plugin.LightClasses.cs)
+            WriteEnemySurvey(outDir); // -ultrart-enemy-survey (Plugin.EnemySurvey.cs)
             sr.Lights = _lightCount;
             sr.Instances = (int)(_proxies?.Rtas?.GetInstanceCount() ?? 0);
         }

@@ -70,6 +70,42 @@ namespace UltraRT
         }
 
         /// <summary>
+        /// Submeshes of skinned proxies <c>[from, DynamicProxyCount)</c> whose proxy material passes
+        /// <paramref name="filter"/>, in the mesh's bind pose (Space is null: the caller places them by the bones). For the
+        /// enemy glow lights (Plugin.EnemyGlow.cs); they are not in the emissive triangle table. Returns the new cursor.
+        /// </summary>
+        public int CollectSkinnedSubmeshes(Func<Material, bool> filter, int from, List<TracedSubmesh> output, List<SkinnedMeshRenderer> sources)
+        {
+            for (int k = Math.Max(0, from); k < _dynamic.Count; k++)
+            {
+                var d = _dynamic[k];
+                if (d.SkinnedProxy == null || d.SkinnedSource == null || d.Mask == TransparentMask || d.Mask == PlayerMask) continue;
+                var mesh = d.SkinnedSource.sharedMesh;
+                if (mesh == null) continue;
+                var mats = d.SkinnedProxy.sharedMaterials;
+                for (int i = 0; i < mats.Length && i < d.Flags.Length && i < mesh.subMeshCount; i++)
+                {
+                    if (d.Flags[i] == RayTracingSubMeshFlags.Disabled || !filter(mats[i])) continue;
+                    var e = d;
+                    output.Add(new TracedSubmesh
+                    {
+                        Material = mats[i],
+                        Mesh = mesh,
+                        SubMesh = i,
+                        Space = null,
+                        Source = d.SourceTransform,
+                        Owner = d,
+                        Static = false,
+                        TwoSided = IsTwoSided(mats[i]),
+                        Visible = () => e.Visible && e.Proxy != null,
+                    });
+                    sources.Add(d.SkinnedSource);
+                }
+            }
+            return _dynamic.Count;
+        }
+
+        /// <summary>
         /// Submeshes of dynamic MeshRenderer proxies <c>[from, DynamicProxyCount)</c> whose proxy material passes
         /// <paramref name="filter"/>. Skinned proxies are skipped (their vertices only exist on the GPU, skinned).
         /// Returns the new cursor (pass it as <paramref name="from"/> next time to get only proxies added since).

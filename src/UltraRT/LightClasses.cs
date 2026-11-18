@@ -214,6 +214,9 @@ namespace UltraRT
         /// <summary>The mask: only texels whose albedo luminance (linear, 0-1) is above this glow (a soft step of
         /// +-0.1). 0 = the whole surface.</summary>
         [JsonProperty("threshold", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Threshold;
+        /// <summary>Instead of threshold: only texels whose chroma (max - min of rgb) passes this glow. For saturated
+        /// glows painted into an unlit texture (an enemy's eye).</summary>
+        [JsonProperty("chroma", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Chroma;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
 
         [JsonIgnore] private Regex _scene, _material, _texture, _path;
@@ -293,7 +296,7 @@ namespace UltraRT
         {
             foreach (var r in _emitters)
             {
-                try { if (r.Matches(material, texture, null)) return new Vector2(Mathf.Max(0f, r.Glow), Mathf.Clamp01(r.Threshold)); }
+                try { if (r.Matches(material, texture, null)) return new Vector2(Mathf.Max(0f, r.Glow), r.Chroma > 0f ? 1f + Mathf.Clamp01(r.Chroma) : Mathf.Clamp01(r.Threshold)); }
                 catch (ArgumentException e) { _log.LogError($"Emitter rule '{r.Name}': bad pattern: {e.Message}"); }
             }
             return Vector2.zero;
@@ -377,7 +380,7 @@ namespace UltraRT
             foreach (var r in _active)
                 if (r.Handover != null && r.Handover.Glow > 0f && !string.IsNullOrEmpty(r.Handover.Part))
                     _emitters.Add(new LightEmitterRule { Name = r.Name, Material = r.Handover.Part, Glow = r.Handover.Glow, Threshold = r.Handover.Threshold });
-            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Path}|{r.Scale.ToString(CultureInfo.InvariantCulture)}" + (r.Glow > 0f ? $"|g{r.Glow.ToString(CultureInfo.InvariantCulture)}t{r.Threshold.ToString(CultureInfo.InvariantCulture)}" : "")))
+            EmitterKey = string.Join(";", _emitters.Select(r => $"{r.Material}|{r.Texture}|{r.Path}|{r.Scale.ToString(CultureInfo.InvariantCulture)}" + (r.Glow > 0f ? $"|g{r.Glow.ToString(CultureInfo.InvariantCulture)}t{r.Threshold.ToString(CultureInfo.InvariantCulture)}c{r.Chroma.ToString(CultureInfo.InvariantCulture)}" : "")))
                          + "#h:" + string.Join(";", _active.Where(r => r.Handover != null).Select(r => r.Path + "|" + r.Handover.Key));
             HasHandovers = _active.Any(r => r.Handover != null);
         }
