@@ -1,0 +1,20 @@
+{
+ "Name": "hdr-defaults",
+ "Note": "HDR display output: the factors behind the 2026-11-18 defaults (docs/hdr.md, 'Defaults'). Every mode sets its factors explicitly: a bench launch reads the install's config, which may hold older values. Run with -Extra '-ultrart-hdr','on','-ultrart-hdr-capture','raw','-ultrart-hdr-paperwhite','250' (the user's paper white; the display's peak is 1170).",
+ "Scenarios": [
+  { "Name": "1-1 explosion", "Scene": "Level 1-1", "Path": { "Type": "spawn", "Duration": 6 },
+    "Effects": { "Kinds": ["explosion"], "Every": 0, "Distance": 12, "ShotDelay": 0.1 },
+    "Modes": ["pathtrace+plugin._hdrEffects=1+plugin._hdrBloom=0", "pathtrace+plugin._hdrEffects=2", "pathtrace+plugin._hdrEffects=2.5", "pathtrace+plugin._hdrEffects=3"], "Screenshots": [2] },
+  { "Name": "1-1 fire", "Scene": "Level 1-1", "Path": { "Type": "spawn", "Duration": 6 }, "Weapon": 1,
+    "Effects": { "Kinds": ["fire"], "Every": 0, "Distance": 6, "ShotDelay": 0.3 },
+    "Modes": ["pathtrace+plugin._hdrEffects=1+plugin._hdrBloom=0+plugin._hdrEmissive=1.5", "pathtrace+plugin._hdrEffects=2+plugin._hdrEmissive=1.5", "pathtrace+plugin._hdrEffects=2.5+plugin._hdrEmissive=2", "pathtrace+plugin._hdrEffects=3+plugin._hdrEmissive=2.5"], "Screenshots": [2] },
+  { "Name": "0-1 pose 1", "Scene": "Level 0-1", "Path": { "Type": "static", "Approach": "../recordings/u1118-0-1-1.json", "Duration": 4 },
+    "Modes": ["pathtrace+plugin._hdrEmissive=1.5", "pathtrace+plugin._hdrEmissive=2", "pathtrace+plugin._hdrEmissive=2.5"], "Screenshots": [2] },
+  { "Name": "1-3 pose 1", "Scene": "Level 1-3", "Path": { "Type": "static", "Approach": "../recordings/u1118-1-3-1.json", "Duration": 4 },
+    "Modes": ["pathtrace+plugin._hdrEffects=1+plugin._hdrBloom=0+plugin._hdrGameSurfaces=1.5", "pathtrace+plugin._hdrEffects=2", "pathtrace+plugin._hdrEffects=2.5", "pathtrace+plugin._hdrEffects=3"], "Screenshots": [2] },
+  { "Name": "0-5 lava", "Scene": "Level 0-5", "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 4 },
+    "Modes": ["pathtrace+plugin._hdrEffects=1+plugin._hdrBloom=0+plugin._hdrGameSurfaces=1.5", "pathtrace+plugin._hdrEffects=2.5+plugin._hdrGameSurfaces=1.5", "pathtrace+plugin._hdrEffects=2.5+plugin._hdrGameSurfaces=2", "pathtrace+plugin._hdrEffects=2.5+plugin._hdrGameSurfaces=2.5"], "Screenshots": [2] },
+  { "Name": "1-4 pose 1", "Scene": "Level 1-4", "Path": { "Type": "static", "Approach": "../recordings/u1118-1-4-1.json", "Duration": 4 },
+    "Modes": ["pathtrace+plugin._hdrEmissive=1.5", "pathtrace+plugin._hdrEmissive=2", "pathtrace+plugin._hdrEmissive=2.5"], "Screenshots": [2] }
+ ]
+}

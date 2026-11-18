@@ -98,7 +98,7 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 |---|---|
 | [docs/settings.md](docs/settings.md) | The in-game settings page: layout, saving, flags versus config, hotkeys |
 | [docs/relight.md](docs/relight.md) | The default mode: physical light model, tone curve, auto exposure, sky and sun, colour match |
-| [docs/hdr.md](docs/hdr.md) | HDR10 display output (prototype, off by default): the swapchain proxy, the highlight gain map, settings |
+| [docs/hdr.md](docs/hdr.md) | HDR10 display output (prototype, off by default): the swapchain proxy, the highlight gain map, effects and bloom above white, settings |
 | [docs/path-tracing.md](docs/path-tracing.md) | The `pathtrace` mode: paths, settings, effects in reflections, cost and noise |
 | [docs/pt-plan.md](docs/pt-plan.md) | How the path tracing design was arrived at: experiments and alternatives |
 | [docs/dlss.md](docs/dlss.md) | DLSS Ray Reconstruction through NGX: setup, evaluation, license |

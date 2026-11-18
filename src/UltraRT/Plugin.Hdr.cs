@@ -1,8 +1,10 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace UltraRT
 {
@@ -11,10 +13,12 @@ namespace UltraRT
     /// preloader patcher (src/UltraRT.Preload) presents the game as HDR10. This file is the plugin's side:
     ///   - settings: [Display] HDR (read by the patcher: needs a restart), HDRPaperWhite, HDRPeak, HDRHighlights, and
     ///     -ultrart-hdr [on|off|force], -ultrart-hdr-paperwhite N, -ultrart-hdr-peak N, -ultrart-hdr-highlights on|off,
-    ///     -ultrart-hdr-emissive X, -ultrart-hdr-lava X, -ultrart-hdr-sky X, -ultrart-hdr-white X, -ultrart-hdr-boost X, -ultrart-hdr-gamma srgb|2.2, -ultrart-hdr-debug,
+    ///     -ultrart-hdr-emissive X, -ultrart-hdr-lava X, -ultrart-hdr-sky X, -ultrart-hdr-effects X, -ultrart-hdr-bloom X, -ultrart-hdr-white X, -ultrart-hdr-boost X, -ultrart-hdr-gamma srgb|2.2, -ultrart-hdr-debug,
     ///     -ultrart-hdr-capture [raw]
     ///   - the gain map: the composite (Denoise.compute Composite, RayReconstruction.compute Finish) writes, per pixel, what
     ///     an HDR display should show over what the SDR image shows; the native present pass multiplies it in.
+    ///   - the late map: the same from the screen-effects pass (Vfx.shader pass 4) after the game's transparents: effects
+    ///     (explosions, fire, beams) and bloom. HdrLateFrame / HdrSubmitLate (Plugin.Vfx.cs TraceVfx).
     /// Hooks: InitHdr (Awake, from ParseExposureArgs), HdrTick (Update), HdrPrepare (Trace, before the denoiser / RR),
     /// HdrSubmitDenoiser / HdrSubmitRR (after the kernel that wrote the map), HdrCapture (bench screenshots).
     /// </summary>
@@ -63,8 +67,13 @@ namespace UltraRT
 
         private float _hdrPaperWhite = 0f, _hdrPeak = 0f;    // nits; 0 = Windows' SDR content brightness / the peak the display reports
         private bool _hdrHighlights = true;                    // the gain map (true HDR highlights); off = SDR at paper white
-        private float _hdrEmissive = 1.5f;                     // glowing surfaces in HDR: x their SDR value (display gamma; 1 = as in SDR)
-        private float _hdrGameSurfaces = 1.5f, _hdrSky = 1f;   // the same for bright pixels the game draws itself: lava and acid; the sky (DLSS RR path)
+        private float _hdrEmissive = 2f;                       // glowing surfaces in HDR: x their SDR value (display gamma; 1 = as in SDR)
+        private float _hdrGameSurfaces = 2f, _hdrSky = 1f;     // the same for bright pixels the game draws itself: lava and acid; the sky (DLSS RR path)
+        private float _hdrEffects = 2.5f;                       // bright pixels the game's transparents made (fire, explosions, beams): x their SDR value (display gamma)
+        private float _hdrFxLo = 0.6f, _hdrFxHi = 1f;          // ... from this brightest channel (display) on, fully from the second
+        private float _hdrBloom = 1f;                          // bloom: extra room above SDR white for the glow (display units; 0 = SDR bloom)
+        private RenderTexture _hdrLateTex;                     // the late map the native side was last given a pointer of
+        private IntPtr _hdrLatePtr;
         private float _hdrWhite = 0f;                          // composite value that reaches the peak (0 = the SDR white point)
         private float _hdrGainMax = 16f, _hdrSdrBoost = 0f;
         private bool _hdrGamma22 = true, _hdrDebug;
@@ -81,13 +90,35 @@ namespace UltraRT
             _hdrRequested = Config.Bind("Display", "HDR", false,
                 "HDR10 display output through UltraRT's swapchain proxy (docs/hdr.md). Needs Windows HDR on for the display, and a " +
                 "game restart to change. -ultrart-hdr [on|off] overrides it.").Value;
-            _hdrEmissive = Config.Bind("Display", "HDREmissive", 1.5f,
-                "HDR output: how much brighter glowing surfaces (light fixtures, screens, lava) are than in SDR, where they can only " +
-                "be as bright as white paper. 1 = as in SDR; 1.5 is about 2.4x the light.").Value;
-            _hdrGameSurfaces = Config.Bind("Display", "HDRLava", 1.5f,
-                "HDR output: the same for lava and acid, which the game draws itself (their bright parts only). 1 = as in SDR.").Value;
+            var emissiveEntry = Config.Bind("Display", "HDREmissive", _hdrEmissive,
+                "HDR output: how much brighter glowing surfaces (light fixtures, screens, the gun's lights) are than in SDR, where they " +
+                "can only be as bright as white paper. 1 = as in SDR; 2 is about 4.6x the light (display gamma).");
+            var lavaEntry = Config.Bind("Display", "HDRLava", _hdrGameSurfaces,
+                "HDR output: the same for lava and acid, which the game draws itself (their bright parts only). 1 = as in SDR.");
             _hdrSky = Config.Bind("Display", "HDRSky", 1f,
                 "HDR output: the same for the bright parts of the game's sky. 1 = as in SDR.").Value;
+            var effectsEntry = Config.Bind("Display", "HDREffects", _hdrEffects,
+                "HDR output: how much brighter the bright parts of effects (explosions, fire, beams, coins) are than in SDR, " +
+                "where they clip at white. 1 = as in SDR; 2.5 is about 7.5x the light, rolled off towards the display's peak. " +
+                "Needs screen effects on.");
+            // Once per config (not in bench launches, which never change the user's settings): entries that still hold the
+            // first prototype's defaults move to the 2026-11-18 ones (docs/hdr.md, "Defaults"). A value set afterwards sticks.
+            var configVersion = Config.Bind("View", "ConfigVersion", 0, "Internal: which default migrations this file has had. Do not edit.");
+            bool benchLaunch = Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
+            if (configVersion.Value < 2 && !benchLaunch)
+            {
+                if (emissiveEntry.Value == 1.5f) emissiveEntry.Value = _hdrEmissive;
+                if (lavaEntry.Value == 1.5f) lavaEntry.Value = _hdrGameSurfaces;
+                if (effectsEntry.Value == 2f) effectsEntry.Value = _hdrEffects; // written by bench runs of t3/hdr-more before its default moved
+                Logger.LogInfo($"Config: HDR defaults of 2026-11-18 (HDREmissive {emissiveEntry.Value}, HDRLava {lavaEntry.Value}, HDREffects {effectsEntry.Value})");
+                configVersion.Value = 2;
+            }
+            _hdrEmissive = emissiveEntry.Value;
+            _hdrGameSurfaces = lavaEntry.Value;
+            _hdrEffects = effectsEntry.Value;
+            _hdrBloom = Config.Bind("Display", "HDRBloom", _hdrBloom,
+                "HDR output: how far above SDR white bloom (the glow around lights and effects) may go, in display units " +
+                "(1 = up to twice SDR white in display gamma, about 4.6x the light, or the display's peak). 0 = as in SDR.").Value;
             // (Key HDRPaperWhiteNits, not HDRPaperWhite: a config written by the first prototype build holds that key's old default, 200.)
             _hdrPaperWhite = Config.Bind("Display", "HDRPaperWhiteNits", 0f,
                 "HDR output: brightness of SDR white (the HUD, menus, and everything below the highlights), in nits. " +
@@ -111,6 +142,8 @@ namespace UltraRT
                     case "-ultrart-hdr-emissive": if (F(out var em)) _hdrEmissive = em; break;
                     case "-ultrart-hdr-lava": if (F(out var la)) _hdrGameSurfaces = la; break;
                     case "-ultrart-hdr-sky": if (F(out var sk)) _hdrSky = sk; break;
+                    case "-ultrart-hdr-effects": if (F(out var fx)) _hdrEffects = fx; break;
+                    case "-ultrart-hdr-bloom": if (F(out var bl)) _hdrBloom = bl; break;
                     case "-ultrart-hdr-boost": if (F(out var bo)) _hdrSdrBoost = bo; break;
                     case "-ultrart-hdr-gamma": _hdrGamma22 = (Next() ?? "2.2").ToLowerInvariant() != "srgb"; break;
                     case "-ultrart-hdr-debug": _hdrDebug = true; break;
@@ -122,6 +155,8 @@ namespace UltraRT
             _hdrEmissive = Mathf.Clamp(_hdrEmissive, 1f, 4f);
             _hdrGameSurfaces = Mathf.Clamp(_hdrGameSurfaces, 1f, 4f);
             _hdrSky = Mathf.Clamp(_hdrSky, 1f, 4f);
+            _hdrEffects = Mathf.Clamp(_hdrEffects, 1f, 4f);
+            _hdrBloom = Mathf.Clamp(_hdrBloom, 0f, 4f);
             LogHdrDisplay();
             try
             {
@@ -287,17 +322,55 @@ namespace UltraRT
 
         // sx, sy: visible / traced size. The map is stored like every Unity render texture (row 0 = the bottom of the image);
         // the back buffer's uv starts at the top.
-        private void HdrSubmit(float sx, float sy, bool linear)
+        private void HdrSubmit(float sx, float sy, bool linear) => HdrSubmitMap(_cmd, _hdrGainTex, _hdrGainPtr, sx, sy, linear ? 1 : 0);
+
+        // flags: bit 0 linear filter, bit 1 the late map.
+        private void HdrSubmitMap(CommandBuffer cmd, RenderTexture tex, IntPtr ptr, float sx, float sy, int flags)
         {
             var f = new HdrFrame
             {
-                gain = _hdrGainPtr, width = _hdrGainTex.width, height = _hdrGainTex.height, flags = linear ? 1 : 0,
+                gain = ptr, width = tex.width, height = tex.height, flags = flags,
                 uvScaleX = sx, uvScaleY = -sy, uvOffsetX = 0.5f * (1f - sx), uvOffsetY = 0.5f * (1f + sy),
             };
             int slot = _hdrSlot;
             _hdrSlot = (_hdrSlot + 1) % _hdrRing;
             _hdrSetFrame(slot, ref f);
-            _cmd.IssuePluginEventAndData(_hdrEventFunc, _hdrEvent, (IntPtr)slot);
+            cmd.IssuePluginEventAndData(_hdrEventFunc, _hdrEvent, (IntPtr)slot);
+        }
+
+        /// <summary>TraceVfx: whether the screen-effects pass writes the late map this frame, and its parameters.</summary>
+        private bool HdrLateFrame(out Vector4 fx, out Vector4 top)
+        {
+            fx = top = Vector4.zero;
+            if (!_hdrHighlights || _hdrEventFunc == IntPtr.Zero || !HdrActive || (_hdrEffects <= 1f && _hdrBloom <= 0f)) return false;
+            fx = new Vector4(Mathf.Pow(_hdrEffects, 2.2f) - 1f, _hdrFxLo, Mathf.Max(_hdrFxHi, _hdrFxLo + 1e-3f), _hdrBloom);
+            top = new Vector4(Mathf.Pow(Mathf.Max(1f, HdrPeakNits() / HdrPaperNits()), 1f / 2.2f), _hdrGainMax, 0f, 0f);
+            return true;
+        }
+
+        private RenderTexture _hdrLateFrameTex;  // the late map announced this frame (for the viewmodel composite)
+        private int _hdrLateFrameNo = -1;
+        private Vector4 _hdrLateTop;
+        private static readonly int VmHdrEmId = Shader.PropertyToID("_VMHdrEm"), VmHdrTopId = Shader.PropertyToID("_VMHdrTop");
+
+        /// <summary>Viewmodel composite (HUD camera, after the main camera): the late map to add the gun's glowing parts to,
+        /// when the screen-effects pass wrote one this frame; null otherwise.</summary>
+        private RenderTexture HdrLateForViewmodel(Material mat)
+        {
+            if (_hdrLateFrameNo != Time.frameCount || _hdrLateFrameTex == null || _hdrEmissive <= 1f) return null;
+            mat.SetVector(VmHdrEmId, new Vector4(_hdrEmissive - 1f, 0.5f, 0.9f, 0f));
+            mat.SetVector(VmHdrTopId, _hdrLateTop);
+            return _hdrLateFrameTex;
+        }
+
+        /// <summary>After the screen-effects pass, in its command buffer: the late map of this frame, at the target's size.</summary>
+        private void HdrSubmitLate(CommandBuffer cmd, RenderTexture tex, Vector4 top)
+        {
+            _hdrLateFrameTex = tex;
+            _hdrLateFrameNo = Time.frameCount;
+            _hdrLateTop = top;
+            if (!ReferenceEquals(tex, _hdrLateTex)) { _hdrLateTex = tex; _hdrLatePtr = tex.GetNativeTexturePtr(); }
+            HdrSubmitMap(cmd, tex, _hdrLatePtr, 1f, 1f, 2);
         }
 
         /// <summary>Bench (-ultrart-hdr-capture [raw]): the next present logs statistics of the HDR10 frame it sent to the display;
