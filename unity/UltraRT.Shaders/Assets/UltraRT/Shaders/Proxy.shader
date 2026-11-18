@@ -35,9 +35,11 @@ Shader "UltraRT/Proxy"
         // Water: the game's opacity factor (its _Opacity / _OpacScale). With the texture's and the colour's alpha it is how
         // much of the water's own colour the game blends over what is behind; the path's tint follows it.
         _TransOpacity ("Transparent opacity", Float) = 1
-        // ULTRAKILL/Master without VERTEX_LIGHTING is fullbright in game: the lit weight is 1 - _Unlit (enemies: a partial
-        // value, SceneProxies.UnlitEnemyLitWeight). Non-atlas only; atlas geometry carries it in the vertex colour alpha.
+        // ULTRAKILL/Master without VERTEX_LIGHTING is fullbright in game: the lit weight is 1 - _Unlit (enemies and "lit"
+        // rules: a partial value, SceneProxies.Unlit.cs). Non-atlas only; atlas geometry carries it in the vertex colour alpha,
+        // and an atlas variant with a "lit" rule lifts the fullbright part: lerp(_LitOverride, 1, alpha) (-1 = alpha alone).
         _Unlit ("Unlit (0 lit, 1 fullbright)", Float) = 0
+        _LitOverride ("Atlas lit weight of fullbright slots (-1 = vertex alpha)", Float) = -1
         // BLOOD_FILLER (7-3's tree): the game paints the albedo's green and blue out below a fill height (mesh TEXCOORD2.y in
         // [-1, 1]) with a noisy edge. _BloodFill: the renderer's _FillAmount (0 = off), _BloodScale its _MeshScale.z
         // (SceneProxies.Sync.cs sets both from the MaterialPropertyBlock; only for meshes with a 3-component TEXCOORD2).
@@ -144,6 +146,7 @@ Shader "UltraRT/Proxy"
             float _TransOpacity;
             float _UltraRTTransAlpha; // global: 1 = water's path tint follows the game's blend alpha
             float _Unlit;
+            float _LitOverride;
             float _BloodFill, _BloodScale;
             Texture2D _BloodNoiseTex;
             SamplerState my_linear_repeat_sampler;
@@ -460,7 +463,7 @@ Shader "UltraRT/Proxy"
                               + UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeColor) * b.y
                               + UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeColor) * b.z;
                     albedo = float4(tex.rgb * vc.rgb, tex.a) * _Color;
-                    litWeight = vc.a;
+                    litWeight = _LitOverride >= 0.0 ? lerp(_LitOverride, 1.0, vc.a) : vc.a;
                 }
                 else
                 {

@@ -58,7 +58,7 @@ namespace UltraRT
 
         private readonly MaterialClassifier _classifier;
         private readonly HashSet<Material> _atlasProxies = new HashSet<Material>();
-        private readonly Dictionary<(Material, MaterialParams, MaterialParams?, bool), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?, bool), Material>();
+        private readonly Dictionary<(Material, MaterialParams, MaterialParams?, bool, int), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?, bool, int), Material>();
         private int _atlasSlotsHook, _atlasSlotsFootstep, _atlasSlotsUnknown;
 
         private readonly ManualLogSource _log;
@@ -312,6 +312,7 @@ namespace UltraRT
             _log.LogInfo($"Orb fixtures (lamp balls around their light, EmitterMask{(OrbEmitters ? "" : ": off")}): {OrbFixtures.Count}" +
                          (OrbFixtures.Count > 0 ? ": " + string.Join(", ", OrbFixtures.Keys.Take(8).Select(o => o != null ? GameControlPath(o.transform) : "-")) : ""));
             LogMaterialClasses();
+            _log.LogInfo(UnlitSummary());
             LogDisplacementInventory();
             LogScrolling();
             LogVeils();
@@ -362,14 +363,18 @@ namespace UltraRT
 
             var p = _classifier.Classify(original, out var secondary);
             _classifier.Count(p);
+            ProbeLit("atlas slot", original, $"baked into '{MaterialClassifier.CleanName(atlasProxy)}' (lit weight = vertex alpha) via {how}, renderer '{GameControlPath(source.transform)}'");
             // Cutout originals (e.g. baked grass cards) keep their alpha test: the atlas material itself isn't alpha-tested.
             bool alphaTest = SourceAlphaTested(original) || SourceAlphaTested(OriginalMaterials.Dominant(mats, counts, SourceAlphaTested));
-            if (!DumpMaterialClasses && !alphaTest && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
+            // A "lit" rule on the original (SceneProxies.Unlit.cs): the slot's lit weight is lerp(rule, 1, vertex alpha).
+            float lit = AtlasLitOf(original);
+            if (!DumpMaterialClasses && !alphaTest && lit < 0f && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
 
-            var key = (atlasProxy, p, secondary, alphaTest);
+            var key = (atlasProxy, p, secondary, alphaTest, Mathf.RoundToInt(lit * 255f));
             if (_atlasVariants.TryGetValue(key, out var v)) return v;
-            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}" };
+            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}{(lit >= 0f ? $" / lit {lit:0.##}" : "")}" };
             MaterialParams.Apply(v, p, secondary);
+            if (lit >= 0f) { v.SetFloat(IdLitOverride, lit); _atlasLit[v] = lit; }
             if (alphaTest)
             {
                 var cutSrc = SourceAlphaTested(original) ? original : OriginalMaterials.Dominant(mats, counts, SourceAlphaTested);
@@ -511,6 +516,7 @@ namespace UltraRT
             var mesh = mf != null ? mf.sharedMesh : null;
             if (mesh == null) { stats.SkippedMesh++; return; }
             var mats = r.sharedMaterials;
+            NoteEnemyMaterials(r, mats); // per enemy type lit weights (SceneProxies.Unlit.cs)
             bool transparent = TryAddTransparent(r, mesh); // water/glass submeshes: a separate proxy (SceneProxies.Transparent.cs)
             transparent |= TryAddLava(r, mesh); // lava/acid submeshes: an emissive proxy (SceneProxies.Lava.cs)
             transparent |= TryAddVeil(r, mesh); // blended veils: any-hit proxies for the veil pass (SceneProxies.Veils.cs)
@@ -557,6 +563,7 @@ namespace UltraRT
             if (IsBackdrop(r)) { stats.SkippedBackdrop++; return; }
             var mats = r.sharedMaterials;
             if (!AnyTraceable(mats)) { stats.SkippedMaterial++; return; }
+            NoteEnemyMaterials(r, mats);
             NoteUndisplaced(r, mats, staticBatch: false);
             var proxy = CreateSkinnedProxy(r, mats, player);
             AddDynamic(r, proxy, SubmeshFlags(mats, r.sharedMesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
@@ -722,6 +729,7 @@ namespace UltraRT
         /// </summary>
         public void SyncDynamic(bool force = false)
         {
+            RefreshUnlitIfChanged(); // lit weight settings changed (SceneProxies.Unlit.cs)
             long ts = Perf.Now;
             SyncStatic(force);
             Perf.Add(Perf.Sec.Static, ts);
@@ -1370,9 +1378,9 @@ namespace UltraRT
             }
 
             // Fullbright: ULTRAKILL/Master without VERTEX_LIGHTING is never lit by the game (Gabriel, screens, unlit props).
-            // Enemies keep part of the RT lighting (UnlitEnemyLitWeight), so they still sit in the scene's shadows.
-            if (FullbrightUnlit && src.shader != null && src.shader.name == "ULTRAKILL/Master" && !src.IsKeywordEnabled("VERTEX_LIGHTING"))
-                m.SetFloat("_Unlit", src.IsKeywordEnabled("ENEMY") ? 1f - Mathf.Clamp01(UnlitEnemyLitWeight) : 1f);
+            // Enemies keep part of the RT lighting, so they still sit in the scene's shadows; "lit" rules set any material's
+            // weight (SceneProxies.Unlit.cs).
+            ApplyLitWeight(src, m);
             // BLOOD_FILLER (7-3's tree): the noise for the fill edge; the fill itself comes from the renderer's property block.
             if (src.IsKeywordEnabled("BLOOD_FILLER") && src.HasProperty("_BloodNoiseTex") && Tex2D(src, "_BloodNoiseTex") is Texture noise)
                 m.SetTexture("_BloodNoiseTex", noise);

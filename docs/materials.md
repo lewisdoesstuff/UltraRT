@@ -465,3 +465,51 @@ same. The load-time smoothing already removed what DeepBump would have fixed.
 DeepBump is not visibly better. DeepBump stays as a tool for a texture that PBRify gets wrong (its grass is the
 example). PBRFusion 4 was not run: its model page is gated and its licence and files could not be confirmed
 (2026-11-17), and a diffusion pipeline per texture is a different order of cost. Review list: R12, for information.
+
+## 11. Lit weight: fullbright vs relit (2026-11-18, `t3/unlit-lit`)
+
+The game draws `ULTRAKILL/Master` without `VERTEX_LIGHTING` (and the `psx/unlit/*` shaders) with no lighting at all.
+In RT every proxy has a **lit weight**: 0 = fullbright (the albedo is the radiance, as in the game), 1 = fully relit,
+in between a mix (`SceneProxies.Unlit.cs`). Dynamic and static-batched proxies carry it as `_Unlit = 1 - weight`;
+StaticSceneOptimizer atlas slots carry the game's own weight in the vertex alpha, and an atlas variant whose original
+material has a rule lifts the fullbright part: `lerp(_LitOverride, 1, alpha)` (`Proxy.shader`, `SampleAlbedo`).
+
+Where the weight comes from (first match wins):
+
+| Source | Weight | Notes |
+|---|---|---|
+| `unlit.extra` (bench variant) | `glob:w;glob:w` on material names | tuning in one launch: `pathtrace+unlit.extra=Gibs:0.5`. Not atlas slots |
+| `"lit"` in `ultrart-materials.json` | 0-1 | by material, texture or shader glob, last matching rule wins; a rule with only `lit` leaves the reflection alone |
+| unlit `ENEMY` material | `[Materials] EnemyTypeLitWeights` for its `EnemyType`, else `[Materials] EnemyLitWeight` (**0.5**) | the type comes from the renderer's `EnemyIdentifier` (first renderer seen per material; enrage swaps keep it) |
+| `unlit.keepTypes` (`Drone,Swordsmachine`) | `unlit.keepWeight` 0.5 | painted glows (the drone's eye, the Swordsmachine's blade) keep 0.5 whatever `EnemyLitWeight` is, unless `EnemyTypeLitWeights` names them |
+| unlit Master | 0 | screens, Gabriel, props |
+| anything else | 1 | |
+
+Switches: `-ultrart-lit-unlit` (relight everything, the old look), `-ultrart-enemy-lit w`,
+`-ultrart-enemy-types "Filth=0.65, Stray=0.65"`, `-ultrart-lit-rules off`, `-ultrart-lit-probe GLOB` (logs every proxy
+and atlas slot of matching materials with its weight: `Lit probe: ...`). Bench variants `unlit.enemy=0.8`,
+`unlit.enemyTypes=Filth:0.65;Stray:0.8` (':' and ';', since '+' and '=' separate variants), `unlit.extra=...`,
+`unlit.fullbright=0`: every proxy material made so far is re-weighted the next frame (`RefreshUnlitIfChanged`), so one
+launch compares several weights. The scene log has `Lit weights (...): N proxy materials fullbright, N partial, N set
+by a "lit" rule, N atlas variants with a rule; enemy types seen: ...`.
+
+Shipped rules and decisions (2026-11-18; runs `bench/results/20261118-21*_unlit-*`, `20261118-220500_enemy-lit_alt`):
+
+| Material | Weight | Evidence |
+|---|---|---|
+| `Gibs` | 0.6 | 0-2 4B hallway: fullbright gibs glow red in the dark; 0.5-0.75 sit in the room's light and stay readable |
+| `LionStatue*`, `StatueBaseUnlit*`, `Statue3` | 0.7 | **not checked in a screenshot**: the 1-1 statue was switched off (or its skinned bounds 74 m wide) at every pose tried |
+| `BoneWallRedUnlit` | 0.5 | **not checked**: the 6-1 soul tubes and P-2 arches were switched off at the poses tried |
+| portraits `Hakita`, `Dawg`, `Imp`, `Francis`, `Jericho`, `CabalCrow`, `Florp`, `Presentation` | 0.6 | **not checked**: none came into frame (6-2, 8-2, 8-4) |
+| `BloodPool` (0-1 `BloodWindow` flow, 0-2) | 0 (no rule) | 0-1 user pose 3: any lit weight makes the window lighter and less saturated than the game (the room's red light is stronger than its fullbright colour; screen luma 52.9 at 0, 58.1 at 0.5, 60.5 at 0.8, game 40.5) |
+| `Mercury`, `Salt`, `Sulfur` (1-1 altar elements) | 0 (no rule) | altar liquids and stones that glow in the game; 0.6 changed nothing visible |
+| `Basic Color - Orange/Red/Yellow Unlit` | 0 (no rule) | indicator lamps (8-2 `AlertLight/Yellow`, 0-E fan staircase, 0-5): emitters, left to the fixture handover |
+| `GothicGateGhostsSolid` | 0 (no rule) | 6-1's painted ghost faces in the gates: a painted glow; 0.6 looked the same |
+| `CityFromAbove` (2-3 `Unlit/Texture`, 4-1 `psx/unlit/notexwarp`) | no rule yet | the game draws them fullbright, we relight them; no shot showed the backdrop, so no rule ships (`unlit.extra=CityFromAbove*:0` to try) |
+| grass (`GrassSprite1-4`, `GrassSprite* 1`) | 1 (lit) | lit Master (`VERTEX_LIGHTING`, `ALPHA_TEST`) in 7-1, 7-3, 1-1 to 1-4, 8-2, 8-3: relit, not fullbright (`-ultrart-lit-probe GrassSprite*`). 7-1's white sparkle is the game's own blade pixels: docs/path-tracing.md |
+
+Enemy lit weight stays **0.5**. Comparison sheet (game / 0.5 / 0.65 / 0.8 on the 2-3 neon street and corridor, a 7-1
+Mannequin, 1-1 outdoors): `bench/results/20261118-220500_enemy-lit_alt/enemy-lit-sheet.png`. Higher weights take on the
+room's tint and shading (2-3's blue); 0.5 is closest to the game's flat colours.
+
+Cost: none measurable (a property per proxy material; atlas variants only for slots whose original has a rule).

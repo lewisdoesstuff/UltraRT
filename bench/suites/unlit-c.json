@@ -1,0 +1,18 @@
+{
+ "Name": "unlit-c",
+ "Note": "Branch t3/unlit-lit: targets the routes leave switched off, with LookActivate.",
+ "Scenarios": [
+  { "Name": "1-1 lion statue", "Scene": "Level 1-1",
+    "Path": { "Type": "static", "Approach": "../recordings/unlit-1-1-lion.json", "LookAt": "mat:LionStatue", "LookActivate": true, "Pitch": -5, "Duration": 3 },
+    "Modes": [ "off", "pathtrace", "pathtrace+unlit.extra=Lion*:0.5;StatueBase*:0.5", "pathtrace+unlit.extra=Lion*:0.8;StatueBase*:0.8" ],
+    "Screenshots": [ 1.5 ], "ShotSettle": 0.5 },
+  { "Name": "6-1 bonewall", "Scene": "Level 6-1",
+    "Path": { "Type": "static", "Approach": "../recordings/unlit-6-1-tube.json", "LookAt": "mat:BoneWallRedUnlit", "LookActivate": true, "LookDistance": 6, "Duration": 3 },
+    "Modes": [ "off", "pathtrace", "pathtrace+unlit.extra=BoneWallRedUnlit:0.5", "pathtrace+unlit.extra=BoneWallRedUnlit:0.8" ],
+    "Screenshots": [ 1.5 ], "ShotSettle": 0.5 },
+  { "Name": "6-2 hakita", "Scene": "Level 6-2",
+    "Path": { "Type": "static", "LookAt": "mat:Hakita", "LookActivate": true, "Duration": 3 },
+    "Modes": [ "off", "pathtrace", "pathtrace+unlit.extra=Hakita:0.5", "pathtrace+unlit.extra=Hakita:0.8" ],
+    "Screenshots": [ 1.5 ], "ShotSettle": 0.5 }
+ ]
+}

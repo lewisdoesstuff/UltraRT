@@ -347,6 +347,18 @@ Measured (`bench/suites/ghost-graze.json`, pathtrace, 1440p, DLSS RR; sheets `be
   exists, or taking the blade's game pixel and relighting it.
 - 1-3 pose 1 (control, sprites and lava): no visible change.
 
+**Nearest-depth fallback (2026-11-18, `t3/unlit-lit`; off by default).** The grass is not fullbright: `GrassSprite*`
+is lit Master (`VERTEX_LIGHTING`, `ALPHA_TEST`), relit with weight 1 (docs/materials.md, "Lit weight"). The white is
+the game's own blade pixels, lit by its white fog (screen luma 235 in the game against 161 traced on pose 2).
+`DlssRR.ThinNear` (`plugin._thinNear`, `_Match2.x`) tried one more rule: an unmatched pixel takes the 5x5's trace
+sample nearest the game's depth (within that fraction, and not behind the game's pixel by more than 1 %) and is drawn
+as traced. On 7-1 pose 2 (`bench/suites/grass-thin.json`, `bench/results/20261118-222544_grass-thin_alt`) game-identical
+pixels in the grass crop went 5.17 % -> 1.34 % and burst sigma (all pixels) 2.25 -> 1.84, but 1-3 pose 1's lava turned
+bright yellow (also with the in-front restriction): depth alone cannot tell a blade no ray hit from something the game
+draws over a traced surface. So it stays off (`ThinNear = 0`). The way out is to identify the blade pixels instead of
+guessing from depth: trace the cutout instances (their own instance mask) at screen resolution, or mark the pixels the
+game keeps on purpose (lava, acid, untraced sprites) in a screen mask.
+
 Cost: not measured with a perf run yet (the rules reuse the 3x3 the kernel already reads, plus one normal read per sample).
 
 ## Blood stains in reflections

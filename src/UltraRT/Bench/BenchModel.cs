@@ -267,6 +267,17 @@ namespace UltraRT.Bench
         public string File;
         public float Start;
         public float End = -1f;
+        /// <summary>
+        /// static: aim at an object instead of Position/Yaw (Plugin.Bench.LookAt.cs). A GameObject name glob, a path
+        /// ("Room/Statue*"), or "mat:&lt;material glob&gt;" for renderers with that material. LookIndex picks the Nth match
+        /// (nearest the pose first); LookDistance (0 = from its size) and LookYaw (null = the most open side, preferring
+        /// the object's front) place the camera; Pitch tilts it. LookActivate switches on the target's inactive parents.
+        /// </summary>
+        public string LookAt;
+        public int LookIndex;
+        public float LookDistance;
+        public float? LookYaw;
+        public bool LookActivate;
     }
 
     // ---------------------------------------------------------------- results

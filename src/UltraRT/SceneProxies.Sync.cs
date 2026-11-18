@@ -22,14 +22,9 @@ namespace UltraRT
     {
         /// <summary>-ultrart-nomatsync: no runtime material sync (the old behaviour, for A/B).</summary>
         public static bool MaterialSync = true;
-        /// <summary>ULTRAKILL/Master without VERTEX_LIGHTING is fullbright, as in game (-ultrart-lit-unlit: relight it).</summary>
-        public static bool FullbrightUnlit = true;
         /// <summary>Lit Master materials with _UseAlbedoAsEmissive are lit surfaces, not emitters, as in game
         /// (SceneProxies.cs material setup; -ultrart-albedo-emission-glow: the old albedo emission).</summary>
         public static bool LitAlbedoEmission = true;
-        /// <summary>Lit weight of unlit ENEMY materials (the game draws enemies fullbright): 0 = fullbright like the game, 1 =
-        /// fully relit. In between keeps RT shadows on enemies without darkening them (-ultrart-enemy-lit w).</summary>
-        public static float UnlitEnemyLitWeight = 0.5f;
 
         private const int SyncEntriesPerFrame = 16;   // dynamic proxies checked for swaps / new property blocks
         private const int SyncMaterialsPerFrame = 4;  // source materials re-copied
@@ -228,6 +223,7 @@ namespace UltraRT
 
             var mats = new Material[count];
             for (int i = 0; i < count; i++) mats[i] = _syncMats[i];
+            NoteEnemyMaterials(d.Source, mats); // enrage / radiance variants keep their enemy type's lit weight
             int subCount = d.Flags.Length;
             var flags = SubmeshFlags(mats, subCount);
             var proxyMats = new Material[mats.Length];

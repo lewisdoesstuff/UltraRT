@@ -24,6 +24,13 @@ namespace UltraRT
         /// <summary>With ThinMatch: the depth tolerance grows by what this many trace texels change the depth of a
         /// surface at its angle to the view (edge-on quads: grass blades).</summary>
         public static float SlopeTexels = 1f;
+        /// <summary>Finish, after the thin match: a pixel still unmatched takes the trace sample of the 5x5 around it whose
+        /// depth is nearest the game's, if within this fraction of the depth, and is drawn as traced with that sample's
+        /// colour and RR's lighting at the pixel. The game's own pixel of a grass blade no ray hit is lit by the game (7-1:
+        /// white in its fog) and sparkled against the traced blades (docs/path-tracing.md, "Thin geometry no ray hit").
+        /// Off by default: depth alone cannot tell such a blade from what the game draws over a traced surface (1-3's
+        /// lava turned yellow with it on, 2026-11-18). Bench plugin._thinNear=0.1.</summary>
+        public static float ThinNear = 0f;
         [StructLayout(LayoutKind.Sequential)]
         private struct FrameData
         {
@@ -450,6 +457,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, "_TraceRay", new Vector4(i.guardScale.x / proj.m00, i.guardScale.y / proj.m11, 0f, 0f));
             cmd.SetComputeVectorParam(cs, "_ZParams", z);
             cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, GrazingMatch, ThinMatch ? SlopeTexels : 0f));
+            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinMatch ? ThinNear : 0f, 0f, 0f, 0f));
             cmd.SetComputeTextureParam(cs, k, "_RRColor", _out);
             cmd.SetComputeTextureParam(cs, k, "_GameDepth", i.gameDepth, 0, RenderTextureSubElement.Depth);
             cmd.SetComputeTextureParam(cs, k, "_NormalDepth", i.normalDepth);
