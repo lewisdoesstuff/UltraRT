@@ -141,6 +141,7 @@ namespace UltraRT
             float dt = _aeBenchClock && Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
             // Offline cinematic render: metered once per output frame, on a 1 / fps clock (Plugin.CineRender.cs).
             if (!CineExposureGate(ref dt)) { _aeLastFrame = Time.frameCount; _gpu?.End(_cmd, SlotExposure); return; }
+            _aeSettings.hdrActive = HdrActive; // an HDR display needs less darkening (AutoExposureSettings.EffectiveKey)
             BindGameMatch();
             _autoExposure.Execute(_cmd, _aeSettings, _denoiser.FilteredLighting, _gAlbedo, _gSpecular, _gNormalDepth, _gHybrid,
                 w, h, dt);

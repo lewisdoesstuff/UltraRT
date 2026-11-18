@@ -15,6 +15,12 @@ namespace UltraRT
         public bool ptDn;
         /// <summary>Mean scene luminance (of the exposed part) that maps to itself: -ultrart-ae-key.</summary>
         public float key = 0.45f;
+        /// <summary>HDR output active (set by the plugin every frame) and what the key is multiplied by then: an HDR
+        /// display has room above SDR white for the highlights of a bright scene, so the scene needs less darkening to
+        /// keep them (user, 2026-11-18). 1 = as SDR. -ultrart-ae-hdr-key F; bench ae.hdrKeyScale=1.</summary>
+        public bool hdrActive;
+        public float hdrKeyScale = 1.3f;
+        public float EffectiveKey => hdrActive ? Mathf.Min(key * Mathf.Max(hdrKeyScale, 1f), 0.9f) : key;
         /// <summary>Exposure clamp in EV relative to the fixed relight look (0 = no change): -ultrart-ae-min / -ultrart-ae-max.
         /// max 0 means auto exposure only ever darkens, so dim rooms keep exactly the old look.</summary>
         public float minEV = -4f, maxEV = 1f;
@@ -60,7 +66,6 @@ namespace UltraRT
         {
             get
             {
-                if (gameMatchDown <= 0f) return 0f;
                 float v = Mathf.Lerp(gameMatchDown, Mathf.Min(gameMatchDown, LegacyGameMatchDown), Brightness);
                 return Mathf.Lerp(v, Mathf.Max(v, FollowGameMatchDown), Follow);
             }
@@ -87,13 +92,15 @@ namespace UltraRT
         /// target moves this fraction of the way towards the game's brightness, beyond a dead band. Up = the RT image is
         /// darker than the game (8-2's alley, lit in game by lights shining through walls; band
         /// <see cref="gameMatchBand"/> EV), down = brighter (torch rooms, 4-1; band <see cref="gameMatchBandDown"/> EV).
-        /// 0 = off. Down is 0.4 beyond 0.35 EV ("lit rooms may stay brighter than the game"). For a day (2026-11-17) it
+        /// 0 = off. Down is 0 since 2026-11-18 (user: traced light is bound to be brighter than the game in many
+        /// places, "i don't think we should darken via exposure to compensate"); a level that is meant to be dark asks
+        /// for it with followGame in its light file (7-1, 7-3). Before: 0.4 beyond 0.35 EV. For a day (2026-11-17) it
         /// was 0.9 beyond 0.1 EV, the image at the game's brightness: the user found that dull ("punch",
         /// docs/lighting-overrides.md), so lit rooms sit above the game again; dark scenes are still not lifted
         /// (<see cref="upStrength"/>).
         /// -ultrart-ae-match UP[,DOWN], -ultrart-ae-match-band UP[,DOWN].
         /// </summary>
-        public float gameMatchUp = 0.75f, gameMatchDown = 0.4f;
+        public float gameMatchUp = 0.75f, gameMatchDown = 0f;
         public float gameMatchBand = 0.35f, gameMatchBandDown = 0.35f;
         /// <summary>Pixels whose game fog factor is above this are not compared (the game's fog replaces their colour).</summary>
         public float gameMatchFog = 0.3f;
@@ -123,6 +130,7 @@ namespace UltraRT
                     }
                     case "-ultrart-ae-ptdn": ptDn = true; break;
                     case "-ultrart-ae-key": key = F(Next(), key); break;
+                    case "-ultrart-ae-hdr-key": hdrKeyScale = Mathf.Max(1f, F(Next(), hdrKeyScale)); break;
                     case "-ultrart-ae-match":
                     {
                         var parts = (Next() ?? "").Split(',');
@@ -307,7 +315,7 @@ namespace UltraRT
             cmd.DispatchCompute(cs, _kHistogram, Mathf.CeilToInt(w / 32f), Mathf.CeilToInt(h / 32f), 1);
 
             float minEV = Mathf.Min(s.minEV, s.maxEV);
-            cmd.SetComputeVectorParam(cs, IdParams0, new Vector4(Mathf.Log(Mathf.Max(s.key, 1e-4f), 2f), minEV, s.maxEV, Mathf.Clamp(dt, 0f, 0.25f)));
+            cmd.SetComputeVectorParam(cs, IdParams0, new Vector4(Mathf.Log(Mathf.Max(s.EffectiveKey, 1e-4f), 2f), minEV, s.maxEV, Mathf.Clamp(dt, 0f, 0.25f)));
             cmd.SetComputeVectorParam(cs, IdParams1, new Vector4(Mathf.Max(0f, s.speedUp), Mathf.Max(0f, s.speedDown),
                 Mathf.Clamp01(s.lowFraction), Mathf.Clamp(s.highFraction, Mathf.Clamp01(s.lowFraction) + 0.01f, 1f)));
             // A measurement needs at least 2% of the sampled pixels (the rest is sky or fullbright).
@@ -317,7 +325,7 @@ namespace UltraRT
             _settleLeft = Mathf.Max(0f, _settleLeft - dt);
             cmd.SetComputeVectorParam(cs, IdParams3, new Vector4(Mathf.Clamp01(s.EffectiveUpStrength), Mathf.Max(0f, s.deadBand),
                 Mathf.Max(0f, s.meterSpeed), settling ? Mathf.Max(0f, s.settleSpeed) : 0f));
-            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.key, 1e-4f)), 2f), Mathf.Max(0f, s.EffectiveGameMatchBandDown), 0, 0));
+            cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.EffectiveKey, 1e-4f)), 2f), Mathf.Max(0f, s.EffectiveGameMatchBandDown), 0, 0));
             cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.EffectiveGameMatchDown) : 0f,
                 Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
             cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), FitTrace != null ? 1f : 0f));

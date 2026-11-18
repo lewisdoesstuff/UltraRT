@@ -735,6 +735,45 @@ As shipped (`20261118-132411_punch-all_alt`, suite `punch-all`, 0 exceptions) th
 
 Sheets: `bench/results/review/punch-25/` (`punch25-<level>.png`: game / x1.8 / x2.5 per tour view, `index.md`).
 
+### Lights that are already strong (2026-11-18, `t3/door-brightness`)
+
+User report (playtest of bc987a8, HDR on): at two doors of 0-1 the brightness changes as you walk through, "likely
+auto exposure or area-state lights". It is neither. Held poses on either side (`bench/suites/door-brightness.json`)
+differ the same with auto exposure off; a replay of the walk (`door-walk.json`) shows no light switching; the HDR
+frame equals the SDR one below paper white. What changes is that you step away from one very hot light into a room
+that is as dark as the game makes it:
+- poses 5 -> 6 (the exit corridor): `FinalRoom/FinalDoor/Point Light` has intensity 20 in the game, where a surface
+  cannot pass white. Traced, the door frame and the first metres of the corridor were at the display's peak.
+- poses 3 -> 4 (Combo Hallway into the Projectile Zombies room): the hallway's red light is 5 in the game, range 10,
+  and as a "floating point, small" it was a `glow` at x2.5 = 12.5.
+
+The x2.5 of the punch policy was chosen on lights of 1 to 3. Rules added to `_rules.json` (every level):
+
+| Rule | Lights | Policy |
+|---|---|---|
+| `final door light` | `FinalDoor/Point Light` (the exit door of every level) | x0.4 (20 -> 8) |
+| `floating, very strong` | not tied to a fixture by any earlier rule, game intensity 8 or more | class `fill`: no boost |
+| `floating, strong` | the same from 4 | `glow` at x1.5, `medium` 0.67 (a 5 lands where a 3 does at x2.5) |
+
+Fixtures (lamps, torches, orbs: every rule above these in the file) keep x2.5 whatever their intensity.
+
+Measured 2026-11-18 (the user's poses, pathtrace, 1440p, HDR output on at paper white 380 / peak 1170 nits, mean of the
+frame sent to the display; `door-hdr.json` before, `door-fix.json` after; auto exposure as before this branch):
+
+| Pose | before | after |
+|---|---|---|
+| 0-1 pose 5 (before the exit door) | 166 nits, 3.0% of pixels within 10% of the peak | 107 nits, 0.6% |
+| 0-1 pose 6 (in the corridor) | 75 | 62 |
+| 0-1 pose 3 (Combo Hallway) | 16.6 | 14.1 |
+| 0-1 pose 4 (in the next room) | 8.6 | 9.7 |
+| 0-1 pose 1 (statue room; SDR mean luma) | 61.8 | 60.0 |
+| 0-3 pose 2 (red corridor; SDR mean luma, pixels with a channel at 254+) | 71.8, 19.2% | 44.2, 5.6% |
+
+The step at the two doors goes from x2.2 and x1.9 to x1.7 and x1.5 (the game's own image: x1.15 and x0.95). The
+0-3 corridor's light is 8 in the game ('Menacing Hallway/Point Light (1)', x2.5 = 20 before): it is now a saturated
+red with shading, at about the game's level (sheet `bench/results/review/door/0-3_pose_2_rules.png`). That is a
+change of look on a pose the user had only reported for its clipping: flagged in the branch report.
+
 ### 7-3: brighter (2026-11-18, `t3/dark-7-3`, shipped)
 
 The user, after the trailer's second render: "the shot in 7-3 is far too dark"; the player's light back up. Judged at

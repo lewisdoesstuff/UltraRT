@@ -89,6 +89,7 @@ their brightness, so a dim outdoor scene doesn't dull the palette.
 | Knob | Flag | Default | Effect |
 |---|---|---|---|
 | Key | `-ultrart-ae-key` | 0.45 | mean luminance above which the exposure darkens (to the key) |
+| HDR key | `-ultrart-ae-hdr-key` | 1.3 | the key is multiplied by this while HDR output is active ("No darkening towards the game") |
 | Dark key | `-ultrart-ae-key-low` | 0.1 | mean luminance below which it brightens. Between the two nothing changes: indoor 1-1/4-1/1-4/0-1 measure 0.22-0.34 with the default light reference |
 | Up strength | `-ultrart-ae-up` | 0 (0.5 until 2026-11-17) | fraction of the way to the dark key a darker scene is lifted (0 = never brightens) |
 | RT brightness | `-ultrart-rt-brightness`, config `[Relight] RtBrightness`, settings menu | 0 | 0 = as bright as the game; 1 = the look before 2026-11-17 (up strength 0.5, game match down 0.4 beyond 0.35 EV); in between, blended. See "Game match" Since 2026-11-18 the game-match part is the default ("Punch"): the setting only lifts dark scenes |
@@ -142,6 +143,25 @@ Mean screen luma, game / relight before / relight now (game match and the haze r
 "Before" is the same build with `ae.gameMatchUp=0+ae.gameMatchDown=0+vol.strength=1+vol.maxAdd=0` (and, for 7-3 and 1-4, `vol.darkFog=0`), measured in the same run. Torch rooms, 6-2's start and 1-4's lamps keep their RT look and stay brighter than the game (1.2x to 2x), just less so; 8-2's alley comes up from 0.55x to 0.73-0.76x; 4-1's green corridor (light reference, docs "Light reference distance") is still the brightest departure.
 
 The game match meters relight's image *before* the haze and before the game's transparents, so it can't see brightness that those add. 3-2's eye cave (x4.4 the game on 2026-11-15) and 3-2's dark rooms / 6-1 (x2.2 / x1.4) were exactly that: relit room-filling particle clouds, bloom picking up the haze, and haze in fog-off or dense-fog rooms (docs/volumetrics.md, "Dark rooms"; now x1.5 / x1.3 / x1.3). Metering the haze in auto exposure (`vol.meterHaze`) would only darken the lit surfaces under it.
+
+#### No darkening towards the game (2026-11-18, `t3/door-brightness`)
+User: "while we're trying to roughly match the game's exposure, the nature of what we're doing means we're bound to be
+generally brighter in a lot of cases, so i don't think we should darken via exposure to compensate. this, of course,
+doesn't apply on levels that are *supposed* to be dark, so we'd still probably want level-specific overrides for
+those", and: tone the auto exposure down when HDR is on.
+- The down side of the game match is off by default (`gameMatchDown` 0, was 0.4 beyond 0.35 EV; `-ultrart-ae-match
+  0.75,0.4` brings it back). The up side (RT darker than the game) is unchanged.
+- A level that is meant to be dark asks for the match in its light file: `"exposure": { "followGame": F }` (below;
+  7-1 and 7-3 have it). It works on its own now; before, it only strengthened a down side that was on.
+- With HDR output active the key is x1.3 (0.45 -> 0.585; `-ultrart-ae-hdr-key F`, bench `ae.hdrKeyScale=1`): the
+  display has room above SDR white for a bright scene's highlights, so the scene needs less darkening to keep them.
+
+Measured 2026-11-18 (`bench/suites/ae-nodarken.json`, six of the user's poses, pathtrace, HDR on; old -> new
+exposure): 0-1 pose 3 -0.15 -> 0 EV (14.4 -> 16.6 nits mean), 1-3 pose 1 -0.06 -> 0 EV; 0-1 pose 5 (+0.14), 8-2
+pose 1 (0), 2-4 pose 3 (0) and 7-1 pose 1 (+1.00, `followGame` 1, RT 2 EV under the game there) unchanged. So the
+down match was acting on few places and weakly. The HDR key changed nothing in this run: the metered mean of all six
+poses is 0.10 to 0.31, under the SDR key, so the key was not darkening them to begin with. Its effect where a scene
+does pass the key (bright outdoor views) is not measured yet.
 
 #### Follow the game (2026-11-17)
 User report: "still too bright compared to the base game". Most of the mean excess was exposure policy, not lights (docs/plan-look-and-perf.md, workstream A): the dark lift raised near-black scenes half way to the dark key, and the game match removed only 40 % of an excess, and only beyond 0.35 EV. Now:
