@@ -279,6 +279,53 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## The final trailer, third render (2026-11-18, `trailer-final-v3`)
+
+The same cut again (`bench/trailer/trailer-final-final.json`; one plan change: the 5-2 shot's `TierIn` for the final
+tier, 4.85 -> 5.2), rendered on `t3/trailer-v3` = `t3/emissive-all` (fixtures x2.5, 7-3 brighter, the handover,
+flame-driven torches, the drone's eye; not merged at the time of the render). Output:
+`bench\results\trailer\trailer-final-v3\` (`trailer-final-final.mp4`, 2560x1440, 60 fps, 114.84 s, 43 Mbit/s,
+622 MB; `trailer-final-final-1080p.mp4`, 233 MB; `clips\`; `weak-shots-v1-v2-v3.png`). Four runs in the alt slot,
+11.5 minutes, 0 exceptions; assembly 26 minutes; the frames were deleted afterwards.
+
+**The lightning.** There is no 4-2 shot in the cut: the "lightning flash" is the 5-2 sea shot (#9). The first master
+has a strike 1.5 s into the clip; the second render has none in its 4.5 s (its In point was the first master's, and
+the take's strikes fall elsewhere). In the new 15 s take the strikes are at 6.4 to 7.3 s and 10.1 to 11.0 s; with In
+5.2 the first one is 1.25 s into the clip (mean luma 30 -> 120 -> 30 over a second). A longer take was asked for
+(`Render` 30) and did not come: the take's length is the camera path's, 15 s. The strike times moved between the three
+renders, so check the In point again at the next render (the scan is a mean-luma spike over the take's frames).
+
+One frame late in each clip (the traced side; mean and 95th percentile of luma, chroma = mean channel spread):
+
+| Shot | v1 -> v2 -> v3 | Against v1 | Against v2 |
+|---|---|---|---|
+| 0-1 statue room | mean 39 -> 36 -> 43, p95 97 -> 109 -> 132 | brighter highlights | brighter (fixtures x2.5) |
+| 7-3 tree | mean 28 -> 18 -> 34, chroma 65 -> 39 -> 69 | a little brighter, the red is back on the walls | **recovered** (7-3 brighter: the blood trees' lights at full reach) |
+| P-2 hall | mean 17 -> 12 -> 9, p95 42 -> 34 -> 21 | darker | darker; the level's lamps flicker, so one frame does not decide it |
+| 1-1 hallway | p95 180 -> 200 -> 200 | brighter torches | the same level; the torches are flame-driven sphere lights now |
+| 8-2 street | mean 70 -> 72 -> 74 | the same | the same (v2's second take, with the pools) |
+| 1-3 water | mean 70 -> 76 -> 78 | a little brighter | the same |
+| 4-4 hall | p95 145 -> 183 -> 203 | punchier | a little punchier |
+| 5-2 sea | mean 32 -> 33 -> 32 at the late frame | the strike 0.25 s earlier in the clip | **the strike is in the clip** |
+| P-2 street | mean 14 -> 15 -> 27, chroma 37 -> 37 -> 75 | brighter and far more colour | **brighter, more colour** (its street lamp bulbs are handed over at gain 2) |
+| 1-1 terminal | mean 56 -> 37 -> 37, chroma 84 -> 36 -> 36 | **still less red** behind the terminal | unchanged |
+| 2-2 street | p95 94 -> 73 -> 77 | a little darker | the same |
+| 7-3 gun | mean 22 -> 8 -> 18, p95 97 -> 22 -> 90 | close to v1 | **recovered** (flashlight x4, exposure 0.75 towards the game) |
+| 0-5 lava | mean 77 -> 80 -> 81 | the same | the same |
+| 8-2 lamp | chroma 37 -> 26 -> 26 | the lamp lit by its bulb | unchanged |
+| museum fountain | 93 -> 93 -> 93 | the same | the same |
+| 6-2 hall | mean 18 -> 11 -> 11, chroma 80 -> 47 -> 47 | **still a darker floor** | unchanged |
+| 1-4 lamps | mean 44 -> 36 -> 44, p95 127 -> 84 -> 111 | the same mean, softer highlights | **brighter** (1-4's lamps handed over at three times the global gain) |
+
+The weak shots of v2, checked again (`weak-shots-v1-v2-v3.png` has the three renders side by side):
+
+- **7-3 tree, 7-3 gun**: fixed by the 7-3 look change. The gun, the path and the tree's red on the walls read as in v1.
+- **1-1 terminal**: not fixed. The start room's floating orange lights are off (`prefab:firstroom` x0, replaced by the
+  wall strips), so the red walls behind the terminal are darker than in v1, and darker than the game's own image of
+  the room. Bringing some of that light back is a decision for every level's start room, not a trailer setting.
+- **6-2 hall**: not changed, and it matches the game: the game's own image of the hall has the same dark floor with
+  the red at the sides. v1's lit floor was the look before the reach cap.
+
 ## The final trailer, second render (2026-11-18, `trailer-final-v2`)
 
 The same cut (`bench/trailer/trailer-final-final.json`, suites `trailer-final-final-1..4`, nothing in the plan
