@@ -156,7 +156,7 @@ namespace UltraRT
                 bool v;
                 try { v = p.Visible(); } catch { v = false; }
                 if (!v || !p.Source.enabled || !p.Source.gameObject.activeInHierarchy) continue;
-                float d2 = (p.Bone.position - eye).sqrMagnitude;
+                float d2 = PortalView.SqrDistance(p.Bone.position, eye); // or to the camera's image through a portal
                 if (d2 > maxD2) continue;
                 _glowNear.Add(new KeyValuePair<float, GlowPart>(d2, p));
             }

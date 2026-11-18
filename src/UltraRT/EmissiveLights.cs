@@ -36,6 +36,12 @@ namespace UltraRT
         public bool importance = true;
         /// <summary>Distance (m) at which the camera falloff of the importance weight halves.</summary>
         public float importanceRadius = 8f;
+        /// <summary>The camera falloff also counts the camera's images through the portals it looks into
+        /// (<see cref="EmissiveLights.ViewPoints"/>), as the analytic lights' importance does. Without it a glowing
+        /// surface behind a portal is hundreds of metres from the camera in world space and is sampled only through
+        /// the uniform mix: since the fixture handover such surfaces are the lights there, and 8-2's hallway was
+        /// noisy and about 15% darker seen through its portal than from inside (user, 2026-11-18).</summary>
+        public bool portalImportance = true;
         /// <summary>Fraction of the emissive source pdf that stays proportional to luminance x area only.</summary>
         public float uniformMix = 0.2f;
         /// <summary>Rebuild the (camera-dependent) alias table when the camera moved this far (m) since the last build.</summary>
@@ -484,8 +490,11 @@ namespace UltraRT
             // The alias table is rebuilt over every active triangle (20k+ in 8-3, ~1 ms). While moving, at most every
             // AliasInterval seconds; after visibility changes, at most every 4 frames (new emitters wait that long).
             float now = Time.realtimeSinceStartup;
-            bool moved = Settings.importance && (camPos - _aliasCam).sqrMagnitude > Settings.rebuildDistance * Settings.rebuildDistance
-                         && now - _aliasTime >= AliasInterval;
+            int views = Settings.portalImportance && ViewPoints != null ? ViewPoints.Count : 0;
+            Vector3 view0 = views > 0 ? ViewPoints[0] - camPos : Vector3.zero; // a portal came into view, or another one leads
+            bool moved = Settings.importance && now - _aliasTime >= AliasInterval
+                         && ((camPos - _aliasCam).sqrMagnitude > Settings.rebuildDistance * Settings.rebuildDistance
+                             || views != _aliasViews || (view0 - _aliasView0).sqrMagnitude > 1f);
             if (_activeDirty)
             {
                 SetChanged = true;
@@ -500,6 +509,8 @@ namespace UltraRT
                 AliasBuilds++;
                 AliasTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
                 _aliasCam = camPos;
+                _aliasViews = views;
+                _aliasView0 = view0;
                 _aliasFrame = Time.frameCount;
                 _aliasTime = now;
                 _aliasPending = false;
@@ -508,6 +519,11 @@ namespace UltraRT
         }
 
         private const float AliasInterval = 0.1f;
+        /// <summary>The camera's images through visible portals (SceneProxies.PortalViewpoints; the list light sampling
+        /// uses, filled later in the frame, so last frame's). Set by the plugin.</summary>
+        public List<Vector3> ViewPoints;
+        private int _aliasViews;
+        private Vector3 _aliasView0;
         private int _ownerPhase;
         private float _aliasTime;
         private bool _aliasPending;
@@ -830,6 +846,7 @@ namespace UltraRT
             double sumW = 0, sumB = 0;
             float r2 = Mathf.Max(0.01f, Settings.importanceRadius * Settings.importanceRadius);
             bool importance = Settings.importance;
+            int views = importance && Settings.portalImportance && ViewPoints != null ? ViewPoints.Count : 0;
             int lastEmitter = -1;
             OwnerEntry ow = null;
             Matrix4x4 m = Matrix4x4.identity;
@@ -849,10 +866,18 @@ namespace UltraRT
                 if (importance)
                 {
                     var p = _triCentroid[t];
-                    float dx = m.m00 * p.x + m.m01 * p.y + m.m02 * p.z + m.m03 - camPos.x;
-                    float dy = m.m10 * p.x + m.m11 * p.y + m.m12 * p.z + m.m13 - camPos.y;
-                    float dz = m.m20 * p.x + m.m21 * p.y + m.m22 * p.z + m.m23 - camPos.z;
-                    w *= r2 / (r2 + dx * dx + dy * dy + dz * dz);
+                    float wx = m.m00 * p.x + m.m01 * p.y + m.m02 * p.z + m.m03;
+                    float wy = m.m10 * p.x + m.m11 * p.y + m.m12 * p.z + m.m13;
+                    float wz = m.m20 * p.x + m.m21 * p.y + m.m22 * p.z + m.m23;
+                    float dx = wx - camPos.x, dy = wy - camPos.y, dz = wz - camPos.z;
+                    float d2 = dx * dx + dy * dy + dz * dz;
+                    for (int v = 0; v < views; v++)
+                    {
+                        var vp = ViewPoints[v];
+                        dx = wx - vp.x; dy = wy - vp.y; dz = wz - vp.z;
+                        d2 = Mathf.Min(d2, dx * dx + dy * dy + dz * dz);
+                    }
+                    w *= r2 / (r2 + d2);
                 }
                 _aliasTri[n] = t;
                 _prob[n] = w;

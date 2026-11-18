@@ -93,6 +93,9 @@ void RayGen()
             // The layers are drawn after the fogged surface and have no fog of their own (_FOG_OFF).
             o = float4(o.rgb * (1.0 - cover) + max(v.albedo, 0.0) / sum * (cover * _VeilParams.x), o.a * (1.0 - cover));
         }
+        // Additive layers (the game's light cones, VeilProxy.shader): their light on top, nothing covered.
+        float3 add = float3(v.normal.y, v.normal.z, asfloat(v.motion));
+        if (all(add == add)) o.rgb += max(add, 0.0) * _VeilParams.x;
     }
     _VeilOutput[id] = o;
 }

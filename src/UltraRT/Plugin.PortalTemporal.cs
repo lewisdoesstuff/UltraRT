@@ -13,9 +13,33 @@ namespace UltraRT
     public partial class Plugin
     {
         private bool _portalRemap = true;   // bench plugin._portalRemap=0: off (histories restart at a crossing, as before)
+        private bool _portalEdges = true;   // bench plugin._portalEdges=0: no fresh start at a moving portal's edge
         private bool _portalMotion = true;  // bench plugin._portalMotion=0: no motion vectors behind moving portals
         private bool _portalJumpDiag;       // bench plugin._portalJumpDiag=1: log camera jumps near portals
         private Vector3 _portalPrevCam;
+        private bool _portalDistances = true; // bench plugin._portalDistances=0: cull distances and scores by the camera alone (PortalView)
+        private bool _cachePortalViews = true; // bench plugin._cachePortalViews=0: cache cells sized by the camera's distance alone
+        private readonly System.Collections.Generic.List<Vector3> _portalViews = new System.Collections.Generic.List<Vector3>();
+        private readonly Vector4[] _portalViewRows = new Vector4[16];
+        private static readonly int CacheViewsId = Shader.PropertyToID("_UltraRTCacheViews"), CacheViewCountId = Shader.PropertyToID("_UltraRTCacheViewCount");
+
+        /// <summary>Trace(), after SyncPortals: where the camera is as seen through each portal side it looks into
+        /// (SceneProxies.PortalViewpoints). What is behind a portal is near one of these points and far from the camera
+        /// in world space, so everything that weighs or sizes by camera distance uses them too: light importance,
+        /// emitter importance, and the radiance cache's cell size (UltraRTCache.hlsl, CacheLevelF).</summary>
+        private void PortalViews()
+        {
+            _portalViews.Clear();
+            if (_portals) _proxies.PortalViewpoints(_camera.transform.position, _portalViews);
+            PortalView.Enabled = _portalDistances;
+            PortalView.Points.Clear();
+            PortalView.Points.AddRange(_portalViews);
+            int n = _cachePortalViews ? Mathf.Min(_portalViews.Count, _portalViewRows.Length) : 0;
+            for (int i = 0; i < _portalViewRows.Length; i++) _portalViewRows[i] = i < n ? (Vector4)_portalViews[i] : Vector4.zero;
+            // Immediate, not on _cmd: Trace clears the command buffer after this point.
+            Shader.SetGlobalVectorArray(CacheViewsId, _portalViewRows);
+            Shader.SetGlobalInt(CacheViewCountId, n);
+        }
         private int _portalPrevFrame = -10;
         private int _portalCrossLogs;
 

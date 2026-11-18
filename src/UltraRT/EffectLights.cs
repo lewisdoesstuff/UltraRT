@@ -555,7 +555,7 @@ namespace UltraRT
                     // Viewmodel (layer 13): a held item's flame (the 4-3 torch) is drawn by the HUD camera at the hand; the
                     // item's own Light already lights the scene from the player (Torch.Update), so no second light.
                     if (e.Go.layer == ViewmodelLayer) { e.Smoothed = 0f; e.Mean = -1f; continue; }
-                    float d2 = (e.T.position - camPos).sqrMagnitude;
+                    float d2 = PortalView.SqrDistance(e.T.position, camPos); // or to the camera's image through a portal
                     if (d2 > cull2 || !Measure(e)) continue;
                     if (_frame - e.CoverFrame > 60) { e.CoverLight = FindCoveringLight(e, data, packed, count); e.CoverFrame = _frame; }
                     if (e.CoverLight != null)

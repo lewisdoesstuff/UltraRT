@@ -1249,8 +1249,10 @@ namespace UltraRT
             SceneProxies.PortalHops = _portalHops;
             SceneProxies.TraceMirrors = _rtMirrors;
             SceneProxies.MovingPortalMotion = _portalMotion;
+            SceneProxies.MovingPortalEdges = _portalEdges;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
             PortalCrossingRemap(); // the camera went through a portal: histories follow it (Plugin.PortalTemporal.cs)
+            PortalViews(); // the camera's images through portals: light importance, emitter importance, cache cell size
             Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? (_playerRays & 15) | (_cineShowPlayer ? 16 : 0) : 0); // 16: third-person cinematic shots
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))
             {
@@ -1266,6 +1268,7 @@ namespace UltraRT
             UpdateEffectGeometry(pt); // glowing effects as billboards for reflection rays (Plugin.Effects.cs)
             long te = Perf.Now;
             UpdateFlameQuads(_camera); // fx.flameBillboards (test)
+            _emissive.ViewPoints = _portalViews; // portal-aware importance for glowing surfaces too
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
             UpdateWet();  // rain wetness (Plugin.Wet.cs)
@@ -1359,7 +1362,8 @@ namespace UltraRT
                 _cmd.SetRayTracingIntParam(shader, "_LightCount", _surfLightCount);
                 long tls = Perf.Now;
                 PathTraceLightsBegin(full, rr); // RR may want another light sampling mode (restored below)
-                _proxies.PortalViewpoints(_camera.transform.position, _lightSampling.ViewPoints); // portal-aware importance
+                _lightSampling.ViewPoints.Clear();
+                _lightSampling.ViewPoints.AddRange(_portalViews); // portal-aware importance
                 _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _surfLightCount, _emissive.SetChanged, kind == Kind.Hybrid);
                 Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSampling.ActiveMode);

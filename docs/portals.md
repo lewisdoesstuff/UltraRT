@@ -205,3 +205,86 @@ portals are at another point of their cycle in every pass, so two columns never 
 
 Cost: three more buffer loads and two small matrix products per portal hop, on every ray that crosses a portal; one
 compare per traced frame on the CPU. Not measured separately.
+
+## 9. Distance to the camera (2026-11-18, `t3/door-brightness`)
+
+Many things in the plugin ask "how far is this from the camera" in world space: which lights and glowing surfaces get
+samples, how large a radiance cache cell is, which effects are worth a light or a proxy. Behind a portal the answer
+is wrong: 8-2's hallway seen through its portal is 365 m from the camera, 8-1's city 800 m.
+
+`SceneProxies.PortalViewpoints` gives the camera's images through the portal sides it can look into (in front of
+the side, within 120 m): travel x camera. It now follows up to 3 portals (the images of the images: 8-3's Shifting
+Hallway shows three doorways in a row), keeps the 16 nearest by the way to the last portal crossed, and skips an
+image within 1 m of a known one (back through the same pair). `Plugin.PortalViews()` fills the list once per traced
+frame, right after the crossing remap, and everything below reads it. "Distance" then means the distance to the
+camera or to its nearest image.
+
+| What | Where | Before |
+|---|---|---|
+| Light importance | `LightSampling.ViewPoints` (as before, now from the shared list) | one hop, 8 images |
+| Emitter importance (glowing surfaces) | `EmissiveLights.BuildAlias`, `em.portalImportance` | camera only: behind a portal an emitter was drawn through the uniform mix alone; since the fixture handover such surfaces are the lights there |
+| Radiance cache cell size | `UltraRTCache.hlsl`, `CacheLevelF`; `_UltraRTCacheViews[16]`; bench `plugin._cachePortalViews=0` | 8-2's hallway behind its portal had 16 m cells for a 4 m corridor |
+| Flame-driven and virtual effect lights (cull 45 m, score) | `EffectLights.AppendVirtual` | camera only |
+| Shadow movers (60 m, 8 boxes) | `SceneProxies.CollectMovers` | camera only |
+| Enemy glow parts (45 m), effect geometry (80 m) | `Plugin.EnemyGlow.cs`, `EffectGeometry.Update` | camera only |
+
+The last three rows go through `PortalView.SqrDistance` (`src/UltraRT/PortalView.cs`; bench
+`plugin._portalDistances=0` = camera only).
+
+Two fixes from the same audit (lead's read-only pass over every "distance to the player or camera" in the code):
+- `Denoise.compute`: a fresh-history pixel is seeded from the radiance cache at its position. Through a portal that
+  position is the unfolded point (the camera ray continued straight on), not where the surface is, so the seed was
+  another place's light or nothing. Skipped there now.
+- `LitParticle.shader`: the lighting volume is the main camera's frustum. The game's own portal and mirror cameras
+  draw the same particles and read the light of whatever is at the same screen place in the main view. They get the
+  game's look (factor 1) now, by the test `TransparentOverlay.shader` uses (camera position against the volume's).
+
+Left as they are, on purpose: the heat-haze flame list (`CollectFlames`, a screen effect of the main view), the beam
+hull pick for volumetrics (the volumetric pass itself does not follow portals), stains (80 m) and displaced geometry
+(40 m freeze): low value, see the list below.
+
+**Measured 2026-11-18** (`bench/suites/portal-emitters.json`, pathtrace, 1440p, old = the three switches off, 16-frame
+bursts, per-pixel sigma over the whole frame): 8-2 pose 4 (hallway through the portal) 0.62 -> 0.57, 8-2 pose 5
+(inside, no portal in view) 0.71 -> 0.92, 8-3 pose 1 7.35 -> 7.14, 8-3 pose 2 13.13 -> 10.86 (both 8-3 poses have
+portals in motion, so their numbers mostly measure that). The burst's run-to-run spread is as large as these
+differences: **no measurable noise gain** from the distance changes on these poses. They are kept because they are
+correct and free (a few distance tests per frame), and because the cases they are for (a glowing surface that is the
+only light behind a portal, a cache cell larger than the room) are the audit's, not these poses'. The frames of the
+user's sway recording in front of the 8-2 portal look the same old and new; what the user saw there in motion is
+not explained yet (open).
+
+**Not portal-aware yet** (from the audit, by value): volumetrics (the froxel march and its composite stop at the
+portal plane), the sky (one global sky; a portal into another sky shows the camera's), hybrid's game cube term (eye
+position), the player light and muzzle flash (not imaged through portals), the backdrop exclusion by player position
+at scene build.
+
+## 10. Edges of a moving portal (2026-11-18, `t3/door-brightness`)
+
+User, after the moving-portal vectors of section 8: the smear is "mostly fixed", but there is "still artifacting
+around the moving edges". In the Shifting Hallway (8-3) the view behind a doorway slides sideways. With DLSS RR the
+sliding stone wall carried thin stippled lines and bands of the green wall beside the doorway, several of them,
+riding along with the view (sheet `bench/results/review/door/8-3_pose1_seams.png`).
+
+Cause: what slides into view at the opening's edge was behind the wall beside the opening a frame ago. Its motion
+vector is right, and it points at that wall. RR keeps a little of the wall's colour there, and from then on the
+vectors carry it along with the view. The plugin's own denoiser rejects those pixels by its plane test (relight
+shows no lines).
+
+Fix (`PathTrace.raytrace`, `UltraRTPortals.hlsl` `PortalSegmentThrough`): for a primary hit behind a moved portal,
+test whether the line from the camera to where the point was seen last frame goes through the first portal's
+opening (`_UltraRTPortalQuads`: world to quad space per side, set every frame). If not, the motion is replaced by one
+that points far off screen, so RR and the denoiser start the pixel fresh. Only on frames in which a portal on the
+path moved; a static portal's vectors are untouched. Bench `plugin._portalEdges=0` = off.
+
+Evidence (`bench/suites/portal-edges.json`, the user's 8-3 pose 1, six moments per mode;
+`bench/results/review/door/8-3_edges_pathtrace_before_after.png`): before, green bands or lines in 3 of 6 shots;
+after, none in 6. relight: none before or after.
+
+**Still there**: a one- to two-pixel pale line on the sliding wall, in about 3 of 8 shots. It is in the `albedo` view
+too (no history involved) and not in the game's image (`portal-edges-diag.json`, sheets `8-3_edges_diag_albedo.png`,
+`8-3_edges_albedo_zoom.png`): rays slip through between two surfaces of the far side near the exit's plane and see
+the lit room behind. Not found yet; the suspects are the 1 mm start offset past the exit's plane against a wall face
+lying in that plane, and the proxy quad's size against the game's portal mesh.
+
+Also fixed here: a new portal side counted as "moved" in its first frame (`SyncSide` compared after assigning).
+

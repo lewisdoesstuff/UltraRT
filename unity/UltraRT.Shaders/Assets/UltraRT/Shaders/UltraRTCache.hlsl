@@ -45,11 +45,25 @@ uint CacheNormalBin(float3 n)
     return n.z >= 0.0 ? 4u : 5u;
 }
 
-// Continuous level: 0 inside the LOD distance, +1 per doubling of the distance beyond it.
+// The camera's images through the portals it looks into (globals, Plugin.Trace; docs/portals.md): what is seen through
+// a portal is near one of them, and hundreds of metres from the camera in world space.
+float4 _UltraRTCacheViews[16];
+int    _UltraRTCacheViewCount;
+
+// Continuous level: 0 inside the LOD distance, +1 per doubling of the distance beyond it. The distance is to the
+// camera or to its nearest image through a portal: without that, 8-2's hallway behind its portal (365 m away) had
+// 16 m cells for a 4 m corridor, and its bounce light was the average over the rooms around it (darker, and
+// different from the same hallway seen from inside).
 float CacheLevelF(float3 p)
 {
-    float d = length(p - _CamPos.xyz);
-    return log2(max(d * _CacheGrid.y, 1.0));
+    float3 dc = p - _CamPos.xyz;
+    float d2 = dot(dc, dc);
+    for (int i = 0; i < _UltraRTCacheViewCount; i++)
+    {
+        float3 dv = p - _UltraRTCacheViews[i].xyz;
+        d2 = min(d2, dot(dv, dv));
+    }
+    return log2(max(sqrt(d2) * _CacheGrid.y, 1.0));
 }
 
 float CacheCellSize(int level) { return _CacheGrid.x * exp2((float)level); }

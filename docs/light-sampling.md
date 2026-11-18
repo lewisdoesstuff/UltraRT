@@ -46,6 +46,9 @@ Each pixel draws `candidates` (M, default 8) lights. Each candidate gets weight 
 
 **Portals** (`portalImportance`, default on). The camera's distance to a light assumes the camera sees the world around it. Through a portal it sees a place that can be hundreds of metres away in world space: 8-2's fake mirrors (`4 - Hub/MirrorBig/Portal`) join x = 19 and x = 281, so every light of the room seen "in the mirror" was 262 m from the camera and was drawn almost only through the uniform mix (0.2 / 110 lights). `SceneProxies.PortalViewpoints` adds the camera's image through each portal side it can look into (in front of the side, within 120 m, at most 8): travel matrix × camera position. A light's weight is the largest over the camera and these viewpoints. Bench: `ls.portalImportance=0`. Results in docs/portals.md, "Noise behind portals".
 
+Since 2026-11-18 (`t3/door-brightness`) the images come from one shared list (`Plugin.PortalViews()`): up to 3 portals
+deep, the 16 nearest, and the emissive triangles' importance uses them as well (docs/portals.md, section 9).
+
 ## Temporal reuse
 
 **Reservoir buffer.** `ComputeBuffer` of `uint4` per pixel at trace resolution, ping-ponged: `_ReservoirPrev` is read as an SRV and `_ReservoirCur` is written as a UAV.

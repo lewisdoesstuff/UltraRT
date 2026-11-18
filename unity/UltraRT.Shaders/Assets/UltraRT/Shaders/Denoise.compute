@@ -449,7 +449,11 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
         // jittered within the cell's tangent plane (like PathTrace's primary mode), so cells turn into noise, not blocks.
         // Not where a moving shadow just cut the history: the cache never holds the player's (or an enemy's) shadow,
         // so seeding from it would erase exactly the change the cut is there to show.
-        if (_CacheSeed.x > 0.0 && _CacheMode > 0 && !moverCut)
+        // Not through a portal either: pos is then the unfolded point (the camera ray continued straight on), which
+        // is not where the surface is in the world, so the cache has another place's light there, or nothing.
+        uint seedInst = (uint)instMotion.x;
+        bool viaPortal = seedInst > 0xFFFFu && seedInst < 0x80000000u;
+        if (_CacheSeed.x > 0.0 && _CacheMode > 0 && !moverCut && !viaPortal)
         {
             uint h = HashU32(id.x * 1973u + id.y * 9277u + _DnFrame * 26699u);
             float u1 = (h & 0xFFFFu) * (1.0 / 65536.0), u2 = (h >> 16) * (1.0 / 65536.0);

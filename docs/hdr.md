@@ -148,6 +148,10 @@ the world are covered.
 | `hybrid` | late map: effects and bloom (not the gun: hybrid's viewmodel pass blends) |
 | `off`, menus, debug views | the SDR image at paper white (`-ultrart-hdr-boost` expands its highlights) |
 
+### Auto exposure
+While HDR output is active the auto exposure's key is x1.3 (docs/relight.md, "No darkening towards the game"): a
+bright scene is darkened less, since its highlights have the display's headroom. SDR is unchanged.
+
 ## Differences from a native HDR pipeline
 - The base image is 8 bits; only highlights get more range. Shadows have the SDR image's gradation.
 - What the game draws after our composite gets its HDR from the late map, which can only scale what the SDR image shows:
