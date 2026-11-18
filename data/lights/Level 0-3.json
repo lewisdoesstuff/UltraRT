@@ -7,8 +7,9 @@
   "classes": {
     "fixture": {
       "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.15
+      "intensity": 2.5,
+      "medium": 0.11,
+      "note": "Punch x2.5; medium 0.11 (was 0.15 at x1.8): the pillar room's lava lights fog the void otherwise."
     }
   }
 }

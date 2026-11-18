@@ -28,33 +28,33 @@
     },
     "fixture": {
       "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55,
-      "note": "Punch: no further than in the game, x1.8, haze as before (medium 1/1.8)."
+      "intensity": 2.5,
+      "medium": 0.4,
+      "note": "Punch: no further than in the game, x2.5 (2026-11-18, was x1.8), haze as before (medium 1/2.5)."
     },
     "accent": {
       "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55,
-      "note": "Punch: no further than in the game, x1.8, haze as before (medium 1/1.8)."
+      "intensity": 2.5,
+      "medium": 0.4,
+      "note": "Punch: no further than in the game, x2.5 (2026-11-18, was x1.8), haze as before (medium 1/2.5)."
     },
     "glow": {
       "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55,
-      "note": "Punch: no further than in the game, x1.8, haze as before (medium 1/1.8)."
+      "intensity": 2.5,
+      "medium": 0.4,
+      "note": "Punch: no further than in the game, x2.5 (2026-11-18, was x1.8), haze as before (medium 1/2.5)."
     },
     "effect": {
       "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55,
-      "note": "Punch: no further than in the game, x1.8, haze as before (medium 1/1.8)."
+      "intensity": 2.5,
+      "medium": 0.4,
+      "note": "Punch: no further than in the game, x2.5 (2026-11-18, was x1.8), haze as before (medium 1/2.5)."
     },
     "item": {
       "reach": 0,
-      "intensity": 1.8,
-      "medium": 0.55,
-      "note": "Punch: no further than in the game, x1.8, haze as before (medium 1/1.8)."
+      "intensity": 2.5,
+      "medium": 0.4,
+      "note": "Punch: no further than in the game, x2.5 (2026-11-18, was x1.8), haze as before (medium 1/2.5)."
     }
   },
   "rules": [

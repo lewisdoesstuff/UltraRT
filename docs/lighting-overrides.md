@@ -549,7 +549,7 @@ with `vol.strength=0` and `lc.solo=none` at those stops.
 
 The user, going to bed: "assume I accept the rest of the batches". The punch policy is now the **global** class
 policy (`data/lights/_rules.json`, "classes"): `fill` and `scripted` `reach` 0 at full strength; `fixture`, `accent`,
-`glow`, `effect`, `item` `reach` 0, x1.8, `medium` 0.55. Every level gets it; a level file carries only what
+`glow`, `effect`, `item` `reach` 0, x1.8, `medium` 0.55 (x2.5 and 0.4 since later that day: "Fixtures x2.5" below). Every level gets it; a level file carries only what
 differs. The proposal layer is empty again (third batch included: its fill factors are gone, its player and
 gameplay factors kept).
 
@@ -652,6 +652,88 @@ Shipped: the last row (`Level 8-2.json`: rule "street lamps" `intensity` 1.3, `m
 heads" x2). The level's tour median moves from dark +15.1 to +20.4 (the lamps' bounce in the street views): the cost
 of having the lamps. The emissive principle stands where the glowing part can carry the light (the standing lamps,
 1-4's lamps); a hooded street lamp is "a light where needed".
+
+### Fixtures x2.5 (2026-11-18, `t3/punch-25`, shipped)
+
+The user, after the trailer's second render and the night's sheets: "i think we probably could go up to the 2.5x on
+the lights". The global class policy (`data/lights/_rules.json`) is now `fixture`, `accent`, `glow`, `effect`, `item`
+`reach` 0, **x2.5, `medium` 0.4** (1/2.5: their haze where it was); fills and scripted lights unchanged (`reach` 0,
+full strength).
+
+Every campaign level was toured again with the game, x1.8 as shipped and x2.5 (runs `20261118-123308_p25-a..d_alt`
+and `20261118-123311_p25-e..g`, 0 exceptions; 2-S has no tour stops). Medians per level, x1.8 -> x2.5, against the
+game; for the levels with their own strengths the value in brackets is that level with its strengths scaled by the
+same step (not shipped):
+
+| Level | hi% game | hi% | p95 | chroma | contrast | dark delta |
+|---|---|---|---|---|---|---|
+| 0-1 | 0.8 | 0.8 -> 0.9 | x1.05 -> x1.07 | x1.14 -> x1.19 | x0.86 -> x0.86 | +6.3 -> +7.7 |
+| 0-2 | 0.9 | 1.1 -> 1.3 | x1.11 -> x1.14 | x0.97 -> x0.97 | x0.97 -> x0.96 | +4.6 -> +4.7 |
+| 0-3 | 0.8 | 1.7 -> 1.1 | x1.16 -> x1.17 | x1.19 -> x1.31 | x0.53 -> x0.52 | +10.0 -> +9.4 |
+| 0-4 | 1.2 | 1.9 -> 1.9 | x1.03 -> x1.01 | x1.14 -> x1.26 | x0.78 -> x0.79 | +10.6 -> +11.3 |
+| 0-5 | 6.2 | 7.2 -> 7.2 | x1.04 -> x1.04 | x1.13 -> x1.15 | x0.74 -> x0.74 | +nan -> +nan |
+| 1-1 | 20.4 | 19.4 -> 19.2 | x1.02 -> x1.02 | x0.89 -> x0.87 | x0.90 -> x0.92 | +nan -> +nan |
+| 1-2 | 3.7 | 7.2 -> 7.2 | x1.08 -> x1.15 | x1.15 -> x1.16 | x0.82 -> x0.84 | +5.6 -> +5.6 |
+| 1-3 | 2.2 | 4.8 -> 4.4 | x1.08 -> x1.11 | x1.07 -> x1.12 | x0.91 -> x0.92 | +26.5 -> +29.5 |
+| 1-4 | 2.5 | 1.5 -> 1.5 | x0.94 -> x0.95 | x0.88 -> x0.88 | x0.63 -> x0.64 | +6.4 -> +6.4 |
+| 2-1 | 1.6 | 1.6 -> 1.7 | x0.83 -> x1.03 | x0.99 -> x1.01 | x0.77 -> x0.83 | +3.4 -> +4.6 |
+| 2-2 | 1.6 | 1.6 -> 2.0 | x1.02 -> x1.04 | x0.82 -> x0.86 | x0.83 -> x0.93 | +4.4 -> +5.1 |
+| 2-3 | 0.8 | 0.8 -> 0.8 | x1.10 -> x1.13 | x0.99 -> x1.04 | x0.96 -> x0.93 | +3.0 -> +3.8 |
+| 2-4 | 0.9 | 2.3 -> 2.3 | x1.34 -> x1.33 | x1.06 -> x1.05 | x1.05 -> x1.06 | +3.5 -> +4.8 |
+| 3-1 | 0.7 | 0.7 -> 0.8 | x1.06 -> x1.08 | x1.06 -> x1.02 | x1.28 -> x1.19 | +2.1 -> +2.2 |
+| 3-2 | 0.8 | 0.9 -> 0.9 | x0.87 -> x0.88 | x0.73 -> x0.75 | x0.85 -> x0.87 | +0.6 -> +0.6 |
+| 4-1 | 4.0 | 12.7 -> 15.5 | x1.16 -> x1.22 | x1.28 -> x1.30 | x0.93 -> x0.95 | +9.5 -> +9.3 |
+| 4-2 | 81.8 | 63.2 -> 63.2 | x1.01 -> x1.01 | x0.93 -> x0.93 | x1.17 -> x1.17 | +22.1 -> +22.1 |
+| 4-3 | 0.7 | 0.7 -> 0.7 (0.7) | x1.05 -> x1.22 (x1.36) | x1.15 -> x1.12 (x1.21) | x0.99 -> x0.98 (x0.88) | +1.2 -> +1.1 (+1.9) |
+| 4-4 | 10.5 | 11.8 -> 11.8 | x0.91 -> x0.91 | x1.02 -> x1.01 | x0.62 -> x0.63 | +4.0 -> +4.6 |
+| 5-1 | 1.6 | 2.9 -> 4.1 | x1.25 -> x1.64 | x0.90 -> x0.97 | x0.81 -> x0.85 | +8.5 -> +11.8 |
+| 5-2 | 0.7 | 0.8 -> 1.0 | x1.08 -> x1.12 | x1.12 -> x1.13 | x0.88 -> x0.91 | +7.1 -> +9.6 |
+| 5-3 | 0.9 | 0.9 -> 1.0 (1.7) | x1.42 -> x1.42 (x1.66) | x1.38 -> x1.39 (x1.52) | x1.14 -> x1.13 (x1.13) | +8.3 -> +8.2 (+8.4) |
+| 5-4 | 0.9 | 0.6 -> 0.4 | x1.00 -> x1.00 | x1.04 -> x1.04 | x0.75 -> x0.76 | +7.0 -> +6.6 |
+| 6-1 | 0.7 | 0.8 -> 0.8 | x0.98 -> x0.98 | x0.96 -> x0.96 | x0.88 -> x0.88 | +1.4 -> +1.3 |
+| 6-2 | 1.0 | 1.2 -> 1.3 | x1.32 -> x1.33 | x1.16 -> x1.16 | x0.91 -> x0.91 | +3.1 -> +3.2 |
+| 7-1 | 68.7 | 5.1 -> 5.1 (5.1) | x0.70 -> x0.69 (x0.73) | x1.06 -> x1.03 (x1.07) | x1.05 -> x1.05 (x1.05) | +10.6 -> +10.8 (+13.7) |
+| 7-2 | 3.9 | 6.6 -> 6.9 | x0.91 -> x0.97 | x1.03 -> x1.01 | x1.02 -> x1.02 | +6.8 -> +5.9 |
+| 7-3 | 4.1 | 0.8 -> 0.8 | x0.57 -> x0.55 | x1.09 -> x1.08 | x0.29 -> x0.28 | +9.8 -> +9.2 |
+| 7-4 | 2.8 | 2.9 -> 2.9 | x1.00 -> x1.00 | x1.00 -> x1.00 | x1.00 -> x1.00 | +0.0 -> +0.0 |
+| 8-1 | 2.1 | 5.6 -> 7.8 | x1.54 -> x1.68 | x1.26 -> x1.31 | x1.20 -> x1.16 | +7.5 -> +10.2 |
+| 8-2 | 6.7 | 3.8 -> 3.7 (3.8) | x0.93 -> x0.93 (x0.98) | x1.26 -> x1.24 (x1.30) | x0.85 -> x0.85 (x0.83) | +15.1 -> +15.0 (+15.1) |
+| 8-3 | 2.0 | 3.8 -> 4.7 | x1.10 -> x1.13 | x1.12 -> x1.17 | x0.98 -> x0.99 | +5.9 -> +6.9 |
+| 8-4 | 4.0 | 5.8 -> 5.9 | x1.22 -> x1.25 | x1.25 -> x1.27 | x0.98 -> x1.01 | +4.9 -> +5.2 |
+| 0-E | 0.8 | 1.1 -> 1.3 | x1.13 -> x1.21 | x1.10 -> x1.15 | x1.21 -> x1.23 | +45.9 -> +45.9 |
+| 0-S | 4.2 | 5.2 -> 5.2 | x1.26 -> x1.27 | x1.75 -> x1.75 | x0.41 -> x0.41 | +21.6 -> +21.3 |
+| 1-E | 0.7 | 0.8 -> 0.8 | x1.09 -> x1.09 | x1.11 -> x1.11 | x1.06 -> x1.05 | +3.6 -> +4.6 |
+| 1-S | 25.7 | 30.7 -> 30.7 | x1.01 -> x1.01 | x1.00 -> x1.00 | x1.02 -> x1.02 | +24.0 -> +24.0 |
+| 4-S | 8.8 | 8.8 -> 8.8 | x1.00 -> x1.00 | x1.00 -> x1.00 | x1.00 -> x1.00 | +0.1 -> +0.1 |
+| 5-S | 7.0 | 7.8 -> 8.2 | x1.04 -> x1.05 | x1.21 -> x1.25 | x0.66 -> x0.65 | +21.5 -> +21.8 |
+| 7-S | 5.0 | 1.5 -> 2.6 | x0.88 -> x0.87 | x2.32 -> x2.32 | x1.12 -> x1.12 | +nan -> +nan |
+| P-1 | 1.4 | 1.0 -> 1.3 | x1.02 -> x1.32 | x1.08 -> x1.30 | x0.98 -> x1.09 | +0.7 -> +2.6 |
+| P-2 | 0.7 | 0.7 -> 0.7 | x1.01 -> x1.02 | x0.96 -> x0.96 | x0.85 -> x0.84 | +0.5 -> +0.5 |
+
+In most levels the medians hardly move: a tour looks at fixtures in a minority of its views, and where it does the
+lit patch gets brighter and more coloured without getting larger (P-1's red tunnel: bright end x2.55 -> x3.01 of the
+game's, chroma x1.92 -> x2.46; 8-1's lamp and wallpaper, 2-1, 1-3's lava hall). 32 of 633 views gain 4 points of
+highlight area or 5 levels of dark lift; they were looked at one by one (`flagged-1.jpg`, `flagged-2.jpg` in the
+sheet folder).
+
+The exceptions, checked again:
+
+| Level | Ships | Why |
+|---|---|---|
+| **5-1** (new) | fixtures and the like stay at x1.8, `medium` 0.55 | the white corridors blow out at x2.5: highlights 9 -> 24 % and 18 -> 24 % of the frame in two views (the game: 2.5 %, 2.8 %), the stairs lose their steps |
+| 0-3 | fixtures x2.5, `medium` 0.11 (was x1.8, 0.15: the same haze) | highlights 1.7 -> 1.1 %, chroma x1.19 -> x1.31, dark +10.0 -> +9.4 |
+| 4-3, 5-3 | kept at x1.2, `medium` 0.8 | not dim next to the rest: bright end x1.05-1.42 of the game's, chroma x1.12-1.39. Scaled to x1.67 the dark lift rises (4-3 +1.1 -> +1.9, worst view +16 -> +22) and 4-3's first hall clips further (highlights 7.2 -> 8.5 %, the game 1.0 %) |
+| 7-1 | kept at x1 with `followGame` | scaled to x1.4: dark +10.8 -> +13.7, the grey walls again |
+| 8-2 | kept (fills x0.35, fixtures x0.5, `medium` pinned at 0.55) | scaled to x0.7: nothing visible (bright end x0.93 -> x0.98), so no reason to move it. Its bright end is below the game's because the game's white-lit office walls come out pink and darker (older than this) |
+| 7-3 | kept until its own pass (`medium` pinned at 0.55) | next branch: 7-3 is too dark |
+
+Still open from the night, unchanged by this: 4-1's green hall is far above the game at either strength (highlights
+11 -> 18 % against 0.8 %: its lights are fills and accents with a long reach in the game itself); 0-E dark +45.9;
+7-4 and 4-S tour frames equal the game's.
+
+As shipped (`20261118-132411_punch-all_alt`, suite `punch-all`, 0 exceptions) the six spot-check levels match the layer runs: 0-3 highlights 1.3 %, chroma x1.29, dark +9.4; 4-3 bright end x1.21, dark +1.2; 2-4 x1.30, +4.2; 1-4 x1.00, +6.5; P-2 x0.98, +0.5; 7-3 x0.61, +7.8.
+
+Sheets: `bench/results/review/punch-25/` (`punch25-<level>.png`: game / x1.8 / x2.5 per tour view, `index.md`).
 
 ## Area lights (shader)
 
