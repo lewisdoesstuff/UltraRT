@@ -7,6 +7,20 @@
       "material": "^FinalFrame",
       "scale": 4.5,
       "note": "The glowing strips of the start room (and the final room, the same walls) carry the room instead of its floating orange lights. Measured at 4 and 5 (2026-11-17); 4.5 is between them. Shipped 2026-11-17 (user: the sheets 'look great')."
+    },
+    {
+      "name": "enemy: drone eye",
+      "material": "^Drone$",
+      "glow": 2,
+      "chroma": 0.7,
+      "note": "The drone's magenta eye and visor stripes are painted into its unlit texture: the chroma mask picks them (the purple shell stays under 0.7). A drone is a plain mesh, so the eye's triangles are in the emissive table."
+    },
+    {
+      "name": "enemy: Swordsmachine sword",
+      "material": "^SwordsMachine.*Sword$",
+      "glow": 2,
+      "chroma": 0.5,
+      "note": "The blade's glow, painted into the unlit sword texture. Skinned: an enemy glow light follows the blade's bone (Plugin.EnemyGlow.cs)."
     }
   ],
   "classes": {
@@ -102,6 +116,202 @@
       "name": "gameplay object",
       "path": "(Altar|GrapplePoint|HookPoint|Landmine|Switch|OK Light|Door Light|Sequence Light|WarningSign|Lights \\((Blue|Red|Rainbow)\\)|Button|Alarm|Bonus|Pedestal)",
       "class": "gameplay"
+    },
+    {
+      "name": "ceiling panels",
+      "path": "(SupermarketLamp|OfficeLight|(^|/)Lamps)[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^(Metal Light 2[A-Z]( NoFog)?|Ceiling_Light)$"
+      },
+      "note": "8-2, 8-3, 8-4: the lamp's own emissive panel."
+    },
+    {
+      "name": "lounge lamps",
+      "path": "(Lounge Lamp|ChandelierFerry)[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^M_WhiteMarble$"
+      },
+      "note": "5-3, 6-1, 6-2, 8-1, 8-3, 8-4: the lamp's emissive marble."
+    },
+    {
+      "name": "floor lamps",
+      "path": "FloorLamp[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^Metal Light 4[A-Z]$"
+      },
+      "note": "0-1, 0-2, 0-3, 0-E, 2-3, 8-3: where the lamp has an emissive head (the others only have a beam mesh and keep their light)."
+    },
+    {
+      "name": "pipe lights",
+      "path": "LightPillarSolid[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^L2Pipe5b2$"
+      },
+      "note": "2-1, 2-3."
+    },
+    {
+      "name": "candle piles",
+      "path": "CandlePile[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:torch",
+      "handover": {
+        "part": "^M_CandlePile"
+      },
+      "note": "6-2, P-2: the pile's texture has its flames."
+    },
+    {
+      "name": "hooded street lamps",
+      "path": "StreetlightFraud[^/]*/[^/]*$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:streetlamp",
+      "handover": {
+        "part": "^Streetlight$",
+        "keep": 0.52,
+        "keepMedium": 0.5,
+        "gain": 0.2
+      },
+      "note": "8-3 (8-2 has its own rule): the head under its hood lights the hood and the pole, not the street, so the light stays at about half (the hybrid)."
+    },
+    {
+      "name": "street lamp bulbs",
+      "path": "Streetlight(?!Fraud)[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^(Light|LightPillar 5C)$",
+        "gain": 2
+      },
+      "note": "1-4, 1-E, 2-1, 2-2, 2-3, 3-1, 5-1, 5-S, P-2. Gain 2: at 1 the lamps read under the lights they replace (2-1 bright end x0.84 against x1.00)."
+    },
+    {
+      "name": "standing lamps",
+      "path": "ApartmentLamp[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^Light$"
+      },
+      "note": "8-1, 8-3, 8-4 (8-2 has its own rule)."
+    },
+    {
+      "name": "lanterns",
+      "path": "Lantern[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^(Light|ExplosionShockwave 7)$"
+      },
+      "note": "5-2, 5-3, 5-4, 8-3: lanterns with a bulb; those with a flame sprite keep their light."
+    },
+    {
+      "name": "glowing orbs",
+      "path": "Sphere_\\d+/[^/]*$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:orb",
+      "handover": {
+        "part": "^(Light|Basic Color - White Unlit|ExplosionSphere)$"
+      },
+      "note": "7-1, 7-2, 4-S, 8-2 and the statues' orbs."
+    },
+    {
+      "name": "dome lamps",
+      "path": "Dome[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^(Basic Color - White NoFog|LightPillar 1 NoCull)$"
+      },
+      "note": "5-3, 8-1, 8-2, 8-3, 8-4: where the dome is not baked into the level."
+    },
+    {
+      "name": "glowing mushrooms",
+      "path": "Glowing Mushrooms[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^GlowingShroom$"
+      },
+      "note": "5-1, 5-4."
+    },
+    {
+      "name": "computer screens",
+      "path": "OfficeComputer[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:screen",
+      "handover": {
+        "part": "^Computer"
+      },
+      "note": "8-2."
+    },
+    {
+      "name": "bone lights",
+      "path": "Breakable[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^BoneWallRedUnlit$"
+      },
+      "note": "6-1, P-2."
+    },
+    {
+      "name": "hotel wall lights",
+      "path": "HotelLight[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^WallLight$"
+      },
+      "note": "8-1, 8-3: the bright texels of the lamp's texture."
+    },
+    {
+      "name": "hotel desk lamps",
+      "path": "HotelDeskLamp[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^DeskLampShade$"
+      },
+      "note": "8-1, 8-2, 8-3."
     },
     {
       "name": "open fire fixture",

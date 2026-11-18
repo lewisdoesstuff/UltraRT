@@ -1,0 +1,150 @@
+{
+  "Name": "enemy-survey",
+  "Note": "-Extra -ultrart-enemy-survey: enemies_<scene>.txt per level (renderers, materials, lights per enemy type)",
+  "Scenarios": [
+    {
+      "Name": "0-2 enemies",
+      "Scene": "Level 0-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off"
+      ],
+      "ShotSettle": 0.3
+    },
+    {
+      "Name": "0-3 enemies",
+      "Scene": "Level 0-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off"
+      ],
+      "ShotSettle": 0.3
+    },
+    {
+      "Name": "1-1 enemies",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off"
+      ],
+      "ShotSettle": 0.3
+    },
+    {
+      "Name": "1-3 enemies",
+      "Scene": "Level 1-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off"
+      ],
+      "ShotSettle": 0.3
+    },
+    {
+      "Name": "2-3 enemies",
+      "Scene": "Level 2-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off"
+      ],
+      "ShotSettle": 0.3
+    },
+    {
+      "Name": "4-2 enemies",
+      "Scene": "Level 4-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off"
+      ],
+      "ShotSettle": 0.3
+    },
+    {
+      "Name": "5-1 enemies",
+      "Scene": "Level 5-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off"
+      ],
+      "ShotSettle": 0.3
+    },
+    {
+      "Name": "6-1 enemies",
+      "Scene": "Level 6-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 1,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off"
+      ],
+      "ShotSettle": 0.3
+    }
+  ]
+}

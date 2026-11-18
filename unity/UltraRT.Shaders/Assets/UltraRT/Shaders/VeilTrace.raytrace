@@ -1,0 +1,104 @@
+// Blended veils seen through a portal (docs/scene-proxies.md, "Blended veils"; src/UltraRT/Plugin.Veils.cs). The game
+// draws 8-1's cloud sheets over the city in its transparent pass, in the portal's own camera; the traced image replaces
+// every pixel behind a portal, so there the sheets were lost. One camera ray per screen pixel follows the portals as
+// PathTrace's does; if it crossed one, a second ray along its last segment collects the veil layers in front of the
+// surface (VeilProxy.shader). The same pixels also get the game's distance fog for the path behind the portal: the
+// fog pass (VolumetricsComposite.shader, pass 0) works from the game's depth, which ends at the portal's plane, so 8-1's
+// city, kilometres behind a window, had none of the game's haze. A portal can carry its own fog (Portal.enableOverrideFog:
+// the game renders that side's view with it); _VeilPortalFog has it per side. Output: rgb what is added (display units, as the
+// game blends), a what is left of the image: out = image x a + rgb (VeilComposite.shader, drawn after the fog pass).
+// Pixels not seen through a portal are left alone: there the game draws the layers itself, over the traced image.
+#pragma max_recursion_depth 1
+
+#include "UltraRTCommon.hlsl"
+#include "UltraRTMaterial.hlsl"
+
+RaytracingAccelerationStructure _Scene;
+#include "UltraRTPortals.hlsl"
+RWTexture2D<float4> _VeilOutput;
+
+float4x4 _VeilInvViewProj; // the screen's view-projection (no jitter, no guard band), inverted
+float4   _VeilCamPos;
+float4   _VeilParams;      // x colour gain, y cover gain, z 1 = also on pixels not seen through a portal (debug)
+float4   _VeilFog;         // the level's fog: x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
+float4   _VeilFogColor;    // rgb the level's fog colour, w strength of the fog behind portals (0 = none)
+float4   _VeilCamFwd;      // xyz the camera's forward axis (fog goes by view depth, as the game's), w 1 = the fog pass ran
+// Per portal side, 2 rows: (rgb fog colour, 0 = the level's fog, 1 = this fog, 2 = no fog), (start, end, 0, 0).
+StructuredBuffer<float4> _VeilPortalFog;
+
+// The game's fog factor at view depth z (as VolumetricsComposite.shader).
+float FogVisibility(float4 fog, float z)
+{
+    float m = fog.x;
+    if (m < 0.5) return 1.0;
+    if (m < 1.5) return saturate((fog.z - z) / max(fog.z - fog.y, 1e-3));
+    float x = fog.w * z;
+    return saturate(m < 2.5 ? exp(-x) : exp(-x * x));
+}
+
+[shader("raygeneration")]
+void RayGen()
+{
+    uint2 id = DispatchRaysIndex().xy;
+    uint2 dim = DispatchRaysDimensions().xy;
+
+    float2 ndc = ((float2)id + 0.5) / (float2)dim * 2.0 - 1.0;
+    float4 farPt = mul(_VeilInvViewProj, float4(ndc, 1.0, 1.0));
+    farPt.xyz /= farPt.w;
+
+    RayDesc ray;
+    ray.Origin = _VeilCamPos.xyz;
+    ray.Direction = normalize(farPt.xyz - _VeilCamPos.xyz);
+    ray.TMin = 0.0;
+    ray.TMax = 1.0e5;
+    float cosView = max(dot(ray.Direction, _VeilCamFwd.xyz), 1e-3);
+
+    RayPayload p;
+    PortalPath path;
+    // The flags of PathTrace's camera ray, so both see the same surface (lava lets rays with WANT_MOTION through).
+    TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_CAMERA), ULTRART_PAYLOAD_WANT_MOTION, ray, p, path);
+
+    float4 o = float4(0.0, 0.0, 0.0, 1.0);
+    if (path.hops > 0u && p.t >= 0.0 && _VeilFogColor.w > 0.0)
+    {
+        // The fog pass gave this pixel the level's fog F at visibility v0 (to the portal): image x v0 + F (1 - v0). The
+        // game's portal view has fog G (the portal's own, or the level's) at v1, over the whole path: image x v1 +
+        // G (1 - v1). So: x k = v1 / v0, + G (1 - v1) - F (1 - v0) k. The sky gets no fog.
+        float4 fog = _VeilFog;
+        float3 colour = _VeilFogColor.rgb;
+        float4 f0 = _VeilPortalFog[path.first * 2u], f1 = _VeilPortalFog[path.first * 2u + 1u];
+        if (f0.w > 1.5) fog.x = 0.0;
+        else if (f0.w > 0.5) { fog = float4(_VeilFog.x > 1.5 ? _VeilFog.x : 1.0, f1.x, f1.y, _VeilFog.w); colour = f0.rgb; }
+        float v0 = _VeilCamFwd.w > 0.5 ? FogVisibility(_VeilFog, path.firstT * cosView) : 1.0;
+        float v1 = lerp(1.0, FogVisibility(fog, (path.travelled + p.t) * cosView), saturate(_VeilFogColor.w));
+        float k = v0 > 1e-3 ? saturate(v1 / v0) : 1.0;
+        o = float4(max(colour * (1.0 - v1) - _VeilFogColor.rgb * ((1.0 - v0) * k), 0.0), k);
+    }
+    if (path.hops > 0u || _VeilParams.z > 0.5)
+    {
+        RayDesc r;
+        r.Origin = ray.Origin;
+        r.Direction = ray.Direction;
+        r.TMin = 0.0;
+        r.TMax = p.t >= 0.0 ? p.t : 1.0e5;
+        RayPayload v = (RayPayload)0;
+        v.alpha = 1.0;
+        v.flags = ULTRART_PAYLOAD_VEILS;
+        TraceRay(_Scene, RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ULTRART_MASK_TRANSPARENT, 0, 1, 0, r, v);
+        float sum = v.normal.x;
+        if (sum > 1e-4)
+        {
+            // Cover of all layers; colour = their alpha-weighted mean.
+            float cover = saturate((1.0 - saturate(v.alpha)) * _VeilParams.y);
+            // The layers are drawn after the fogged surface and have no fog of their own (_FOG_OFF).
+            o = float4(o.rgb * (1.0 - cover) + max(v.albedo, 0.0) / sum * (cover * _VeilParams.x), o.a * (1.0 - cover));
+        }
+    }
+    _VeilOutput[id] = o;
+}
+
+[shader("miss")]
+void Miss(inout RayPayload p : SV_RayPayload)
+{
+    p.t = -1.0;
+}

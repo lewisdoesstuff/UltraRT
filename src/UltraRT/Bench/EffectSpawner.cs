@@ -80,6 +80,7 @@ namespace UltraRT.Bench
         private static void SpawnOne(string kind, Transform cam, float distance)
         {
             var refs = MonoSingleton<DefaultReferenceManager>.Instance;
+            if (kind.StartsWith("enemy:", StringComparison.OrdinalIgnoreCase)) { SpawnEnemy(kind.Substring(6), cam, distance); return; }
             switch (kind)
             {
                 case "revolver":
@@ -277,6 +278,40 @@ namespace UltraRT.Bench
                     break;
                 default: throw new ArgumentException("unknown effect kind");
             }
+        }
+
+        private static readonly System.Collections.Generic.Dictionary<string, GameObject> _benchEnemies = new System.Collections.Generic.Dictionary<string, GameObject>();
+
+        /// <summary>"enemy:&lt;EnemyType&gt;" (e.g. enemy:Drone): a copy of one of the level's own enemies of that type, standing
+        /// in front of the camera and facing it; further ones stand beside it. With the scenario's Enemies "blind" it idles.
+        /// Spawned once per kind string and level load (write "enemy:Drone", "enemy:drone " for two). The level must
+        /// contain the type (a run with -ultrart-enemy-survey lists them per level).</summary>
+        private static void SpawnEnemy(string type, Transform cam, float distance)
+        {
+            if (_benchEnemies.TryGetValue(type, out var have) && have != null) return;
+            foreach (var k in new System.Collections.Generic.List<string>(_benchEnemies.Keys)) if (_benchEnemies[k] == null) _benchEnemies.Remove(k);
+            string key = type;
+            type = type.Trim();
+            EnemyIdentifier src = null;
+            foreach (var e in Resources.FindObjectsOfTypeAll<EnemyIdentifier>())
+            {
+                if (e == null || !e.gameObject.scene.IsValid() || !string.Equals(e.enemyType.ToString(), type, StringComparison.OrdinalIgnoreCase)) continue;
+                if (e.dead) continue;
+                src = e;
+                if (!e.gameObject.activeInHierarchy) break; // a dormant one is in its start state
+            }
+            if (src == null) throw new InvalidOperationException($"no enemy of type '{type}' in this level");
+            var fwd = Vector3.ProjectOnPlane(cam.forward, Vector3.up).normalized;
+            var right = Vector3.Cross(Vector3.up, fwd);
+            int n = _benchEnemies.Count;
+            var pos = cam.position + fwd * distance + right * (((n + 1) / 2) * 3f * ((n & 1) == 0 ? 1f : -1f));
+            if (Physics.Raycast(pos + Vector3.up * 1f, Vector3.down, out var hit, 30f, LayerMask.GetMask("Environment", "Outdoors"), QueryTriggerInteraction.Ignore)) pos = hit.point;
+            else pos += Vector3.down * 1.5f;
+            var go = UnityEngine.Object.Instantiate(src.gameObject, pos, Quaternion.LookRotation(-fwd, Vector3.up));
+            go.name = "UltraRT bench " + type;
+            go.SetActive(true);
+            _benchEnemies[key] = go;
+            Log?.LogInfo($"Effect spawner: enemy '{type}' (a copy of '{src.name}') at ({pos.x:F1}, {pos.y:F1}, {pos.z:F1})");
         }
 
         private static GameObject _lightTemplate;

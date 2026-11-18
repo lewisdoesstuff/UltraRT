@@ -30,6 +30,10 @@ namespace UltraRT
             public bool? Shadows;
             /// <summary>Anything but the toggle differs from the game's light.</summary>
             public bool Changes;
+            /// <summary>The rule that classed it (null: code, an entry, or none).</summary>
+            public LightRule RuleObject;
+            /// <summary>Handover (Plugin.Handover.cs): "handed", "hybrid", "no part", or null.</summary>
+            public string Handed;
 
             public string PolicyText()
             {
@@ -46,7 +50,7 @@ namespace UltraRT
 
         private readonly Dictionary<Light, LightResolved> _resolved = new Dictionary<Light, LightResolved>();
         private SceneProxies _resolvedScene;
-        private int _resolvedFixtureVersion = -1, _resolvedToggleVersion = -1;
+        private int _resolvedFixtureVersion = -1, _resolvedToggleVersion = -1, _resolvedPowerVersion = -1;
 
         // Review switches.
         private readonly List<KeyValuePair<string, float>> _classToggles = new List<KeyValuePair<string, float>>();
@@ -98,7 +102,7 @@ namespace UltraRT
         /// <summary>EnsureLightOverrides: the emissive triangle table is built with the emitter scales; rebuild it when they change.</summary>
         private void SyncEmitterScales()
         {
-            string key = !_lightOverrides ? "off" : _lightOv.Classes.EmitterKey + "#" + string.Join(";", _variantEmitters.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)))
+            string key = !_lightOverrides ? "off" : _lightOv.Classes.EmitterKey + (_lightOv.Classes.HasHandovers ? "@" + _lightOv.Scene + HandoverVariantKey : "") + "#" + string.Join(";", _variantEmitters.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)))
                 + "#" + string.Join(";", _variantGlow.Select(kv => kv.Key + "=" + kv.Value.x.ToString(CultureInfo.InvariantCulture) + "," + kv.Value.y.ToString(CultureInfo.InvariantCulture)));
             if (key == _emitterKey) return;
             bool first = _emitterKey == "";
@@ -110,7 +114,7 @@ namespace UltraRT
             Logger.LogInfo($"Emitter scales changed ({key}): emissive lights rebuild");
         }
 
-        private bool LightTogglesActive => _classToggles.Count > 0 || _lightToggles.Count > 0 || _classSolo != null || _variantPolicies.Count > 0 || _variantEmitters.Count > 0 || _variantGlow.Count > 0;
+        private bool LightTogglesActive => !_handoverOn || _handoverGain != 1f || _classToggles.Count > 0 || _lightToggles.Count > 0 || _classSolo != null || _variantPolicies.Count > 0 || _variantEmitters.Count > 0 || _variantGlow.Count > 0;
 
         private void ClearLightToggles()
         {
@@ -121,6 +125,8 @@ namespace UltraRT
             _lightToggles.Clear();
             _variantPolicies.Clear();
             _classSolo = null;
+            _handoverOn = true;
+            _handoverGain = 1f;
             _toggleVersion++;
         }
 
@@ -175,7 +181,7 @@ namespace UltraRT
         /// <summary>Bench variants "lc.KEY=VALUE": class.NAME=off|F, solo=NAME, light.TEXT=off|F (TEXT: part of the
         /// hierarchy path), emit.TEXT=F (the light of emissive materials named TEXT), glow.TEXT=G or G,T (an emitter
         /// mask on materials named TEXT: glow, threshold), set.CLASS.FIELD=VALUE (a class policy for this mode), layer=NAME (lights\NAME\ over the
-        /// shipped files). A kind is written with a dot (prefab.firstroom = prefab:firstroom: ':' cannot be in a file
+        /// shipped files), handover=0 (handover rules do nothing), hgain=F (on every handover's gain). A kind is written with a dot (prefab.firstroom = prefab:firstroom: ':' cannot be in a file
         /// name). Undone by RestoreVariantState.</summary>
         private void ApplyLightVariant(string key, string value)
         {
@@ -194,6 +200,8 @@ namespace UltraRT
                 _toggleVersion++;
             }
             else if (key.Equals("solo", StringComparison.OrdinalIgnoreCase)) { _classSolo = string.IsNullOrEmpty(value) || value == "0" || value == "off" ? null : value.Replace('.', ':'); _toggleVersion++; }
+            else if (key.Equals("handover", StringComparison.OrdinalIgnoreCase)) { _handoverOn = ParseScale(value) > 0f; _toggleVersion++; }
+            else if (key.Equals("hgain", StringComparison.OrdinalIgnoreCase)) { _handoverGain = ParseScale(value); _toggleVersion++; }
             else if (key.Equals("layer", StringComparison.OrdinalIgnoreCase))
             {
                 EnsureLightOverrides();
@@ -259,7 +267,7 @@ namespace UltraRT
 
         /// <summary>Classes whose lights move or belong to another system: policies apply (a class can be dimmed), but
         /// "reach" and "surfaces" stay out of the question for the player's own lights.</summary>
-        private LightResolved BuildResolved(Light l)
+        private LightResolved BuildResolved(Light l, bool handover = true)
         {
             var id = LightIdentity(l);
             var r = new LightResolved();
@@ -287,11 +295,14 @@ namespace UltraRT
                 Merge(r, _lightOv.Classes.LevelPolicy(r.Class));
                 Merge(r, VariantPolicy(r.Class));
                 Merge(r, rule?.Set);
+                r.RuleObject = rule;
                 if (e != null)
                 {
                     Merge(r, new LightPolicy { Intensity = e.Intensity, Color = e.Color, Range = e.Range, Reach = e.Reach, Surfaces = e.Surfaces, Medium = e.Medium, Shadows = e.Shadows, Disabled = e.Disabled });
                     if (e.OwnsGeometry) r.Entry = e;
                 }
+                // After the light's own entry: the entry's strength is what is handed over (Plugin.Handover.cs).
+                if (handover) r.Handed = ApplyHandover(l, r, rule);
             }
             if (r.Class == LightClasses.Player) { r.Reach = 1f; r.Surfaces = true; }
             r.Changes = r.Entry != null || r.Intensity != 1f || r.Color != Vector3.one || r.Range != 1f || r.Reach != 1f || !r.Surfaces || r.Medium != 1f || r.Shadows.HasValue || r.Disabled;
@@ -330,6 +341,9 @@ namespace UltraRT
         private void SyncResolvedLights()
         {
             int fv = _proxies != null ? _proxies.FixtureVersion : -1;
+            // Handover: a light is handed over once its part is in the emissive table (Plugin.Handover.cs).
+            int pv = _emissive != null ? _emissive.PowerVersion : 0;
+            if (pv != _resolvedPowerVersion) { _resolvedPowerVersion = pv; if (_lightOv.Classes.HasHandovers) _resolved.Clear(); }
             if (_ovCacheVersion == _lightOv.Version && ReferenceEquals(_resolvedScene, _proxies) && _resolvedFixtureVersion == fv && _resolvedToggleVersion == _toggleVersion) return;
             bool switched = _resolvedToggleVersion != _toggleVersion; // a review switch: a cut, not a drift
             _ovCacheVersion = _lightOv.Version;
@@ -357,6 +371,8 @@ namespace UltraRT
             [JsonProperty("entry", NullValueHandling = NullValueHandling.Ignore)] public string Entry;
             /// <summary>The fixture's materials, "name:emissive|unlit|lit" (FixtureMaterials).</summary>
             [JsonProperty("fixture", NullValueHandling = NullValueHandling.Ignore)] public string[] Fixture;
+            /// <summary>Handover: "handed", "hybrid" or "no part" (the rule matched, the fixture has no such part).</summary>
+            [JsonProperty("handover", NullValueHandling = NullValueHandling.Ignore)] public string Handover;
         }
 
         /// <summary>Census: what the light's fixture is made of, so that tools/lights/fixtures.py can tell which fake
@@ -422,7 +438,7 @@ namespace UltraRT
                             Type = l.type.ToString().ToLowerInvariant(), Range = l.range, Intensity = l.intensity,
                             Color = new[] { LightOverrides.Round(l.color.r), LightOverrides.Round(l.color.g), LightOverrides.Round(l.color.b) },
                             Active = l.isActiveAndEnabled, Class = r.Class, Rule = r.Rule, Policy = r.PolicyText(), Entry = e?.Origin,
-                            Fixture = layer == null ? FixtureMaterials(l) : null,
+                            Fixture = layer == null ? FixtureMaterials(l) : null, Handover = r.Handed,
                         });
                     }
                     var emitters = _emissive?.Describe().Select(g =>

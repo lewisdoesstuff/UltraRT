@@ -1,38 +1,33 @@
 {
   "version": 1,
   "scene": "Level 1-4",
-  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply. Handover: its lamps and orbs at three times the global gain.",
   "rules": [
     {
-      "name": "street lamps",
-      "path": "Streetlight[^/]*/[^/]*$",
+      "name": "street lamp bulbs",
+      "path": "Streetlight(?!Fraud)[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
       "class": "fixture:lamp",
-      "set": {
-        "intensity": 0
-      }
+      "handover": {
+        "part": "^(Light|LightPillar 5C)$",
+        "gain": 6
+      },
+      "note": "1-4: x3 on the global rule. At the global gain the lamp garden's walls read at p95 x0.62 of the game's (the pools behind the lamps were gone); x4 gave x1.22 and lifted the dark end (+18)."
     },
     {
-      "name": "statue orbs",
-      "path": "Statue[^/]*/Sphere_8/[^/]*$",
+      "name": "glowing orbs",
+      "path": "Sphere_\\d+/[^/]*$",
+      "signals": [
+        "!scripted"
+      ],
       "class": "fixture:orb",
-      "set": {
-        "intensity": 0
-      }
-    }
-  ],
-  "emitters": [
-    {
-      "name": "statue orbs",
-      "material": "^Light$",
-      "path": "Statue[^/]*/Sphere_8",
-      "scale": 0.2,
-      "note": "the orbs share the bulbs' material and are far larger: Main Hall x1.9 of the game at the bulbs' strength"
-    },
-    {
-      "name": "lamp bulbs",
-      "material": "^Light$",
-      "glow": 6,
-      "note": "lamps pose: x1.05 of the game, the fake lights x0.83; glow 20 is x1.42"
+      "handover": {
+        "part": "^(Light|Basic Color - White Unlit|ExplosionSphere)$",
+        "gain": 3
+      },
+      "note": "1-4: x3 on the global rule. At the global gain the lamp garden's walls read at p95 x0.62 of the game's (the pools behind the lamps were gone); x4 gave x1.22 and lifted the dark end (+18)."
     }
   ],
   "lights": [],

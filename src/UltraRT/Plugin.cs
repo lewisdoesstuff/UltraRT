@@ -193,7 +193,7 @@ namespace UltraRT
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
-            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale };
+            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart, FlameQuads = FlameQuadList };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -256,6 +256,9 @@ namespace UltraRT
                     case "-ultrart-nolightoverrides": _lightOverrides = false; break; // per-level light overrides (docs/lighting-overrides.md)
                     case "-ultrart-classify-lights": _classifyLights = true; break;  // the light classifier, once per level (Plugin.LightClassifier.cs)
                     case "-ultrart-lights-preview": _lightsPreview = true; break;    // overrides from the classifier's output folder
+                    case "-ultrart-noenemyglow": _enemyGlowSettings.enabled = false; break; // Plugin.EnemyGlow.cs
+                    case "-ultrart-noveils": SceneProxies.Veils.enabled = false; break; // Plugin.Veils.cs
+                    case "-ultrart-enemy-survey": _enemySurvey = true; break;        // bench: enemies_<scene>.txt per level (Plugin.EnemySurvey.cs)
                     case "-ultrart-light-census": _lightCensus = true; break;        // bench: lights_<scene>.json per level (Plugin.LightClasses.cs)
                     case "-ultrart-logfixtures": _logFixtures = true; break;
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
@@ -382,6 +385,7 @@ namespace UltraRT
             LoadTransparentShaders(bundle);
             LoadLavaShader(bundle);
             LoadVolumetricsShaders(bundle);
+            LoadVeilShaders(bundle);
             LoadViewmodelShaders(bundle);
             LoadDlssShader(bundle);
             LoadEffectShaders(shaders);
@@ -593,6 +597,7 @@ namespace UltraRT
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
             AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
+            AppendEnemyGlowLights(); // Plugin.EnemyGlow.cs: the glowing parts of skinned enemies
             // Lights [0, _surfLightCount) light surfaces (every surface pass binds that count); the ones after it only
             // the air (the volumetric pass takes _lightCount). docs/lighting-overrides.md, "Classes and rules".
             _surfLightCount = _lightCount;
@@ -1239,6 +1244,7 @@ namespace UltraRT
             if (_readdDynamic) { _readdDynamic = false; Logger.LogInfo($"Re-added {_proxies.ReAddDynamic()} dynamic instances (diagnostic)"); }
             _proxies.SyncDynamic();
             _proxies.UpdateLava(); // scroll offsets of the lava proxies (SceneProxies.Lava.cs)
+            _proxies.UpdateVeils(); // the same for the veil proxies (SceneProxies.Veils.cs)
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;
             SceneProxies.TraceMirrors = _rtMirrors;
@@ -1257,6 +1263,7 @@ namespace UltraRT
             UpdateMovers(); // moving occluders: fast-responding shadows of the player and enemies (Plugin.Noise.cs)
             UpdateEffectGeometry(pt); // glowing effects as billboards for reflection rays (Plugin.Effects.cs)
             long te = Perf.Now;
+            UpdateFlameQuads(_camera); // fx.flameBillboards (test)
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
             UpdateWet();  // rain wetness (Plugin.Wet.cs)
@@ -1539,6 +1546,7 @@ namespace UltraRT
             _gpu?.End(_cmd, SlotBlit);
             long tv = Perf.Now;
             TraceVolumetrics(kind, upsampled); // sun shafts, light halos, the game's fog on RT pixels (Plugin.Volumetrics.cs)
+            TraceVeils(kind, mode); // behind portals: the rest of the game's fog, blended veils (Plugin.Veils.cs)
             Perf.Add(Perf.Sec.Volumetrics, tv);
             CopyPreAlpha(); // refraction background for the water overlays (Plugin.Transparent.cs)
             long tx = Perf.Now;

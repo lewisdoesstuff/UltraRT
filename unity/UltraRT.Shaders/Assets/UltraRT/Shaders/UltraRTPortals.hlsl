@@ -48,6 +48,7 @@ struct PortalPath
     float3x3 rot;     // camera side -> hit side: a direction d seen by the camera is mul(rot, d) at the hit (incl. mirror flips)
     float travelled;  // path length before the last segment (0 without a portal)
     float firstT;     // distance to the first portal surface; -1 without a portal
+    uint first;       // that portal side's index (valid with firstT >= 0)
     uint hops;
     float mirrorT;    // ULTRART_TRACE_STOP_AT_MIRROR: the ray stopped at a portal mirror this far along the path (p.t = -1); else -1
 };
@@ -66,6 +67,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     path.rot = float3x3(1, 0, 0, 0, 1, 0, 0, 0, 1);
     path.travelled = 0.0;
     path.firstT = -1.0;
+    path.first = 0u;
     path.hops = 0u;
     path.mirrorT = -1.0;
     bool stopAtMirror = (inFlags & ULTRART_TRACE_STOP_AT_MIRROR) != 0u;
@@ -83,7 +85,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
         if (p.t < 0.0) p.albedo = 0; // a miss leaves the cone input there
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
-        if (path.firstT < 0.0) path.firstT = p.t; // first segment: travelled is 0
+        if (path.firstT < 0.0) { path.firstT = p.t; path.first = p.instance; } // first segment: travelled is 0
         if (stopAtMirror && (p.material & 2u) != 0u)
         {
             path.mirrorT = path.travelled + p.t;

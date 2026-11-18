@@ -69,6 +69,8 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("vfx", _vfxSettings); // screen effects, e.g. vfx.bloom=0 (docs/vfx.md)
             yield return new KeyValuePair<string, object>("ptx", _ptSettings); // the pathtrace mode, e.g. ptx.bounces=3
             yield return new KeyValuePair<string, object>("fxg", _fxgSettings); // effects in reflections, e.g. fxg.enabled=0
+            yield return new KeyValuePair<string, object>("eg", _enemyGlowSettings); // enemy glow lights, e.g. eg.enabled=0
+            yield return new KeyValuePair<string, object>("veil", SceneProxies.Veils); // blended veils behind portals, e.g. veil.gain=1.2
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>

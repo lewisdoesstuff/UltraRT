@@ -1,0 +1,48 @@
+{
+  "Name": "flame-quads",
+  "Note": "the literal test: flames as camera-facing squares in the emissive table (fx.flameBillboards 1 one-sided, 2 two-sided) against the flame-driven lights",
+  "Scenarios": [
+    {
+      "Name": "1-1 quads",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0,
+        "Only": [
+          2
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+fx.flameBillboards=1",
+        "pathtrace+fx.flameBillboards=2"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "4-3 quads",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "pathtrace+fx.flameBillboards=1",
+        "pathtrace+fx.flameBillboards=2"
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

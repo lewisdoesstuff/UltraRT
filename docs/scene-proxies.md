@@ -438,11 +438,64 @@ game has a faint haze (user report, tour stop "Busted Hotel Rooms").
 `SceneProxies.BlendedVeil` now takes such a material out of the RT scene: ULTRAKILL/Master, queue 2501 to 2999,
 `TRANSPARENCY` with alpha blending (`_BlendMode` 2), no depth write, no alpha-test keyword, not water, glass or lava
 (those are classified first). The log lists them per level (`Blended veils left to the game's own pass`, with up to six
-of their renderers). Checked in the first rooms of 0-1, 1-1, 5-2, 7-1 and 8-3: no other material matches there.
+of their renderers). The line covers a whole level (the scan includes inactive rooms). Checked in 0-1, 0-5, 1-1, 2-2,
+3-1, 4-2, 5-1, 5-2, 6-2, 7-1, 7-2, 8-3 and P-2 (`bench/suites/veil-check.json`): no material matches in any of them, so
+water, glass, the 5-2 sea, lava and its haze are untouched; 8-1's two are the only ones found.
 
-**Limit.** In the open the game draws a veil itself over the traced image. 8-1's city is seen through a portal, where
-the traced image replaces the game's portal view, so there the veil is missing: the city is clear where the game has
-its haze. Showing it needs blended (not additive) layers on the camera and portal rays; not done.
+**Behind a portal: the veil pass (`t3/veil-haze`, 2026-11-18).** In the open the game draws a veil itself over the
+traced image. 8-1's city is seen through a portal (`Outside/15 -> 16`: the hotel is 800 m above the city), where the
+traced image replaces the game's portal view, so there the veil was missing. Now:
+
+- **Veil proxies** (`SceneProxies.Veils.cs`): each renderer with a veil material gets a proxy with only those
+  submeshes, `UltraRT/VeilProxy` materials (any-hit only, `UniqueAnyHitCalls`) and the transparent mask (0x10). No scene
+  ray sees them. The material is the game's: `_MainTex` x `_Color` x vertex colour, alpha x `_Opacity`, the SCROLLING
+  offset as the lava proxies'. Static-batched veils are skipped (none known). 8-1: 9 proxies, 6 in view at the window
+  (the three cloud layers, twice).
+- **The pass** (`Plugin.Veils.cs`, `VeilTrace.raytrace`, `VeilComposite.shader`): one more DispatchRays, at half the
+  screen's resolution (`veil.scale` 0.5), no jitter. Each pixel's camera ray follows the portals with the flags of
+  PathTrace's camera ray; if it crossed one, a second ray along the last segment (flag `ULTRART_PAYLOAD_VEILS`
+  0x02000000, cull opaque, skip closest hit) collects the layers in front of the surface: sum of colour x alpha, sum
+  of alpha, product of (1 - alpha). Colour = the alpha-weighted mean, cover = 1 - the product (order-independent: the
+  layers of one veil are alike). A fullscreen pass blends it over the composite in display space, as the game blends,
+  right after the fog pass and before the game's transparents: out = image x a + rgb. Pixels not seen through a portal
+  are left alone (the game draws the layers there).
+- **Fog behind portals**, in the same pass. The fog pass (`VolumetricsComposite.shader`, pass 0) works from the game's
+  depth, which ends at the portal's plane, so nothing behind a portal had the game's distance fog. The pass adds the
+  rest: with v0 the fog pass's visibility (to the portal) and v1 the game's for the whole path (view depth), x v1 / v0
+  and + G (1 - v1) - F (1 - v0) v1 / v0. G is the portal's own fog where it has one (`Portal.enableOverrideFog`: the
+  game renders the enter side's view with the Enter values, `NativePortalScene`; start and end are linear), else the
+  level's F. `PortalPath.first` (new) is the first portal side's index; `_VeilPortalFog` has two rows per side. A
+  second portal's override on the same path is not followed. The sky gets no fog. The portal side log line now prints
+  a fog override.
+- **When it runs**: relight, pt-dn, pathtrace (not hybrid, not the debug views), and only with a veil proxy in the RTAS,
+  or with a portal side in the RTAS and fog that can matter: a portal with its own fog, exponential fog, or linear fog
+  ending within `veil.fogOnlyWithin` (20 km). No portal and no veil: no dispatch.
+- **Settings** (bench prefix `veil`): `enabled` (`-ultrart-noveils`), `gain` 1 (colour), `cover` 0.6, `fog` 1, `scale`
+  0.5, `fogOnlyWithin`, `skip` (material name parts), `everywhere` (debug). `cover` 0.6 is by eye: at 1 (the
+  material's own alpha) the wisps read about twice as dense as the game's in 8-1; why is not known (both
+  `FraudCity_Clouds` and `FraudCity_Clouds (1)` are active and in the same place).
+
+**Result in 8-1** (`bench/suites/veil-haze.json`, tour stop "Busted Hotel Rooms"; sheet
+`bench/results/review/veil-haze/8-1.png`: the game, pathtrace, scale 1, cover 1, pass off, relight): the white wisps
+are over the city in pathtrace and relight, absent with the pass off; half resolution is not told from full.
+The city still does not look like the game's, and that is not haze: the window's portal has the level's own fog
+(blue, linear, 0 to 5000 m), a few percent at the city's distance. The game draws the city flat, with violet streets
+and violet shaded walls; the traced image lights it with the sun and casts shadows. The city also looks more
+magnified through the portal in the traced image than in the game's (not looked into). Neither is changed here.
+
+**Cost** (`bench/suites/veil-perf.json`, the recorded 8-3 route, pathtrace 1440p, `-Perf` exclusive, one run each on
+2026-11-18; 8-3's fog is linear 0 to 400 m, so the pass runs for the fog all along):
+
+| | frame ms | GPU total ms |
+|---|---|---|
+| `veil.enabled=0` | 11.91 | 5.30 |
+| `veil.scale=1` | 12.29 | 6.10 |
+| `veil.scale=0.5` (default) | 12.10 | 5.59 |
+
++0.19 ms per frame (+0.29 ms GPU) at the default. One run per row, so read it as "0.2 to 0.4 ms".
+
+**HDR output**: the pass blends on the SDR image; the gain map (docs/hdr.md) is not changed, so a bright surface behind
+a veil keeps its gain under the veil.
 
 `bench/suites/sky-8-1.json` is the check. `-ultrart-viewprobe` now also works in a tour (once per view, 2 km, 80
 renderers), but a static batch's bounds put most of a level at distance 0, so a far backdrop is easier to find in the

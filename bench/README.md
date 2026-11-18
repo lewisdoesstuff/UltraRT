@@ -103,6 +103,7 @@ against the game's frames (docs/lighting-overrides.md, "Scoreboard").
 | `revolver` | the held revolver fires as the player fires it (`Revolver.Shoot`): beam from the camera with the barrel as its start point, muzzle flash at the barrel, the beam's muzzle light, hit sparks, recoil animation and FOV kick. Without the revolver out: the beam alone, starting at the revolver's barrel |
 | `revolverbeam` | only the beam (as before 2026-11-15, but starting at the barrel instead of a fixed point right of the camera): no recoil, no FOV kick |
 | `explosion`, `superexplosion` | `DefaultReferenceManager`'s explosion, made harmless |
+| `enemy:<EnemyType>` (`enemy:Drone`, `enemy:Swordsmachine`, ...) | a copy of one of the level's own enemies of that type, standing `Distance` in front of the camera and facing it; once per level load, further kinds beside it. Idle with `Enemies` "blind". The level must contain the type (`-Extra "-ultrart-enemy-survey"` writes `enemies_<scene>.txt` with the types per level). A `tour` scenario runs its `Effects` at each view |
 | `projectile` | the enemy orb, flying away from the camera |
 | `fire`, `firesimple` | a pooled flame on the floor ahead, with its light switched on as `Flammable` does / the variant without a light |
 | `bloodstain` | writes 9 blood stains straight into the game's stain buffer, on the floor and walls ahead (as a splatter's drops do when they land): fresh stains for the wet-blood look (docs/vfx.md) |

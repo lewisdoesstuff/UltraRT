@@ -1,0 +1,67 @@
+{
+  "Name": "flame-driven",
+  "Note": "flame-driven lights (fx.flameDriven) against the game's torch lights: the tour stops with torches in 1-1, 1-2, 4-3",
+  "Scenarios": [
+    {
+      "Name": "1-1 flames",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0,
+        "Only": [
+          2,
+          4
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace+fx.flameDriven=0",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "1-2 flames",
+      "Scene": "Level 1-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0,
+        "Only": [
+          3
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace+fx.flameDriven=0",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "4-3 flames",
+      "Scene": "Level 4-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace+fx.flameDriven=0",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

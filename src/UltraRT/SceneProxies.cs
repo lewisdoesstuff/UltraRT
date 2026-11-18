@@ -290,6 +290,7 @@ namespace UltraRT
             LogDisplacementInventory();
             LogScrolling();
             LogVeils();
+            LogVeilProxies();
             LogTransparents();
             LogMirrorSurfaces();
             _log.LogInfo($"Material maps ({MaterialMaps.Settings}): {Maps.Bound} proxy materials bound, {Maps.Missing} without maps, " +
@@ -487,6 +488,7 @@ namespace UltraRT
             var mats = r.sharedMaterials;
             bool transparent = TryAddTransparent(r, mesh); // water/glass submeshes: a separate proxy (SceneProxies.Transparent.cs)
             transparent |= TryAddLava(r, mesh); // lava/acid submeshes: an emissive proxy (SceneProxies.Lava.cs)
+            transparent |= TryAddVeil(r, mesh); // blended veils: any-hit proxies for the veil pass (SceneProxies.Veils.cs)
             // Static-batched water/glass/blood: slots of the static groups, like opaque submeshes (StaticGroups.cs).
             bool staticTransparent = r.isPartOfStaticBatch && TransparentCandidate(r, mats);
             if (!AnyTraceable(mats) && !staticTransparent) { if (!transparent) stats.SkippedMaterial++; return; }
@@ -1403,6 +1405,7 @@ namespace UltraRT
             Motion.Dispose();
             DisposeTransparents();
             DisposeLava();
+            DisposeVeils();
             DisposeSync();
             DisposeDisplaced();
             _dynamic.Clear();

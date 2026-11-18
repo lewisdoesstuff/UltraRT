@@ -269,6 +269,66 @@ Candidates are scored by strength x size / (1 + d²/25), with a 1.5x bonus for l
 
 When a game light sits on a flame sprite or particle system (a torch FireSprite on its Fire light, or a pooled Fire), the flame drives that light. Its packed intensity is multiplied by (the flame's brightness x radius²) / its running mean over about 1 s, clamped to 0.65 to 1.35. At most 16 such flames near the camera are measured, every frame.
 
+### Flame-driven lights (2026-11-18, `t3/emissive-all`, on by default)
+
+No flame is an emitting surface: torches, candles, braziers and lanterns with a flame are a sprite or a particle system
+next to one of the game's point lights (986 of the 3,011 fixture lights; docs/lighting-overrides.md, "Handover"). With
+`flameDriven` the flame that already drives the flicker also places and shapes that light:
+
+- the light moves to the flame's centre (smoothed over a few frames: particle bounds breathe) and becomes a **sphere
+  area light** with radius `flameRadius` 0.45 x the flame's bounds radius, clamped to [0.05, `flameMaxRadius` 0.6] m;
+- its colour takes `flameHue` 0.15 of the flame's own hue at the game light's luminance;
+- its strength is `flameGain` 0.5 x the game light's (with its class policy): the game puts the light inside the
+  torch's cup, which shadows most of the room from it; the flame above the rim does not;
+- it flickers with the flame as before, over a wider range (`flameFlickerRange` 0.5 against `flickerRange` 0.35).
+
+Only a plain point light is driven (not a spot, not a light a level file already made an area light), and only while
+its flame is one of the `MaxFlickers` (48, was 16) flames tracked near the camera; otherwise the game light stays as it
+is. Bench: `fx.flameDriven=0` gives the old lights.
+
+Measured on the torch stops of 1-1, 1-2 and 4-3 (`bench/suites/flame-driven.json`, run `20261118-153442`, 12 views,
+medians against the game's frame):
+
+| | hi% (game 3.3) | p95 | chroma | contrast | dark delta |
+|---|---|---|---|---|---|
+| game lights (`fx.flameDriven=0`) | 7.2 | x1.20 | x1.47 | x0.73 | +5.8 |
+| flame-driven | 5.2 | x1.08 | x1.32 | x0.72 | +5.7 |
+
+4-3's brazier room: highlights 7.2 % -> 0.9 % (the game 1.0 %), p95 x1.65 -> x1.14. The first try (gain 1, hue 0.6)
+turned the 1-1 and 1-2 torch rooms saturated orange-red; gain 0.35 read at the game's level (p95 x1.09 on that run's
+views) and under the punch target. **The wing-shaped shadows of 1-1's torch cups are gone** (the light is above the
+rim and as large as the flame; `bench/results/review/emissive-all/flames-1-1-wings.jpg`, first row). The 1-1 cup rooms
+are more orange than with the old lights (yellow); the game's own frame is orange-brown there.
+
+Not covered: a flame farther away than the tracked 48 keeps the game's light; candle piles are handed over to their
+texture (the handover rule), not driven.
+
+### Billboards in the emissive table (the literal version, tested 2026-11-18: no)
+
+`fx.flameBillboards=1` (one-sided) or `2` (two-sided), off by default: per flame on a game light, a camera-facing
+square of the flame's size joins the emissive triangle table with the light's output, and the light is off
+(`Plugin.FlameQuads.cs`). Run `20261118-153718_flame-quads` (1-1 stop 2, 4-3 stop 0; sheet `flame-quads.png`):
+
+| | hi% (game 2.7) | p95 | chroma | contrast | dark delta |
+|---|---|---|---|---|---|
+| flame-driven | 5.5 | x1.37 | x1.65 | x0.86 | +19.5 |
+| squares, one-sided | 3.7 | x1.22 | x1.88 | x0.69 | +35.3 |
+| squares, two-sided | 7.6 | x1.45 | x1.94 | x0.79 | +35.0 |
+
+It fails, on four counts:
+
+1. **One-sided**: the square lights the camera's side only. The wall behind a 1-1 torch cup, which the flame should
+   light most, is unlit (highlights 13 % -> 3.6 % in the cup view), and what is lit changes as the view turns.
+2. **Two-sided** fixes the back but the light still turns with the camera: a wall edge-on to the square gets nothing.
+3. **No reach**: an emitter has no range, so the flame lights rooms the game's light never reached (4-3: dark end
+   +35 against +19.5, the corridor behind the brazier room turns red). The handover has the same property; for lamps
+   it was calibrated per rule, for a torch every room would need it.
+4. **Table churn**: the table is built once; a flame that starts being tracked later is not in it (1 square per
+   build in both levels, with several torches in view) until the next rebuild, and a rebuild per new flame resets the
+   light history. The owner matrices themselves are cheap (one 48-byte write per square and frame).
+
+The switch stays for comparison; nothing ships on it.
+
 ### Viewmodel effects
 Emitters on the viewmodel layer (13) never become virtual lights: a held item's flame (4-3's torch) is drawn by the HUD
 camera at the hand, and its own Light already lights the scene from the player (`Torch.Update`). The 4-3 torch flame
@@ -277,6 +337,67 @@ used to add a second light (I 1.0) at the hand.
 The 5 s log line also names the flames driving flicker (`flicker now: Sprite 'FireSprite'/'Fire' r 0.42 -> light
 'Fire'`). The 8-2 standing-lamp "flicker" (user report) was not this: no emitter sits on that light, and the burst is the
 same with `fx.flicker=0` (bench variant target `fx`); see docs/relight.md, "Lamp shades".
+
+## Enemy glows (2026-11-18, `t3/emissive-all`)
+
+The user: "glowing parts on enemies would also be great!" What the enemies have, from a survey of eight levels
+(`-ultrart-enemy-survey` writes `enemies_<scene>.txt`: renderers, materials, lights per enemy type;
+`bench/suites/enemy-survey.json`):
+
+| Enemy | Drawn as | Glowing part | Now |
+|---|---|---|---|
+| filth, stray, schism, soldier | one skinned mesh, one unlit texture (`ENEMY`, no glow map), no light | none: flesh, bone and blood. A chroma mask finds only the blood | nothing to carry |
+| drone | two plain meshes, unlit texture, no light | the magenta eye and visor stripes, painted | **emitter rule** `enemy: drone eye` (glow 2, chroma 0.7): its triangles are in the emissive table |
+| Malicious Face | skinned, vertex-lit grey texture, no light | none at rest (its charge and beam are effects with their own lights) | nothing to carry |
+| Swordsmachine | skinned body with a glow map, skinned sword, no light | the blade (painted); the "Tundra" body's glow map has no texel above the table's minimum, "Agony" has | **glow light** on the blade's bone (rule `enemy: Swordsmachine sword`, chroma 0.5); the body's by its glow map where it emits |
+| cerberus | skinned, vertex-lit; the orb in its hand has one of the game's lights | the orb | the game's light kept (no double) |
+| Mindflayer | skinned, unlit; two of the game's lights | hands | the game's lights kept |
+| virtue, idol | meshes and skinned wings; one of the game's lights | the whole body | the game's light kept |
+| streetcleaner, stalker, sentry, hideous mass | skinned; game lights at the flame / can / eye; sentry, stalker and mass also have glow maps | | the game's lights kept |
+
+So of the eleven common enemies two had a glow that nothing carried (the drone's eye, the Swordsmachine's blade); four
+have none; five already carry a light of the game's at the glowing part.
+
+**How.** A skinned mesh cannot be in the emissive triangle table: its vertices only exist skinned, on the GPU
+(`CollectDynamicSubmeshes` skips skinned proxies). `Plugin.EnemyGlow.cs` instead sums what a skinned enemy submesh
+emits once per mesh and material in the bind pose (`EmissiveLights.Summarise`: the same extraction as the table's,
+so glow maps and emitter rules both count): total output, centre and facing weighted by luminance x area, spread.
+Each frame one **sphere light** per part follows the bone whose bind position is nearest to that centre, pushed out of
+the mesh along the glow's facing by its radius (spread, clamped to 0.05 to 0.5 m), with the strength that gives the
+glowing area's output (the handover's formula backwards, `eg.gain` 1, at most gamma 3). At most `eg.max` 12 lights, the
+nearest within `eg.maxDistance` 45 m. An enemy with one of the game's lights enabled on it (not its spawn effect) gets
+none (`eg.skipLit`). These are light proxies, not per-triangle sampling: one light per glowing submesh, so a body with
+glows at both ends is lit from between them. `-ultrart-noenemyglow` / `eg.enabled=0` turns them off. Log: `Enemy glow:
+<type> '<mesh>' / '<material>': output ..., spread ..., bone N` or `nothing emits`, once per mesh and material.
+
+**Chroma masks.** Emitter rules (`_rules.json`, "emitters") gained `"chroma": c` next to `"threshold"`: only texels whose
+chroma (max - min of rgb) passes `c` glow. A luminance threshold on the drone picked the highlights of its shell, not
+the eye. In the proxy material it is `_EmissiveThreshold` above 1 (1 + c); bench `lc.glow.TEXT=G,1.7` is chroma 0.7.
+The table reads masks from a 32 x 32 copy of the texture, so a small eye's output is approximate.
+
+**Bench.** Effects kind `enemy:<EnemyType>` (e.g. `enemy:Drone`) puts a copy of one of the level's own enemies of that
+type in front of the camera, facing it, once per level load; further kinds stand beside it. With the scenario's
+`Enemies` "blind" (the default) they idle. A tour runs a scenario's `Effects` at its first view.
+`bench/suites/enemy-glow.json`: 1-3 (Swordsmachine, drone, cerberus), 2-3 (soldier, stray, schism, filth, drone,
+Mindflayer), 5-1 (virtue, drone, Malicious Face, sentry); sheet `bench/results/review/emissive-all/enemy-glow.png`
+(the game, pathtrace without the rules and glow lights, pathtrace). Visible change: the drone's eye and its halo on
+the shell. The blade's light is not visible in the 1-3 frame.
+
+**Combat cost.** `bench/suites/enemy-glow-perf.json`, the recorded 0-2 combat run (filth, strays, Swordsmachines; so
+blade lights only), pathtrace at 1440p, one pair on 2026-11-18 (`-Perf`, exclusive):
+
+| | frame ms | GPU total ms | dispatch ms |
+|---|---|---|---|
+| `eg.enabled=0` | 8.45 | 5.59 | 2.85 |
+| on | 8.58 | 6.06 | 3.26 |
+
++0.13 ms per frame (1.5 %). The GPU columns differ by more (+0.47 ms) than a few sphere lights should cost; it is one
+pair, not a repeated measurement, so read it as "under half a millisecond". A level with drones adds their eye
+triangles to the emissive table, not lights (not measured in combat: no recorded run has drones).
+
+Not done: enemies outside the survey's eight levels (their materials with a glow map get a glow light automatically;
+painted glows need a rule each); the 6,054 enemy lights of the census are untouched (most are spawn effects, off
+except while an enemy spawns).
 
 ## Costs
 
@@ -318,7 +439,7 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | `-ultrart-effect-hybrid x` | `hybridWeight` | 1 | |
 | `-ultrart-effectsurvey` | | off | the survey; it costs milliseconds per frame, so never measure with it on |
 
-Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
+Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5, `flameBillboards` 0 (test). Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
 
 In the bench, `Scenario.Effects` (`bench/README.md`, `bench/suites/effects.json`) spawns revolver beams, explosions, projectiles or pooled fires in front of the camera, both periodically and right before each screenshot.
 

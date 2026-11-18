@@ -37,7 +37,7 @@ namespace UltraRT
                 m.SetFloat("_EmissiveIntensity", g.x);
                 m.SetFloat("_UseAlbedoAsEmissive", 1f);
                 m.SetFloat("_EmissiveMask", 0f);
-                m.SetFloat(IdEmissiveThreshold, Mathf.Clamp01(g.y));
+                m.SetFloat(IdEmissiveThreshold, Mathf.Clamp(g.y, 0f, 2f)); // above 1: a chroma mask (Proxy.shader)
                 _glowProxies.Add(m);
             }
             else if (had)
