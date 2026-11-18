@@ -1,0 +1,34 @@
+{
+  "Name": "portal-motion",
+  "Note": "8-3 route (8-3-b): the Shifting Hallway's portal crossings (76.65, 79.52 s; frames in motion right after) and held shots in the Shifting Arena (86, 88.5 s), with and without the portal history remap and moving-portal motion vectors (docs/portals.md, Temporal)",
+  "Scenarios": [
+    {
+      "Name": "8-3 route",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/8-3-b.json"
+      },
+      "KillEnemies": true,
+      "Modes": [
+        "off",
+        "pathtrace+plugin._portalRemap=0+plugin._portalMotion=0",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        76.44,
+        79.31,
+        86.0,
+        88.5
+      ],
+      "Motion": 96,
+      "MotionStrip": 8,
+      "MotionModes": [
+        "off",
+        "pathtrace+plugin._portalRemap=0+plugin._portalMotion=0",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.5
+    }
+  ]
+}

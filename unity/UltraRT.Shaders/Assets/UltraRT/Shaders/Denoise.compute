@@ -26,6 +26,9 @@ float4   _Dim;          // trace resolution: w, h, 1/w, 1/h
 float4   _CamPos;       // current camera world position
 float4x4 _InvViewProj;  // current (projection * worldToCamera)^-1
 float4x4 _PrevViewProj; // viewProj of the frame that wrote the history
+// This frame's world -> the history's world: identity, except on the frame the camera went through a portal (the
+// portal's travel matrix, inverted: docs/portals.md, "Temporal").
+float4x4 _HistoryXform;
 
 float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
@@ -281,6 +284,8 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
     bool searched = false;
     int2 reprojBase = 0;
     float4 reprojW = 0;
+    prevPos = mul(_HistoryXform, float4(prevPos, 1.0)).xyz;
+    float3 nH = mul((float3x3)_HistoryXform, n); // the normal in the history's world
     float4 pc = mul(_PrevViewProj, float4(prevPos, 1.0));
     if (_HistoryValid != 0 && pc.w > 1e-5)
     {
@@ -295,8 +300,8 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
             if (any(q < 0) || any(q >= dim)) continue;
             int4 g = _PrevGeo[q];
             if (!GeoValid(g) || GeoInstance(g) != inst7) continue;
-            if (dot(n, GeoNormal(g)) < _NormalTol) continue;
-            if (abs(dot(GeoPos(g) - prevPos, n)) > planeTol) continue;
+            if (dot(nH, GeoNormal(g)) < _NormalTol) continue;
+            if (abs(dot(GeoPos(g) - prevPos, nH)) > planeTol) continue;
             float w = (o.x ? f.x : 1.0 - f.x) * (o.y ? f.y : 1.0 - f.y);
             hColor += w * _HistColor[q].rgb;
             hMom += w * _PrevMoments[q].xyz;
@@ -321,8 +326,8 @@ void Temporal(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid
                 if (any(q < 0) || any(q >= dim)) continue;
                 int4 g = _PrevGeo[q];
                 if (!GeoValid(g) || GeoInstance(g) != inst7) continue;
-                if (dot(n, GeoNormal(g)) < _NormalTol) continue;
-                float pd = abs(dot(GeoPos(g) - prevPos, n));
+                if (dot(nH, GeoNormal(g)) < _NormalTol) continue;
+                float pd = abs(dot(GeoPos(g) - prevPos, nH));
                 if (pd > planeTol) continue;
                 float2 dq = (float2)q - pp;
                 float score = pd / planeTol + 0.5 * dot(dq, dq);

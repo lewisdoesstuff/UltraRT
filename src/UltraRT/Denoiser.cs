@@ -362,6 +362,11 @@ namespace UltraRT
         /// <summary>Forget all history (scene load, teleport, respawn, camera cut, shader reload).</summary>
         public void Reset() { _historyValid = false; Generation++; }
 
+        private Matrix4x4 _historyXform = Matrix4x4.identity;
+        /// <summary>The camera went through a portal: the next run looks its history up through this (this frame's
+        /// world -> the history's world), positions and normals (docs/portals.md, "Temporal").</summary>
+        public void RemapHistory(Matrix4x4 nowToOld) { _historyXform = nowToOld; }
+
         /// <summary>Set before Execute: the Composite kernel also writes the HDR bloom source into it (same size as the output;
         /// null = not wanted). Params: x weight of the tone-mapped-away energy, y weight of bright emission, zw emission threshold (docs/vfx.md).</summary>
         public RenderTexture BloomTarget;
@@ -406,6 +411,8 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdCamPos, inputs.camPos);
             cmd.SetComputeMatrixParam(cs, IdInvViewProj, inputs.invViewProj);
             cmd.SetComputeMatrixParam(cs, IdPrevViewProj, _historyValid ? _prevViewProj : inputs.viewProj);
+            cmd.SetComputeMatrixParam(cs, "_HistoryXform", _historyXform);
+            _historyXform = Matrix4x4.identity;
             cmd.SetComputeFloatParam(cs, IdMaxHistory, Mathf.Clamp(s.maxHistory, 1, 255));
             // Geometry weights: used by the a-trous passes and by Temporal's pre-blur.
             cmd.SetComputeFloatParam(cs, IdPhiNormal, s.phiNormal);

@@ -190,6 +190,9 @@ namespace UltraRT
 
         public void Reset() => _historyValid = false;
 
+        /// <summary>The camera went through a portal: last frame's view of this frame's world (docs/portals.md, "Temporal").</summary>
+        public void RemapHistory(Matrix4x4 nowToOld) { _prevViewProj = _prevViewProj * nowToOld; _demodUp?.RemapHistory(nowToOld); }
+
         /// <summary>A warm-up (NGX init and/or feature creation) runs on the native worker thread: don't evaluate.</summary>
         public bool Busy => !_disposed && _isBusy() != 0;
 

@@ -1248,7 +1248,9 @@ namespace UltraRT
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;
             SceneProxies.TraceMirrors = _rtMirrors;
+            SceneProxies.MovingPortalMotion = _portalMotion;
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
+            PortalCrossingRemap(); // the camera went through a portal: histories follow it (Plugin.PortalTemporal.cs)
             Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? (_playerRays & 15) | (_cineShowPlayer ? 16 : 0) : 0); // 16: third-person cinematic shots
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))
             {

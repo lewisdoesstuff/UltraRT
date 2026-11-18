@@ -338,10 +338,18 @@ void RayGenBody(bool full)
         g_PrimaryMotion = UnpackMotion(motion); // ReSTIR temporal reuse reprojects pos + motion
         if (path.hops > 0u)
         {
-            g_PrimaryMotion = PortalToVirtual(path, g_PrimaryMotion);
+            float3 virtualPos = _CamPos.xyz + camDir * tTotal;
+            if (path.moved)
+            {
+                // A portal on the path moved: the camera-side image of the hit moved with it. Where the camera saw this
+                // point last frame = last frame's path transform, inverted, of the point then (hit + its own motion).
+                float3 hitPrev = ray.Origin + ray.Direction * p.t + g_PrimaryMotion;
+                g_PrimaryMotion = mul(hitPrev - path.prevOff, path.prevRot) - virtualPos;
+            }
+            else g_PrimaryMotion = PortalToVirtual(path, g_PrimaryMotion);
             motion = PackMotion(g_PrimaryMotion);
             g_PrimaryVirtual = true; // ReSTIR: reproject and store the camera-side point (UltraRTLights.hlsl)
-            g_PrimaryVirtualPos = _CamPos.xyz + camDir * tTotal;
+            g_PrimaryVirtualPos = virtualPos;
             g_PrimaryVirtualN = PortalToVirtual(path, nLight);
         }
 

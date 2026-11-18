@@ -86,6 +86,9 @@ namespace UltraRT
 
         public void Reset() => _historyValid = false;
 
+        /// <summary>The camera went through a portal: last frame's view of this frame's world (docs/portals.md, "Temporal").</summary>
+        public void RemapHistory(Matrix4x4 nowToOld) { _prevViewProj = _prevViewProj * nowToOld; }
+
         /// <param name="hybrid">Hybrid composite weights (dielectric specular is added on top of the game's colour).</param>
         /// <param name="debugView">0 none, 1 raw reflection, 2 filtered reflection, 3 specular contribution, 4 history length.</param>
         public void Execute(CommandBuffer cmd, in ReflectionInputs inp, ReflectionSettings s, bool hybrid, int debugView)

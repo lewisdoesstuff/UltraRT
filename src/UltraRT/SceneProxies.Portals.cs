@@ -61,6 +61,11 @@ namespace UltraRT
         private ComputeBuffer _portalBuffer;
         private Vector4[] _portalRows = new Vector4[3 * 16];
         private bool _portalRowsDirty = true;
+        // Last traced frame's rows (a moving portal's motion vectors: UltraRTPortals.hlsl, path.prevRot).
+        private ComputeBuffer _portalPrevBuffer;
+        private Vector4[] _portalRowsPrev = new Vector4[3 * 16];
+        private bool _portalPrevStale = true, _portalPrevDirty = true;
+        private static readonly int IdPortalsPrev = Shader.PropertyToID("_UltraRTPortalsPrev");
         private Mesh _portalQuad;
         private int _portalQuadFrame;
         /// <summary>
@@ -99,6 +104,14 @@ namespace UltraRT
         public void SyncPortals(bool enabled)
         {
             foreach (var s in _portalSideList) s.Seen = false;
+            if (_portalPrevStale)
+            {
+                // Rows changed last frame (or never copied): last frame's rows are the current ones, before this frame's sync.
+                if (_portalRowsPrev.Length != _portalRows.Length) _portalRowsPrev = new Vector4[_portalRows.Length];
+                System.Array.Copy(_portalRows, _portalRowsPrev, _portalRows.Length);
+                _portalPrevStale = false;
+                _portalPrevDirty = true;
+            }
             if (enabled && PortalShader != null && Rtas != null)
             {
                 var mgr = MonoSingleton.GetInstance(typeof(PortalManagerV2)) as PortalManagerV2; // never auto-creates one
@@ -216,8 +229,19 @@ namespace UltraRT
             if (travel != s.Travel)
             {
                 s.Travel = travel;
+                bool first = s.Travel == default(Matrix4x4);
                 int need = (s.Index + 1) * 3;
                 if (_portalRows.Length < need) System.Array.Resize(ref _portalRows, Mathf.NextPowerOfTwo(need));
+                if (_portalRowsPrev.Length < _portalRows.Length) System.Array.Resize(ref _portalRowsPrev, _portalRows.Length);
+                if (first)
+                {
+                    // A new side did not move.
+                    _portalRowsPrev[s.Index * 3] = travel.GetRow(0);
+                    _portalRowsPrev[s.Index * 3 + 1] = travel.GetRow(1);
+                    _portalRowsPrev[s.Index * 3 + 2] = travel.GetRow(2);
+                    _portalPrevDirty = true;
+                }
+                else { _portalPrevStale = true; PortalMoves++; }
                 _portalRows[s.Index * 3] = travel.GetRow(0);
                 _portalRows[s.Index * 3 + 1] = travel.GetRow(1);
                 _portalRows[s.Index * 3 + 2] = travel.GetRow(2);
@@ -277,6 +301,54 @@ namespace UltraRT
             return any;
         }
 
+        /// <summary>Motion vectors for what is seen through a moving portal (bench plugin._portalMotion=0: off, as before).</summary>
+        public static bool MovingPortalMotion = true;
+        /// <summary>Travel matrix changes of existing sides, counted (diagnostics).</summary>
+        public int PortalMoves;
+        private int _portalJumpLogs;
+        /// <summary>Log every camera jump near a portal with what each side would make of it (bench plugin._portalJumpDiag=1).</summary>
+        public static bool PortalJumpDiag;
+
+        /// <summary>
+        /// Did the camera go through a portal between two traced frames? True if it moved further than a step and one
+        /// active side's travel matrix takes the old position (close) to the new one: <paramref name="travel"/> is that
+        /// matrix (last frame's world -> this frame's, for everything the camera saw).
+        /// </summary>
+        public bool PortalCrossing(Vector3 prevCam, Vector3 cam, out Matrix4x4 travel, out string name)
+        {
+            travel = Matrix4x4.identity;
+            name = null;
+            float jump = (cam - prevCam).magnitude;
+            if (jump < 1.5f) return false;
+            // Closer to the new position than the old one was (a replayed path lands metres off a moving exit).
+            float best = Mathf.Min(0.9f * jump, 12f);
+            bool found = false;
+            foreach (var s in _portalSideList)
+            {
+                if (!s.Seen || s.Portal == null || s.Portal.mirror) continue;
+                // The camera was at the side (within a step of its plane, inside its rectangle with a margin).
+                Vector3 local = s.Pose.inverse.MultiplyPoint3x4(prevCam); // unit quad space; z in metres (scale 1)
+                if (Mathf.Abs(local.x) > 0.75f || Mathf.Abs(local.y) > 0.75f || Mathf.Abs(local.z) > 8f) continue;
+                float d = (s.Travel.MultiplyPoint3x4(prevCam) - cam).magnitude;
+                if (d < best) { best = d; travel = s.Travel; name = s.Proxy != null ? s.Proxy.name : "?"; found = true; }
+            }
+            if (PortalJumpDiag && _portalJumpLogs < 24)
+            {
+                // A jump no side explains: the nearest sides, for the log.
+                var parts = new List<string>();
+                foreach (var s in _portalSideList)
+                {
+                    if (!s.Seen || s.Portal == null || s.Portal.mirror) continue;
+                    Vector3 local = s.Pose.inverse.MultiplyPoint3x4(prevCam);
+                    if (Mathf.Abs(local.z) > 30f || Mathf.Abs(local.x) > 3f || Mathf.Abs(local.y) > 3f) continue;
+                    parts.Add($"{(s.Proxy != null ? s.Proxy.name : "?")} local ({local.x:F2}, {local.y:F2}, {local.z:F1}) lands {(s.Travel.MultiplyPoint3x4(prevCam) - cam).magnitude:F1} m off");
+                }
+                if (parts.Count > 0 && _portalJumpLogs++ < 24)
+                    _log.LogInfo($"Portal crossing: a {jump:F1} m camera jump from {prevCam:F1} to {cam:F1} ({(found ? "matched " + name : "no match")}); sides: {string.Join("; ", parts)}");
+            }
+            return found;
+        }
+
         private void BindPortalBuffer()
         {
             if (_portalBuffer == null || _portalBuffer.count < _portalRows.Length)
@@ -291,6 +363,18 @@ namespace UltraRT
                 _portalRowsDirty = false;
             }
             Shader.SetGlobalBuffer(IdPortals, _portalBuffer);
+            if (_portalPrevBuffer == null || _portalPrevBuffer.count < _portalRowsPrev.Length)
+            {
+                _portalPrevBuffer?.Release();
+                _portalPrevBuffer = new ComputeBuffer(_portalRowsPrev.Length, 16, ComputeBufferType.Structured) { name = "UltraRT Portals Prev" };
+                _portalPrevDirty = true;
+            }
+            if (_portalPrevDirty)
+            {
+                _portalPrevBuffer.SetData(_portalRowsPrev);
+                _portalPrevDirty = false;
+            }
+            Shader.SetGlobalBuffer(IdPortalsPrev, MovingPortalMotion ? _portalPrevBuffer : _portalBuffer);
             Shader.SetGlobalInt(IdPortalHops, Mathf.Clamp(PortalHops, 0, 8));
             Shader.SetGlobalInt(IdMirrors, TraceMirrors ? 1 : 0);
         }
@@ -314,6 +398,9 @@ namespace UltraRT
             _portalSides.Clear();
             _portalBuffer?.Release();
             _portalBuffer = null;
+            _portalPrevBuffer?.Release();
+            _portalPrevBuffer = null;
+            _portalPrevStale = _portalPrevDirty = true;
             if (_portalQuad != null) Object.Destroy(_portalQuad);
             _portalQuad = null;
         }
