@@ -89,6 +89,8 @@ exception too"), and the file went with it. Bench variant `ae.levelOverride=0` s
 keeps a user file's block when it saves; the fit's output file does not carry one.
 The block also takes `"followGame": F` (2026-11-18, "Punch on every level"): the level's exposure follows the game
 downwards (0.9 beyond 0.1 EV at 1).
+And `"followGameUp": F` (2026-11-18, `t3/level-look-3`): the exposure follows the game upwards as well (see
+"Playtest of 2026-11-18" below).
 
 ## Classes and rules (2026-11-17)
 
@@ -818,6 +820,52 @@ back at x1 (the entries are gone). x2 on P-2 would be a taste call (more contras
 
 Sheets: `bench/results/review/dark-7-3/` (`trailer-poses.jpg`: first master / ships at both shots; the candidate
 rounds; `tour-7-3.png`).
+
+## Playtest of 2026-11-18: level look and stray lights (`t3/level-look-3`)
+
+The user's playtest of master bc987a8 (HDR on), items 4 and 5. Poses: `bench/suites/user-1118.json`; the suite for
+this section is `bench/suites/look3.json`. Sheets (game | now | without the level's exposure block where there is
+one): `bench/results/review/look3/` (`final_0.png`, `final_1.png`; the diagnostics are `diag_*`, `d2_*`, `p_*`,
+`q_*`). Numbers are the frame's mean luma (0-255), pathtrace, SDR capture, run `20261118-222958_look3_alt` unless
+said.
+
+| Item | Cause | Change | Game | Before | Now |
+|---|---|---|---|---|---|
+| "Starting room" too dark and desaturated (every level's `FirstRoom`; the user's shot is 1-1) | its four orange lights were off since 2026-11-17 (the wall strips carry the room); the strips are pale yellow, so the red floor lost its colour | rule `start room: under the entrance shaft` (`FirstRoom/Room/Point Light`, where the player lands), class `prefab:firstroomshaft` x0.6. The user's own suggestion. x1 is too much (72.6); all four lights at x1: 83.8, at x0.3: 41.8 and still pale | 50.2 | 37.7 | 48.8 (1-1), 47.7 (2-1) |
+| 1-1 pose 1: "something casts light onto the shop terminals" | the terminal's own light (`Shop/Point Light`, white, range 2 m, intensity 15) sits on its marquee, which burnt out | class `prefab:shop` x0.25, `reach` 0 (it had no policy). Every level's shop | 35.0 | 33.2, the marquee white | 36.2, the marquee lit, not white |
+| 1-4 pose 2: "a random light in the ground" | three white spots (`2 - Bridge/2 Nonstuff/Spot Light`, `(1)`, `(2)`) sit at the bridge's floor: in the game they turn the whole floor white, traced they are a blob each | per-light entries in `Level 1-4.json`: `offset` +7 m, x3 | 116 | 103, blobs | 81, no blob. The floor is grey-white, not the game's burnt white: auto exposure holds it at the key |
+| 1-4 street lamps "dim overall", less pool on the ground | handed over to their glass (`t3/emissive-all`), a lamp lights sideways and its own base shades the ground | `keep` 0.35 on 1-4's `street lamp bulbs` rule (a hybrid: 35 % stays a light) | pose 1: 31.9 | 39.9, no pool | 43.9, a pool under each lamp (run `20261118-221749_look3-prop_alt`) |
+| 8-2 pose 2: the night street too bright | the street is lit by the sky alone (`lc.solo=none`: 40.4 against 49.7), and the exposure sat well above the game | `"followGame": 0.75` in `Level 8-2.json` | 27.1 | 48.2 | 34.5. At 1: 30.1, but the offices (pose 4, "about right" for the user) go 75 -> 58; at 0.75: 63 (game 54) |
+| 8-2 pose 3: "a light that doesn't cast a shadow" | best reading: the 56 lamps over doors (`DoorLight/Point Light`, and a second point light floating 2 m in front) were classified as fills, not fixtures | rule `door lights` in `Level 8-2.json`: handed to their `Ceiling_Light` panel (42 handed, 11 without a part) | 48.3 | 50.5 | 43.0 (run `20261118-222308_look3-prop2`). **Not confirmed with the user which light was meant** |
+| 7-1 pose 1: the white haze "much denser with RT off" | not the fog (it is applied, and `vol.strength=0` changes nothing): the traced start area is 1 EV under the game. The game match lifts by 0.75 beyond 0.35 EV, does not count the game's fog in full, and stops at +1 EV | new `"followGameUp": 1` in `Level 7-1.json` | 198.5 | 145.0 | 172.2 |
+| 7-1 pose 6: "the water is too bright" | the water is vertex lit by the game's own lights (white, as the game's hall), and the traced hall around it was grey: 76 against the game's 160 | the same `followGameUp`: the hall comes up to the water. Pose 4: 72.6 -> 130.6 (game 186.6); with the variants below, pose 6: 76.4 -> 121.9, pose 3: 76.7 -> 138.0 (game 173.6) | | | |
+| 2-4 pose 3: the red light RT shows and the game does not | | kept (user: "looks phenomenally good") | | | |
+
+**`followGameUp`** (`"exposure": { "followGameUp": F }`, 0-1; `AutoExposureSettings.levelFollowGameUp`): at 1 the game
+match's up side is 1 beyond 0.1 EV (default 0.75 beyond 0.35), the game's fog counts in full in the game's meter
+(default 0.3) and the exposure may rise to +2 EV (default +1). For levels the game shows white. It only acts where the
+game is brighter, so 7-1's black halls keep their `followGame`. Bench `ae.levelOverride=0` ignores it. The variants
+behind it: `ae.gameMatchUp=1+ae.gameMatchBand=0.1+ae.gameMatchFog=1+ae.maxEV=2`.
+
+**Tried and dropped**
+- 7-1's water as a material problem: a pass that multiplied the game's water colour by the traced light at its
+  surface. Every water material in the game is `VERTEX_LIGHTING` (the proxy log now says so), so there is no
+  fullbright water to correct; the pass never ran and is not in the code.
+- `plugin._skyScale` at 7-1's start: no change (auto exposure takes it back).
+- 8-2's night by the street lamps or the fills: no change (`lc.class.fill=0`: 49.3).
+
+**Open**
+- 6-2 pose 4, Gabriel's wings do not light the ground: an emitter rule on `GabrielWings` (`lc.glow.GabrielWings=2`)
+  removed the wings from the picture and left a red disc beside him (`q_6-2_pose_4.png`). Not shipped. It needs the
+  skinned glow path (`Plugin.EnemyGlow.cs`) taught about a transparent wing material.
+- 0-1 pose 2, the cogs "don't look properly lit": with every level light off the cog is still flat orange-brown while
+  the walls are black (`q_0-1_pose_2.png`), so it is not a light: the cog's material is shown without lighting. With
+  the materials work (`t3/unlit-lit`).
+- 1-4's bridge floor is grey-white, not white (above).
+- The audit's "emitter masks for unlit lamp parts" (`Light` bulbs, `Basic Color - White NoFog` domes, `GlowingShroom`,
+  `ComputerScreen*`): all four are already parts of handover rules (`street lamp bulbs`, `standing lamps`,
+  `glowing orbs`, `dome lamps`, `glowing mushrooms`, `computer screens`). What is left is a part with no light next
+  to it (it glows for the camera and lights nothing); not counted yet.
 
 ## Handover: a fixture's glowing part carries its light (2026-11-18, `t3/emissive-all`)
 

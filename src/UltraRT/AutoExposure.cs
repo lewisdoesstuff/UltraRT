@@ -62,6 +62,17 @@ namespace UltraRT
         public float levelFollowGame = 0f;
         public const float FollowGameMatchDown = 0.9f, FollowGameMatchBandDown = 0.1f;
         private float Follow => levelOverride ? Mathf.Clamp01(levelFollowGame) : 0f;
+        /// <summary>The current level's "follow the game upwards" ("exposure": { "followGameUp": F }, 0-1): at 1 an image
+        /// darker than the game is brought all the way up to it (match 1 beyond 0.1 EV, the game's fog counted in full,
+        /// up to +2 EV). For levels the game shows white (7-1's start and marble halls: the traced halls came out grey,
+        /// 1 EV and more under the game; user 2026-11-18). Ignored with <see cref="levelOverride"/> off.</summary>
+        public float levelFollowGameUp = 0f;
+        public const float FollowUpBand = 0.1f, FollowUpMaxEV = 2f;
+        private float FollowUp => levelOverride ? Mathf.Clamp01(levelFollowGameUp) : 0f;
+        public float EffectiveGameMatchUp => Mathf.Lerp(gameMatchUp, Mathf.Max(gameMatchUp, 1f), FollowUp);
+        public float EffectiveGameMatchBand => Mathf.Lerp(gameMatchBand, Mathf.Min(gameMatchBand, FollowUpBand), FollowUp);
+        public float EffectiveGameMatchFog => Mathf.Lerp(gameMatchFog, 1f, FollowUp);
+        public float EffectiveMaxEV => Mathf.Lerp(maxEV, Mathf.Max(maxEV, FollowUpMaxEV), FollowUp);
         public float EffectiveGameMatchDown
         {
             get
@@ -308,14 +319,14 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kHistogram, IdGameColor, match ? GameColor : Texture2D.blackTexture);
             cmd.SetComputeVectorParam(cs, IdGameMap, match ? GameMap : Vector4.zero);
             cmd.SetComputeVectorParam(cs, IdGameFog, GameFog);
-            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.EffectiveGameMatchDown) : 0f,
-                Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
+            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.EffectiveGameMatchUp) : 0f, match ? Mathf.Max(0f, s.EffectiveGameMatchDown) : 0f,
+                Mathf.Max(0f, s.EffectiveGameMatchBand), Mathf.Clamp01(s.EffectiveGameMatchFog)));
             cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), FitTrace != null ? 1f : 0f));
             // Every second pixel in x and y: 16x16 threads cover 32x32 pixels.
             cmd.DispatchCompute(cs, _kHistogram, Mathf.CeilToInt(w / 32f), Mathf.CeilToInt(h / 32f), 1);
 
-            float minEV = Mathf.Min(s.minEV, s.maxEV);
-            cmd.SetComputeVectorParam(cs, IdParams0, new Vector4(Mathf.Log(Mathf.Max(s.EffectiveKey, 1e-4f), 2f), minEV, s.maxEV, Mathf.Clamp(dt, 0f, 0.25f)));
+            float minEV = Mathf.Min(s.minEV, s.EffectiveMaxEV);
+            cmd.SetComputeVectorParam(cs, IdParams0, new Vector4(Mathf.Log(Mathf.Max(s.EffectiveKey, 1e-4f), 2f), minEV, s.EffectiveMaxEV, Mathf.Clamp(dt, 0f, 0.25f)));
             cmd.SetComputeVectorParam(cs, IdParams1, new Vector4(Mathf.Max(0f, s.speedUp), Mathf.Max(0f, s.speedDown),
                 Mathf.Clamp01(s.lowFraction), Mathf.Clamp(s.highFraction, Mathf.Clamp01(s.lowFraction) + 0.01f, 1f)));
             // A measurement needs at least 2% of the sampled pixels (the rest is sky or fullbright).
@@ -326,8 +337,8 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdParams3, new Vector4(Mathf.Clamp01(s.EffectiveUpStrength), Mathf.Max(0f, s.deadBand),
                 Mathf.Max(0f, s.meterSpeed), settling ? Mathf.Max(0f, s.settleSpeed) : 0f));
             cmd.SetComputeVectorParam(cs, IdParams4, new Vector4(Mathf.Log(Mathf.Clamp(s.keyLow, 1e-4f, Mathf.Max(s.EffectiveKey, 1e-4f)), 2f), Mathf.Max(0f, s.EffectiveGameMatchBandDown), 0, 0));
-            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.gameMatchUp) : 0f, match ? Mathf.Max(0f, s.EffectiveGameMatchDown) : 0f,
-                Mathf.Max(0f, s.gameMatchBand), Mathf.Clamp01(s.gameMatchFog)));
+            cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.EffectiveGameMatchUp) : 0f, match ? Mathf.Max(0f, s.EffectiveGameMatchDown) : 0f,
+                Mathf.Max(0f, s.EffectiveGameMatchBand), Mathf.Clamp01(s.EffectiveGameMatchFog)));
             cmd.SetComputeVectorParam(cs, IdParams6, new Vector4(match ? Mathf.Max(0f, s.colorMatch) : 0f, Mathf.Max(0f, s.colorMatchBand), Mathf.Max(0f, s.colorMatchMax), FitTrace != null ? 1f : 0f));
             cmd.SetComputeBufferParam(cs, _kAdapt, IdHist, _hist);
             cmd.SetComputeBufferParam(cs, _kAdapt, IdExposure, _exposure);

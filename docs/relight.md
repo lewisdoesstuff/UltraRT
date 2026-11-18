@@ -151,6 +151,7 @@ doesn't apply on levels that are *supposed* to be dark, so we'd still probably w
 those", and: tone the auto exposure down when HDR is on.
 - The down side of the game match is off by default (`gameMatchDown` 0, was 0.4 beyond 0.35 EV; `-ultrart-ae-match
   0.75,0.4` brings it back). The up side (RT darker than the game) is unchanged.
+- A level the game shows white asks for the up side in full: `"exposure": { "followGameUp": F }` (7-1 since 2026-11-18; docs/lighting-overrides.md, "Playtest of 2026-11-18").
 - A level that is meant to be dark asks for the match in its light file: `"exposure": { "followGame": F }` (below;
   7-1 and 7-3 have it). It works on its own now; before, it only strengthened a down side that was on.
 - With HDR output active the key is x1.3 (0.45 -> 0.585; `-ultrart-ae-hdr-key F`, bench `ae.hdrKeyScale=1`): the

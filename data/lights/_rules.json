@@ -26,7 +26,7 @@
   "classes": {
     "prefab:firstroom": {
       "intensity": 0,
-      "note": "Replaced by the wall strips (emitters)."
+      "note": "Replaced by the wall strips (emitters), except the light under the entrance shaft (prefab:firstroomshaft)."
     },
     "prefab:finalroom": {
       "intensity": 0,
@@ -69,9 +69,25 @@
       "intensity": 2.5,
       "medium": 0.4,
       "note": "Punch: no further than in the game, x2.5 (2026-11-18, was x1.8), haze as before (medium 1/2.5)."
+    },
+    "prefab:firstroomshaft": {
+      "reach": 0,
+      "intensity": 0.6,
+      "note": "The orange light where the player lands, as in the game (x0.6: the strips carry the rest)."
+    },
+    "prefab:shop": {
+      "reach": 0,
+      "intensity": 0.25,
+      "note": "User, 2026-11-18 (1-1 pose 1): 'something casts light onto the shop terminals'. The terminal's own white light (range 2 m, intensity 15) sits on its marquee; at the game's strength the traced marquee burns out."
     }
   },
   "rules": [
+    {
+      "name": "start room: under the entrance shaft",
+      "path": "(^|/)[^/]*FirstRoom[^/]*/Room/Point Light$",
+      "class": "prefab:firstroomshaft",
+      "note": "User, 2026-11-18: the start room is too dark and desaturated with the strips alone; bring back the light under the entrance shaft."
+    },
     {
       "name": "start room",
       "path": "(^|/)[^/]*FirstRoom[^/]*/Room/((Pit|Hallway)[^/]*/)?Point Light[^/]*$",

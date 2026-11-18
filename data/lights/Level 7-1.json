@@ -4,7 +4,8 @@
   "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply, except: fixtures and the like at x1 and the exposure follows the game ('followGame'): the game keeps these halls near black, and both a boost and an exposure above the game turn them grey.",
   "exposure": {
     "followGame": 1,
-    "note": "The game keeps these halls near black with a few white lights: an exposure above the game turns the black walls grey."
+    "note": "The game keeps these halls near black with a few white lights: an exposure above the game turns the black walls grey. followGameUp (2026-11-18): the start area and the marble halls are white in the game and came out grey (1 EV and more under); the exposure follows the game upwards too.",
+    "followGameUp": 1
   },
   "classes": {
     "fixture": {

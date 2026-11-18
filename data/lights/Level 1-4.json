@@ -12,9 +12,10 @@
       "class": "fixture:lamp",
       "handover": {
         "part": "^(Light|LightPillar 5C)$",
-        "gain": 6
+        "gain": 6,
+        "keep": 0.35
       },
-      "note": "1-4: x3 on the global rule. At the global gain the lamp garden's walls read at p95 x0.62 of the game's (the pools behind the lamps were gone); x4 gave x1.22 and lifted the dark end (+18)."
+      "note": "1-4: x3 on the global rule. At the global gain the lamp garden's walls read at p95 x0.62 of the game's (the pools behind the lamps were gone); x4 gave x1.22 and lifted the dark end (+18). 2026-11-18 (user: 'more light pooling on the ground with RT off'): hybrid, 35 % of the light stays for the pool under the lamp (the glass alone lights sideways; its base shadows the ground)."
     },
     {
       "name": "glowing orbs",
@@ -30,6 +31,61 @@
       "note": "1-4: x3 on the global rule. At the global gain the lamp garden's walls read at p95 x0.62 of the game's (the pools behind the lamps were gone); x4 gave x1.22 and lifted the dark end (+18)."
     }
   ],
-  "lights": [],
+  "lights": [
+    {
+      "path": "2 - Bridge/2 Nonstuff/Spot Light",
+      "name": "Spot Light",
+      "pos": [
+        -13.0,
+        -14.0,
+        430.0
+      ],
+      "type": "spot",
+      "offset": [
+        0,
+        7,
+        0
+      ],
+      "source": "hand",
+      "note": "User, 2026-11-18 (1-4 pose 2): 'a random light in the ground'. The game's light sits at the bridge floor; traced, it is a white blob on the stone. Raised 7 m: a pool on the bridge instead.",
+      "intensity": 3.0
+    },
+    {
+      "path": "2 - Bridge/2 Nonstuff/Spot Light (1)",
+      "name": "Spot Light (1)",
+      "pos": [
+        13.0,
+        -14.0,
+        430.0
+      ],
+      "type": "spot",
+      "offset": [
+        0,
+        7,
+        0
+      ],
+      "source": "hand",
+      "note": "User, 2026-11-18 (1-4 pose 2): 'a random light in the ground'. The game's light sits at the bridge floor; traced, it is a white blob on the stone. Raised 7 m: a pool on the bridge instead.",
+      "intensity": 3.0
+    },
+    {
+      "path": "2 - Bridge/2 Nonstuff/Spot Light (2)",
+      "name": "Spot Light (2)",
+      "pos": [
+        0.0,
+        -14.0,
+        428.5
+      ],
+      "type": "spot",
+      "offset": [
+        0,
+        7,
+        0
+      ],
+      "source": "hand",
+      "note": "User, 2026-11-18 (1-4 pose 2): 'a random light in the ground'. The game's light sits at the bridge floor; traced, it is a white blob on the stone. Raised 7 m: a pool on the bridge instead.",
+      "intensity": 3.0
+    }
+  ],
   "added": []
 }

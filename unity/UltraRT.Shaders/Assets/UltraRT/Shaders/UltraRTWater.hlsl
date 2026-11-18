@@ -42,7 +42,7 @@ float3 WaterNormalBand(float3 n, float3 p, float viewDist, float footprint)
     {
         float k = 6.2831853 / waves[i].z;
         float omega = sqrt(9.81 * k) * 0.5; // slowed down: full speed looks frantic at this scale
-        float band = footprint > 0.0 ? saturate(waves[i].z / (4.0 * footprint) - 1.0) : 1.0;
+        float band = footprint > 0.0 ? saturate(waves[i].z / max(4.0 * footprint, 1e-6) - 1.0) : 1.0;
         g += waves[i].xy * (waves[i].w * band * cos(k * dot(waves[i].xy, uv) - omega * _UltraRTWater.y));
     }
     g *= 0.06 * strength;

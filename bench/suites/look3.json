@@ -1,0 +1,136 @@
+{
+ "Name": "look3",
+ "Note": "t3/level-look-3 (user's playtest of 2026-11-18): the start room's shaft light, the shop terminal, 1-4's bridge, 8-2 night and day (followGame 0.75), 7-1 (followGameUp). ae.levelOverride=0 = without the level's exposure block.",
+ "Scenarios": [
+  {
+   "Name": "1-1 start",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-1 pose 1",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-1-1.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "2-1 start",
+   "Scene": "Level 2-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-4 pose 2",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-2.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "8-2 pose 2",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-8-2-2.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+ae.levelOverride=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "8-2 pose 4",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-8-2-4.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+ae.levelOverride=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "7-1 pose 1",
+   "Scene": "Level 7-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-7-1-1.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+ae.levelOverride=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "7-1 pose 4",
+   "Scene": "Level 7-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-7-1-4.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+ae.levelOverride=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

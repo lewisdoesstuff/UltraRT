@@ -190,7 +190,7 @@ namespace UltraRT
             float opacity = src.HasProperty("_Opacity") ? src.GetFloat("_Opacity") : src.HasProperty("_OpacScale") ? src.GetFloat("_OpacScale") : 1f;
             m.SetFloat("_TransOpacity", opacity);
             if (kind == TransparentKind.Water && _transparentCache.Count < 64)
-                _log.LogInfo(System.FormattableString.Invariant($"Transparent proxy: water '{src.name}' colour {(src.HasProperty("_Color") ? src.GetColor("_Color") : Color.white)}, opacity {opacity:F2}, texture '{(m.mainTexture != null ? m.mainTexture.name : "-")}'"));
+                _log.LogInfo(System.FormattableString.Invariant($"Transparent proxy: water '{src.name}' colour {(src.HasProperty("_Color") ? src.GetColor("_Color") : Color.white)}, opacity {opacity:F2}, texture '{(m.mainTexture != null ? m.mainTexture.name : "-")}', {(src.IsKeywordEnabled("VERTEX_LIGHTING") ? "vertex lit" : "fullbright")}, keywords [{string.Join(" ", src.shaderKeywords)}]"));
             MaterialParams.Apply(m, TransparentClassifier.Params(kind, Transparents), null);
             m.SetFloat("_Transparent", (float)(int)kind); // pathtrace: paths reflect off it or pass through, tinted
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
