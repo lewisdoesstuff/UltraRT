@@ -416,6 +416,7 @@ namespace UltraRT
             UpdateShaftFakes(); // lamp cones: the game's fake cone meshes hide while ours draw (Plugin.Shafts.cs)
             UpdateParticles(); // lit particles (Plugin.Particles.cs)
             MaterialsUpdate(); // Ctrl+F1, _UltraRTDetail global
+            HdrTick(); // HDR display output: settings and log (Plugin.Hdr.cs)
             try
             {
                 if (Input.GetKeyDown(KeyCode.F7) && !CtrlHeld() && !ShiftHeld()) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
@@ -1448,7 +1449,9 @@ namespace UltraRT
                 VfxBloomSource(kind, w, h, rr, depthBuf); // the composite also writes the HDR bloom source (Plugin.Vfx.cs)
                 if (remod) RemodPrepare(w, h, invViewProj);
                 else _denoiser.RemodTarget = _denoiser.RemodDemod = null;
+                HdrPrepare(kind, mode, rr, w, h, depthBuf); // HDR display gain map (Plugin.Hdr.cs)
                 if (!rr) _denoiser.Execute(_cmd, inputs, _denoised);
+                if (!rr) HdrSubmitDenoiser();
                 if (!rr) RunExposure(w, h); // relight auto exposure: measured after the denoiser, applied from the next frame
                 if (kind == Kind.Hybrid && _unpackHybrid != null)
                 {

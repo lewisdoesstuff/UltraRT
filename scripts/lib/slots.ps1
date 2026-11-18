@@ -85,6 +85,18 @@ function Sync-Stage {
             Write-Warning "$($f.Name) not deployed (in use by a running game?): $($_.Exception.Message)"
         }
     }
+    # The preloader patcher (stage\patchers -> BepInEx\patchers\UltraRT; docs/hdr.md). It is loaded when the game starts.
+    $patchFrom = Join-Path $From 'patchers'
+    if (Test-Path $patchFrom) {
+        $patchTo = Join-Path $GameDir 'BepInEx\patchers\UltraRT'
+        New-Item -ItemType Directory -Force $patchTo | Out-Null
+        foreach ($f in Get-ChildItem $patchFrom -File) {
+            $d = Join-Path $patchTo $f.Name
+            if ((Test-Path $d) -and (Get-Item $d).Length -eq $f.Length -and (Get-QuickHash $d) -eq (Get-QuickHash $f.FullName)) { continue }
+            try { Copy-Item $f.FullName $d -Force -ErrorAction Stop; $copied += "patchers\$($f.Name)" }
+            catch { Write-Warning "$($f.Name) not deployed (in use by a running game?): $($_.Exception.Message)" }
+        }
+    }
     # Shipped light overrides: lights\*.json mirrored (a level file dropped from the stage is removed). The user's own edits
     # live in BepInEx\ultrart\lights and are never touched here.
     $lightsFrom = Join-Path $From 'lights'

@@ -1,0 +1,54 @@
+{
+ "Name": "hdr-quick",
+ "Note": "HDR display output (docs/hdr.md). Run with -Extra '-ultrart-hdr','on','-ultrart-hdr-capture','raw': every screenshot also logs statistics of the HDR10 frame the display was sent and writes it as <png>.hdr10.bin (tools/hdr/hdr10-view.py).",
+ "Scenarios": [
+  {
+   "Name": "warm-up",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "relight",
+    "pathtrace",
+    "pathtrace+ptx.denoiser=UltraRT"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "6-2 start",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/6-2-start.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

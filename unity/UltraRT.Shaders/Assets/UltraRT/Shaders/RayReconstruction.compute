@@ -215,6 +215,12 @@ RWTexture2D<float4> _Final;   // screen res: rgb displayed colour, a 1 = RT pixe
 RWTexture2D<float4> _BloomOut;
 float4 _BloomParams; // x weight of the compressed energy, y weight of bright emission, z/w emission threshold (lo, hi)
 float  _BloomOn;
+// HDR display gain map (docs/hdr.md), screen res: rgb = HDR / SDR per channel, a = the SDR luma. A 1x1 dummy when off.
+RWTexture2D<float4> _HdrOut;
+float4 _HdrParams; // x on, y display peak (display gamma, 1 = SDR white), z value that reaches the peak (0 = the white point), w largest gain
+float4 _HdrEmissive; // x glowing surfaces' HDR boost - 1, y / z brightness where it starts / is full (UltraRTHdrEmissive)
+Texture2D<float4> _HdrGameColor; // the game's frame before the composite (screen res), for those pixels' expected colour
+float4 _HdrGame;     // pixels the game draws itself (a = 0): linear HDR factor for their bright parts; x in front of the traced scene (lava, acid), y sky
 RWTexture2D<float4> _AEFiltered;
 RWTexture2D<float4> _AEAlbedo;
 float4 _OutDim;   // W, H, 1/W, 1/H
@@ -278,6 +284,15 @@ void Finish(uint3 id : SV_DispatchThreadID)
             if (any(isnan(b)) || any(isinf(b))) b = 0;
         }
         _BloomOut[p] = float4(min(b, 64.0), 1.0);
+    }
+    if (_HdrParams.x > 0.5)
+    {
+        // Not an RT pixel: the game's own pixel shows (the composite discards). A negative a marks it (-(its packed colour
+        // + 1)); r = the factor the present pass applies to its bright part. The camera's rays skip lava and acid
+        // (docs/lava.md), so those are "in front".
+        float gb = _NormalDepth[clamp(kn, 0, tdim - 1)].w < 0.0 ? _HdrGame.y : _HdrGame.x;
+        _HdrOut[p] = a > 0.0 ? UltraRTHdrGain(hdr, c, UltraRTHdrEmissive(max(_Emission[kHit].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams, _HdrParams)
+                             : float4(max(gb, 1.0), 1.0, 1.0, -(UltraRTHdrPack(_HdrGameColor[p].rgb) + 1.0));
     }
     _Final[p] = float4(c, a);
 }

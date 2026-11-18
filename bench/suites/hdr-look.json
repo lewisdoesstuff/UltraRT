@@ -1,0 +1,55 @@
+{
+ "Name": "hdr-look",
+ "Note": "HDR display output on bright scenes (docs/hdr.md): sunlit 1-1 start, 0-5 lava, 1-4 lamps. Run with -Extra '-ultrart-hdr','on','-ultrart-hdr-capture','raw'.",
+ "Scenarios": [
+  {
+   "Name": "1-1 start",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace"
+   ],
+   "Segment": 2.5,
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "0-5 lava",
+   "Scene": "Level 0-5",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-5-approach.json",
+    "Duration": 5
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    3
+   ]
+  },
+  {
+   "Name": "1-4 lamps",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-4-lamps.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

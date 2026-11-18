@@ -63,7 +63,7 @@ if (-not $SkipPlugins) {
     $props = @()
     if ($explicitGameDir) { $props += "/p:GameDir=$GameDir" }
     if ($NoDeploy) { $props += '/p:Deploy=false' }
-    foreach ($proj in 'src\UltraRT.Probe\UltraRT.Probe.csproj', 'src\UltraRT\UltraRT.csproj') {
+    foreach ($proj in 'src\UltraRT.Probe\UltraRT.Probe.csproj', 'src\UltraRT.Preload\UltraRT.Preload.csproj', 'src\UltraRT\UltraRT.csproj') {
         & $dotnet build (Join-Path $root $proj) -c Release -v q -nologo @props 2>&1 | Select-String ' error |Deployed' | ForEach-Object Line | Select-Object -Unique
         if ($LASTEXITCODE -ne 0) { throw "Build failed: $proj" }
     }
@@ -89,6 +89,12 @@ if ($NoDeploy) {
         # DLSS Ray Reconstruction runtime (scripts\fetch-dlss.ps1; NVIDIA's file, never committed; docs/dlss.md)
         (Join-Path $root 'lib\dlss\bin\nvngx_dlssd.dll'))
     foreach ($f in $files) { if (Test-Path $f) { Copy-Item $f $StageDir -Force } }
+    # The preloader patcher of the HDR output (docs/hdr.md): deployed to BepInEx\patchers\UltraRT, not the plugin folder.
+    $preload = Join-Path $root 'src\UltraRT.Preload\bin\Release\netstandard2.1\UltraRT.Preload.dll'
+    if (Test-Path $preload) {
+        New-Item -ItemType Directory -Force (Join-Path $StageDir 'patchers') | Out-Null
+        Copy-Item $preload (Join-Path $StageDir 'patchers') -Force
+    }
     # Shipped per-level light overrides (data\lights\<scene>.json -> plugin folder lights\; docs/lighting-overrides.md).
     $lightsSrc = Join-Path $root 'data\lights'
     if (Test-Path $lightsSrc) {
