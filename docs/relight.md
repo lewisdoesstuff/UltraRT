@@ -10,7 +10,7 @@ everything is derived from each light's colour, intensity and range, plus a few 
 | Ambient cut | `-ultrart-relight-ambient` | 1 | removes the game's flat ambient term |
 | Exposure | `-ultrart-relight-exposure` | 1.5 | multiplier on every point/spot/directional light (emissive triangles keep their own scale) |
 | White point | `-ultrart-relight-white` | 3 | shoulder tone map in the denoiser's composite: values below the knee are untouched, the white point maps to 1, so hotspots roll off instead of clipping |
-| Tone curve | `-ultrart-relight-tonemap` | `lum` | `lum` scales by luminance (the original curve); `max` scales by the largest channel (keeps hue and saturation, never clips below the white point, but dims hot saturated colours such as torch-lit orange walls a little) |
+| Tone curve | `-ultrart-relight-tonemap` | `film` (was `lum` until 2026-11-18) | `film[,K]`: the luminance shoulder, then a highlight rolloff to white (K 0.8, see "Highlight rolloff"); `lum` scales by luminance alone (the original curve: a saturated colour clips per channel); `max` scales by the largest channel (keeps hue and saturation, never clips below the white point, but dims hot saturated colours such as torch-lit orange walls a little) |
 | Knee | `-ultrart-relight-knee` | 0.75 | where the shoulder starts |
 | Toe | `-ultrart-relight-toe S[,END]` | 0.6 (end 0.25) since 2026-11-18 ("punch", docs/lighting-overrides.md; 0 before) | filmic toe below END: luminance v becomes `lerp(v, v^2/END * (2 - v/END), S)` (same value and slope at END, slope 1 - S at black), for deeper shadows. At 0.3 it changed the bench poses' means by under 2%; at 0.6 it takes about a third off the lift of the pixels the game leaves black |
 | Auto exposure | `-ultrart-relight-autoexposure on\|off` | on | see below; config `[Relight] AutoExposure`; **Ctrl+F4** toggles in game |
@@ -30,6 +30,30 @@ the relit direct light. Shader side: `_Relight` (float4, zero = the game's model
 reflection overlay (`TransparentOverlay.shader`), so the two can't drift apart.
 
 Per-level / per-light overrides, area lights and the light editor (Insert, `Plugin.LightOverrides.cs`): docs/lighting-overrides.md.
+
+### Highlight rolloff (`film`, 2026-11-18, `t3/highlight-rolloff`)
+User report (playtest of bc987a8, HDR on): saturated highlights flatten to solid orange or red with no gradation, worst
+on surfaces lit by the x2.5 fixtures (0-1 statue room, 0-3's red corridor). Cause: the `lum` shoulder looks at
+luminance only, and a saturated colour has little. Pure red at 1 has luminance 0.21, so a red-lit wall reaches 1 in the
+red channel, and several times that, while its luminance is still under the knee (0.75); the curve does nothing and the
+composite's saturate cuts the channel flat. `max` avoids the clip by dimming the whole pixel, which costs the punch.
+
+`film` keeps the luminance shoulder and adds what film does instead of clipping, a loss of saturation. A channel may
+stand above the pixel's luminance L by up to K x (1 - L) untouched (K 0.8). Beyond that the excess is rolled off
+towards 1 - L and all three channels are pulled towards L by the same factor: luminance and hue are kept, no channel
+passes 1, and the hotter the pixel the whiter it gets, so a gradient in the light is a gradient in the image again.
+Neutral colours, and saturated ones below K of their room, are bit-identical to `lum`. A pure primary at exactly 1
+loses about 0.08 in its channel. All users of `UltraRTToneCurve` get it (composite, RR Finish, water/glass overlay, lit
+particles, viewmodel). The HDR gain map uses the same function with the display peak as the top (docs/hdr.md).
+
+Measured 2026-11-18 (`bench/suites/rolloff.json`, the user's poses, pathtrace, 1440p; sheets in
+`bench/results/review/rolloff/`): share of pixels with a channel at 254 or more, `lum` -> `film`: 0-3 pose 2 (red
+corridor) 32.8% -> 19.2% (what is left is close to 1 by the rolloff, not cut: the ribs of the ceiling, the pipes and
+the door are drawn again), mean luma 64 -> 72 because the clipped light is now shown as white; 0-1 pose 1, 0-1 pose 3,
+1-3 pose 1 (lava) and 6-2 pose 3: clip share, mean luma and mean chroma within 4% of `lum`, so the look of scenes that
+did not clip is unchanged. K 0.9 keeps a little more colour and clips more (0-3: 26.4%). The 0-3 corridor is still very
+hot; that is its light level, not the curve.
+Bench: `pathtrace+plugin._tonemapCurve=0` is the old curve, `plugin._tonemapSat=K` moves the rolloff.
 The statue orb lights are scaled x0.5 on top (docs/scene-proxies.md, "Statue orbs"). Not done yet: emissive exposure, a
 hybrid variant. Per-area colour: see "Area colour".
 

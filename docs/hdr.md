@@ -70,6 +70,11 @@ writes `UltraRTHdrGain` (`UltraRTToneCurve.hlsl`) to a float texture:
   room: identical up to the knee (0.75), then it rolls off so that the tone curve's white point (3) lands on the display
   peak instead of on SDR white. Below the knee the gain is exactly 1, so shadows and midtones are the SDR image. Per
   channel, so a highlight that clipped to white in SDR gets its colour back.
+  With the `film` tone curve (the default since 2026-11-18, docs/relight.md "Highlight rolloff") the HDR colour is the
+  same function with the display peak as its top: a saturated highlight keeps its pure colour for as long as the
+  display has room and whitens only above that. The gain is still at least 1, so the little the SDR rolloff added to
+  the other two channels stays; in linear light it is next to nothing beside the raised channel. The packed colour is
+  the rolled-off SDR colour, so the present pass's hue test is unaffected. Not yet looked at on an HDR display.
 - a = the SDR colour the composite wrote, packed into the one channel (`UltraRTHdrPack`: 6 bits of luma, 5 bits of
   r - b).
 
