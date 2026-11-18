@@ -1250,8 +1250,10 @@ namespace UltraRT
             SceneProxies.TraceMirrors = _rtMirrors;
             SceneProxies.MovingPortalMotion = _portalMotion;
             SceneProxies.MovingPortalEdges = _portalEdges;
-            SceneProxies.HideHeldItems = _hideHeld;
+            SceneProxies.HideHeldItems = _hideHeld; SceneProxies.SkinnedScaleUpdates = _skinScale;
             DlssRR.GrazingMatch = _grazingMatch;
+            DlssRR.ThinMatch = _thinMatch;
+            Shader.SetGlobalFloat("_UltraRTWaterBand", _waterBand ? 1f : 0f);
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
             PortalCrossingRemap(); // the camera went through a portal: histories follow it (Plugin.PortalTemporal.cs)
             PortalViews(); // the camera's images through portals: light importance, emitter importance, cache cell size

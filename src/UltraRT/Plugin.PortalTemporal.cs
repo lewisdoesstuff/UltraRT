@@ -14,8 +14,11 @@ namespace UltraRT
     {
         private bool _portalRemap = true;   // bench plugin._portalRemap=0: off (histories restart at a crossing, as before)
         private float _grazingMatch = 0.02f; // bench plugin._grazingMatch=0: DLSS RR's depth match without the bracket test (white rows on grazing floors)
+        private bool _thinMatch = true;     // bench plugin._thinMatch=0: thin geometry keeps the game's pixel in pathtrace (grass sparkle)
+        private bool _waterBand = true;     // bench plugin._waterBand=0: the water reflection ray uses every ripple (noisy and blocky at pathtrace's trace scale)
         private bool _hideHeld = true;      // bench plugin._hideHeld=0: a picked-up item stays in the RTAS (the held skull's ghost)
         private bool _portalEdges = true;   // bench plugin._portalEdges=0: no fresh start at a moving portal's edge
+        private bool _skinScale = true;     // bench plugin._skinScale=0: a skinned root's scale change in place is not followed
         private bool _portalMotion = true;  // bench plugin._portalMotion=0: no motion vectors behind moving portals
         private bool _portalJumpDiag;       // bench plugin._portalJumpDiag=1: log camera jumps near portals
         private Vector3 _portalPrevCam;

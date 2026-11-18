@@ -466,6 +466,20 @@ batched water/blood renderer and the first glass ones).
   out of those rays. `-ultrart-nofrosted` / bench variant `trans.frosted=0` (runtime) takes them out of the scene again.
   Static-batched ice is not handled (none in 0-E).
 
+### Waves smaller than a pixel (2026-11-18, `t3/ghosting`)
+
+User: 8-2's pool (pose 1) reflects as noise. Far from the camera a wave of the water normal is shorter than the
+pixel's footprint on the surface, so each sample of a pixel reflects in a different direction, and one sample per
+pixel cannot average that. `UltraRTWater.hlsl` `WaterNormalBand` fades each wave out as the footprint (distance x
+pixel angle / cosine to the surface) nears a quarter of its length: gone at 4 footprints per wave, full at 8.
+`TraceTransparent` passes the footprint. Bench `plugin._waterBand=0` = all waves everywhere.
+
+Measured (`bench/suites/ghost-water.json`, 16-frame burst, sigma over the pool region): pathtrace 2.30 -> 1.84,
+relight 2.16 -> 1.94. The far half of the pool is a clear reflection now; the near water still mottles (waves several
+pixels long, reflecting a bright and a dark part of the room in turn: that is real, and only more samples or a
+rougher water surface would calm it). Sheets `bench/results/review/ghost/pool_before_after.png`, `pool_variants.png`
+(`trans.waves=0` = the clean mirror, `trans.cacheSpread` = no effect).
+
 ### Limits
 
 - **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF then, 0x6F now: `ULTRART_MASK_SCENE`) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.

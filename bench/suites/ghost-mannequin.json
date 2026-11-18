@@ -1,0 +1,24 @@
+{
+ "Name": "ghost-mannequin",
+ "Note": "7-1's posed mannequin dummy at the user's pose 5 (user, 2026-11-18: a displaced faint copy of the dummy beside it, standing still; HDR was on). Run with -Extra '-ultrart-hdr','on','-ultrart-hdr-capture','raw' to match.",
+ "Scenarios": [
+  {
+   "Name": "7-1 pose 5",
+   "Scene": "Level 7-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-7-1-5.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "relight"
+   ],
+   "Screenshots": [
+    2,
+    5
+   ]
+  }
+ ]
+}

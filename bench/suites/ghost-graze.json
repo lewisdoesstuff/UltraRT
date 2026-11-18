@@ -12,7 +12,7 @@
    },
    "Modes": [
     "off",
-    "pathtrace+plugin._grazingMatch=0",
+    "pathtrace+plugin._grazingMatch=0+plugin._thinMatch=0",
     "pathtrace"
    ],
    "Screenshots": [
@@ -29,7 +29,7 @@
    },
    "Modes": [
     "off",
-    "pathtrace+plugin._grazingMatch=0",
+    "pathtrace+plugin._grazingMatch=0+plugin._thinMatch=0",
     "pathtrace"
    ],
    "Screenshots": [
@@ -46,11 +46,16 @@
    },
    "Modes": [
     "off",
-    "pathtrace+plugin._grazingMatch=0",
+    "pathtrace+plugin._grazingMatch=0+plugin._thinMatch=0",
     "pathtrace"
    ],
    "Screenshots": [
     2
+   ],
+   "Burst": 16,
+   "BurstModes": [
+    "pathtrace+plugin._grazingMatch=0+plugin._thinMatch=0",
+    "pathtrace"
    ]
   },
   {
@@ -63,7 +68,7 @@
    },
    "Modes": [
     "off",
-    "pathtrace+plugin._grazingMatch=0",
+    "pathtrace+plugin._grazingMatch=0+plugin._thinMatch=0",
     "pathtrace"
    ],
    "Screenshots": [

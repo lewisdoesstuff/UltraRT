@@ -222,7 +222,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
 // smooth, no shadow-ray noise; there is no temporal filter on this pass). y: 1 = trace transparents into _Output.
 float4 _TransParams;
 
-float4 TraceTransparent(RayDesc ray, float opaqueT, inout uint rng)
+float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint rng)
 {
     ray.TMin = 0.0;
     ray.TMax = opaqueT > 0.0 ? opaqueT + 0.05 : 1.0e5;
@@ -235,7 +235,9 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, inout uint rng)
     float3 ng = p.normal; // faces the ray
     SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
     float3 n = ng;
-    if (mat.cls == 13u) n = WaterNormal(ng, pos, p.t); // 13 = Wet: water
+    // 13 = Wet: water. One texel of this trace covers p.t x pixelAngle across the view and 1 / cos more along it.
+    if (mat.cls == 13u)
+        n = WaterNormalBand(ng, pos, p.t, _UltraRTWaterBand > 0.5 ? p.t * pixelAngle / max(abs(dot(ng, ray.Direction)), 0.05) : 0.0);
     float3 L = reflect(ray.Direction, n);
     if (dot(L, ng) < 0.02) L = reflect(ray.Direction, ng);
     float dist;
@@ -540,7 +542,7 @@ void RayGenBody(bool full)
     // shows through a portal).
     // An if, not ?: (HLSL 2018 evaluates both sides: the transparent ray and its reflection were traced in every mode).
     float4 outC = float4(c, 1.0);
-    [branch] if (_TransParams.y > 0.5) outC = TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, rng);
+    [branch] if (_TransParams.y > 0.5) outC = TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, pixelAngle, rng);
     _Output[id] = outC;
 }
 
