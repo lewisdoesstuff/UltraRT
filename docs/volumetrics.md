@@ -89,7 +89,7 @@ lighting is irradiance / pi, since displayed = albedo x lighting; the medium's r
   proportional to 1/d^2. One shadow ray per sample, stopping 0.35 m short of the light like surface shadow rays (lights
   sit inside their fixtures). Falloff and spot cone are relight's (physical inverse square windowed to 2x range, in
   linear light). Directional and fill lights are skipped, and so are **lights attached to the player or the camera**
-  (`playerLights` false; those within 1.5 m of the eye, `AttachedLightReach`; also any light within 0.5 m of the eye): the game's player light (range 15, grey, at the eye)
+  (`playerLights` false; those within 2.5 m of the eye, `attachedReach`, 1.5 m before 2026-11-18; also any light within 0.5 m of the eye): the game's player light (range 15, grey, at the eye)
   starts every view ray inside its core. It took 45-72% of the light picks in every pose tested.
 - **Haze range** (`hazeRange` 20 m): a light's scattering is weighted by `1 / (1 + (range / hazeRange)^3)`. Torches,
   fires and lamps (range 15-25) keep 70-34% of their halo; a light that reaches across a whole room is the level's mood
@@ -171,6 +171,7 @@ The game's fog still applies to transparents as the game draws them.
 | `-ultrart-vol-lights F` | `lights`, `lightCandidates`, `lightSamples` | 1, 8, 1 | 0 = no point/spot lights; samples (shadow rays) per low-res px |
 | | `hazeRange`, `core` | 20 m, 0 | light scattering x 1 / (1 + (range / hazeRange)^3) (0 = off); soft core (x range) |
 | | `playerLights` | false | let lights attached to the player / camera light the air |
+| | `attachedReach` | 2.5 m | how far from the eye an attached light still counts as carried (`vol.attachedReach`; 1.5 m before 2026-11-18) |
 | | `sun` | 1 | sun scattering multiplier (diagnostics: `vol.sun=0`) |
 | `-ultrart-vol-emissive F` | `emissive`, `emissiveSamples` | 0.5, 1 | 0 = no emissive surfaces |
 | | `maxSample` | 2 | firefly clamp |
@@ -453,6 +454,13 @@ the bench's `holdtorch` and the whiplash pressed `ShotDelay` before each capture
   parented to the hand. Lights in those hierarchies are now skipped only within 1.5 m of the eye
   (`AttachedLightReach`, `Plugin.Volumetrics.cs`), so a thrown torch (or skull) carries its halo through the air; held,
   nothing changes.
+- **2026-11-18 (`t3/dark-0-S`)**: "held, nothing changes" was true of the torch (`Torch.Update` pins its light to the
+  eye: 0.2 m) but not of a carried skull, whose light hangs 2.1-2.9 m from the eye in world space (the HUD camera draws
+  the item nearer). Its halo fogged 0-S's dark corridors teal: far end of the corridor 11.9 luma against the game's 1.7.
+  The reach is a setting now, `attachedReach` 2.5 m (`vol.attachedReach`): 5.7. The first metres of a throw lose their
+  halo; past 2.5 m it is there as before. The log prints each carried light's distance once
+  (`Volumetrics: carried light '...' packed N m from the eye`). Run `20261118-231755_dark-0-S-diag_alt`, sheet
+  `bench/results/review/dark0s/corridor_before_after.png`.
 - Not done: matching the game's per-vertex look (the room going dark as soon as the torch leaves) would need a steeper
   falloff for moving lights; relight keeps the physical one.
 

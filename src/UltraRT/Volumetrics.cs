@@ -56,6 +56,11 @@ namespace UltraRT
         /// <summary>Let lights attached to the player or the camera light the medium (off: the player's own light sits at
         /// the eye and lit the air over the whole screen).</summary>
         public bool playerLights = false;
+        /// <summary>How far from the eye (m) a light attached to the player or the camera still counts as carried, for
+        /// <see cref="playerLights"/>. A carried item's light hangs 2.1 m from the eye in world space (0-S's skull; the HUD
+        /// camera draws the item nearer): at 1.5 m (before 2026-11-18) it lit the air and fogged 0-S's dark corridors.
+        /// Further out, a thrown torch still in the camera's hierarchy lights the air as it flies. Bench vol.attachedReach.</summary>
+        public float attachedReach = 2.5f;
         /// <summary>Range (m) at which a point/spot light's haze is halved (1 / (1 + (range / hazeRange)^3); 0 = off): lights
         /// that reach across a whole room are mood/fill lighting, not lamps the air glows around.</summary>
         public float hazeRange = 20f;

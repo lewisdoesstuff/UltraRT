@@ -915,6 +915,38 @@ files in the proposal layer (`lc.layer=proposed`, run `20261118-225053_fx2-b`; 0
   gradient), drawn by the game in front of the traced image; RT adds the real light of the lamp on the surfaces and
   in the haze.
 
+### 0-S as shipped, and the held skull (2026-11-18, `t3/dark-0-S`)
+
+The user, after the playtest: 0-S's start areas are meant to be normal brightness; only the level proper (the dark
+corridors) is pitch black, lit only by the held skull. Suites `dark-0-S` (the lead's: spawn with and without the skull,
+a tour holding it) and `dark-0-S-diag` (before / after in one launch). Mean luma of the frame, and of the far end of the
+dark corridor (the middle of tour stop 0, view 0), pathtrace.
+
+| | Game | master (`followGame` 1, run `20261118-230351_dark-0-S_alt`) | now (`20261118-231755_dark-0-S-diag_alt`) |
+|---|---|---|---|
+| Spawn, no skull | 35.5 | 37.3 | (unchanged: nothing here touches it) |
+| Spawn, skull held | 47.2 | 52.3 | 49.3 |
+| Dark corridor, skull held: frame / far end | 27.8 / 1.7 | 33.3 / 14.2 | 29.5 / 5.7 |
+| Lit corridor (view 1) | 57.7 | 66.9 | 67.1 |
+
+- `followGame` 1 (718085a) works: the lead's run of 22:43 was built before it (`6846117-dirty`), which is why its log
+  showed no correction. On master the exposure comes down 1.3 EV in the dark corridor and the start rooms keep theirs.
+- What was left was a **teal glow down the dark corridor**: the held skull's own light scattering in the air. Its light
+  hangs 2.1-2.9 m from the eye in world space, beyond the 1.5 m within which a carried light is kept out of the medium,
+  so it lit a veil in front of everything (docs/volumetrics.md, "Thrown items"). Every class's `medium` at 0 changed
+  nothing; `lc.set.player.medium=0` and `vol.lights=0` removed it. Fixed by the reach (`vol.attachedReach` 2.5 m); no
+  level setting.
+- **The held skull's class depended on timing.** A carried item's light is `item` on the ground (x2.5, reach 0, air
+  x0.4) and `player` in the hand (x1, full reach, ClassifyLight), but the resolved set is cached, so a skull picked up
+  after the last cache clear kept `item` until the next one (any review switch, a fixture or handover change) and then
+  switched to `player` mid-play: the corridor walls went 32 -> 24 in one run. `CarriedChanged` re-resolves a light whose
+  carried state no longer matches its class. Held, the skull is `player` now, always.
+- **Not reached: black.** The far end is 5.7 against the game's 1.7 (10th percentile of the frame 6.4 against 0.7): with
+  every level light off it is still 5.9, so it is not a light; the bounce of the skull's light and the denoiser's floor
+  are the suspects. The walls near the skull are a little darker than the game's (21.8 against 27.6). Sheets:
+  `bench/results/review/dark0s/` (`corridor_before_after.png`, `spawn_before_after.png`, `litcorridor_before_after.png`;
+  `diag.png` is master with `lc.solo=none` and without the level's exposure).
+
 ## Handover: a fixture's glowing part carries its light (2026-11-18, `t3/emissive-all`)
 
 The user: "if something can be emissive instead of using a light, it should". A rule in `_rules.json` (or in a level file)
