@@ -309,6 +309,8 @@ late in each clip (the traced side; mean and 95th percentile of luma, mean chann
 
 Tried for 7-3: `followGame` 0.5 instead of 1 (draft redo of both shots): the tree did not change (22.8 -> 22.5), the
 gun shot rose from 8 to 14, and the tour's dark-pixel delta went from +9.1 to +16.4. Not taken; 7-3 ships as it was.
+(Later that day 7-3 was made brighter for both shots: docs/lighting-overrides.md, "7-3: brighter". At draft tier
+the tree reads mean 36, chroma 68 and the gun shot mean 21, p95 107, against the first master's 28, 64 and 22, 97.)
 
 **8-2 street was rendered again** after its lamps were fixed (`t3/lamp-cones`: the street lamps' lights back on at x1.3 next to their glowing heads; docs/lighting-overrides.md, "8-2's street lamps"): clip 6 and the masters in `trailer-final-v2` carry the new take, with the pools on the ground; the cones in the air are faint.
 

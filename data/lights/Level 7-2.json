@@ -6,9 +6,6 @@
     "gameplay": {
       "reach": 0,
       "intensity": 0.6
-    },
-    "player": {
-      "intensity": 0.85
     }
   },
   "lights": [],

@@ -609,8 +609,8 @@ Levels that differ from the global policy, and why:
 | 7-1 | fixtures and the like x1; exposure `followGame` 1 | black halls with a few white lights: the boost and an exposure above the game both turn the walls grey (dark +45 at x1.8, +31 at x1 without `followGame`, +9.4 with it; before +15.8) |
 | 7-3 | the strengths of 2026-11-17 (fills x0.5, fixtures x0.7, player x0.6); `followGame` 1 | as 7-1: +18.9 without `followGame`, +9.1 with it (before +12.2) |
 | 8-2 | the strengths of 2026-11-17 (fills x0.35, fixtures x0.5) | under the plain policy the offices' dark walls come out lit (storage room dark +82 against +42); kept: +15.1 (before +14.7) |
-| 7-2 | gameplay x0.6, player x0.85 | third batch |
-| P-2 | player x0.6 | third batch |
+| 7-2 | gameplay x0.6, player x0.85 (player back at x1 since "7-3: brighter") | third batch |
+| P-2 | player x0.6 (back at x1 since "7-3: brighter") | third batch |
 
 **`followGame`** (`"exposure": { "followGame": F }` in a level file, 0-1; `AutoExposureSettings.levelFollowGame`): the
 level's exposure follows the game downwards as between 2026-11-17 and the punch defaults (0.9 beyond 0.1 EV). For
@@ -725,7 +725,7 @@ The exceptions, checked again:
 | 4-3, 5-3 | kept at x1.2, `medium` 0.8 | not dim next to the rest: bright end x1.05-1.42 of the game's, chroma x1.12-1.39. Scaled to x1.67 the dark lift rises (4-3 +1.1 -> +1.9, worst view +16 -> +22) and 4-3's first hall clips further (highlights 7.2 -> 8.5 %, the game 1.0 %) |
 | 7-1 | kept at x1 with `followGame` | scaled to x1.4: dark +10.8 -> +13.7, the grey walls again |
 | 8-2 | kept (fills x0.35, fixtures x0.5, `medium` pinned at 0.55) | scaled to x0.7: nothing visible (bright end x0.93 -> x0.98), so no reason to move it. Its bright end is below the game's because the game's white-lit office walls come out pink and darker (older than this) |
-| 7-3 | kept until its own pass (`medium` pinned at 0.55) | next branch: 7-3 is too dark |
+| 7-3 | kept here (`medium` pinned at 0.55) | its own pass: "7-3: brighter" below |
 
 Still open from the night, unchanged by this: 4-1's green hall is far above the game at either strength (highlights
 11 -> 18 % against 0.8 %: its lights are fills and accents with a long reach in the game itself); 0-E dark +45.9;
@@ -734,6 +734,51 @@ Still open from the night, unchanged by this: 4-1's green hall is far above the 
 As shipped (`20261118-132411_punch-all_alt`, suite `punch-all`, 0 exceptions) the six spot-check levels match the layer runs: 0-3 highlights 1.3 %, chroma x1.29, dark +9.4; 4-3 bright end x1.21, dark +1.2; 2-4 x1.30, +4.2; 1-4 x1.00, +6.5; P-2 x0.98, +0.5; 7-3 x0.61, +7.8.
 
 Sheets: `bench/results/review/punch-25/` (`punch25-<level>.png`: game / x1.8 / x2.5 per tour view, `index.md`).
+
+### 7-3: brighter (2026-11-18, `t3/dark-7-3`, shipped)
+
+The user, after the trailer's second render: "the shot in 7-3 is far too dark"; the player's light back up. Judged at
+the trailer's two 7-3 shots (draft tier, one frame late in each clip against the first master's clip) and the tour.
+Suite `bench/suites/dark-7-3.json`; runs `20261118-133140_d73_alt`, `-133827`, `-134122`, `-134648` (candidates as
+scratch layers), `20261118-135501_dark-7-3_alt` (as shipped, 0 exceptions).
+
+**The gun shot (forest path).** The game's own frame there: bright end (p95) 75, the flashlight's pool, the rest
+black. Path traced with the exposure following the game the pool was a third of that:
+
+| | mean | p95 | tour dark delta |
+|---|---|---|---|
+| first master | 22 | 97 | |
+| shipped until now (player x0.6, `followGame` 1) | 9 | 25 | +9.8 |
+| player x1 | 10 | 35 | +10.2 |
+| player x1, `followGame` 0.5 | 17 | 61 | +17.9 |
+| player x1, no `followGame` (fills x0.75 and fixtures x1.2, or the plain policy) | 27 | 94 | +25 to +26 |
+| player x2 / x3 / x4, `followGame` 1 | 13 / 15 / 16 | 58 / 73 / 81 | +13 |
+| player x3, `followGame` 0.75 | 20 | 95 | +15.0 |
+| **player x4, `followGame` 0.75** (ships) | 21 | 107 | +15.9 to +16.1 |
+
+So the player's light was the dim part, not only its factor: at x1 its pool is half the game's and x3 matches it.
+Dropping `followGame` restores the shot as well but greys the halls (+25).
+
+**The tree shot.** No strength or exposure brought the first master's red on the walls back (mean 22-23, chroma
+44-46 against 28 and 64; the tone curve's toe is not it either). It is the **reach cap**: the blood trees' red point
+lights (`SuicideTreeHungry/BloodLeaves/Point Light`, range 30-35, class `fill` or `effect`) stop short of the walls
+around them. A level rule "blood trees" gives those lights `reach` 1 and full strength: mean 36, p95 95, chroma 68
+(first master 28, 77, 64).
+
+**Fills x0.5 and fixtures x0.7** stay: at x0.75 and x1.2 (with `followGame` 1) neither shot changes and the tour's
+bright end does not rise (x0.65 against x0.73, within run noise).
+
+As shipped, the tour: bright end x0.57 -> x0.78 of the game's, chroma x1.12 -> x1.17, dark delta +10.1 -> +16.1
+(the cost: the exposure a little above the game, and the trees). Highlights stay below the game's (0.8 % against
+4.1 %: the white windows).
+
+**P-2 and 7-2** had the player's light at x0.6 and x0.85 (third batch). Toured with x1 and x2
+(`20261118-134648_d73_alt`): P-2 bright end x1.00 -> x1.04 -> x1.08, contrast x0.86 -> x0.91 -> x1.04, dark +0.4 ->
++0.6 -> +1.3; 7-2 unchanged at x1 (x0.97 -> x0.98, dark +5.6), x1.03 and +3.9 at x2. Neither reads dim; both are
+back at x1 (the entries are gone). x2 on P-2 would be a taste call (more contrast for +0.9 dark).
+
+Sheets: `bench/results/review/dark-7-3/` (`trailer-poses.jpg`: first master / ships at both shots; the candidate
+rounds; `tour-7-3.png`).
 
 ## Area lights (shader)
 
