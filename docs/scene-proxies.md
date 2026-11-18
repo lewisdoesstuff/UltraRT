@@ -438,7 +438,9 @@ game has a faint haze (user report, tour stop "Busted Hotel Rooms").
 `SceneProxies.BlendedVeil` now takes such a material out of the RT scene: ULTRAKILL/Master, queue 2501 to 2999,
 `TRANSPARENCY` with alpha blending (`_BlendMode` 2), no depth write, no alpha-test keyword, not water, glass or lava
 (those are classified first). The log lists them per level (`Blended veils left to the game's own pass`, with up to six
-of their renderers). Checked in the first rooms of 0-1, 1-1, 5-2, 7-1 and 8-3: no other material matches there.
+of their renderers). The line covers a whole level (the scan includes inactive rooms). Checked in 0-1, 0-5, 1-1, 2-2,
+3-1, 4-2, 5-1, 5-2, 6-2, 7-1, 7-2, 8-3 and P-2 (`bench/suites/veil-check.json`): no material matches in any of them, so
+water, glass, the 5-2 sea, lava and its haze are untouched; 8-1's two are the only ones found.
 
 **Limit.** In the open the game draws a veil itself over the traced image. 8-1's city is seen through a portal, where
 the traced image replaces the game's portal view, so there the veil is missing: the city is clear where the game has

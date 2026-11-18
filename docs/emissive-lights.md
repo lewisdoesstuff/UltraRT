@@ -269,6 +269,66 @@ Candidates are scored by strength x size / (1 + d²/25), with a 1.5x bonus for l
 
 When a game light sits on a flame sprite or particle system (a torch FireSprite on its Fire light, or a pooled Fire), the flame drives that light. Its packed intensity is multiplied by (the flame's brightness x radius²) / its running mean over about 1 s, clamped to 0.65 to 1.35. At most 16 such flames near the camera are measured, every frame.
 
+### Flame-driven lights (2026-11-18, `t3/emissive-all`, on by default)
+
+No flame is an emitting surface: torches, candles, braziers and lanterns with a flame are a sprite or a particle system
+next to one of the game's point lights (986 of the 3,011 fixture lights; docs/lighting-overrides.md, "Handover"). With
+`flameDriven` the flame that already drives the flicker also places and shapes that light:
+
+- the light moves to the flame's centre (smoothed over a few frames: particle bounds breathe) and becomes a **sphere
+  area light** with radius `flameRadius` 0.45 x the flame's bounds radius, clamped to [0.05, `flameMaxRadius` 0.6] m;
+- its colour takes `flameHue` 0.15 of the flame's own hue at the game light's luminance;
+- its strength is `flameGain` 0.5 x the game light's (with its class policy): the game puts the light inside the
+  torch's cup, which shadows most of the room from it; the flame above the rim does not;
+- it flickers with the flame as before, over a wider range (`flameFlickerRange` 0.5 against `flickerRange` 0.35).
+
+Only a plain point light is driven (not a spot, not a light a level file already made an area light), and only while
+its flame is one of the `MaxFlickers` (48, was 16) flames tracked near the camera; otherwise the game light stays as it
+is. Bench: `fx.flameDriven=0` gives the old lights.
+
+Measured on the torch stops of 1-1, 1-2 and 4-3 (`bench/suites/flame-driven.json`, run `20261118-153442`, 12 views,
+medians against the game's frame):
+
+| | hi% (game 3.3) | p95 | chroma | contrast | dark delta |
+|---|---|---|---|---|---|
+| game lights (`fx.flameDriven=0`) | 7.2 | x1.20 | x1.47 | x0.73 | +5.8 |
+| flame-driven | 5.2 | x1.08 | x1.32 | x0.72 | +5.7 |
+
+4-3's brazier room: highlights 7.2 % -> 0.9 % (the game 1.0 %), p95 x1.65 -> x1.14. The first try (gain 1, hue 0.6)
+turned the 1-1 and 1-2 torch rooms saturated orange-red; gain 0.35 read at the game's level (p95 x1.09 on that run's
+views) and under the punch target. **The wing-shaped shadows of 1-1's torch cups are gone** (the light is above the
+rim and as large as the flame; `bench/results/review/emissive-all/flames-1-1-wings.jpg`, first row). The 1-1 cup rooms
+are more orange than with the old lights (yellow); the game's own frame is orange-brown there.
+
+Not covered: a flame farther away than the tracked 48 keeps the game's light; candle piles are handed over to their
+texture (the handover rule), not driven.
+
+### Billboards in the emissive table (the literal version, tested 2026-11-18: no)
+
+`fx.flameBillboards=1` (one-sided) or `2` (two-sided), off by default: per flame on a game light, a camera-facing
+square of the flame's size joins the emissive triangle table with the light's output, and the light is off
+(`Plugin.FlameQuads.cs`). Run `20261118-153718_flame-quads` (1-1 stop 2, 4-3 stop 0; sheet `flame-quads.png`):
+
+| | hi% (game 2.7) | p95 | chroma | contrast | dark delta |
+|---|---|---|---|---|---|
+| flame-driven | 5.5 | x1.37 | x1.65 | x0.86 | +19.5 |
+| squares, one-sided | 3.7 | x1.22 | x1.88 | x0.69 | +35.3 |
+| squares, two-sided | 7.6 | x1.45 | x1.94 | x0.79 | +35.0 |
+
+It fails, on four counts:
+
+1. **One-sided**: the square lights the camera's side only. The wall behind a 1-1 torch cup, which the flame should
+   light most, is unlit (highlights 13 % -> 3.6 % in the cup view), and what is lit changes as the view turns.
+2. **Two-sided** fixes the back but the light still turns with the camera: a wall edge-on to the square gets nothing.
+3. **No reach**: an emitter has no range, so the flame lights rooms the game's light never reached (4-3: dark end
+   +35 against +19.5, the corridor behind the brazier room turns red). The handover has the same property; for lamps
+   it was calibrated per rule, for a torch every room would need it.
+4. **Table churn**: the table is built once; a flame that starts being tracked later is not in it (1 square per
+   build in both levels, with several torches in view) until the next rebuild, and a rebuild per new flame resets the
+   light history. The owner matrices themselves are cheap (one 48-byte write per square and frame).
+
+The switch stays for comparison; nothing ships on it.
+
 ### Viewmodel effects
 Emitters on the viewmodel layer (13) never become virtual lights: a held item's flame (4-3's torch) is drawn by the HUD
 camera at the hand, and its own Light already lights the scene from the player (`Torch.Update`). The 4-3 torch flame
@@ -318,7 +378,7 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | `-ultrart-effect-hybrid x` | `hybridWeight` | 1 | |
 | `-ultrart-effectsurvey` | | off | the survey; it costs milliseconds per frame, so never measure with it on |
 
-Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
+Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5, `flameBillboards` 0 (test). Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
 
 In the bench, `Scenario.Effects` (`bench/README.md`, `bench/suites/effects.json`) spawns revolver beams, explosions, projectiles or pooled fires in front of the camera, both periodically and right before each screenshot.
 

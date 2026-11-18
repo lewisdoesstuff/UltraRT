@@ -193,7 +193,7 @@ namespace UltraRT
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
-            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart };
+            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart, FlameQuads = FlameQuadList };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -1257,6 +1257,7 @@ namespace UltraRT
             UpdateMovers(); // moving occluders: fast-responding shadows of the player and enemies (Plugin.Noise.cs)
             UpdateEffectGeometry(pt); // glowing effects as billboards for reflection rays (Plugin.Effects.cs)
             long te = Perf.Now;
+            UpdateFlameQuads(_camera); // fx.flameBillboards (test)
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
             UpdateWet();  // rain wetness (Plugin.Wet.cs)

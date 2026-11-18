@@ -85,6 +85,35 @@ namespace UltraRT
         /// mark it emissive (a fullbright bulb): its albedo stands in for the emission, the target sets the amount, and
         /// triangles of it that belong to no part are left out again. Nothing changes for the camera.</summary>
         public Func<Material, bool> IsPowerPart;
+
+        /// <summary>The literal "flames as emitting surfaces" test (fx.flameBillboards, docs/emissive-lights.md): a square
+        /// in <see cref="Space"/>'s XY plane, half-size <see cref="Half"/>, with a total output of <see cref="Power"/>.
+        /// The plugin turns Space to the camera each frame.</summary>
+        public struct FlameQuad { public Transform Space; public float Half; public Vector3 Power; public bool TwoSided; }
+        public Func<List<FlameQuad>> FlameQuads;
+        public int FlameTriangles { get; private set; }
+        private readonly HashSet<Transform> _liveSpaces = new HashSet<Transform>();
+
+        private void AddFlameQuads(List<Candidate> cands)
+        {
+            FlameTriangles = 0;
+            _liveSpaces.Clear();
+            List<FlameQuad> quads = null;
+            try { quads = FlameQuads?.Invoke(); } catch { }
+            if (quads == null) return;
+            foreach (var q in quads)
+            {
+                var sp = q.Space;
+                if (sp == null || !(q.Half > 0f)) continue;
+                float h = q.Half, area = 4f * h * h;
+                var le = new Color(q.Power.x / area, q.Power.y / area, q.Power.z / area);
+                var src = new SceneProxies.TracedSubmesh { Space = sp, Source = sp, Owner = sp, TwoSided = q.TwoSided, Visible = () => sp != null && sp.gameObject.activeInHierarchy };
+                _liveSpaces.Add(sp);
+                cands.Add(new Candidate { Src = src, P0 = new Vector3(-h, -h, 0f), E1 = new Vector3(2f * h, 0f, 0f), E2 = new Vector3(0f, 2f * h, 0f), Le = le, Area = area * 0.5f, Lum = Lum(le) });
+                cands.Add(new Candidate { Src = src, P0 = new Vector3(h, h, 0f), E1 = new Vector3(-2f * h, 0f, 0f), E2 = new Vector3(0f, -2f * h, 0f), Le = le, Area = area * 0.5f, Lum = Lum(le) });
+                FlameTriangles += 2;
+            }
+        }
         /// <summary>Triangles and targets the last builds applied PowerOf to.</summary>
         public int PowerTriangles { get; private set; }
         public int PowerGroups { get; private set; }
@@ -228,6 +257,8 @@ namespace UltraRT
             public float AreaScale = 1f;
             /// <summary>Space is one of our proxy transforms, so its hasChanged flag is ours to consume.</summary>
             public bool OwnTransform;
+            /// <summary>A flame quad's helper transform: it turns every frame.</summary>
+            public bool Live;
         }
 
         private readonly List<Emitter> _emitters = new List<Emitter>();
@@ -319,6 +350,7 @@ namespace UltraRT
             }
             PowerTriangles = PowerGroups = 0;
             ApplyPower(cands); // handover targets (before the cap: it keeps the brightest)
+            AddFlameQuads(cands);
             int cap = Mathf.Clamp(Settings.maxTriangles, 1, 0xFFFF);
             int dropped = 0;
             if (cands.Count > cap)
@@ -398,7 +430,7 @@ namespace UltraRT
                     if (!ow.Space.hasChanged) continue;
                     ow.Space.hasChanged = false;
                 }
-                else if ((o & 15) != _ownerPhase) continue;
+                else if (!ow.Live && (o & 15) != _ownerPhase) continue;
                 var m = ow.Space.localToWorldMatrix;
                 if (m == ow.Matrix) continue;
                 ow.Matrix = m;
@@ -610,6 +642,8 @@ namespace UltraRT
             if (_ownerByKey.TryGetValue(key, out int o)) return o;
             if (_owners.Count >= MaxOwners) return -1;
             var ow = new OwnerEntry { Space = s.Space, World = s.Space == null, OwnTransform = s.Space != null && SceneProxies.IsProxyObject(s.Space.gameObject) };
+            ow.Live = s.Space != null && _liveSpaces.Contains(s.Space);
+            if (ow.Live) ow.OwnTransform = false;
             ow.Matrix = ow.World ? Matrix4x4.identity : s.Space.localToWorldMatrix;
             ow.AreaScale = AreaScale(ow.Matrix);
             o = _owners.Count;

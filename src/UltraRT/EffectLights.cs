@@ -44,14 +44,20 @@ namespace UltraRT
         /// a candle's) becomes a sphere light at the flame, the size of the flame, in the flame's colour, flickering
         /// with it; its mean strength stays the game light's (with its class policy). The game's point in the cup is gone.
         /// </summary>
-        public bool flameDriven = false;
+        public bool flameDriven = true;
         /// <summary>The sphere's radius: this x the flame's bounds radius, clamped to [0.05, flameMaxRadius] m.</summary>
         public float flameRadius = 0.45f, flameMaxRadius = 0.6f;
         /// <summary>How much of the flame's own colour the light takes (0 = the game light's colour, 1 = the flame's hue
         /// at the game light's luminance).</summary>
-        public float flameHue = 0.6f;
+        public float flameHue = 0.15f;
+        /// <summary>Strength of a flame-driven light against the game light it replaces. Below 1: the game's light sits in
+        /// the torch's cup, which shadows most of the room from it; the flame above the rim does not.</summary>
+        public float flameGain = 0.5f;
         /// <summary>The flicker range of a flame-driven light (flickerRange for the others).</summary>
         public float flameFlickerRange = 0.5f;
+        /// <summary>Test only (docs/emissive-lights.md, "Billboards in the emissive table"): the flame's light is off and
+        /// a camera-facing square at the flame is an emitter in the emissive triangle table instead. 2 = two-sided.</summary>
+        public int flameBillboards = 0;
     }
 
     /// <summary>
@@ -139,6 +145,14 @@ namespace UltraRT
         private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
         private const int TexRes = 16;
         private const int MaxFlickers = 48;
+
+        /// <summary>The flames that sit on a game light right now: the light, the flame's centre and bounds radius.</summary>
+        public void Flames(List<KeyValuePair<Light, Vector4>> output)
+        {
+            foreach (var e in _flickers)
+                if (e.Flame && e.CoverLight != null && e.R != null && e.Go.activeInHierarchy && e.R.enabled)
+                    output.Add(new KeyValuePair<Light, Vector4>(e.CoverLight, new Vector4(e.Pos.x, e.Pos.y, e.Pos.z, e.Radius)));
+        }
         /// <summary>Lights driven by a flame in the last frame (flameDriven).</summary>
         public int DrivenLights { get; private set; }
 
@@ -595,6 +609,7 @@ namespace UltraRT
             {
                 if (e.CoverLight == null || e.R == null || !e.Go.activeInHierarchy || !e.R.enabled || e.Strength <= 0f) continue;
                 bool drive = Settings.flameDriven && e.Flame;
+                bool quad = Settings.flameBillboards > 0 && e.Flame;
                 // Brightness x size (flames flicker by swapping sprites and by scaling), against its running mean over
                 // ~1 s at 60+ fps: the light keeps the game's intensity on average.
                 float b = e.Strength * e.Radius * e.Radius;
@@ -625,8 +640,11 @@ namespace UltraRT
                             float w = Mathf.Clamp01(Settings.flameHue), s = lg / lh;
                             c = new Vector4(Mathf.Lerp(c.x, e.Hue.r * s, w), Mathf.Lerp(c.y, e.Hue.g * s, w), Mathf.Lerp(c.z, e.Hue.b * s, w), c.w);
                         }
+                        float fg = Mathf.Max(0f, Settings.flameGain);
+                        c = new Vector4(c.x * fg, c.y * fg, c.z * fg, c.w);
                         DrivenLights++;
                     }
+                    if (quad && l3.x > -1.5f && l3.x < -0.5f) k = 0f; // the billboard carries it (Plugin.FlameQuads.cs)
                     data[i * 4 + 1] = new Vector4(c.x * k, c.y * k, c.z * k, c.w);
                     _logFlicker++;
                     _flickerMin = Mathf.Min(_flickerMin, k);
