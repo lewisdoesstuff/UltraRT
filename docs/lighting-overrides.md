@@ -633,6 +633,26 @@ Seen on the way, not from this policy:
   the path-traced image (window beams, plan A5).
 - **1-3** (+23) and **1-S** (+23): lava and sky bounce on walls the game leaves black, the same before.
 
+### 8-2's street lamps: the lights back on (2026-11-18, `t3/lamp-cones`, shipped)
+
+The trailer's "8-2 street" shot ("Soft beams in the air, pools of light on the ground") lost both when the street
+lamps became emissive (their lights at 0, heads x4): at its pose the game has a cone and a pool under each lamp and
+the path-traced image had neither (`20261118-030343_lamp-try_alt`: highlights 1.4 % with or without the heads). The
+glowing head is a small surface under a hood: it lights the hood and the pole, not the street. Tried at the trailer's
+pose and the pool pose (`20261118-030212`, `-030343`, `-030552`, `-031005`; suite `bench/suites/lamps-8-2.json`):
+
+| Street lamps | Result |
+|---|---|
+| lights off, heads x4 (shipped 2026-11-17) | no pool, no cone |
+| lights in the air only (`surfaces` false), heads x4 or x8 | haze, no pool |
+| lights x1.8, air x1, heads x2 | pool and cone, but the street fogs white (highlights 5.3 % against the game's 1.3 %) |
+| **lights x1.3, air x0.5, heads x2** | pool and cone; street pose highlights 2.0 % (game 1.3 %), p95 x1.06; pool pose p95 x1.19 |
+
+Shipped: the last row (`Level 8-2.json`: rule "street lamps" `intensity` 1.3, `medium` 0.5; emitter "street lamp
+heads" x2). The level's tour median moves from dark +15.1 to +20.4 (the lamps' bounce in the street views): the cost
+of having the lamps. The emissive principle stands where the glowing part can carry the light (the standing lamps,
+1-4's lamps); a hooded street lamp is "a light where needed".
+
 ## Area lights (shader)
 
 Area lights keep the 4 x float4 per-light layout, so no buffer, UAV or payload changed (still 8 UAVs in PathTrace, 64-byte

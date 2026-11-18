@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "Level 8-2",
-  "note": "The class strengths shipped 2026-11-17 are kept (fills and scripted x0.35, fixtures and the like x0.5; lamps by their own glowing parts): under the punch policy the offices' dark walls come out lit (dark-pixel delta +82 in the storage room against +42).",
+  "note": "The class strengths shipped 2026-11-17 are kept (fills and scripted x0.35, fixtures and the like x0.5; the standing lamps by their bulbs; the street lamps by their lights (x1.3) and glowing heads (x2)): under the punch policy the offices' dark walls come out lit (dark-pixel delta +82 in the storage room against +42).",
   "classes": {
     "fill": {
       "reach": 0,
@@ -38,8 +38,10 @@
       "path": "StreetlightFraud[^/]*/[^/]*$",
       "class": "fixture:streetlamp",
       "set": {
-        "intensity": 0
-      }
+        "intensity": 1.3,
+        "medium": 0.5
+      },
+      "note": "2026-11-18: on again (x1.3, air x0.5) next to the glowing heads: the heads alone give no pool on the ground and no cone in the air (the game has both; trailer shot '8-2 street'). x1.8 with air x1 fogs the street white."
     },
     {
       "name": "standing lamps",
@@ -54,8 +56,8 @@
     {
       "name": "street lamp heads",
       "material": "^Streetlight$",
-      "scale": 4,
-      "note": "pool pose 2026-11-17: x4 keeps the yard's pink (tint 1.6), x8 and up wash it out (tint 4.8-5.8)"
+      "scale": 2,
+      "note": "x2 since 2026-11-18, with the lamps' own lights back on (x4 was for the heads alone, 2026-11-17)."
     },
     {
       "name": "standing lamp bulbs",

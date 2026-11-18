@@ -310,9 +310,11 @@ late in each clip (the traced side; mean and 95th percentile of luma, mean chann
 Tried for 7-3: `followGame` 0.5 instead of 1 (draft redo of both shots): the tree did not change (22.8 -> 22.5), the
 gun shot rose from 8 to 14, and the tour's dark-pixel delta went from +9.1 to +16.4. Not taken; 7-3 ships as it was.
 
+**8-2 street was rendered again** after its lamps were fixed (`t3/lamp-cones`: the street lamps' lights back on at x1.3 next to their glowing heads; docs/lighting-overrides.md, "8-2's street lamps"): clip 6 and the masters in `trailer-final-v2` carry the new take, with the pools on the ground; the cones in the air are faint.
+
 What would bring the weaker shots back is a look decision per level, not a trailer setting: lamp cones and pools
-for 8-2's street lamps next to their glowing heads, the start room's red, 7-3's exposure. Until then the first master
-(`trailer-final-final`) is the better cut for those five shots and this one for the rest.
+for 8-2's street lamps next to their glowing heads (done, above), the start room's red, 7-3's exposure. Until then the
+first master (`trailer-final-final`) is the better cut for the four shots left and this one for the rest.
 
 ## The final trailer (2026-11-16)
 
