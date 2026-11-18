@@ -12,10 +12,10 @@
       "class": "fixture:lamp",
       "handover": {
         "part": "^(Light|LightPillar 5C)$",
-        "gain": 6,
+        "gain": 4,
         "keep": 0.35
       },
-      "note": "1-4: x3 on the global rule. At the global gain the lamp garden's walls read at p95 x0.62 of the game's (the pools behind the lamps were gone); x4 gave x1.22 and lifted the dark end (+18). 2026-11-18 (user: 'more light pooling on the ground with RT off'): hybrid, 35 % of the light stays for the pool under the lamp (the glass alone lights sideways; its base shadows the ground)."
+      "note": "1-4: x3 on the global rule. At the global gain the lamp garden's walls read at p95 x0.62 of the game's (the pools behind the lamps were gone); x4 gave x1.22 and lifted the dark end (+18). 2026-11-18 (user: 'more light pooling on the ground with RT off'): hybrid, 35 % of the light stays for the pool under the lamp (the glass alone lights sideways; its base shadows the ground). Gain 6 -> 4 the same day: with a third of the light back, the glass at x6 lit the fog around each lamp into a ball (user: 'a fake camera-facing bloom sprite'; vol.emissive=0 removes it)."
     },
     {
       "name": "glowing orbs",

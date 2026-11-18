@@ -867,6 +867,54 @@ behind it: `ae.gameMatchUp=1+ae.gameMatchBand=0.1+ae.gameMatchFog=1+ae.maxEV=2`.
   `glowing orbs`, `dome lamps`, `glowing mushrooms`, `computer screens`). What is left is a part with no light next
   to it (it glows for the camera and lights nothing); not counted yet.
 
+## Playtest of 2026-11-18, second part (`t3/materials-fx-2`)
+
+Item 6 of the same playtest (materials, sprites, transparency) and the user's 0-S note. Three of the items turned out
+to be light strengths, and those are what this branch ships; the rest is listed with what was found
+(docs/handoff-2026-11-18.md has the next steps). Suites `fx2` (the eight poses, game and pathtrace) and `fx2-b`.
+Sheets: `bench/results/review/fx2/`. Mean luma of the frame, pathtrace; the "now" numbers were taken with the same
+files in the proposal layer (`lc.layer=proposed`, run `20261118-225053_fx2-b`; 0-S's corridor
+`20261118-224546_fx2-b_alt`), not after the move into the shipped files.
+
+| Item | Cause | Change | Game | Before | Now |
+|---|---|---|---|---|---|
+| 0-S "is supposed to be pitch black", lit by the held skull; the start rooms normal | the exposure sat far above the game in the dark corridors (the skull's light and its bounce are enough for auto exposure to show the whole corridor) | new `Level 0-S.json`: `"followGame": 1`. It only pulls down where the picture is brighter than the game's, so the start room keeps its look. `lc.class.item=0.4` on top (the skull at x1) changes nothing more | corridor 27.5, lit corridor 58.0, spawn 35.5 | 76.4, 77.9, 39.6 | 30.5, 69.4, 38.7 |
+| 4-1 pose 1: "the flame sprites are barely visible" | the torches' lights at x2.5 burn the wall behind them out to near white green; the game's flame sprites are drawn as in the game and have nothing darker to stand against (`lc.solo=none`: the flames are plain) | new `Level 4-1.json`: fixtures x1.25, `medium` 0.8 | 46.9 | 79.1 | 46.7 |
+| 1-4 pose 1: "a fake camera-facing bloom sprite" on the street lamps | not a sprite: the lamp glass as an emitter (handover gain 6) lights the level's thick fog into a ball around each lamp (`vol.emissive=0` removes it; `vol.lights=0` and `vfx.enabled=0` do not) | `street lamp bulbs` gain 6 -> 4 (with `keep` 0.35 from `t3/level-look-3` the ground is lit by the kept light) | 31.8 | 45.7 | 39.1, the ball much weaker, the pool under the lamp clearer |
+
+**Found, not changed**
+- **1-3 pose 1, lava brighter at its edges**: in an SDR capture the lava is even, with a thin brighter line along the
+  far shore only (`base_0.png`). The user played in HDR, so this is the HDR path's (lava gain above paper white);
+  left to the HDR work as agreed.
+- **0-3 pose 1, the light pillars "too transparent"**: the pillar is the game's own additive cone
+  (`LightPillarNew/Light` and `/Inner`, material `LightPillar 1E Outlines`, `_BlendMode` 3), drawn by the game at its
+  fixed strength over a traced room that is brighter than the game's (108 against 75), with burnt-out wall strips
+  right behind it. With every level light off the pillar looks as in the game (`diag_0-3_pose_1.png`). A gain on the
+  cone materials while frames are traced was tried (alpha and colour x1.6 on the materials `SceneProxies.BeamVeil`
+  knows): it reached 4 materials in another level and none in 0-3 (the pillars are not in that cache there), and
+  changed nothing on screen. Removed again.
+- **1-1 pose 2, the checkerboard near the water**: it is the game's own (in the game's frame too): the fountain water
+  fades out around the player through a coarse dither. Swapping `_DitherTexture` on `LIMBO_WATER_FADE` materials
+  for a flat texture was tried: it found 0 such materials in 1-1 (the overlay's fade list stays empty there), so the
+  pattern comes from another property or material. Removed again; next step is the material's full property list
+  from `-ultrart-viewprobe` at that pose.
+- **1-4 pose 3, the white Cerberus orbs**: `Statue (1)/Sphere_8`, material `Light` (white, unlit, `EmitterMask`),
+  with no `ExplosionSphere` glow shell around it; the orange orbs have one (docs/scene-proxies.md, "Statue orbs").
+  The "translucent look" the user asks for is that shell. Not built.
+- **6-2 pose 3, grates "translucent"**: material `GothicGateSeamless` (ULTRAKILL/Master, queue 3000, `TRANSPARENCY`,
+  `VERTEX_LIGHTING`, no depth write). It is not in the RTAS (transparent queue), is absent from the raw traced frame
+  and is drawn by the game afterwards. `vol.strength=0` and `vfx.enabled=0` do not bring it back
+  (`diag_6-2_pose_3.png`), so it is not haze. Not solved; the cutout pass (`t3/cutout-pass`) is the natural home.
+- **6-2 pose 4, Gabriel's wings**: the red disc of the first try was the fight starting (three modes take the
+  capture past the cutscene; with two modes and a shot at 1 s it is not there). The wings' material
+  (`GabrielWings`, queue 3000) is not traced, so an emitter rule on it does nothing. Gabriel carries his own light
+  (`gabrielRigged.../spine/Point Light`, blue, intensity 5, range 10), which ends before the floor. A rule
+  `gabriel[^/]*/metarig/Root/spine/Point Light` with class `enemy:gabriel` x2.5 and `range` 25 floods the whole hall
+  teal (frame mean 19 -> 142, `c_6-2_pose_4.png`): the rule works, the strength is far too high. Not shipped.
+- **2-4 pose 1, "are the light cones fake"**: yes. They are the game's `LightPillar` meshes (additive, vertex
+  gradient), drawn by the game in front of the traced image; RT adds the real light of the lamp on the surfaces and
+  in the haze.
+
 ## Handover: a fixture's glowing part carries its light (2026-11-18, `t3/emissive-all`)
 
 The user: "if something can be emissive instead of using a light, it should". A rule in `_rules.json` (or in a level file)
