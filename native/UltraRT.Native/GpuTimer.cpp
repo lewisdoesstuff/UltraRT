@@ -310,6 +310,7 @@ namespace
     void UNITY_INTERFACE_API OnRenderEvent(int eventId, void* data)
     {
         if (Dlss_OnRenderEvent(eventId, data)) return; // DLSS Ray Reconstruction events (Dlss.cpp)
+        if (Hdr_OnRenderEvent(eventId, data)) return;  // HDR gain map of the frame (Hdr.cpp)
         if (eventId < kEventBegin || eventId > kEventResolve) return;
         if (!s_RtInit)
         {
@@ -371,6 +372,7 @@ namespace
             }
             else SetStatus("IUnityGraphicsD3D12v6/v7 not available");
             Dlss_OnDeviceEvent(type);
+            Hdr_OnDeviceEvent(type);
         }
         else if (type == kUnityGfxDeviceEventShutdown)
         {

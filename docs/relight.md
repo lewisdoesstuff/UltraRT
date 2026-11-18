@@ -386,7 +386,12 @@ sky light (see "Sky and GI": the statues were dark from exposure, not missing bo
 are identical for fill 1, 0.5 and 0.25.
 
 ## HDR displays
-Not possible from the mod as things stand. Evidence (2026-11-14, RTX 5070 Ti on an HDR-capable display, D3D12):
+**Since 2026-11-18 there is a prototype that does it without Unity: [hdr.md](hdr.md)** (off by default). The native DLL
+replaces the swapchain underneath Unity with an HDR10 one, and the composite hands it a gain map of the highlights the
+tone curve compressed. What follows is the 2026-11-14 finding that Unity itself can't, which still holds and is why the
+prototype works the way it does.
+
+Not possible through Unity as things stand. Evidence (2026-11-14, RTX 5070 Ti on an HDR-capable display, D3D12):
 - `HDROutputSettings.main.available = False`, even though `SystemInfo.hdrDisplaySupportFlags = Supported,
   RuntimeSwitchable, AutomaticTonemapping` (the GPU, driver and display can do it). The plugin logs this line at startup
   (`HDR display: ...`).
@@ -400,9 +405,12 @@ Not possible from the mod as things stand. Evidence (2026-11-14, RTX 5070 Ti on 
   output would need a float `mainTex`, a PostProcessV2 that keeps values above 1, the UI composited at paper white and
   a final PQ/scRGB encode, i.e. replacing the game's post-processing.
 
-`[Display] HDR = true` (config) is accepted but only logs why HDR is unavailable. Patching `globalgamemanagers` would
+Until 2026-11-18 `[Display] HDR = true` (config) was accepted but only logged why HDR is unavailable; it now switches
+the swapchain proxy on ([hdr.md](hdr.md)). Patching `globalgamemanagers` would
 be an install-time change to the game's own data (undone by every Steam update or file verify) and still leaves the
-LDR chain above, so it was not attempted. Auto exposure plus the shoulder tone map is the SDR answer.
+LDR chain above, so it was not attempted. Auto exposure plus the shoulder tone map is the SDR answer. The proxy gets
+around the LDR chain instead of replacing it: the SDR image stays as it is, and the values above 1 travel beside it as
+a per-pixel gain from the composite (the one place that has them) to the present pass.
 
 ## Light fixtures
 Many ULTRAKILL lights sit *inside* their fixture (torch bowls, braziers). The game has no shadows, so it never

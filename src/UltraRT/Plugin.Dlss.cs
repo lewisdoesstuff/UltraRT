@@ -283,6 +283,7 @@ namespace UltraRT
             _gpu?.End(_cmd, SlotRR);
             if (!ok || !_rr.BloomWritten) _vfxHdr = null; // screen effects: no HDR bloom source this frame (Plugin.Vfx.cs)
             if (!ok) return false;
+            HdrSubmitRR(); // HDR display gain map, written by Finish (Plugin.Hdr.cs)
             _cmd.SetGlobalTexture(UltraRTUpsampledId, _rr.Final);
             _displayed = _rr.Final;
 

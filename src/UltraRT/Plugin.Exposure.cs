@@ -58,10 +58,7 @@ namespace UltraRT
                     }
                 }
             }
-            _hdrRequested = Config.Bind("Display", "HDR", false,
-                "Experimental: ask Unity for HDR display output. ULTRAKILL is built without HDR display support, so this " +
-                "currently only logs why it is unavailable (docs/relight.md, \"HDR displays\").").Value;
-            LogHdrDisplay();
+            InitHdr(); // HDR display output (Plugin.Hdr.cs, docs/hdr.md)
             Logger.LogInfo($"Relight: {_aeSettings}; tone map {(_tonemapCurve > 0.5f ? "max-channel" : "luminance")} shoulder, knee {_tonemapKnee}, white {_relightWhite}, toe {_tonemapToe} to {_tonemapToeEnd}");
         }
 
@@ -146,9 +143,10 @@ namespace UltraRT
         private bool _aeBenchClock = true;
 
         /// <summary>
-        /// HDR display output probe. Unity 2022.3 only allows HDR output when the player was built with
+        /// Logs what Unity says about HDR output. Unity 2022.3 only allows it when the player was built with
         /// PlayerSettings.allowHDRDisplaySupport (ULTRAKILL's globalgamemanagers: allowHDRDisplaySupport = False,
-        /// useHDRDisplay = False), so HDROutputSettings.main.available stays false whatever the display supports.
+        /// useHDRDisplay = False), so HDROutputSettings.main.available stays false whatever the display supports; UltraRT's
+        /// HDR output replaces the swapchain underneath Unity instead (Plugin.Hdr.cs, docs/hdr.md).
         /// </summary>
         private void LogHdrDisplay()
         {
@@ -161,16 +159,7 @@ namespace UltraRT
                 if (hdr.available)
                     info += $" gamut={hdr.displayColorGamut} format={hdr.graphicsFormat} paperWhite={hdr.paperWhiteNits} " +
                             $"maxLum={hdr.maxToneMapLuminance} maxFullFrame={hdr.maxFullFrameToneMapLuminance} minLum={hdr.minToneMapLuminance}";
-                Logger.LogInfo(info);
-                if (!_hdrRequested) return;
-                if (!hdr.available)
-                {
-                    Logger.LogWarning("[Display] HDR = true, but Unity reports HDR output unavailable: ULTRAKILL was built without " +
-                                      "HDR display support (PlayerSettings.allowHDRDisplaySupport = false). Staying SDR.");
-                    return;
-                }
-                hdr.RequestHDRModeChange(true);
-                Logger.LogInfo("HDR display: mode change requested");
+                Logger.LogInfo(info); // Unity's own view; UltraRT's HDR output does not go through it (Plugin.Hdr.cs)
             }
             catch (Exception e)
             {

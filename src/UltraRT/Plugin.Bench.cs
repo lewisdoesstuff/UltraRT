@@ -980,6 +980,7 @@ namespace UltraRT
                             // What the player sees (RT composited under transparents/post/HUD), plus the raw RT image.
                             string file = $"{Sanitize(sc.Name)}_{at:F1}s_{Sanitize(m)}.png";
                             ScreenCapture.CaptureScreenshot(Path.Combine(outDir, file));
+                            HdrCapture(Path.Combine(outDir, file)); // -ultrart-hdr-capture: what the display was sent (Plugin.Hdr.cs)
                             sr.Screenshots.Add(file);
                             if (m != "off")
                             {

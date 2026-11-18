@@ -67,13 +67,17 @@ if (-not $Force -and -not $Test -and (Test-Path $dll) -and (Test-Path $stamp) -a
     "UltraRT.Native.dll is up to date (inputs unchanged): kept $dll"; return
 }
 $cmds = @(
-    "cl $cflags $dlssFlags `"$src\GpuTimer.cpp`" `"$src\UnityLocator.cpp`" $dlssSrc",
-    "link /nologo /DLL /DEBUG /Brepro /PDBALTPATH:UltraRT.Native.pdb /OPT:REF /OPT:ICF /MACHINE:X64 /OUT:`"$dll`" /PDB:`"$OutDir\UltraRT.Native.pdb`" `"$obj\GpuTimer.obj`" `"$obj\UnityLocator.obj`" $dlssObj kernel32.lib"
+    "cl $cflags $dlssFlags `"$src\GpuTimer.cpp`" `"$src\UnityLocator.cpp`" `"$src\Hdr.cpp`" $dlssSrc",
+    "link /nologo /DLL /DEBUG /Brepro /PDBALTPATH:UltraRT.Native.pdb /OPT:REF /OPT:ICF /MACHINE:X64 /OUT:`"$dll`" /PDB:`"$OutDir\UltraRT.Native.pdb`" `"$obj\GpuTimer.obj`" `"$obj\UnityLocator.obj`" `"$obj\Hdr.obj`" $dlssObj kernel32.lib user32.lib dxgi.lib d3d12.lib d3dcompiler.lib"
 )
 if ($Test) {
     $exe = Join-Path $obj 'LocatorTest.exe'
     $cmds += "cl $cflags `"$src\LocatorTest.cpp`""
     $cmds += "link /nologo /OUT:`"$exe`" `"$obj\LocatorTest.obj`" `"$obj\UnityLocator.obj`" kernel32.lib"
+    # HdrTest.exe: the HDR swapchain proxy without the game (docs/hdr.md). Built here, run by hand:
+    #   obj\HdrTest.exe bin\UltraRT.Native.dll <output folder>     (opens a small window for about a second)
+    $cmds += "cl $cflags `"$src\HdrTest.cpp`""
+    $cmds += "link /nologo /OUT:`"$obj\HdrTest.exe`" `"$obj\HdrTest.obj`" kernel32.lib user32.lib dxgi.lib d3d12.lib"
 }
 
 $bat = Join-Path $obj 'build.cmd'

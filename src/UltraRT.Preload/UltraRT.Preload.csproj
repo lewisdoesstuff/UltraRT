@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- BepInEx preloader patcher (BepInEx\patchers): runs before Unity creates its graphics device, which is the only
+       moment the HDR swapchain proxy can be installed (docs/hdr.md). It patches no assembly. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>UltraRT.Preload</AssemblyName>
+    <RootNamespace>UltraRT.Preload</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == '' and '$(ULTRAKILL_DIR)' != ''">$(ULTRAKILL_DIR)</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\ULTRAKILL</GameDir>
+    <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx" HintPath="$(BepInExDir)\core\BepInEx.dll" Private="false" />
+    <Reference Include="Mono.Cecil" HintPath="$(BepInExDir)\core\Mono.Cecil.dll" Private="false" />
+  </ItemGroup>
+
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="Exists('$(BepInExDir)') and '$(Deploy)' != 'false'">
+    <MakeDir Directories="$(BepInExDir)\patchers\UltraRT" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExDir)\patchers\UltraRT" />
+    <Message Importance="high" Text="Deployed $(TargetFileName) -> $(BepInExDir)\patchers\UltraRT" />
+  </Target>
+
+</Project>

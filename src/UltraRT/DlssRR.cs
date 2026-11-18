@@ -101,6 +101,13 @@ namespace UltraRT
         public RenderTexture BloomTarget;
         public Vector4 BloomParams;
         public bool BloomWritten { get; private set; }
+        /// <summary>Set before Execute: Finish also writes the HDR display gain map into it (the output size; null = not
+        /// wanted). HdrWritten says whether the last Execute did (docs/hdr.md).</summary>
+        public RenderTexture HdrTarget;
+        public Vector4 HdrParams, HdrEmissive, HdrGame;
+        /// <summary>The game's frame before the composite (screen size), or null: the expected colour of the pixels the game draws itself.</summary>
+        public RenderTexture HdrGameColor;
+        public bool HdrWritten { get; private set; }
         private RenderTexture _bloomDummy;
         public int State => _disposed ? -1 : _getState();
         public long Evaluations => _evalCount();
@@ -322,6 +329,7 @@ namespace UltraRT
         /// <summary>Records Prepare, the RR plugin event and Finish. Returns false (nothing recorded) if RR can't run.</summary>
         public bool Execute(CommandBuffer cmd, in Inputs i, GpuTimer gpu = null, int evalSlot = -1)
         {
+            HdrWritten = false;
             if (_disposed || _cs == null || _getState() < 0) return false;
             int tw = i.radiance.width, th = i.radiance.height;
             int Ws = i.gameDepth.width, Hs = i.gameDepth.height;
@@ -448,6 +456,14 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, "_BloomParams", BloomParams);
             cmd.SetComputeFloatParam(cs, "_BloomOn", bloom ? 1f : 0f);
             BloomWritten = bloom;
+            // HDR display gain map (docs/hdr.md; Plugin.Hdr.cs), screen resolution.
+            bool hdr = HdrTarget != null && HdrTarget.width == Ws && HdrTarget.height == Hs;
+            cmd.SetComputeTextureParam(cs, k, "_HdrOut", hdr ? HdrTarget : _bloomDummy);
+            cmd.SetComputeVectorParam(cs, "_HdrParams", hdr ? HdrParams : Vector4.zero);
+            cmd.SetComputeVectorParam(cs, "_HdrEmissive", HdrEmissive);
+            cmd.SetComputeVectorParam(cs, "_HdrGame", HdrGame);
+            cmd.SetComputeTextureParam(cs, k, "_HdrGameColor", hdr && HdrGameColor != null ? (Texture)HdrGameColor : Texture2D.blackTexture);
+            HdrWritten = hdr;
             BindExposure(cmd, k, i);
             cmd.DispatchCompute(cs, k, Mathf.CeilToInt(Ws / 8f), Mathf.CeilToInt(Hs / 8f), 1);
 

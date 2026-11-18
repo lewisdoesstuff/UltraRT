@@ -11,3 +11,7 @@ IUnityInterfaces* Native_UnityInterfaces();
 void Dlss_OnDeviceEvent(UnityGfxDeviceEventType type);
 bool Dlss_OnRenderEvent(int eventId, void* data); // true if the event was a DLSS event
 void Dlss_Unload();
+
+// Hdr.cpp (HDR10 swapchain proxy, docs/hdr.md): called from GpuTimer.cpp's device callback / render event.
+void Hdr_OnDeviceEvent(UnityGfxDeviceEventType type);
+bool Hdr_OnRenderEvent(int eventId, void* data); // true if the event was the HDR frame event

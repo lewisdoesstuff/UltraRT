@@ -366,6 +366,11 @@ namespace UltraRT
         /// null = not wanted). Params: x weight of the tone-mapped-away energy, y weight of bright emission, zw emission threshold (docs/vfx.md).</summary>
         public RenderTexture BloomTarget;
         public Vector4 BloomParams;
+        /// <summary>Set before Execute: the Composite kernel also writes the HDR display gain map into it (the output's size;
+        /// null = not wanted). HdrWritten says whether the last Execute did (docs/hdr.md).</summary>
+        public RenderTexture HdrTarget;
+        public Vector4 HdrParams, HdrEmissive;
+        public bool HdrWritten { get; private set; }
         private RenderTexture _bloomDummy;
         /// <summary>Set before Execute (both or neither): the Composite kernel also writes the composite before the tone curve divided
         /// by <see cref="RemodDemod"/> (the demodulation colour) into <see cref="RemodTarget"/> (ARGBHalf, output size), for the
@@ -538,6 +543,12 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kComposite, IdBloomOut, BloomTarget != null ? BloomTarget : _bloomDummy);
             cmd.SetComputeVectorParam(cs, IdBloomParams, BloomParams);
             cmd.SetComputeFloatParam(cs, IdBloomOn, BloomTarget != null ? 1f : 0f);
+            // HDR display gain map (docs/hdr.md; Plugin.Hdr.cs), the size of the output.
+            bool hdr = HdrTarget != null && HdrTarget.width == output.width && HdrTarget.height == output.height;
+            cmd.SetComputeTextureParam(cs, _kComposite, "_HdrOut", hdr ? HdrTarget : _bloomDummy);
+            cmd.SetComputeVectorParam(cs, "_HdrParams", hdr ? HdrParams : Vector4.zero);
+            cmd.SetComputeVectorParam(cs, "_HdrEmissive", HdrEmissive);
+            HdrWritten = hdr;
             bool remod = RemodTarget != null && RemodDemod != null;
             cmd.SetComputeTextureParam(cs, _kComposite, IdRemodOut, remod ? RemodTarget : _bloomDummy);
             cmd.SetComputeTextureParam(cs, _kComposite, IdRemodDemod, remod ? (Texture)RemodDemod : Texture2D.whiteTexture);
