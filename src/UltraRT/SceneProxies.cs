@@ -189,6 +189,7 @@ namespace UltraRT
             if (m.renderQueue >= 3000) return false;
             // Water and glass (some glass sits at queue 2999) are traced separately, under TransparentMask.
             if (TransparentSource(m) || TransparentOverlays.IsOverlay(m)) return false;
+            if (BlendedVeil(m)) return false;
             string s = m.shader.name;
             // LIMBO_WALLS: the "TV sky" walls (ScreenSky/ScreenField) draw the panoramic sky by view direction through a
             // scanline mask. For RT they are sky, not surfaces: rays pass through to the sky lookup and the sun isn't blocked.
@@ -197,6 +198,46 @@ namespace UltraRT
             // texture is white where there is no blood. Traced, it was an opaque white quad over the wall (0-2).
             if (s.StartsWith("ULTRAKILL/Bloodstain")) return false;
             return !(s.Contains("Particles") || s.Contains("Additive") || s.Contains("Skybox") || s.Contains("Sprite") || s.Contains("Stencil") || s.StartsWith("Hidden/ProBuilder"));
+        }
+
+        private static readonly Dictionary<Material, bool> VeilCache = new Dictionary<Material, bool>();
+        /// <summary>Names (with queue) of the blended veils found since the last log line (LogVeils).</summary>
+        private static readonly List<string> VeilLog = new List<string>();
+
+        /// <summary>
+        /// A soft alpha-blended ULTRAKILL/Master layer the game draws in its transparent pass without depth writes, below
+        /// queue 3000: 8-1's cloud layer over the city ("FraudCity_Clouds", TRANSPARENCY, _BlendMode 2, no _ZWRITE_ON).
+        /// The queue put it among the cutouts (SourceAlphaTested), so it was traced with a 0.5 alpha test: opaque white
+        /// streaks where the game has a faint haze. It is not a surface. Left out of the RT scene, the game draws it
+        /// itself over the traced image (queues above 2500 come after the composite), blended as in the game.
+        /// </summary>
+        internal static bool BlendedVeil(Material m)
+        {
+            if (m == null || m.shader == null) return false;
+            if (VeilCache.TryGetValue(m, out bool v)) return v;
+            if (VeilCache.Count > 20000) VeilCache.Clear(); // materials of unloaded scenes
+            v = m.shader.name == "ULTRAKILL/Master" && m.renderQueue > 2500 && m.renderQueue < 3000
+                && m.IsKeywordEnabled("TRANSPARENCY") && !m.IsKeywordEnabled("_ZWRITE_ON")
+                && !m.IsKeywordEnabled("ALPHA_TEST") && !m.IsKeywordEnabled("_ALPHATEST_ON") && !m.IsKeywordEnabled("_ALPHA_TEST")
+                && m.HasProperty("_BlendMode") && Mathf.RoundToInt(m.GetFloat("_BlendMode")) == 2
+                && !LavaClassifier.IsLava(m);
+            if (v && VeilLog.Count < 24) VeilLog.Add($"'{m.name}' q{m.renderQueue}");
+            return VeilCache[m] = v;
+        }
+
+        private void LogVeils()
+        {
+            if (VeilLog.Count == 0) return;
+            _log.LogInfo($"Blended veils left to the game's own pass (not traced): {string.Join(", ", VeilLog)}");
+            VeilLog.Clear();
+            int n = 0;
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                var mats = r.sharedMaterials;
+                if (!mats.Any(BlendedVeil) || n++ >= 6) continue;
+                _log.LogInfo($"  veil renderer '{GameControlPath(r.transform)}' {r.GetType().Name} L{r.gameObject.layer} active={r.gameObject.activeInHierarchy} enabled={r.enabled} static={r.isPartOfStaticBatch} " +
+                             $"centre={r.bounds.center:F0} size={r.bounds.size:F0} mats [{string.Join(", ", mats.Select(m => m != null ? $"{m.name} ({m.shader?.name} q{m.renderQueue} kw {string.Join(" ", m.shaderKeywords)})" : "-"))}]");
+            }
         }
 
         public void Build()
@@ -248,6 +289,7 @@ namespace UltraRT
             LogMaterialClasses();
             LogDisplacementInventory();
             LogScrolling();
+            LogVeils();
             LogTransparents();
             LogMirrorSurfaces();
             _log.LogInfo($"Material maps ({MaterialMaps.Settings}): {Maps.Bound} proxy materials bound, {Maps.Missing} without maps, " +
