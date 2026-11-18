@@ -137,6 +137,9 @@ namespace UltraRT
         private readonly ManualLogSource _log;
         private readonly List<Rule> _rules = new List<Rule>();
         private readonly Dictionary<Material, (MaterialParams p, MaterialParams? s)> _cache = new Dictionary<Material, (MaterialParams, MaterialParams?)>();
+        private readonly Dictionary<Material, float?> _litCache = new Dictionary<Material, float?>();
+        /// <summary>Materials a "lit" rule matched (for the log).</summary>
+        public int LitHits { get; private set; }
         private readonly List<string> _dump = new List<string>();
         public int OverrideHits { get; private set; }
         public string RuleSources { get; private set; } = "none";
@@ -161,6 +164,9 @@ namespace UltraRT
             [JsonProperty("reflStrength")] public float? ReflStrength;
             [JsonProperty("detail")] public float? Detail;
             [JsonProperty("detailRoughness")] public float? DetailRoughness;
+            /// <summary>Lit weight 0-1 (0 = fullbright as the game draws unlit materials, 1 = fully relit). Independent of
+            /// the reflection fields: a rule with only "lit" leaves the reflection alone (<see cref="LitOf"/>).</summary>
+            [JsonProperty("lit")] public float? Lit;
             [JsonProperty("note")] public string Note;
             [JsonIgnore] public Regex MaterialRx, TextureRx, ShaderRx;
             [JsonIgnore] public string Origin;
@@ -228,6 +234,7 @@ namespace UltraRT
                 if (r.Class == null && !r.Roughness.HasValue && !r.Metalness.HasValue && !r.F0.HasValue && !r.SpecWeight.HasValue &&
                     !r.ReflStrength.HasValue && r.ReflMode == null)
                 {
+                    if (!r.Detail.HasValue && !r.DetailRoughness.HasValue) continue; // "lit" only: LitOf
                     if (r.Detail.HasValue) p.DetailNormal = Mathf.Max(0f, r.Detail.Value);
                     if (r.DetailRoughness.HasValue) p.DetailRoughness = Mathf.Max(0f, r.DetailRoughness.Value);
                     if (secondary is MaterialParams sd) { sd.DetailNormal = p.DetailNormal; sd.DetailRoughness = p.DetailRoughness; secondary = sd; }
@@ -253,6 +260,32 @@ namespace UltraRT
             _cache[src] = (p, secondary);
             _dump.Add($"{name}\t{shader}\t{tex}\t{p}\t{p.Source}" + (secondary is MaterialParams s2 ? $"\tsecondary: {s2}" : ""));
             return p;
+        }
+
+        /// <summary>
+        /// The lit weight a rule gives this material ("lit": 0 = fullbright, 1 = fully relit), or null when no rule sets
+        /// one (SceneProxies.LitWeightOf then uses the shader: unlit Master fullbright, enemies partial, the rest lit).
+        /// Matched like the reflection rules; the last matching rule with "lit" wins.
+        /// </summary>
+        public float? LitOf(Material src)
+        {
+            if (src == null) return null;
+            if (_litCache.TryGetValue(src, out var hit)) return hit;
+            float? lit = null;
+            string name = CleanName(src);
+            string tex = src.HasProperty("_MainTex") && src.GetTexture("_MainTex") is Texture t ? t.name : "";
+            string shader = src.shader != null ? src.shader.name : "";
+            foreach (var r in _rules)
+            {
+                if (!r.Lit.HasValue) continue;
+                if (r.MaterialRx != null && !r.MaterialRx.IsMatch(name)) continue;
+                if (r.TextureRx != null && !r.TextureRx.IsMatch(tex)) continue;
+                if (r.ShaderRx != null && !r.ShaderRx.IsMatch(shader)) continue;
+                lit = Mathf.Clamp01(r.Lit.Value);
+            }
+            if (lit.HasValue) LitHits++;
+            _litCache[src] = lit;
+            return lit;
         }
 
         /// <summary>Relative weight of dielectric specular classes (metals use 1).</summary>
@@ -375,7 +408,7 @@ namespace UltraRT
             var classes = Enumerable.Range(0, _classCounts.Length).Where(i => _classCounts[i] > 0)
                 .OrderByDescending(i => _classCounts[i]).Select(i => $"{(SurfaceClass)i} {_classCounts[i]}");
             return $"by class: {string.Join(", ", classes)}; reflection modes: none {_modeCounts[0]}, specular {_modeCounts[1]}, " +
-                   $"blend {_modeCounts[2]}, additive {_modeCounts[3]}; override hits {OverrideHits} (rules: {RuleSources})";
+                   $"blend {_modeCounts[2]}, additive {_modeCounts[3]}; override hits {OverrideHits}, lit-weight rules matched {LitHits} materials (rules: {RuleSources})";
         }
 
         /// <summary>Tab-separated: name, shader, main texture, parameters, deciding rule (for tuning overrides).</summary>

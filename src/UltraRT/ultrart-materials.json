@@ -6,7 +6,9 @@
     "Set fields: class (ULTRAKILL SurfaceType name, Other or Mirror: resets to that class's defaults first), roughness,",
     "metalness, f0, specWeight (0-1, relative to -ultrart-spec-weight), reflMode (none, specular, blend, additive),",
     "reflStrength (0-1, blend/additive). Material names are matched without ' (Instance)'.",
-    "Run with -ultrart-matdump to get BepInEx/ultrart/material-classes-SCENE.tsv with every material's result."
+    "Run with -ultrart-matdump to get BepInEx/ultrart/material-classes-SCENE.tsv with every material's result.",
+    "lit (0-1): lit weight, 0 = fullbright as the game draws unlit materials, 1 = fully relit (docs/materials.md, 'Lit weight').",
+    "A rule with only lit leaves the reflection parameters alone; on baked atlas slots it applies through the slot's original material."
   ],
   "rules": [
     { "material": "Concrete*", "class": "Generic", "note": "tagged Marble for footsteps" },
@@ -76,6 +78,20 @@
     { "material": "Arm", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
     { "material": "FeedbackerLit*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
     { "material": "RedArmLit*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
-    { "material": "GreenArm*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 }
+    { "material": "GreenArm*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
+
+    { "material": "Gibs", "lit": 0.6, "note": "unlit gore (0-2 has 953, every kill spawns more): fullbright gibs glowed red in dark halls; 0.6 keeps them readable and in the room's light (bench/suites/unlit-a.json, 2026-11-18)" },
+    { "material": "LionStatue*", "lit": 0.7, "note": "1-1 statues, unlit in the game: stone in sunlight. Weight not yet checked in a screenshot (the statue is switched off at the route poses)" },
+    { "material": "StatueBaseUnlit*", "lit": 0.7 },
+    { "material": "Statue3", "lit": 0.7, "note": "8-3; as the 1-1 statues" },
+    { "material": "BoneWallRedUnlit", "lit": 0.5, "note": "6-1 soul tubes, P-2 arches: partial. Not yet checked in a screenshot" },
+    { "material": "Hakita", "lit": 0.6, "note": "NPC and prop portraits (unlit cut-outs): partial so they sit in the room's light. Not yet checked in a screenshot" },
+    { "material": "Dawg", "lit": 0.6 },
+    { "material": "Imp", "lit": 0.6 },
+    { "material": "Francis", "lit": 0.6 },
+    { "material": "Jericho", "lit": 0.6 },
+    { "material": "CabalCrow", "lit": 0.6 },
+    { "material": "Florp", "lit": 0.6 },
+    { "material": "Presentation", "lit": 0.6 }
   ]
 }

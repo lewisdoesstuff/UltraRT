@@ -32,6 +32,13 @@ namespace UltraRT
             s.lodBias = Config.Bind("Materials", "LodBias", 0f,
                 "Mips added to the detail LOD: 0 = detail texels the size of a traced pixel, negative = sharper (more aliasing). " +
                 "Overridden by -ultrart-materials-lod-bias.").Value;
+            var u = SceneProxies.Unlit;
+            u.enemy = Config.Bind("Materials", "EnemyLitWeight", 0.5f,
+                "Lit weight of enemies the game draws unlit (most of them): 0 = fullbright like the game, 1 = fully relit. " +
+                "In between keeps RT shadows on them (docs/materials.md, \"Lit weight\"). Overridden by -ultrart-enemy-lit.").Value;
+            u.enemyTypes = Config.Bind("Materials", "EnemyTypeLitWeights", "",
+                "Per enemy type, over EnemyLitWeight: EnemyType=weight pairs, e.g. \"Filth=0.65, Stray=0.65\" (names as in the game's " +
+                "EnemyType). Overridden by -ultrart-enemy-types.").Value;
             var args = Environment.GetCommandLineArgs();
             for (int i = 0; i < args.Length; i++)
             {
@@ -50,9 +57,20 @@ namespace UltraRT
                     case "-ultrart-materials-lod-bias": s.lodBias = F(s.lodBias); break;
                     case "-ultrart-materials-toksvig": s.toksvig = F(s.toksvig); break;
                     case "-ultrart-materials-albedo-lod": s.albedoLod = Next() != "off"; break;
+                    case "-ultrart-lit-unlit": u.fullbright = false; break; // relight unlit materials (the old look)
+                    case "-ultrart-enemy-lit": u.enemy = F(u.enemy); break;
+                    case "-ultrart-enemy-types": u.enemyTypes = Next(); break;
+                    case "-ultrart-lit-rules": u.rules = Next() != "off"; break;
+                    case "-ultrart-lit-probe":
+                    {
+                        var g = Next();
+                        SceneProxies.LitProbe = new System.Text.RegularExpressions.Regex("^" + System.Text.RegularExpressions.Regex.Escape(g).Replace("\\*", ".*") + "$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        break;
+                    }
                 }
             }
             Logger.LogInfo($"Material maps: {s}");
+            Logger.LogInfo($"Lit weights: {u}");
         }
 
         private void MaterialsUpdate()

@@ -830,6 +830,7 @@ namespace UltraRT
             sr.LoadDetail = load.Detail;
             var spawn = load.Spawn;
             var (path, arenas) = BuildPath(sc.Path, spawn, suiteDir);
+            if (!string.IsNullOrEmpty(sc.Path.LookAt)) path = LookAtPath(sc.Path, path) ?? path; // Plugin.Bench.LookAt.cs
             sr.Duration = path.Duration;
             GameControl.TakeControl(path.Start);
             GameControl.GunBob = sc.GunBob;

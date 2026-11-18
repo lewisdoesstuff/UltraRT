@@ -355,7 +355,8 @@ blended by the world normal's y; red where `h - 0.05 n < _FillAmount`. Only mesh
 unlit props): their proxies now return lit weight 0 like atlas fullbright geometry, so relight no longer darkens them (6-2's
 Gabriel looked dim and red-brown instead of gold). Enemies (`ENEMY`) are also unlit in the game, but fully fullbright
 enemies would lose all RT shadowing, so they keep half of it: `SceneProxies.UnlitEnemyLitWeight` = 0.5
-(`-ultrart-enemy-lit w`, 0 = like the game, 1 = the old relit look). `-ultrart-lit-unlit` restores the old behaviour.
+(`-ultrart-enemy-lit w`, 0 = like the game, 1 = the old relit look). `-ultrart-lit-unlit` restores the old behaviour. Since 2026-11-18 any material can get a lit weight (`"lit"` rules, per enemy type, bench variants):
+docs/materials.md, "Lit weight".
 
 **Albedo as emissive in a lit material** (2026-11-14 late, user report: 6-1's chandelier candles pure white in relight,
 dark red in the game). The Master shader's emission with `_UseAlbedoAsEmissive` is its "albedo", `_MainTex` times the

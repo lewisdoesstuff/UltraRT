@@ -71,6 +71,7 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("fxg", _fxgSettings); // effects in reflections, e.g. fxg.enabled=0
             yield return new KeyValuePair<string, object>("eg", _enemyGlowSettings); // enemy glow lights, e.g. eg.enabled=0
             yield return new KeyValuePair<string, object>("veil", SceneProxies.Veils); // blended veils behind portals, e.g. veil.gain=1.2
+            yield return new KeyValuePair<string, object>("unlit", SceneProxies.Unlit); // lit weights, e.g. unlit.enemy=0.8 (docs/materials.md)
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>
@@ -157,6 +158,7 @@ namespace UltraRT
             else if (f.FieldType == typeof(int)) val = int.Parse(value, CultureInfo.InvariantCulture);
             else if (f.FieldType == typeof(float)) val = float.Parse(value, CultureInfo.InvariantCulture);
             else if (f.FieldType.IsEnum) val = Enum.Parse(f.FieldType, value, true);
+            else if (f.FieldType == typeof(string)) val = value;
             else { Logger.LogWarning($"Burst: field '{name}' has unsupported type {f.FieldType.Name}"); return; }
             f.SetValue(o, val);
         }

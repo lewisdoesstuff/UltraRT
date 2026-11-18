@@ -181,6 +181,16 @@ Only `approach-fast` poses chain, and only when `ApproachSpeed`, `FastTimeScale`
 .\scripts\bench.ps1 -Suite poses -ValidateLoad -ValidateMethods 'approach-fast,chain'   # chained vs fresh, per pose
 ```
 
+### Aiming at an object (`LookAt`)
+For objects no saved pose shows (`src/UltraRT/Plugin.Bench.LookAt.cs`): a `static` path with `"LookAt"` places the
+camera at the object after the pose load. `"LookAt": "LionStatue"` (GameObject name glob), `"Room/Statue*"` (path glob)
+or `"mat:Gibs"` (renderers with that material); `LookIndex` picks the Nth match (active ones first, nearest the pose
+first); `LookDistance` (0 = from the size; give it explicitly for skinned meshes, whose bounds can be huge), `LookYaw`
+(default: the most open of 16 sides, preferring the object's front) and `Pitch` place the camera; `LookActivate: true`
+switches on the target's inactive parents (a whole room, without its triggers: its lights may be off). The log lists the
+matches, also switched-off ones (`Benchmark: LookAt ...`). Many props sit in rooms the level switches off behind the
+player: approach with a route that ends next to the object (a truncated copy works, e.g. `recordings/unlit-6-1-ghost.json`).
+
 ### Saving a pose
 Press **F11** in normal play. It appends the pose to `BepInEx\ultrart\poses.jsonl` and saves two files next to the recordings: the route walked since the level loaded (`approach_*.json`) and the area diff (`areas_*.json`). The route also records every checkpoint you activated, so the benchmark knows exactly where to jump. Older routes have no checkpoint list; for those the last checkpoint the route passed through is used.
 

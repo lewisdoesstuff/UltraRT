@@ -309,9 +309,7 @@ namespace UltraRT
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
                     case "-ultrart-viewprobe": SceneProxies.ViewProbe = true; break;
                     case "-ultrart-nomatsync": SceneProxies.MaterialSync = false; break;
-                    case "-ultrart-lit-unlit": SceneProxies.FullbrightUnlit = false; break;
                     case "-ultrart-albedo-emission-glow": SceneProxies.LitAlbedoEmission = false; break;
-                    case "-ultrart-enemy-lit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.UnlitEnemyLitWeight); break;
                     case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
                     case "-ultrart-guard":
                         float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _guardX);
@@ -1253,6 +1251,7 @@ namespace UltraRT
             SceneProxies.HideHeldItems = _hideHeld; SceneProxies.SkinnedScaleUpdates = _skinScale;
             DlssRR.GrazingMatch = _grazingMatch;
             DlssRR.ThinMatch = _thinMatch;
+            DlssRR.ThinNear = _thinNear;
             Shader.SetGlobalFloat("_UltraRTWaterBand", _waterBand ? 1f : 0f);
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
             PortalCrossingRemap(); // the camera went through a portal: histories follow it (Plugin.PortalTemporal.cs)
