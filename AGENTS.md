@@ -3,7 +3,6 @@
 ## Subagent models
 - **Top-level (lead) thread:** spawn subagents on **Claude Opus 5.5, effort high** for implementation and other complex work. Use **Claude Sonnet 5.5, effort high** for less complex tasks and for research.
 - **Subagents:** may spawn their own subagents only on **Claude Sonnet 5.5, effort low**, and only for research (reading, searching, summarising). Never for implementation or anything that uses the game.
-- **Messaging a running subagent:** use `t3_thread_send` with `mode: "steer"`, not `queue`. A queued message waits until the agent's current turn ends, which can take hours; steer reaches it mid-turn.
 
 ## Where to start
 UltraRT is a BepInEx ray / path-tracing mod for ULTRAKILL (Unity 2022.3, DX12 DXR). [README.md](README.md) says what it is and has an index of [docs/](docs) with a one-line description each: read the doc for the area you touch before changing it. [bench/README.md](bench/README.md) is the reference for running the game (locks, suites, scenario JSON). Code: `src/UltraRT` (plugin), `unity/UltraRT.Shaders` (shaders, built into `ultrart.shaders`), `native/UltraRT.Native` (GPU timer, DLSS RR), `scripts` (build, deploy, lock, bench, trailer), `data/lights` (shipped light overrides).
