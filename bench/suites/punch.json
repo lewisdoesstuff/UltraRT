@@ -1,6 +1,6 @@
 {
   "Name": "punch",
-  "Note": "Punch (docs/lighting-overrides.md): the game, the old bright build (no light policies, the exposure of before 2026-11-17), what ships, and the punch proposal (proposal layer + exposure allowed above the game + shadow toe). Score with tools/lights/punch.py <run> --sheet.",
+  "Note": "Punch (docs/lighting-overrides.md): the game, the old bright build (no light policies, dark scenes lifted) and what ships (punch policy, exposure above the game allowed, shadow toe). Score with tools/lights/punch.py <run> --modes ... --sheet.",
   "Scenarios": [
     {
       "Name": "0-3 tour",
@@ -15,8 +15,7 @@
       "Modes": [
         "off",
         "pathtrace+plugin._lightOverrides=0+ae.rtBrightness=1",
-        "pathtrace",
-        "pathtrace+lc.layer=proposed+ae.gameMatchDown=0.4+ae.gameMatchBandDown=0.35+plugin._tonemapToe=0.6"
+        "pathtrace"
       ],
       "ShotSettle": 0.8
     },
@@ -33,8 +32,7 @@
       "Modes": [
         "off",
         "pathtrace+plugin._lightOverrides=0+ae.rtBrightness=1",
-        "pathtrace",
-        "pathtrace+lc.layer=proposed+ae.gameMatchDown=0.4+ae.gameMatchBandDown=0.35+plugin._tonemapToe=0.6"
+        "pathtrace"
       ],
       "ShotSettle": 0.8
     },
@@ -51,8 +49,7 @@
       "Modes": [
         "off",
         "pathtrace+plugin._lightOverrides=0+ae.rtBrightness=1",
-        "pathtrace",
-        "pathtrace+lc.layer=proposed+ae.gameMatchDown=0.4+ae.gameMatchBandDown=0.35+plugin._tonemapToe=0.6"
+        "pathtrace"
       ],
       "ShotSettle": 0.8
     }

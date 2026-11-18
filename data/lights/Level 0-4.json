@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "scene": "Level 0-4",
+  "lights": [],
+  "added": [],
+  "classes": {
+    "fill": {
+      "reach": 0
+    },
+    "scripted": {
+      "reach": 0
+    },
+    "fixture": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55
+    },
+    "accent": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55
+    },
+    "glow": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55
+    },
+    "effect": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55
+    },
+    "item": {
+      "reach": 0,
+      "intensity": 1.8,
+      "medium": 0.55
+    }
+  },
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch'; user-approved 2026-11-17): every level light reaches no further than in the game, fills at full strength, fixtures / accents / glows / effect and item lights x1.8 with their haze held (medium 1/1.8)."
+}

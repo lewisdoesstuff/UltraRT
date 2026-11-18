@@ -465,7 +465,7 @@ of 18 views dim as shipped (`20261117-225749_review-7-2_alt`): softened, and sti
 views are dim before any change). P-2 without its exposure exception already reads x1.06 as shipped. All eight are
 proposals (`data/lights/proposed/`, review R13); nothing ships.
 
-## Punch: the target after the user's second look (2026-11-17, `t3/light-punch`, proposal)
+## Punch: the target after the user's second look (2026-11-17, `t3/light-punch`; shipped 2026-11-18)
 
 The user on the shipped batches: "a little too dark ... While the previous lighting was definitely too bright, the
 colours also had a lot more pop ... There are large lights that should be very bright, brighter than the base game,
@@ -523,7 +523,25 @@ The proposal files as committed, run once more (`20261117-234452_punch_alt`, sui
 dark +7.5 -> +6.6 (old +11.8); 2-2 hi% 1.2 -> 1.9, chroma x0.80 -> x0.88, contrast x0.74 -> x0.96, dark +5.6 -> +4.2 (old
 +8.7). (`--labels` follow `--modes`; without `--modes` the modes are sorted by name.)
 
-Until the user has seen this: the third batch (review R13) is on hold, and nothing here ships. Review R14.
+**Verdict and what ships (2026-11-18).** The user: "this looks great! much much better!", fixtures "x1.6, maybe a
+touch brighter at 1.8x", the exposure and the toe as defaults. So:
+
+- `AutoExposure`: game match down 0.4 beyond 0.35 EV by default (docs/relight.md, "Punch"); tone curve toe 0.6;
+- `data/lights/Level 0-3.json`, `Level 0-4.json`, `Level 2-2.json`: fills and scripted lights `reach` 0 at full
+  strength; fixtures, accents, glows, effect and item lights `reach` 0, x1.8, `medium` 0.55 (1/1.8: their haze as
+  before).
+
+As shipped (`20261117-235645_punch_alt`, suite `punch`, 0 exceptions; old bright build -> ships): 0-3 hi% 1.9 -> 1.1
+(game 0.8), chroma x1.60 -> x1.24, dark +14.6 -> +8.6; 0-4 hi% 2.2 -> 1.8 (game 1.2), chroma x1.32 -> x1.12, dark
++8.9 -> +5.7; 2-2 hi% 1.3 -> 1.7 (game 1.6), chroma x0.87 -> x0.83, contrast x0.83 -> x0.85, dark +7.0 -> +4.0.
+(Runs differ by a few tenths: the tour's exposure settles from where the previous view left it.)
+
+**0-3's void haze: listed, not fixed.** In the lava-pillar rooms (tour stops 1 and 3) the game shows black beyond
+the pillar and the path-traced image an orange haze (dark +22 to +43 in those views). It is not the punch policy's:
+the old bright build has it (+37 to +44), what shipped before had it (+34 to +41), and holding the fills' haze
+(`lc.set.fill.medium=0.35` or `0.6`, `20261117-235645_punch-haze_alt`) changes nothing. The source is something
+other than the level's fill lights (the lava pillar's own light in the air, or bounce on the far walls): to find
+with `vol.strength=0` and `lc.solo=none` at those stops.
 
 ## Area lights (shader)
 

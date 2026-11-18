@@ -34,10 +34,11 @@ namespace UltraRT
         /// 0.5. -ultrart-ae-up F.</summary>
         public float upStrength = 0f;
         /// <summary>
-        /// "RT brightness" (settings menu; -ultrart-rt-brightness F; config [Relight] RtBrightness): 0 = as bright as the
-        /// game (the defaults of <see cref="upStrength"/>, <see cref="gameMatchDown"/>, <see cref="gameMatchBandDown"/>),
-        /// 1 = the look before 2026-11-17 (dark scenes lifted half way to the dark key, 40 % of an excess over the game
-        /// removed beyond 0.35 EV). In between the three values are blended. docs/relight.md, "Game match".
+        /// "RT brightness" (settings menu; -ultrart-rt-brightness F; config [Relight] RtBrightness): 0 = the defaults of
+        /// <see cref="upStrength"/>, <see cref="gameMatchDown"/>, <see cref="gameMatchBandDown"/>, 1 = the look before
+        /// 2026-11-17 (dark scenes lifted half way to the dark key, 40 % of an excess over the game removed beyond
+        /// 0.35 EV). In between the three values are blended. Since the punch defaults the game-match part is the
+        /// default already: the setting now only lifts dark scenes. docs/relight.md, "Game match".
         /// </summary>
         public float rtBrightness = 0f;
         /// <summary>The current level's own RT brightness, from its light override file ("exposure": { "rtBrightness": F },
@@ -64,12 +65,14 @@ namespace UltraRT
         /// target moves this fraction of the way towards the game's brightness, beyond a dead band. Up = the RT image is
         /// darker than the game (8-2's alley, lit in game by lights shining through walls; band
         /// <see cref="gameMatchBand"/> EV), down = brighter (torch rooms, 4-1; band <see cref="gameMatchBandDown"/> EV).
-        /// 0 = off. Down was 0.4 beyond 0.35 EV until 2026-11-17 ("lit rooms may stay brighter than the game"); now the
-        /// image follows the game's brightness unless <see cref="rtBrightness"/> says otherwise.
+        /// 0 = off. Down is 0.4 beyond 0.35 EV ("lit rooms may stay brighter than the game"). For a day (2026-11-17) it
+        /// was 0.9 beyond 0.1 EV, the image at the game's brightness: the user found that dull ("punch",
+        /// docs/lighting-overrides.md), so lit rooms sit above the game again; dark scenes are still not lifted
+        /// (<see cref="upStrength"/>).
         /// -ultrart-ae-match UP[,DOWN], -ultrart-ae-match-band UP[,DOWN].
         /// </summary>
-        public float gameMatchUp = 0.75f, gameMatchDown = 0.9f;
-        public float gameMatchBand = 0.35f, gameMatchBandDown = 0.1f;
+        public float gameMatchUp = 0.75f, gameMatchDown = 0.4f;
+        public float gameMatchBand = 0.35f, gameMatchBandDown = 0.35f;
         /// <summary>Pixels whose game fog factor is above this are not compared (the game's fog replaces their colour).</summary>
         public float gameMatchFog = 0.3f;
         /// <summary>

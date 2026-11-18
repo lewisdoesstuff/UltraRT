@@ -12,7 +12,7 @@ everything is derived from each light's colour, intensity and range, plus a few 
 | White point | `-ultrart-relight-white` | 3 | shoulder tone map in the denoiser's composite: values below the knee are untouched, the white point maps to 1, so hotspots roll off instead of clipping |
 | Tone curve | `-ultrart-relight-tonemap` | `lum` | `lum` scales by luminance (the original curve); `max` scales by the largest channel (keeps hue and saturation, never clips below the white point, but dims hot saturated colours such as torch-lit orange walls a little) |
 | Knee | `-ultrart-relight-knee` | 0.75 | where the shoulder starts |
-| Toe | `-ultrart-relight-toe S[,END]` | 0 (end 0.25) | optional filmic toe below END: luminance v becomes `lerp(v, v^2/END * (2 - v/END), S)` (same value and slope at END, slope 1 - S at black), for deeper shadows. Off: at 0.3 it changed the bench poses by under 2% |
+| Toe | `-ultrart-relight-toe S[,END]` | 0.6 (end 0.25) since 2026-11-18 ("punch", docs/lighting-overrides.md; 0 before) | filmic toe below END: luminance v becomes `lerp(v, v^2/END * (2 - v/END), S)` (same value and slope at END, slope 1 - S at black), for deeper shadows. At 0.3 it changed the bench poses' means by under 2%; at 0.6 it takes about a third off the lift of the pixels the game leaves black |
 | Auto exposure | `-ultrart-relight-autoexposure on\|off` | on | see below; config `[Relight] AutoExposure`; **Ctrl+F4** toggles in game |
 | Linear transport | `-ultrart-relight-linear on\|off` | on | light transport on linear values; see "Sky and GI" |
 | Sun disk | `-ultrart-sun-angle DEG` | 0.5 | angular radius of shadowed directional lights (soft sun shadows); 0 = hard |
@@ -67,7 +67,7 @@ their brightness, so a dim outdoor scene doesn't dull the palette.
 | Key | `-ultrart-ae-key` | 0.45 | mean luminance above which the exposure darkens (to the key) |
 | Dark key | `-ultrart-ae-key-low` | 0.1 | mean luminance below which it brightens. Between the two nothing changes: indoor 1-1/4-1/1-4/0-1 measure 0.22-0.34 with the default light reference |
 | Up strength | `-ultrart-ae-up` | 0 (0.5 until 2026-11-17) | fraction of the way to the dark key a darker scene is lifted (0 = never brightens) |
-| RT brightness | `-ultrart-rt-brightness`, config `[Relight] RtBrightness`, settings menu | 0 | 0 = as bright as the game; 1 = the look before 2026-11-17 (up strength 0.5, game match down 0.4 beyond 0.35 EV); in between, blended. See "Game match" |
+| RT brightness | `-ultrart-rt-brightness`, config `[Relight] RtBrightness`, settings menu | 0 | 0 = as bright as the game; 1 = the look before 2026-11-17 (up strength 0.5, game match down 0.4 beyond 0.35 EV); in between, blended. See "Game match" Since 2026-11-18 the game-match part is the default ("Punch"): the setting only lifts dark scenes |
 | Min / max EV | `-ultrart-ae-min` / `-ultrart-ae-max` | -4 / 1 | relative to the fixed look |
 | Speed | `-ultrart-ae-speed UP[,DOWN]` | 1.5,3 | 1/s, exponential in EV. Up = exposure rising (into the dark, slower, like eyes); down = into the light |
 | Dead band | `-ultrart-ae-deadband` | 0.05 | EV; the exposure stops this far short of the target |
@@ -123,9 +123,11 @@ The game match meters relight's image *before* the haze and before the game's tr
 User report: "still too bright compared to the base game". Most of the mean excess was exposure policy, not lights (docs/plan-look-and-perf.md, workstream A): the dark lift raised near-black scenes half way to the dark key, and the game match removed only 40 % of an excess, and only beyond 0.35 EV. Now:
 
 - the dark lift (`up`) is 0: a dark place is as dark as its lights make it;
-- the game match's down side is 0.9 beyond 0.1 EV (`gameMatchDown`, `gameMatchBandDown`). The up side is unchanged;
+- the game match's down side is 0.9 beyond 0.1 EV (`gameMatchDown`, `gameMatchBandDown`). The up side is unchanged. **Reverted 2026-11-18** to 0.4 beyond 0.35 EV: see "Punch" below;
 - **RT brightness** (`-ultrart-rt-brightness F`, config `[Relight] RtBrightness`, settings menu, bench `ae.rtBrightness`) blends the three values back: 0 = as the game (default), 1 = the policy before this change;
 - a level can carry its own RT brightness in its light override file (`"exposure": { "rtBrightness": 1 }`, docs/lighting-overrides.md, "Format"): the level is shown at least that bright. **P-2** had 1 (the user liked its street as it was) until the user dropped the exception later on 2026-11-17: P-2 now follows the same policy as every level (the "1.89" column below, not "shipped: 2.17"). Bench `ae.levelOverride=0` ignores a level's value.
+
+**Punch (2026-11-18).** The user on the result: "a little too dark ... the colours had a lot more pop". Lit rooms may sit above the game again: the game match's down side is back at 0.4 beyond 0.35 EV, and the tone curve has a shadow toe of 0.6. The dark lift stays 0, so dark places are not raised; "RT brightness" now only adds that lift. The numbers of the table below are those of 0.9 / 0.1 and no longer the defaults' (docs/lighting-overrides.md, "Punch", has the measurements).
 
 Mean screen luma against the game's, pathtrace, old policy and new (`bench/suites/bright-core.json`, 2026-11-17, scored with `tools/lights/score.py`; "reveal" = share of the frame that is dark in the game and visibly lit in RT, docs/lighting-overrides.md "Scoreboard"):
 
