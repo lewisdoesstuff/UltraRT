@@ -47,6 +47,13 @@ namespace UltraRT
         /// <summary>Diagnostics for the analytic colour: which faces it draws (0 = as the material says, 1 = entering only,
         /// 2 = leaving only).</summary>
         public int beamFaces = 0;
+        /// <summary>Window beams (docs/volumetrics.md, "Window beams"): beam meshes with no light at all (a shaft of
+        /// daylight through a window, a skylight) go through the beam channel too. The source is fitted from the mesh
+        /// (its bright or narrow or upper end), and the shadow rays run along the beam towards that end, so pillars,
+        /// enemies and V1 cut the beam. Off (the default: see the doc, the first result takes the beams' glow out of
+        /// the room more than it cuts shafts into it): the game draws those meshes, unshadowed.
+        /// -ultrart-window-beams on|off.</summary>
+        public bool windowBeams = false;
         /// <summary>The housing a parent-spot beam's light sits in (3-1's 39 m eyeball and its socket) stops blocking that
         /// light (SceneProxies.AddHousing): the eye lights the room, and the ribs cast shadows on the floor.</summary>
         public bool housings = true;
@@ -99,7 +106,14 @@ namespace UltraRT
         {
             public Renderer Renderer;
             public Light Light;
-            public bool Local;                    // planes in the light's space
+            public bool Local;                    // planes in the light's space (a window beam: in its own transform's)
+            /// <summary>The transform the planes are in when <see cref="Local"/>: the light's, or a window beam's own.</summary>
+            public Transform Space;
+            /// <summary>A window beam: no light. <see cref="Source"/> is where the shadow rays go (a point far behind the
+            /// source end, so they run nearly parallel to the beam), <see cref="SourceEnd"/> the centre of the source end
+            /// (the rays stop at its plane), <see cref="FreeAxis"/> the direction the light travels; all in the planes' space.</summary>
+            public bool Free;
+            public Vector3 Source, SourceEnd, FreeAxis;
             public Vector4[] Planes;              // xyz normal, w d
             public Vector3 Center;                // bounding sphere (same space as the planes)
             public float Radius;
@@ -113,7 +127,7 @@ namespace UltraRT
             public int LastDrawn = -100;          // frame the beam channel last drew it
 
             /// <summary>Whether the game would draw it now (its object active; its renderer enabled, or hidden by us).</summary>
-            public bool Live(bool hiddenByUs) => Renderer != null && Light != null && Light.isActiveAndEnabled &&
+            public bool Live(bool hiddenByUs) => Renderer != null && (Free ? (!Local || Space != null) : Light != null && Light.isActiveAndEnabled) &&
                                                  Renderer.gameObject.activeInHierarchy && (Renderer.enabled || hiddenByUs);
         }
 
@@ -141,11 +155,14 @@ namespace UltraRT
         {
             ShowFakes();
             _cones.Clear();
+            FreeHulls.Clear();
             _meshCache.Clear();
             _scene = null;
         }
 
-        public bool TryGet(Light l, out Cone c) => _cones.TryGetValue(l, out c);
+        public bool TryGet(Light l, out Cone c) { c = null; return !ReferenceEquals(l, null) && _cones.TryGetValue(l, out c); }
+        /// <summary>Window beams: hulls of beam meshes that have no light (LightShaftSettings.windowBeams).</summary>
+        public readonly List<BeamHull> FreeHulls = new List<BeamHull>();
         public IEnumerable<Cone> Cones => _cones.Values;
         /// <summary>Bumped whenever the cone set is fitted again.</summary>
         public int Version { get; private set; }
@@ -154,7 +171,7 @@ namespace UltraRT
         public void EnsureBuilt(object scene, IList<Light> lights)
         {
             if (scene == null) return;
-            if (ReferenceEquals(scene, _scene))
+            if (ReferenceEquals(scene, _scene) && Settings.windowBeams == _builtWindowBeams)
             {
                 // A matched light or fake was destroyed (a checkpoint respawn replaces its room with a fresh clone): fit again,
                 // so the clone's beams are matched too. At most once a second, and only then (the scan takes 10-25 ms).
@@ -167,25 +184,35 @@ namespace UltraRT
                     foreach (var f in c.Fakes) if (f == null) { stale = true; break; }
                     if (stale) break;
                 }
+                foreach (var h in FreeHulls) if (h.Renderer == null) { stale = true; break; }
                 if (!stale) return;
                 _log.LogInfo("Light shafts: a matched light or cone mesh is gone; fitting again");
             }
             ShowFakes();
             _cones.Clear();
+            FreeHulls.Clear();
             _meshCache.Clear();
             _scene = scene;
+            _builtWindowBeams = Settings.windowBeams; // the fit depends on it: a switch (bench variant) fits again
+            _freeRejectLogged = 0;
             var sw = Stopwatch.StartNew();
             int candidates = 0, rejected = 0;
             foreach (var r in UnityEngine.Object.FindObjectsOfType<MeshRenderer>(true))
             {
                 if (!IsShaft(r)) continue;
                 candidates++;
-                try { if (!Match(r, lights)) { rejected++; if (rejected <= 8) LogRejected(r, lights); } }
+                try
+                {
+                    if (Match(r, lights)) continue;
+                    if (Settings.windowBeams && MatchFree(r)) continue;
+                    rejected++;
+                    if (rejected <= 8) LogRejected(r, lights);
+                }
                 catch (Exception e) { rejected++; _log.LogWarning($"Light shafts: '{r.name}': {e.Message}"); }
             }
             _meshCache.Clear();
             Version++;
-            _log.LogInfo($"Light shafts: {_cones.Count} lights with a fake cone ({candidates} shaft meshes, {rejected} without a light at their apex) in {sw.Elapsed.TotalMilliseconds:F1} ms");
+            _log.LogInfo($"Light shafts: {_cones.Count} lights with a fake cone, {FreeHulls.Count} window beams ({candidates} shaft meshes, {rejected} left to the game) in {sw.Elapsed.TotalMilliseconds:F1} ms");
             int n = 0;
             foreach (var c in _cones.Values)
             {
@@ -339,14 +366,166 @@ namespace UltraRT
         }
 
         /// <summary>
+        /// A beam mesh with no light (a window's shaft of daylight): its hull for the beam channel, with a fitted source.
+        /// The axis is the direction from the bright vertices to the dark ones when the mesh has such a gradient (the
+        /// game fades its beams away from the source), else the mesh's long axis, pointing from its narrow end to its
+        /// wide end, else downwards. False (the game draws the mesh): not a volume, not elongated, or no way to tell
+        /// the source end.
+        /// </summary>
+        private bool MatchFree(MeshRenderer r)
+        {
+            bool ok = MatchFreeCore(r, out string why);
+            if (!ok && _freeRejectLogged++ < 24) _log.LogInfo($"Light shafts: no window beam from '{Bench.GameControl.PathOf(r.transform)}': {why}");
+            return ok;
+        }
+        private int _freeRejectLogged;
+        private bool _builtWindowBeams;
+        private readonly RaycastHit[] _freeHits = new RaycastHit[32];
+
+        private bool MatchFreeCore(MeshRenderer r, out string why)
+        {
+            why = null;
+            var verts = WorldVertices(r);
+            if (verts == null || verts.Count < 5) { why = "no vertices"; return false; }
+            Vector3 c = Vector3.zero;
+            foreach (var v in verts) c += v;
+            c /= verts.Count;
+            // Long axis: power iteration on the covariance.
+            float xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+            foreach (var v in verts)
+            {
+                var d = v - c;
+                xx += d.x * d.x; xy += d.x * d.y; xz += d.x * d.z; yy += d.y * d.y; yz += d.y * d.z; zz += d.z * d.z;
+            }
+            var axis = new Vector3(0.577f, 0.577f, 0.577f);
+            for (int i = 0; i < 32; i++)
+            {
+                var n = new Vector3(xx * axis.x + xy * axis.y + xz * axis.z, xy * axis.x + yy * axis.y + yz * axis.z, xz * axis.x + yz * axis.y + zz * axis.z);
+                if (n.sqrMagnitude < 1e-12f) { why = "flat"; return false; }
+                axis = n.normalized;
+            }
+            string how = null;
+            var vcs = VertexColors(r);
+            if (vcs != null && vcs.Count == verts.Count)
+            {
+                float lo = float.MaxValue, hi = float.MinValue;
+                var b = new float[verts.Count];
+                for (int i = 0; i < verts.Count; i++)
+                {
+                    b[i] = (vcs[i].r + vcs[i].g + vcs[i].b) / 3f * vcs[i].a;
+                    lo = Mathf.Min(lo, b[i]); hi = Mathf.Max(hi, b[i]);
+                }
+                if (hi - lo > 0.3f)
+                {
+                    Vector3 bright = Vector3.zero, dark = Vector3.zero;
+                    float wb = 0f, wd = 0f;
+                    for (int i = 0; i < verts.Count; i++)
+                    {
+                        float t = (b[i] - lo) / (hi - lo);
+                        bright += verts[i] * t; wb += t;
+                        dark += verts[i] * (1f - t); wd += 1f - t;
+                    }
+                    var g = dark / Mathf.Max(wd, 1e-4f) - bright / Mathf.Max(wb, 1e-4f);
+                    if (g.magnitude > 0.5f) { axis = g.normalized; how = "vertex colours"; }
+                }
+            }
+            float min = float.MaxValue, max = float.MinValue, perp = 0f;
+            foreach (var v in verts)
+            {
+                var d = v - c;
+                float a = Vector3.Dot(d, axis);
+                min = Mathf.Min(min, a); max = Mathf.Max(max, a);
+                perp = Mathf.Max(perp, (d - axis * a).magnitude);
+            }
+            float len = max - min;
+            if (len < 2f) { why = $"short ({len:F1} m)"; return false; }
+            if (how == null)
+            {
+                if (len < 1.5f * perp) { why = $"no vertex gradient (colours {(vcs != null ? vcs.Count : 0)}) and not elongated ({len:F1} x {perp:F1} m)"; return false; } // no gradient and not elongated: no way to tell where it comes from
+                // Narrow end = source: mean distance from the axis over each end's quarter.
+                float rLo = 0f, rHi = 0f;
+                int nLo = 0, nHi = 0;
+                foreach (var v in verts)
+                {
+                    var d = v - c;
+                    float a = Vector3.Dot(d, axis);
+                    float rr = (d - axis * a).magnitude;
+                    if (a < min + 0.25f * len) { rLo += rr; nLo++; }
+                    else if (a > max - 0.25f * len) { rHi += rr; nHi++; }
+                }
+                if (nLo == 0 || nHi == 0) { why = "no ends"; return false; }
+                rLo /= nLo; rHi /= nHi;
+                if (rHi > 1.15f * rLo) how = "narrow end";
+                else if (rLo > 1.15f * rHi) { axis = -axis; how = "narrow end"; }
+                else if (Mathf.Abs(axis.y) > 0.25f) { if (axis.y > 0f) axis = -axis; how = "upper end"; }
+                else { why = "no source end (no gradient, no taper, level)"; return false; }
+                if (how != null && Vector3.Dot(axis, axis) > 0f)
+                {
+                    min = float.MaxValue; max = float.MinValue;
+                    foreach (var v in verts) { float a = Vector3.Dot(v - c, axis); min = Mathf.Min(min, a); max = Mathf.Max(max, a); }
+                }
+            }
+            Vector3 end = Vector3.zero;
+            int ne = 0;
+            foreach (var v in verts)
+                if (Vector3.Dot(v - c, axis) < min + 0.1f * len) { end += v; ne++; }
+            if (ne == 0) { why = "no end vertices"; return false; }
+            end /= ne;
+            end -= axis * (Vector3.Dot(end - c, axis) - min); // onto the source end's plane
+            // The mesh usually starts in or behind the window (its wall, its glass): shadow rays to the mesh's own end would
+            // all hit that. The source end moves to the room side of whatever solid lies in the beam's first 40 %,
+            // found with the physics scene from further down the beam (centre line and four offsets; the innermost hit).
+            float moved = 0f;
+            {
+                // One probe per vertex of the source end (pulled 10 % towards the centre line) and one down the centre: the
+                // end's plane is square to the beam, the wall usually is not, so the innermost hit over the whole
+                // cross-section is the one that clears it.
+                float probe = 0.4f * len;
+                var starts = new List<Vector3> { end };
+                foreach (var v in verts)
+                    if (Vector3.Dot(v - c, axis) < min + 0.1f * len && starts.Count < 24)
+                    {
+                        var onPlane = v - axis * (Vector3.Dot(v - c, axis) - min);
+                        starts.Add(Vector3.Lerp(onPlane, end, 0.1f));
+                    }
+                foreach (var st in starts)
+                {
+                    int nh = Physics.RaycastNonAlloc(st + axis * probe, -axis, _freeHits, probe + 0.5f, ~0, QueryTriggerInteraction.Ignore);
+                    for (int k = 0; k < nh; k++)
+                    {
+                        var col = _freeHits[k].collider;
+                        if (col == null || col.attachedRigidbody != null) continue; // level geometry only
+                        moved = Mathf.Max(moved, probe - _freeHits[k].distance + 0.1f);
+                    }
+                }
+                moved = Mathf.Clamp(moved, 0f, probe);
+                end += axis * moved;
+            }
+            float back = Mathf.Max(4f * len, 60f);
+            var hull = FitHull(r, null, verts, axis, end - axis * back);
+            if (hull == null) { why = "no hull (logged above)"; return false; }
+            var toSpace = hull.Local ? r.transform.worldToLocalMatrix : Matrix4x4.identity;
+            hull.Free = true;
+            hull.Space = hull.Local ? r.transform : null;
+            hull.Source = toSpace.MultiplyPoint3x4(end - axis * back);
+            hull.SourceEnd = toSpace.MultiplyPoint3x4(end);
+            hull.FreeAxis = toSpace.MultiplyVector(axis);
+            FreeHulls.Add(hull);
+            if (FreeHulls.Count <= 12)
+                _log.LogInfo($"Light shafts: window beam '{Bench.GameControl.PathOf(r.transform)}': source end at {end:F1} ({how}), light travels {axis:F2}, {len:F1} m long, {perp:F1} m wide, source end moved {moved:F1} m past the window");
+            return true;
+        }
+
+        /// <summary>
         /// The beam channel's description of a beam mesh (<see cref="BeamHull"/>): the convex hull of its vertices, and the
         /// material's colour, culling, fog and distance fade. Null (the game keeps drawing the mesh) when the mesh is not
         /// convex (a vertex inside its hull), has more than 8 hull planes, or more than 64 distinct vertices.
         /// </summary>
-        private BeamHull FitHull(MeshRenderer r, Light l, List<Vector3> world, Vector3 axisWorld)
+        private BeamHull FitHull(MeshRenderer r, Light l, List<Vector3> world, Vector3 axisWorld, Vector3 sourceWorld = default)
         {
             bool local = !r.isPartOfStaticBatch;
-            var toSpace = local ? l.transform.worldToLocalMatrix : Matrix4x4.identity;
+            var space = l != null ? l.transform : r.transform; // a window beam (no light): its own transform
+            var toSpace = local ? space.worldToLocalMatrix : Matrix4x4.identity;
             var pts = new List<Vector3>();
             Vector3 lo = Vector3.positiveInfinity, hi = Vector3.negativeInfinity;
             var all = new List<Vector3>(world.Count);
@@ -411,10 +590,10 @@ namespace UltraRT
             float radius = 0f;
             foreach (var p in pts) radius = Mathf.Max(radius, (p - center).magnitude);
             float start = float.MaxValue;
-            var lp = l.transform.position;
+            var lp = l != null ? l.transform.position : sourceWorld;
             foreach (var w in world) start = Mathf.Min(start, Vector3.Dot(w - lp, axisWorld));
 
-            var h = new BeamHull { Renderer = r, Light = l, Local = local, Planes = planes.ToArray(), Center = center, Radius = radius,
+            var h = new BeamHull { Renderer = r, Light = l, Local = local, Space = local ? space : null, Planes = planes.ToArray(), Center = center, Radius = radius,
                                    Start = Mathf.Max(start, 0.35f) };
             var m0 = r.sharedMaterial;
             Color col = m0 != null && m0.HasProperty("_Color") ? m0.GetColor("_Color") : Color.white;
@@ -482,7 +661,7 @@ namespace UltraRT
             }
             _log.LogInfo($"Light shafts: beam hull '{Bench.GameControl.PathOf(r.transform)}' material '{m0?.name}': {planes.Count} planes, {pts.Count} vertices, " +
                          $"radius {radius:F1}, from {h.Start:F1} m, adds ({h.Add.r:F3}, {h.Add.g:F3}, {h.Add.b:F3}) per face x vertex brightness (faces:{faceInfo}) (colour {col}, vertex hue {vc}), " +
-                         $"cull {cull}, fog {h.Fog}, fade {h.FadeNear:F1}-{h.FadeFar:F1} m, {(local ? "follows its light" : "static")}");
+                         $"cull {cull}, fog {h.Fog}, fade {h.FadeNear:F1}-{h.FadeFar:F1} m, {(!local ? "static" : l != null ? "follows its light" : "follows its object")}");
             return h;
         }
 
@@ -768,6 +947,9 @@ namespace UltraRT
                     foreach (var h in c.Hulls)
                         if (h.Renderer != null && frame - h.LastDrawn <= 2) _beamKeep.Add(h.Renderer);
                 }
+            if (on)
+                foreach (var h in FreeHulls)
+                    if (h.Renderer != null && frame - h.LastDrawn <= 2) _beamKeep.Add(h.Renderer);
             _tmpShow.Clear();
             foreach (var r in _hiddenBeams) if (!_beamKeep.Contains(r)) _tmpShow.Add(r);
             foreach (var r in _tmpShow)
