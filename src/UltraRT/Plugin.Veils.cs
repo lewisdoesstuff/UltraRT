@@ -53,6 +53,10 @@ namespace UltraRT
             if (!portalFog && fogMode == 0f) gameFog = false;
             bool fog = s.fog > 0f && gameFog && _proxies.PortalSidesInRtas > 0;
             bool fogAlone = fog && (portalFog || fogMode > 1.5f || RenderSettings.fogEndDistance <= s.fogOnlyWithin);
+            // Nothing is seen through a portal without a portal side in the RTAS, and the pass only writes such pixels.
+            // (Since light cones count as veils, levels without any portal have veil proxies: 6-2 has 20, and the
+            // pass ran there for nothing, +0.4 ms GPU and a DispatchRays on the render thread; merge-regress 2026-11-18.)
+            if (_proxies.PortalSidesInRtas == 0) return;
             if (_proxies.VeilsVisible == 0 && !fogAlone) return;
             float scale = Mathf.Clamp(s.scale, 0.25f, 1f);
             int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * scale)), h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * scale));
