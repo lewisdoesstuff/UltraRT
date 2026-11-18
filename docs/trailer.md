@@ -279,6 +279,41 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## The final trailer, second render (2026-11-18, `trailer-final-v2`)
+
+The same cut (`bench/trailer/trailer-final-final.json`, suites `trailer-final-final-1..4`, nothing in the plan
+changed) rendered again on the build with the punch lighting on every level, normal strength 1 and normal smoothing
+(branch `t3/trailer-v2`, on `t3/window-beams`). Output: `bench\results\trailer\trailer-final-v2\`
+(`trailer-final-final.mp4`, 2560x1440, 60 fps, 114.84 s as before, 42 Mbit/s, 599 MB; `trailer-final-final-1080p.mp4`,
+225 MB; `clips\`). Four runs in the alt slot, 12 minutes in all, 35 GB of frames (deleted afterwards), 0 exceptions;
+assembly 28 minutes. A draft-tier render first (6 minutes for all four suites in one launch) for the framing.
+
+Framing: every shot still frames what it did; no path or timing was changed. Against the first master, one frame
+late in each clip (the traced side; mean and 95th percentile of luma, mean channel spread):
+
+| Shot | old -> new | |
+|---|---|---|
+| 0-1 statue room | mean 39 -> 36, p95 97 -> 109 | as before, a little more contrast |
+| 7-3 tree | mean 28 -> 18, chroma 65 -> 39 | **darker.** 7-3's lights have been at x0.5 / x0.7 with the reach cap since 2026-11-17 and its exposure follows the game: less of the tree's red reaches the walls |
+| P-2 hall | mean 17 -> 12 (draft: 23) | the level's flicker; no judgement from one frame |
+| 1-1 hallway | p95 180 -> 200 | brighter torches, same framing |
+| 8-2 street | mean 70 -> 59, p95 136 -> 108 | **worse for its caption** ("Soft beams in the air, pools of light on the ground"): the street lamps light by their glowing heads since 2026-11-17 and their lights are off, so the cones in the air and the pools on the ground are gone |
+| 1-3 water, 4-4 hall, 0-5 lava, museum fountain, 5-2 sea | within a few levels; 4-4 p95 145 -> 183 | as before or a little punchier |
+| P-2 street | p95 29 -> 49 | the arch at the end of the street is lit |
+| 1-1 terminal | mean 56 -> 37, chroma 84 -> 36 | **less colour.** The start room's floating orange lights are off since 2026-11-17 (its wall strips light it): the walls behind the terminal are no longer red |
+| 2-2 street | p95 94 -> 73 | a little darker, the colours hold |
+| 7-3 gun | mean 22 -> 8, p95 97 -> 22 | **darker.** The forest path and the gun are hard to read between shots; the muzzle light still shows. 7-3 follows the game's exposure and the player's light is x0.6 |
+| 8-2 lamp | chroma 37 -> 26 | same shot, the lamp lit by its bulb |
+| 6-2 hall | mean 18 -> 11, chroma 80 -> 47 | **darker floor**: the hall's lights no longer reach it (reach cap), as in the game |
+| 1-4 lamps | p95 127 -> 84 | brighter lamp heads, a darker path |
+
+Tried for 7-3: `followGame` 0.5 instead of 1 (draft redo of both shots): the tree did not change (22.8 -> 22.5), the
+gun shot rose from 8 to 14, and the tour's dark-pixel delta went from +9.1 to +16.4. Not taken; 7-3 ships as it was.
+
+What would bring the weaker shots back is a look decision per level, not a trailer setting: lamp cones and pools
+for 8-2's street lamps next to their glowing heads, the start room's red, 7-3's exposure. Until then the first master
+(`trailer-final-final`) is the better cut for those five shots and this one for the rest.
+
 ## The final trailer (2026-11-16)
 
 Rendered 2026-11-17: `bench\results\trailer\trailer-final-final\trailer-final-final.mp4` (2560x1440, 60 fps, H.264
