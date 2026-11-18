@@ -449,7 +449,7 @@ traced image replaces the game's portal view, so there the veil was missing. Now
 - **Veil proxies** (`SceneProxies.Veils.cs`): each renderer with a veil material gets a proxy with only those
   submeshes, `UltraRT/VeilProxy` materials (any-hit only, `UniqueAnyHitCalls`) and the transparent mask (0x10). No scene
   ray sees them. The material is the game's: `_MainTex` x `_Color` x vertex colour, alpha x `_Opacity`, the SCROLLING
-  offset as the lava proxies'. Static-batched veils are skipped (none known). 8-1: 9 proxies, 6 in view at the window
+  offset as the lava proxies'. Static-batched veils were skipped at first (see "Light cones" below). 8-1: 9 proxies, 6 in view at the window
   (the three cloud layers, twice).
 - **The pass** (`Plugin.Veils.cs`, `VeilTrace.raytrace`, `VeilComposite.shader`): one more DispatchRays, at half the
   screen's resolution (`veil.scale` 0.5), no jitter. Each pixel's camera ray follows the portals with the flags of
@@ -467,6 +467,21 @@ traced image replaces the game's portal view, so there the veil was missing. Now
   level's F. `PortalPath.first` (new) is the first portal side's index; `_VeilPortalFog` has two rows per side. A
   second portal's override on the same path is not followed. The sky gets no fog. The portal side log line now prints
   a fog override.
+- **Light cones** (2026-11-18, `t3/door-brightness`; `Veils.beams`, default on). User: 8-2's hallway is darker seen
+  through its portal (pose 4) than from inside (pose 5). The traced light was the same; the difference was the
+  game's additive light cones under the ceiling lamps (`LightPillar 3C` on `.../Point Light (1)/Cube (53)` and
+  others: ULTRAKILL/Master, queue 3000, `_BlendMode` 3 = additive, static-batched), which the game draws in front
+  of the camera and which were missing behind portals. Found by subtracting the raw traced frame from the final one
+  (`bench/results/review/door/8-2_final_minus_raw.png`). Now a material whose name starts with `LightPillar`
+  (transparent queue, no `_ZWRITE_ON`, `_BlendMode` 2 or 3) is a veil too (`SceneProxies.BeamVeil`). Additive layers
+  are summed apart from the blended ones (`VeilProxy.shader` `_Additive`; the sum travels in three spare payload
+  floats) and added after the blend. **Static-batched** veils are no longer skipped (`TryAddStaticVeil`): the proxy
+  is the batch's combined mesh under the batch root with only the veil submeshes on. Note
+  `Material.IsKeywordEnabled("_ALPHABLEND_ON")` is false on these materials (the shader does not declare the
+  keyword), so the test reads `_BlendMode`.
+  Measured (`bench/suites/portal-pair.json`, pathtrace, the far wall's mean colour): through the portal / from
+  inside was 0.89, now 1.02; 59 veil renderers in 8-2. The cone's lower edge is a little harder than in the game's
+  own view (no `_FADING_ON` distance fade in the proxy).
 - **When it runs**: relight, pt-dn, pathtrace (not hybrid, not the debug views), and only with a veil proxy in the RTAS,
   or with a portal side in the RTAS and fog that can matter: a portal with its own fog, exponential fog, or linear fog
   ending within `veil.fogOnlyWithin` (20 km). No portal and no veil: no dispatch.

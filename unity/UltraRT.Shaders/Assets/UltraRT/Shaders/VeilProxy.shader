@@ -10,6 +10,8 @@ Shader "UltraRT/VeilProxy"
         // What multiplies texture x vertex colour: the game's _Color, alpha times _Opacity.
         _Tint ("Tint", Color) = (1,1,1,1)
         _VertexColors ("Vertex colours", Float) = 1
+        // 1: the game blends this layer SrcAlpha, One (_BlendMode 3: its fake light cones); 0: SrcAlpha, OneMinusSrcAlpha.
+        _Additive ("Additive", Float) = 0
         // uv * _MainTex_ST + _ScrollOffset.xy + _ScrollSpeed.xy * time (copied every frame, as the lava proxies').
         _ScrollOffset ("Scroll offset", Vector) = (0,0,0,0)
         _ScrollSpeed ("Scroll speed", Vector) = (0,0,0,0)
@@ -49,6 +51,7 @@ Shader "UltraRT/VeilProxy"
             SamplerState my_linear_repeat_sampler;
             float4 _Tint;
             float _VertexColors;
+            float _Additive;
             float4 _ScrollOffset;
             float4 _ScrollSpeed;
             float _ScrollTime;
@@ -69,7 +72,15 @@ Shader "UltraRT/VeilProxy"
                            + UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeColor) * b.y
                            + UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeColor) * b.z;
                     float a = saturate(c.a);
-                    if (a > 0.0 && all(c.rgb == c.rgb)) // also drops NaN
+                    if (a > 0.0 && all(c.rgb == c.rgb) && _Additive > 0.5)
+                    {
+                        // An additive layer covers nothing: its light is summed on its own (normal.yz and motion are
+                        // free on a veil ray; the miss shader only writes t).
+                        float3 add = max(c.rgb, 0.0) * a;
+                        p.normal.yz += add.rg;
+                        p.motion = asuint(asfloat(p.motion) + add.b);
+                    }
+                    else if (a > 0.0 && all(c.rgb == c.rgb)) // also drops NaN
                     {
                         // Order-independent: the layers of one veil are alike, so their order barely matters.
                         p.albedo += max(c.rgb, 0.0) * a;

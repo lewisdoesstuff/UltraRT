@@ -84,7 +84,7 @@ namespace UltraRT
                 if (hold <= 0) { _moverGone.Add(d); continue; }
                 var u = known ? Union(b, st.b) : b;
                 _moverState[d] = (b, hold);
-                float d2 = u.SqrDistance(camPos);
+                float d2 = PortalView.SqrDistance(u, camPos); // movers seen through a portal count as near too
                 if (d2 <= range2) _moverCandidates.Add((d2, u));
             }
             foreach (var d in _moverGone) _moverState.Remove(d);

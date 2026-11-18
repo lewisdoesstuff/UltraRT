@@ -66,6 +66,11 @@ namespace UltraRT
         private Vector4[] _portalRowsPrev = new Vector4[3 * 16];
         private bool _portalPrevStale = true, _portalPrevDirty = true;
         private static readonly int IdPortalsPrev = Shader.PropertyToID("_UltraRTPortalsPrev");
+        private static readonly int IdPortalQuads = Shader.PropertyToID("_UltraRTPortalQuads"), IdPortalEdge = Shader.PropertyToID("_UltraRTPortalEdge");
+        private ComputeBuffer _portalQuadBuffer;
+        private Vector4[] _portalQuadRows = new Vector4[3 * 16];
+        /// <summary>What slides into view at a moving portal's edge starts without history (bench plugin._portalEdges=0: off).</summary>
+        public static bool MovingPortalEdges = true;
         private Mesh _portalQuad;
         private int _portalQuadFrame;
         /// <summary>
@@ -228,8 +233,8 @@ namespace UltraRT
             }
             if (travel != s.Travel)
             {
+                bool first = s.Travel == default(Matrix4x4); // before the assignment: a new side did not move
                 s.Travel = travel;
-                bool first = s.Travel == default(Matrix4x4);
                 int need = (s.Index + 1) * 3;
                 if (_portalRows.Length < need) System.Array.Resize(ref _portalRows, Mathf.NextPowerOfTwo(need));
                 if (_portalRowsPrev.Length < _portalRows.Length) System.Array.Resize(ref _portalRowsPrev, _portalRows.Length);
@@ -251,24 +256,48 @@ namespace UltraRT
 
         /// <summary>
         /// The camera's images through the portal sides it can look into (in front of the side, within
-        /// <paramref name="maxDistance"/>): travel * camera. Light importance uses them (LightSampling.ViewPoints), so
+        /// <paramref name="maxDistance"/>): travel * camera, and the images of those images, up to
+        /// <paramref name="hops"/> portals deep; the <paramref name="max"/> nearest. Light importance uses them (LightSampling.ViewPoints), so
         /// lights around what the camera sees through a portal are sampled like lights near the camera.
         /// </summary>
-        public void PortalViewpoints(Vector3 camPos, List<Vector3> output, float maxDistance = 120f, int max = 8)
+        public void PortalViewpoints(Vector3 camPos, List<Vector3> output, float maxDistance = 120f, int max = 16, int hops = 3)
         {
             output.Clear();
-            foreach (var s in _portalSideList)
+            _viewWork.Clear();
+            _viewWork.Add((camPos, 0f, 0));
+            // Breadth first: the images of hop k are the sources of hop k + 1 (8-3's Shifting Hallway shows three
+            // doorways in a row; with one hop, what is behind the second was far from every viewpoint again).
+            int from = 0;
+            for (int hop = 1; hop <= hops; hop++)
             {
-                if (output.Count >= max) break;
-                if (!s.Seen || !s.InRtas || s.Proxy == null) continue;
-                Vector3 c = s.Pose.GetColumn(3), f = s.Pose.GetColumn(2);
-                // The game's rule (PortalMath.Raycast): rays start in the side's back half-space and move along its forward.
-                if (Vector3.Dot(camPos - c, f) > 0f) continue;
-                if ((camPos - c).sqrMagnitude > maxDistance * maxDistance) continue;
-                var v = s.Travel.MultiplyPoint3x4(camPos);
-                if ((v - camPos).sqrMagnitude > 1f) output.Add(v);
+                int to = _viewWork.Count;
+                for (int k = from; k < to; k++)
+                {
+                    var (src, length, _) = _viewWork[k];
+                    foreach (var s in _portalSideList)
+                    {
+                        if (!s.Seen || !s.InRtas || s.Proxy == null) continue;
+                        Vector3 c = s.Pose.GetColumn(3), f = s.Pose.GetColumn(2);
+                        // The game's rule (PortalMath.Raycast): rays start in the side's back half-space and move along its forward.
+                        if (Vector3.Dot(src - c, f) > 0f) continue;
+                        float d = (src - c).magnitude;
+                        if (d > maxDistance) continue;
+                        var v = s.Travel.MultiplyPoint3x4(src);
+                        if ((v - src).sqrMagnitude <= 1f) continue;
+                        bool known = false;
+                        foreach (var w in _viewWork) if ((w.p - v).sqrMagnitude <= 1f) { known = true; break; } // back through the pair
+                        if (!known && _viewWork.Count < 256) _viewWork.Add((v, length + d, hop));
+                    }
+                }
+                from = to;
             }
+            // The nearest first (by the way to the last portal crossed): they are what fills the screen.
+            _viewWork.RemoveAt(0);
+            _viewWork.Sort((a, b) => a.length.CompareTo(b.length));
+            for (int k = 0; k < _viewWork.Count && k < max; k++) output.Add(_viewWork[k].p);
         }
+
+        private readonly List<(Vector3 p, float length, int hop)> _viewWork = new List<(Vector3 p, float length, int hop)>();
 
         private Vector4[] _portalFogRows = new Vector4[2];
 
@@ -375,6 +404,24 @@ namespace UltraRT
                 _portalPrevDirty = false;
             }
             Shader.SetGlobalBuffer(IdPortalsPrev, MovingPortalMotion ? _portalPrevBuffer : _portalBuffer);
+            // World -> quad space per side, for the moving-portal edge test (UltraRTPortals.hlsl, PortalSegmentThrough).
+            if (_portalQuadRows.Length < _portalRows.Length) _portalQuadRows = new Vector4[_portalRows.Length];
+            foreach (var s in _portalSideList)
+            {
+                if (s.Index * 3 + 2 >= _portalQuadRows.Length) continue;
+                var inv = s.Pose.inverse;
+                _portalQuadRows[s.Index * 3] = inv.GetRow(0);
+                _portalQuadRows[s.Index * 3 + 1] = inv.GetRow(1);
+                _portalQuadRows[s.Index * 3 + 2] = inv.GetRow(2);
+            }
+            if (_portalQuadBuffer == null || _portalQuadBuffer.count < _portalQuadRows.Length)
+            {
+                _portalQuadBuffer?.Release();
+                _portalQuadBuffer = new ComputeBuffer(_portalQuadRows.Length, 16, ComputeBufferType.Structured) { name = "UltraRT Portal Quads" };
+            }
+            _portalQuadBuffer.SetData(_portalQuadRows);
+            Shader.SetGlobalBuffer(IdPortalQuads, _portalQuadBuffer);
+            Shader.SetGlobalInt(IdPortalEdge, MovingPortalMotion && MovingPortalEdges ? 1 : 0);
             Shader.SetGlobalInt(IdPortalHops, Mathf.Clamp(PortalHops, 0, 8));
             Shader.SetGlobalInt(IdMirrors, TraceMirrors ? 1 : 0);
         }
@@ -398,6 +445,8 @@ namespace UltraRT
             _portalSides.Clear();
             _portalBuffer?.Release();
             _portalBuffer = null;
+            _portalQuadBuffer?.Release();
+            _portalQuadBuffer = null;
             _portalPrevBuffer?.Release();
             _portalPrevBuffer = null;
             _portalPrevStale = _portalPrevDirty = true;

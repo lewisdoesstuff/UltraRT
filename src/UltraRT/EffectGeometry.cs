@@ -180,7 +180,7 @@ namespace UltraRT
                 if (want && e.Kind == Kind.Trail) e.Quads = Mathf.Max(1, e.TR.positionCount);
                 if (want)
                 {
-                    e.Dist = (e.R.bounds.center - cp).sqrMagnitude;
+                    e.Dist = PortalView.SqrDistance(e.R.bounds.center, cp); // or to the camera's image through a portal
                     want = e.Dist <= maxD2;
                 }
                 if (want) { e.Idle = 0; _wanted.Add(e); }

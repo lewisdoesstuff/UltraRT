@@ -928,6 +928,7 @@ namespace UltraRT
                         {
                             var m = r.sharedMaterial;
                             if (!r.enabled || m == null || m.shader == null) continue;
+                            if (m.shader.name.StartsWith("UltraRT/", StringComparison.Ordinal)) continue; // our own proxies (a static veil has its batch's bounds)
                             var texProps = m.GetTexturePropertyNames().Select(n => (n, t: m.GetTexture(n))).Where(x => x.t != null).ToList();
                             bool usesRT = texProps.Any(x => x.t is RenderTexture);
                             bool skyShader = m.shader.name.IndexOf("Sky", StringComparison.OrdinalIgnoreCase) >= 0;

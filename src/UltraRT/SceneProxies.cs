@@ -225,6 +225,30 @@ namespace UltraRT
             return VeilCache[m] = v;
         }
 
+        /// <summary>
+        /// The game's fake light cones (materials named LightPillar..., transparent queue, blended over (_BlendMode 2)
+        /// or added (3, the usual one): a faint gradient mesh under a lamp. The game draws them over the traced image itself, so in front of the camera
+        /// they are there; behind a portal nothing drew them, and 8-2's hallway read about 10% darker seen through
+        /// its portal than from inside (user, 2026-11-18). They get veil proxies too, for the veil pass, which only
+        /// writes pixels seen through a portal. (Material.IsKeywordEnabled is false for _ALPHABLEND_ON here: the
+        /// keyword is in the material's list but not one the shader declares. The blend mode is the property.)
+        /// </summary>
+        internal static bool BeamVeil(Material m)
+        {
+            if (m == null || m.shader == null || !Veils.beams) return false;
+            if (BeamVeilCache.TryGetValue(m, out bool v)) return v;
+            if (BeamVeilCache.Count > 20000) BeamVeilCache.Clear();
+            v = m.shader.name == "ULTRAKILL/Master" && m.renderQueue >= 3000 && m.renderQueue < 4000
+                && m.name.StartsWith("LightPillar", StringComparison.OrdinalIgnoreCase)
+                && m.IsKeywordEnabled("TRANSPARENCY") && !m.IsKeywordEnabled("_ZWRITE_ON")
+                && m.HasProperty("_BlendMode") && (Mathf.RoundToInt(m.GetFloat("_BlendMode")) == 2 || Mathf.RoundToInt(m.GetFloat("_BlendMode")) == 3);
+            return BeamVeilCache[m] = v;
+        }
+        private static readonly Dictionary<Material, bool> BeamVeilCache = new Dictionary<Material, bool>();
+
+        /// <summary>A material the veil pass draws behind portals: a blended veil or a light cone.</summary>
+        internal static bool PortalVeil(Material m) => BlendedVeil(m) || BeamVeil(m);
+
         private void LogVeils()
         {
             if (VeilLog.Count == 0) return;

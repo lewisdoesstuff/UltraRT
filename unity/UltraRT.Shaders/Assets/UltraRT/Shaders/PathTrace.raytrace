@@ -345,6 +345,15 @@ void RayGenBody(bool full)
                 // point last frame = last frame's path transform, inverted, of the point then (hit + its own motion).
                 float3 hitPrev = ray.Origin + ray.Direction * p.t + g_PrimaryMotion;
                 g_PrimaryMotion = mul(hitPrev - path.prevOff, path.prevRot) - virtualPos;
+                // That place was not behind the opening then: the view slid, and this point came out from behind the
+                // opening's edge. Its history is the wall beside the portal, so send the lookup off screen (DLSS RR
+                // and the denoiser then start it fresh). 8-3's hallway left thin lines of the wall's colour on the
+                // sliding view otherwise (user, 2026-11-18).
+                if (_UltraRTPortalEdge != 0 && !PortalSegmentThrough(path.first, _CamPos.xyz, virtualPos + g_PrimaryMotion))
+                {
+                    float3 side = cross(camDir, abs(camDir.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0));
+                    g_PrimaryMotion = normalize(side) * 2e4;
+                }
             }
             else g_PrimaryMotion = PortalToVirtual(path, g_PrimaryMotion);
             motion = PackMotion(g_PrimaryMotion);

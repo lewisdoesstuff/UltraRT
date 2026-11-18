@@ -30,6 +30,9 @@ namespace UltraRT
         public int everywhere = 0;
         /// <summary>Materials whose name contains one of these (comma separated) are not veils for the pass.</summary>
         public string skip = "";
+        /// <summary>Also the game's fake light cones (LightPillar materials) behind portals (SceneProxies.BeamVeil).
+        /// Read at the scene build.</summary>
+        public bool beams = true;
     }
 
     /// <summary>
@@ -67,17 +70,48 @@ namespace UltraRT
             return false;
         }
 
+        /// <summary>
+        /// A static-batched veil (8-2's light cones are): the renderer's mesh is the batch's combined mesh, in the batch
+        /// root's space, and the renderer owns submeshes subMeshStartIndex.. of it. The proxy uses that mesh as it is,
+        /// under the batch root, with every submesh but the renderer's veils disabled.
+        /// </summary>
+        private bool TryAddStaticVeil(MeshRenderer r, Mesh mesh, Material[] mats)
+        {
+            int n = mesh.subMeshCount, start = r.subMeshStartIndex;
+            if (n == 0 || n > 4096) return false;
+            var flags = new RayTracingSubMeshFlags[n];
+            var proxyMats = new Material[n];
+            var ours = new Material[n];
+            for (int k = 0; k < n; k++) { flags[k] = RayTracingSubMeshFlags.Disabled; proxyMats[k] = _disabledMaterial; }
+            bool any = false;
+            Material first = null;
+            for (int i = 0; i < mats.Length && start + i < n; i++)
+            {
+                var m = mats[i];
+                if (!PortalVeil(m) || VeilSkipped(m)) continue;
+                flags[start + i] = RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.UniqueAnyHitCalls;
+                proxyMats[start + i] = ours[start + i] = VeilProxyMaterial(m);
+                first = first ?? m;
+                any = true;
+            }
+            if (!any) return false;
+            var proxy = CreateMeshProxy($"{r.name} (static veil) [UltraRT]", StaticBatchRoot?.GetValue(r) as Transform, mesh, proxyMats);
+            AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: true);
+            _veils.Add(new VeilEntry { Source = r, Proxy = _dynamic[_dynamic.Count - 1], Materials = ours });
+            _staticVeils++;
+            if (_veilLog.Count < 24)
+                _veilLog.Add($"  static-batched '{GameControlPath(r.transform)}' mat '{first.name}' submesh {start} of {n} in '{mesh.name}' size {r.bounds.size:F0}");
+            return true;
+        }
+        private int _staticVeils;
+
         /// <summary>Registers the renderer's veil submeshes, if any. Returns true if a veil proxy was made.</summary>
         private bool TryAddVeil(MeshRenderer r, Mesh mesh)
         {
-            if (!Veils.enabled || VeilShader == null) return false;
             var mats = r.sharedMaterials;
-            if (!mats.Any(BlendedVeil)) return false;
-            if (r.isPartOfStaticBatch)
-            {
-                if (_veilLog.Count < 24) _veilLog.Add($"  skipped static-batched '{GameControlPath(r.transform)}'");
-                return false;
-            }
+            if (!Veils.enabled || VeilShader == null) return false;
+            if (!mats.Any(PortalVeil)) return false;
+            if (r.isPartOfStaticBatch) return TryAddStaticVeil(r, mesh, mats);
             var flags = new RayTracingSubMeshFlags[Math.Max(1, mesh.subMeshCount)];
             var proxyMats = new Material[flags.Length];
             var ours = new Material[flags.Length];
@@ -85,7 +119,7 @@ namespace UltraRT
             for (int i = 0; i < flags.Length; i++)
             {
                 var m = i < mats.Length ? mats[i] : null;
-                bool veil = BlendedVeil(m) && !VeilSkipped(m);
+                bool veil = PortalVeil(m) && !VeilSkipped(m);
                 // Any-hit only, once per triangle: a second call would blend the layer twice.
                 flags[i] = veil ? RayTracingSubMeshFlags.Enabled | RayTracingSubMeshFlags.UniqueAnyHitCalls : RayTracingSubMeshFlags.Disabled;
                 if (veil) { ours[i] = VeilProxyMaterial(m); any = true; }
@@ -97,7 +131,7 @@ namespace UltraRT
             _veils.Add(new VeilEntry { Source = r, Proxy = _dynamic[_dynamic.Count - 1], Materials = ours });
             if (_veilLog.Count < 24)
             {
-                var src = mats.First(BlendedVeil);
+                var src = mats.First(PortalVeil);
                 _veilLog.Add($"  '{GameControlPath(r.transform)}' mat '{src.name}' layer {r.gameObject.layer} size {r.bounds.size:F0}" +
                              $"{(r.gameObject.activeInHierarchy ? "" : " (inactive)")}{(r.GetComponent<ScrollingTexture>() != null ? " scrolling" : "")}");
             }
@@ -119,6 +153,10 @@ namespace UltraRT
             }
             var c = src.HasProperty("_Color") ? src.GetColor("_Color") : Color.white;
             if (src.HasProperty("_Opacity")) c.a *= src.GetFloat("_Opacity");
+            // The pass's cover (0.6) was set by eye for 8-1's cloud layers; a light cone is drawn as the game draws it.
+            bool additive = BeamVeil(src) && Mathf.RoundToInt(src.GetFloat("_BlendMode")) == 3;
+            if (BeamVeil(src) && !additive) c.a = Mathf.Min(1f, c.a / Mathf.Max(0.05f, Veils.cover));
+            m.SetFloat("_Additive", additive ? 1f : 0f);
             m.SetColor("_Tint", c);
             m.SetFloat("_VertexColors", src.IsKeywordEnabled("_VERTEXCOLORS_ON") || src.IsKeywordEnabled("VERTEX_COLORS") ? 1f : 0f);
             if (src.IsKeywordEnabled("SCROLLING") && src.HasProperty(IdScrollSpeed)) m.SetVector(IdScrollSpeed, src.GetVector(IdScrollSpeed));

@@ -120,6 +120,9 @@ Shader "UltraRT/Particles/Lit"
             float3 VolumeLighting(float3 wpos)
             {
                 if (_UltraRTPLCam.w < 0.5) return 1.0;
+                // Another camera (the game's own portal and mirror views): the volume is the main camera's frustum,
+                // and this camera's particles would read the light of whatever is at the same screen place there.
+                if (distance(_WorldSpaceCameraPos, _UltraRTPLCam.xyz) > 0.05) return 1.0;
                 float4 clip = mul(_UltraRTPLViewProj, float4(wpos, 1.0));
                 float d = dot(wpos - _UltraRTPLCam.xyz, _UltraRTPLFwd.xyz);
                 if (clip.w <= 1e-4 || d <= 0.0) return 1.0;
