@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Experimental.Rendering;
 using Object = UnityEngine.Object;
 
 namespace UltraRT
@@ -31,6 +32,18 @@ namespace UltraRT
         /// Off by default: depth alone cannot tell such a blade from what the game draws over a traced surface (1-3's
         /// lava turned yellow with it on, 2026-11-18). Bench plugin._thinNear=0.1.</summary>
         public static float ThinNear = 0f;
+        /// <summary>The cutout pass (CutoutTrace.raytrace, Plugin.Cutout.cs): set per frame by the plugin. Null shader or
+        /// RTAS, or CutoutOn false: no dispatch, and Finish ignores _Cutout.</summary>
+        public RayTracingShader CutoutShader;
+        public RayTracingAccelerationStructure CutoutRtas;
+        public bool CutoutOn;
+        /// <summary>Finish paints the game-kept pixels by what the cutout ray found (bench plugin._cutoutDebug=1).</summary>
+        public bool CutoutDebug;
+        public bool CutoutFlip;
+        /// <summary>Frames the cutout pass ran (diagnostics).</summary>
+        public int CutoutFrames;
+        private RenderTexture _cutout, _cutoutPrep;
+        private int _kCutoutPrep = -1;
         [StructLayout(LayoutKind.Sequential)]
         private struct FrameData
         {
@@ -189,6 +202,7 @@ namespace UltraRT
             _cs = cs;
             _kPrepare = cs != null ? cs.FindKernel("Prepare") : -1;
             _kFinish = cs != null ? cs.FindKernel("Finish") : -1;
+            _kCutoutPrep = cs != null && cs.HasKernel("CutoutPrep") ? cs.FindKernel("CutoutPrep") : -1;
             _kExposure = cs != null ? cs.FindKernel("ExposureInput") : -1;
             _kDemod = cs != null && cs.HasKernel("Demod") ? cs.FindKernel("Demod") : -1;
             _demodUp?.Dispose();
@@ -457,7 +471,52 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, "_TraceRay", new Vector4(i.guardScale.x / proj.m00, i.guardScale.y / proj.m11, 0f, 0f));
             cmd.SetComputeVectorParam(cs, "_ZParams", z);
             cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, GrazingMatch, ThinMatch ? SlopeTexels : 0f));
-            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinMatch ? ThinNear : 0f, 0f, 0f, 0f));
+            bool cutout = CutoutOn && CutoutShader != null && CutoutRtas != null && remod && _kCutoutPrep >= 0;
+            if (cutout)
+            {
+                // One camera ray per screen pixel the trace samples around it don't already match (CutoutTrace.raytrace).
+                if (_cutout == null || _cutout.width != Ws || _cutout.height != Hs || !_cutout.IsCreated())
+                {
+                    Release(ref _cutout);
+                    _cutout = Create(Ws, Hs, RenderTextureFormat.ARGBHalf, "UltraRT Cutout");
+                }
+                if (_cutoutPrep == null || _cutoutPrep.width != Ws || _cutoutPrep.height != Hs || !_cutoutPrep.IsCreated())
+                {
+                    Release(ref _cutoutPrep);
+                    _cutoutPrep = Create(Ws, Hs, RenderTextureFormat.RFloat, "UltraRT Cutout Prep");
+                }
+                // The plain depth match first (compute: ray tracing shaders can't read the depth buffer); the rays run
+                // only where it fails. Uses the Finish parameters set above.
+                int kp = _kCutoutPrep;
+                cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, GrazingMatch, ThinMatch ? SlopeTexels : 0f));
+                cmd.SetComputeVectorParam(cs, "_OutDim", new Vector4(Ws, Hs, 1f / Ws, 1f / Hs));
+                cmd.SetComputeVectorParam(cs, "_TraceMap", traceMap);
+                cmd.SetComputeVectorParam(cs, "_TraceRay", new Vector4(i.guardScale.x / proj.m00, i.guardScale.y / proj.m11, 0f, 0f));
+                cmd.SetComputeVectorParam(cs, "_ZParams", z);
+                cmd.SetComputeTextureParam(cs, kp, "_GameDepth", i.gameDepth, 0, RenderTextureSubElement.Depth);
+                cmd.SetComputeTextureParam(cs, kp, "_NormalDepth", i.normalDepth);
+                cmd.SetComputeTextureParam(cs, kp, "_Emission", i.emission);
+                cmd.SetComputeTextureParam(cs, kp, "_CutoutPrepOut", _cutoutPrep);
+                cmd.DispatchCompute(cs, kp, Mathf.CeilToInt(Ws / 8f), Mathf.CeilToInt(Hs / 8f), 1);
+                var rs = CutoutShader;
+                rs.SetShaderPass("UltraRTHit");
+                cmd.SetRayTracingAccelerationStructure(rs, "_Scene", CutoutRtas);
+                cmd.SetRayTracingTextureParam(rs, "_CutoutOut", _cutout);
+                cmd.SetRayTracingTextureParam(rs, "_CutoutPrep", _cutoutPrep);
+                cmd.SetRayTracingMatrixParam(rs, "_CutInvViewProj", i.viewProj.inverse); // the trace's: rays where Finish maps the pixel
+                cmd.SetRayTracingVectorParam(rs, "_CutTraceMap", traceMap);
+                cmd.SetRayTracingVectorParam(rs, "_CutJitter", new Vector4(jitter.x, jitter.y, 0f, 0f));
+                cmd.SetRayTracingVectorParam(rs, "_CutDim", new Vector4(tw, th, 1f / tw, 1f / th));
+                // yz: Finish's plain depth tolerance (_Match.xy): the ray runs that far past the game's surface.
+                cmd.SetRayTracingVectorParam(rs, "_CutFlags", new Vector4(CutoutFlip ? 1f : 0f, 0.03f, 0.05f, 0f));
+                cmd.SetRayTracingVectorParam(rs, "_CutCamPos", cam.transform.position);
+                var fwd = cam.transform.forward;
+                cmd.SetRayTracingVectorParam(rs, "_CutCamFwd", new Vector4(fwd.x, fwd.y, fwd.z, 0f));
+                cmd.DispatchRays(rs, "RayGen", (uint)Ws, (uint)Hs, 1);
+                CutoutFrames++;
+            }
+            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinMatch ? ThinNear : 0f, cutout ? 1f : 0f, CutoutDebug ? 1f : 0f, 0f));
+            cmd.SetComputeTextureParam(cs, k, "_Cutout", cutout ? (Texture)_cutout : Texture2D.blackTexture);
             cmd.SetComputeTextureParam(cs, k, "_RRColor", _out);
             cmd.SetComputeTextureParam(cs, k, "_GameDepth", i.gameDepth, 0, RenderTextureSubElement.Depth);
             cmd.SetComputeTextureParam(cs, k, "_NormalDepth", i.normalDepth);
@@ -618,6 +677,7 @@ namespace UltraRT
             _disposed = true;
             Release(ref _color); Release(ref _diffuse); Release(ref _specular); Release(ref _normals); Release(ref _depth); Release(ref _motion);
             Release(ref _hitDist); Release(ref _out); Release(ref _final); Release(ref _aeFiltered); Release(ref _aeAlbedo); Release(ref _demod);
+            Release(ref _cutout); Release(ref _cutoutPrep);
             _demodUp?.Dispose();
             _demodUp = null;
             _dummy?.Release();

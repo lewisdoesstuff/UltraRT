@@ -236,6 +236,7 @@ namespace UltraRT
             bool flagsChanged = false;
             for (int i = 0; i < subCount; i++) flagsChanged |= flags[i] != d.Flags[i];
             d.Flags = flags;
+            d.Cutout = HasCutoutSubmesh(flags, mats);
             if (flagsChanged && d.Visible)
             {
                 // Submesh flags are fixed at AddInstance; material changes alone are picked up with the shader table.

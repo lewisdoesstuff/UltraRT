@@ -1,0 +1,73 @@
+// Cutout pass (docs/path-tracing.md, "Cutout pass"; src/UltraRT/Plugin.Cutout.cs, DlssRR.cs, SceneProxies.CutoutPass.cs).
+// DLSS RR's Finish keeps the game's own pixel wherever no trace sample lies at the game's depth. Grass blades and grates
+// are cut-out quads narrower than a trace texel: the trace often misses them, and their game pixels (lit by the game:
+// white in 7-1's fog) sparkled over the traced image. One camera ray per screen pixel, only where the trace samples around
+// the pixel don't already match the game's depth (CutoutPrep), looks for an alpha-tested surface up to the game's depth.
+// Finish draws the pixel as traced (RR's lighting x this colour) when it finds one.
+// _Scene here is the cutout structure (SceneProxies.CutoutPass.cs): only the alpha-tested submeshes, so its shader table
+// is small (the whole scene's cost 0.45-0.9 ms of render thread per DispatchRays) and nothing else can be hit. The ray
+// stops at the game's depth, so whatever the game drew nearer occludes it: lava, sprites, walls keep the game's pixel.
+// Measured on 7-1 pose 2 (debug view, plugin._cutoutDebug=1): most of the white is a blade of ours lying in front of the
+// game's depth. The game shows the ground there (white in the fog) because its alpha test samples the mipmapped grass
+// texture, so distant blades thin out, while ours tests mip 0. So a blade in front of the game's depth counts too: the
+// pixel shows our blade, as the trace samples around it do.
+// Output (screen res): rgb the blade's demodulation colour (its albedo), a -(view depth + 8) (Finish: a cutout);
+// 0 = nothing to add, -1..-4 why not, for the debug view.
+#pragma max_recursion_depth 1
+
+#include "UltraRTCommon.hlsl"
+#include "UltraRTMaterial.hlsl"
+
+RaytracingAccelerationStructure _Scene;
+RWTexture2D<float4> _CutoutOut;
+
+Texture2D<float>  _CutoutPrep;    // screen res (RayReconstruction.compute, CutoutPrep): the game's view depth where a ray is needed, 0 elsewhere
+float4x4 _CutInvViewProj;        // the trace's view-projection (jitter, guard band), inverted: the rays go where Finish puts the pixel
+float4   _CutTraceMap;           // screen pixel -> trace coordinates (RayReconstruction.compute's _TraceMap)
+float4   _CutJitter;             // xy this frame's trace sample offset (trace px)
+float4   _CutDim;                // trace res: xy size, zw 1 / size
+float4   _CutFlags;              // x 1 = flip the ray's y (diagnostic), y depth tolerance (fraction), z depth tolerance (m)
+float4   _CutCamPos;
+float4   _CutCamFwd;
+
+[shader("raygeneration")]
+void RayGen()
+{
+    uint2 id = DispatchRaysIndex().xy;
+    _CutoutOut[id] = float4(0.0, 0.0, 0.0, 0.0);
+
+    // Only where the trace samples around the pixel don't already match the game's depth, not the sky, not an emitter.
+    float zg = _CutoutPrep[id];
+    if (zg <= 0.0) return;
+
+    // The pixel centre in trace coordinates (as Finish maps it), through the trace's own (jittered) camera.
+    float2 q = ((float2)id + 0.5) * _CutTraceMap.xy + _CutTraceMap.zw;
+    float2 ndc = (q - _CutJitter.xy) * _CutDim.zw * 2.0 - 1.0;
+    if (_CutFlags.x > 0.5) ndc.y = -ndc.y;
+    float4 farPt = mul(_CutInvViewProj, float4(ndc, 1.0, 1.0));
+    farPt.xyz /= farPt.w;
+    RayDesc ray;
+    ray.Origin = _CutCamPos.xyz;
+    ray.Direction = normalize(farPt.xyz - _CutCamPos.xyz);
+    float cosF = max(dot(ray.Direction, _CutCamFwd.xyz), 1e-3);
+    ray.TMin = 0.0;
+    ray.TMax = (zg * (1.0 + _CutFlags.y) + _CutFlags.z) / cosF; // up to the game's surface, within Finish's tolerance
+
+    RayPayload p = (RayPayload)0;
+    p.t = -1.0;
+    // Any blade in front of the game's surface will do (Finish takes it either way): the first one the alpha test accepts
+    // ends the search, so a ray through dense grass doesn't run the any-hit on every card behind it.
+    TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFF, 0, 1, 0, ray, p);
+    // Nothing to add: a stays <= 0, with the reason for Finish's debug view (plugin._cutoutDebug).
+    if (p.t < 0.0) { _CutoutOut[id] = float4(0, 0, 0, -1); return; }                       // no blade in front of the game's surface
+    if (p.alpha < 0.5) { _CutoutOut[id] = float4(0, 0, 0, -3); return; }                  // fullbright: the game's pixel already is its colour
+    if (any(PayloadEmission(p) > 0.0)) { _CutoutOut[id] = float4(0, 0, 0, -4); return; } // emitter: not the albedo alone
+    float z = p.t * cosF;
+    _CutoutOut[id] = float4(max(p.albedo, 0.0), -(z + 8.0));
+}
+
+[shader("miss")]
+void Miss(inout RayPayload p : SV_RayPayload)
+{
+    p.t = -1.0;
+}
