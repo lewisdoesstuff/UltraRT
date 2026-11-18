@@ -1,10 +1,10 @@
 {
   "version": 1,
   "scene": "Level 7-3",
-  "note": "The class strengths shipped 2026-11-17 are kept (fills and scripted x0.5, fixtures and the like x0.7, the player's light x0.6) and the exposure follows the game ('followGame'): under the punch policy the black halls go grey (dark-pixel delta +48 in the worst view against +20).",
+  "note": "2026-11-18 (docs/lighting-overrides.md, '7-3: brighter'): the player's light x4 (its pool was a third of the game's), the exposure follows the game by 0.75 instead of 1, the blood trees' red lights at full strength and reach. Fills and scripted x0.5, fixtures and the like x0.7 as since 2026-11-17.",
   "exposure": {
-    "followGame": 1,
-    "note": "The game keeps these halls near black with a few white lights: an exposure above the game turns the black walls grey."
+    "followGame": 0.75,
+    "note": "The game keeps these halls near black with a few white lights: an exposure above the game turns the black walls grey. 0.75: a little above the game is allowed (the forest path reads)."
   },
   "classes": {
     "fill": {
@@ -41,7 +41,8 @@
       "medium": 0.55
     },
     "player": {
-      "intensity": 0.6
+      "intensity": 4.0,
+      "note": "The flashlight: at x1 its pool on the forest path is a third as bright as the game's."
     }
   },
   "lights": [
@@ -135,5 +136,17 @@
       "note": "wall: moved 0.34 m into the room [taste, wall]"
     }
   ],
-  "added": []
+  "added": [],
+  "rules": [
+    {
+      "name": "blood trees",
+      "class": "effect",
+      "path": "SuicideTreeHungry/BloodLeaves/Point Light$",
+      "set": {
+        "reach": 1,
+        "intensity": 1
+      },
+      "note": "The red light on the walls around a blood tree: with the reach cap and x0.5 it stops short of them."
+    }
+  ]
 }

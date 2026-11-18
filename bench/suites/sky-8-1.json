@@ -1,0 +1,121 @@
+{
+  "Name": "sky-8-1",
+  "Note": "8-1's cloud layer over the city (a blended veil, not traced) and a first-room check of five other levels",
+  "Scenarios": [
+    {
+      "Name": "8-1 window",
+      "Scene": "Level 8-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 3,
+        "Max": 0,
+        "Only": [
+          1
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace",
+        "relight"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "0-1 veil",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 2,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "1-1 veil",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 2,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "5-2 veil",
+      "Scene": "Level 5-2",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 2,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "7-1 veil",
+      "Scene": "Level 7-1",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 2,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "8-3 veil",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "tour"
+      },
+      "Tour": {
+        "Views": 2,
+        "Max": 0,
+        "Only": [
+          0
+        ]
+      },
+      "Modes": [
+        "off",
+        "pathtrace"
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

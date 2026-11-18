@@ -183,6 +183,7 @@ namespace UltraRT
                     string prefix = $"{Sanitize(sc.Name)}-s{index:00}-v{v}";
                     GameControl.SetPose(view);
                     GameControl.HideLevelTitle();
+                    bool probedView = false;
                     foreach (var m in sc.Modes)
                     {
                         ApplyBenchMode(m);
@@ -195,6 +196,13 @@ namespace UltraRT
                         string file = $"{prefix}_0.0s_{Sanitize(m)}.png";
                         SaveScreen(Path.Combine(outDir, file), spec.Scale);
                         sr.Screenshots.Add(file);
+                        if (SceneProxies.ViewProbe && _proxies != null && m != "off" && !probedView)
+                        {
+                            // -ultrart-viewprobe: what is in front of the camera at this view (far: skies and backdrops too).
+                            probedView = true;
+                            Logger.LogInfo($"  view probe: stop {index} view {v}");
+                            foreach (var line in _proxies.DescribeView(GameControl.Cam != null ? GameControl.Cam.cam : null, 30f, 2000f, 80)) Logger.LogInfo("  view probe: " + line);
+                        }
                         yield return null;
                     }
                     stop.Yaws.Add(yaws[v]);

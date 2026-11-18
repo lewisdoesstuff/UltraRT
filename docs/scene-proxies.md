@@ -427,6 +427,27 @@ approach, none on grass). The audit shows 112 of 184 cutout submeshes' sources d
 replaces those objects), which is the one state change found. A bisect needs a reproduction: an F11 pose saved where it
 happens, with the mode in use, is the next step.
 
+## Blended veils (2026-11-18)
+
+8-1's city outside the hotel windows has cloud layers over it (`Outside/Pipe/CityTest/FraudCity_Clouds/CloudLayer2`, `3`;
+material `FraudCity_Clouds`: ULTRAKILL/Master, `TRANSPARENCY`, `_BlendMode` 2, no `_ZWRITE_ON`, queue 2999) and a water
+sheen (`FraudCity_Water`, queue 2998). Their queues are in Unity's alpha-test range, so `SourceAlphaTested` made them
+cutouts and they were traced with a 0.5 alpha test: solid white streaks over the city, in relight and pathtrace, where the
+game has a faint haze (user report, tour stop "Busted Hotel Rooms").
+
+`SceneProxies.BlendedVeil` now takes such a material out of the RT scene: ULTRAKILL/Master, queue 2501 to 2999,
+`TRANSPARENCY` with alpha blending (`_BlendMode` 2), no depth write, no alpha-test keyword, not water, glass or lava
+(those are classified first). The log lists them per level (`Blended veils left to the game's own pass`, with up to six
+of their renderers). Checked in the first rooms of 0-1, 1-1, 5-2, 7-1 and 8-3: no other material matches there.
+
+**Limit.** In the open the game draws a veil itself over the traced image. 8-1's city is seen through a portal, where
+the traced image replaces the game's portal view, so there the veil is missing: the city is clear where the game has
+its haze. Showing it needs blended (not additive) layers on the camera and portal rays; not done.
+
+`bench/suites/sky-8-1.json` is the check. `-ultrart-viewprobe` now also works in a tour (once per view, 2 km, 80
+renderers), but a static batch's bounds put most of a level at distance 0, so a far backdrop is easier to find in the
+`Scrolling textures` and `Blended veils` log lines.
+
 ## Statue orbs (2026-11-15, user notes 1 and 2)
 
 The cerberus statues (8-1's lobby, 1-3's water hall, the `StatueFake` cerberuses, 0-1) hold a ball, `Cerb_Apple` (the lit
