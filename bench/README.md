@@ -107,6 +107,7 @@ against the game's frames (docs/lighting-overrides.md, "Scoreboard").
 | `projectile` | the enemy orb, flying away from the camera |
 | `fire`, `firesimple` | a pooled flame on the floor ahead, with its light switched on as `Flammable` does / the variant without a light |
 | `bloodstain` | writes 9 blood stains straight into the game's stain buffer, on the floor and walls ahead (as a splatter's drops do when they land): fresh stains for the wet-blood look (docs/vfx.md) |
+| `holditem` | puts the nearest active item that is not a torch (a skull) in the player's hand, the same way; no-op while something is held |
 | `holdtorch` | puts the level's nearest `Torch` in the player's hand (`Punch.ForceHold`, as picking it up does); no-op while one is held. Recordings keep the camera path only, not items |
 | `whiplash` | presses the whiplash (R) for `EffectSpawner.WhiplashHold` (0.25 s) of game time through the game's `InputActionState`: with a held item (the torch) it flies out on the hook and back |
 | `lightbrazier` | burns the nearest `Flammable` within 6 m (not the held item), once, as the held torch does when it hits it (`Flammable.Burn(4)`): 4-3's brazier opens the door ahead |

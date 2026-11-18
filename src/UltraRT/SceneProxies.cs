@@ -745,7 +745,7 @@ namespace UltraRT
             for (int k = _active.Count - 1; k >= 0; k--)
             {
                 var d = _active[k];
-                if (d.Source == null || ((k & 3) == _enabledPhase && (d.Proxy == null || !d.Source.enabled))) { Evaluate(d); continue; }
+                if (d.Source == null || ((k & 3) == _enabledPhase && (d.Proxy == null || !d.Source.enabled || HeldHidden(d)))) { Evaluate(d); continue; }
                 if (d.SkinnedProxy != null)
                 {
                     // DynamicGeometry: Build() re-reads the skinned vertices (in root-bone space) every frame, but not the
@@ -870,9 +870,17 @@ namespace UltraRT
             return n;
         }
 
+        /// <summary>A world object that moved to the viewmodel layer after its proxy was made: an item V1 picked up (a
+        /// skull, a torch). The game puts it on layer 13 and the HUD camera draws it at the hand, with its own field of
+        /// view; the proxy stayed in the RTAS at the hand's world place, and the main camera traced a second, larger
+        /// copy beside the drawn one (user, 2026-11-18: "ghost" of the held skull). Out while held, back when put down
+        /// (the dormant poll re-evaluates it). V1's own model has the player mask and is not affected.</summary>
+        public static bool HideHeldItems = true;
+        private static bool HeldHidden(DynamicProxy d) => HideHeldItems && d.Mask != PlayerMask && d.SourceObject != null && d.SourceObject.layer == 13;
+
         private void Evaluate(DynamicProxy d)
         {
-            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d) && !FrostedHidden(d);
+            bool visible = d.Source != null && d.Proxy != null && d.SourceObject.activeInHierarchy && d.Source.enabled && !LavaHidden(d) && !FrostedHidden(d) && !HeldHidden(d);
             if (visible == d.Visible) return;
             if (!string.IsNullOrEmpty(TraceFilter) && d.Source != null && GameControlPath(d.Source.transform).IndexOf(TraceFilter, StringComparison.OrdinalIgnoreCase) >= 0)
                 _log.LogInfo($"Trace '{GameControlPath(d.Source.transform)}': {(visible ? "add" : "remove")} at frame {Time.frameCount} (proxy made {d.CreatedFrame}), pos {d.SourceTransform.position:F2}, " +

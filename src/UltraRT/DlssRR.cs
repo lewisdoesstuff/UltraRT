@@ -14,6 +14,10 @@ namespace UltraRT
     /// </summary>
     internal sealed class DlssRR : IDisposable
     {
+        /// <summary>Finish: a screen pixel whose game depth matches no trace sample still counts as traced when the
+        /// samples around it lie on one plane (1 / depth bends by at most this fraction) that passes through that depth (a floor at a grazing angle;
+        /// docs/pathtrace.md, "Grazing floors"). 0 = off. Bench plugin._grazingMatch=0.</summary>
+        public static float GrazingMatch = 0.02f;
         [StructLayout(LayoutKind.Sequential)]
         private struct FrameData
         {
@@ -439,7 +443,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, "_TraceMap", traceMap);
             cmd.SetComputeVectorParam(cs, "_TraceRay", new Vector4(i.guardScale.x / proj.m00, i.guardScale.y / proj.m11, 0f, 0f));
             cmd.SetComputeVectorParam(cs, "_ZParams", z);
-            cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, 0f, 0f));
+            cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, GrazingMatch, 0f));
             cmd.SetComputeTextureParam(cs, k, "_RRColor", _out);
             cmd.SetComputeTextureParam(cs, k, "_GameDepth", i.gameDepth, 0, RenderTextureSubElement.Depth);
             cmd.SetComputeTextureParam(cs, k, "_NormalDepth", i.normalDepth);

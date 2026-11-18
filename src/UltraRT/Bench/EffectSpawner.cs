@@ -242,6 +242,26 @@ namespace UltraRT.Bench
                     Log?.LogInfo($"EffectSpawner: holding torch '{best.name}' (was {Mathf.Sqrt(bestD):F1} m away)");
                     break;
                 }
+                case "holditem":
+                {
+                    // The nearest item that is not a torch (a skull, a soap bar) in the player's hand, as picking it up
+                    // does: the held skull of the user's 2-4 pose (docs/scene-proxies.md, "Held items").
+                    var fc = MonoSingleton<FistControl>.Instance;
+                    if (fc == null || fc.currentPunch == null) throw new InvalidOperationException("no FistControl / punch");
+                    if (fc.heldObject != null) break; // already held
+                    ItemIdentifier best = null;
+                    float bestD = float.MaxValue;
+                    foreach (var it in UnityEngine.Object.FindObjectsOfType<ItemIdentifier>())
+                    {
+                        if (it == null || it.GetComponent<Torch>() != null) continue;
+                        float d = (it.transform.position - cam.position).sqrMagnitude;
+                        if (d < bestD) { bestD = d; best = it; }
+                    }
+                    if (best == null) throw new InvalidOperationException("no item in the level");
+                    fc.currentPunch.ForceHold(best);
+                    Log?.LogInfo($"EffectSpawner: holding item '{best.name}' layer {best.gameObject.layer} (was {Mathf.Sqrt(bestD):F1} m away)");
+                    break;
+                }
                 case "lightbrazier":
                 {
                     // As the held torch does when it hits something (Torch.HitWith -> Flammable.Burn(4)): the nearest

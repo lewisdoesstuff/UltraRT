@@ -13,6 +13,8 @@ namespace UltraRT
     public partial class Plugin
     {
         private bool _portalRemap = true;   // bench plugin._portalRemap=0: off (histories restart at a crossing, as before)
+        private float _grazingMatch = 0.02f; // bench plugin._grazingMatch=0: DLSS RR's depth match without the bracket test (white rows on grazing floors)
+        private bool _hideHeld = true;      // bench plugin._hideHeld=0: a picked-up item stays in the RTAS (the held skull's ghost)
         private bool _portalEdges = true;   // bench plugin._portalEdges=0: no fresh start at a moving portal's edge
         private bool _portalMotion = true;  // bench plugin._portalMotion=0: no motion vectors behind moving portals
         private bool _portalJumpDiag;       // bench plugin._portalJumpDiag=1: log camera jumps near portals
