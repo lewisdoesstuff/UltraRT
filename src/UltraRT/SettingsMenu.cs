@@ -202,6 +202,8 @@ namespace UltraRT
             m.Float("Display", "HDREmissive", "Glowing surfaces (x their SDR brightness)", 1f, 3f, 2, () => _hdrEmissive, v => _hdrEmissive = v, "-ultrart-hdr-emissive").Legacy();
             m.Float("Display", "HDRLava", "Lava and acid (x their SDR brightness)", 1f, 3f, 2, () => _hdrGameSurfaces, v => _hdrGameSurfaces = v, "-ultrart-hdr-lava").Legacy();
             m.Float("Display", "HDRSky", "Sky (x its SDR brightness)", 1f, 3f, 2, () => _hdrSky, v => _hdrSky = v, "-ultrart-hdr-sky").Legacy();
+            m.Float("Display", "HDREffects", "Effects: fire, explosions, beams (x their SDR brightness)", 1f, 4f, 2, () => _hdrEffects, v => _hdrEffects = v, "-ultrart-hdr-effects").Legacy();
+            m.Float("Display", "HDRBloom", "Bloom above white (room, display units)", 0f, 3f, 2, () => _hdrBloom, v => _hdrBloom = v, "-ultrart-hdr-bloom").Legacy();
             m.Bool("Display", "HDRHighlights", "Ray-traced highlights above white", () => _hdrHighlights, v => _hdrHighlights = v, "-ultrart-hdr-highlights").Legacy();
 
             LightEditorSettings(m); // per-level light overrides and the light editor (Plugin.LightOverrides.cs)

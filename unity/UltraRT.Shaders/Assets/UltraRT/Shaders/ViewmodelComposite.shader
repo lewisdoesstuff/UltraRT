@@ -9,6 +9,8 @@
 //   relight / pt-dn: (albedo * lighting * keep + specW * reflection) * exposure + emission, then relight's tone curve,
 //                    the same as the denoiser's composite for world pixels.
 //   hybrid:          game colour * shadow ratio + GI * albedo * bounce, then reflections, as Composite.shader.
+//   pass 2:          pass 0, plus the HDR display's late gain map (docs/hdr.md, "Viewmodel"): the gun's glowing parts get
+//                    HDREmissive, as glowing surfaces in the world do. Through a UAV, so pass 0 is unchanged.
 Shader "UltraRT/ViewmodelComposite"
 {
     SubShader
@@ -38,6 +40,10 @@ Shader "UltraRT/ViewmodelComposite"
             float4 _VMCamFwd;     // xyz camera forward
             float4 _VMParams;     // x shadow bias (hybrid), y GI strength (hybrid), z depth tolerance (fraction), w blend (0..1)
             float4 _VMRefl2;      // xy SpecularTerms params (global spec weight, refl strength), z reflections on
+
+            RWTexture2D<float4> _VMHdrGain : register(u1); // pass 2: the late gain map (rgb gain, a = the colour packed)
+            float4 _VMHdrEm;      // x HDREmissive - 1, y / z where the emission's brightest channel starts / fully counts
+            float4 _VMHdrTop;     // x display peak over paper white (display units), y largest gain
 
             static const uint2 kOrder[4] = { uint2(0, 0), uint2(1, 1), uint2(1, 0), uint2(0, 1) };
 
@@ -153,6 +159,20 @@ Shader "UltraRT/ViewmodelComposite"
                 }
                 return float4(saturate(c), 0.0);
             }
+
+            // Pass 2: frag (unchanged, so pass 0 compiles as before), then the gain of the gun's glowing parts.
+            float4 fragHdr(v2f i) : SV_Target
+            {
+                float4 r = frag(i);
+                uint2 q = (uint2)i.pos.xy;
+                float3 shown = r.rgb;
+                float s = UltraRTHdrEmissive(_VMGB3[q].rgb, shown, _VMHdrEm);
+                float3 hc = min(shown * s, max(_VMHdrTop.x, 1.0));
+                float3 sl = pow(max(shown, 0.0), 2.2), hl = pow(hc, 2.2);
+                float3 g = float3(sl.r > 1e-4 ? hl.r / sl.r : 1.0, sl.g > 1e-4 ? hl.g / sl.g : 1.0, sl.b > 1e-4 ? hl.b / sl.b : 1.0);
+                _VMHdrGain[q] = float4(clamp(g, 1.0, max(_VMHdrTop.y, 1.0)), UltraRTHdrPack(shown));
+                return r;
+            }
         ENDHLSL
 
         Pass // 0: replace (relight, pt-dn)
@@ -170,6 +190,14 @@ Shader "UltraRT/ViewmodelComposite"
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 4.5
+            ENDHLSL
+        }
+        Pass // 2: replace + HDR late gain map (UAV u1)
+        {
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragHdr
+            #pragma target 5.0
             ENDHLSL
         }
     }

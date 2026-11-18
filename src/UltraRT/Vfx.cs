@@ -114,6 +114,9 @@ namespace UltraRT
         public Texture preHaze;       // the target after the transparents, before the volumetric haze (null: no haze this frame)
         public RenderTexture hdr;     // HDR bloom source written this frame (null: none)
         public Vector2 hdrScale;      // visible / traced size of the HDR source
+        public RenderTexture hdrGain; // HDR display: the late gain map to write (null: none; docs/hdr.md "Effects and bloom")
+        public Vector4 hdrFx;         // x effects gain - 1 (linear), y / z brightest channel where it starts / is full, w bloom room (display units)
+        public Vector4 hdrTop;        // x display peak over paper white (display units), y largest gain
         public float time;            // seconds, the game's clock (pauses with it)
         public bool underwater;
         public float waterSurface;    // world height of the surface the camera is under
@@ -132,7 +135,7 @@ namespace UltraRT
 
         public VfxSettings Settings;
         private readonly Material _mat;
-        private RenderTexture _scene, _pre, _hdr;
+        private RenderTexture _scene, _pre, _hdr, _hdrGain;
         private readonly List<RenderTexture> _mips = new List<RenderTexture>();
         private Texture2D _noise;
 
@@ -159,7 +162,8 @@ namespace UltraRT
             IdCounts = Shader.PropertyToID("_VfxCounts"), IdBoxMin = Shader.PropertyToID("_VfxHeatBoxMin"), IdBoxMax = Shader.PropertyToID("_VfxHeatBoxMax"),
             IdPoints = Shader.PropertyToID("_VfxHeatPoints"), IdHeat = Shader.PropertyToID("_VfxHeat"), IdShock = Shader.PropertyToID("_VfxShock"),
             IdShockP = Shader.PropertyToID("_VfxShockP"), IdWater = Shader.PropertyToID("_VfxWater"), IdWaterColor = Shader.PropertyToID("_VfxWaterColor"),
-            IdWaterLight = Shader.PropertyToID("_VfxWaterLight"), IdWaterParams = Shader.PropertyToID("_VfxWaterParams"), IdDebug = Shader.PropertyToID("_VfxDebug");
+            IdWaterLight = Shader.PropertyToID("_VfxWaterLight"), IdWaterParams = Shader.PropertyToID("_VfxWaterParams"), IdDebug = Shader.PropertyToID("_VfxDebug"),
+            IdHdrFx = Shader.PropertyToID("_VfxHdrFx"), IdHdrTop = Shader.PropertyToID("_VfxHdrTop");
 
         public Vfx(Shader shader, VfxSettings settings)
         {
@@ -307,6 +311,7 @@ namespace UltraRT
         {
             var s = Settings;
             if (!s.enabled) return false;
+            if (f.hdrGain != null) return true;
             if (s.bloom && s.bloomStrength > 0f) return true;
             if (s.underwater && f.underwater) return true;
             if (s.heatHaze && (_boxCount > 0 || _pointCount > 0)) return true;
@@ -372,11 +377,15 @@ namespace UltraRT
             m.SetVector(IdBloomParams, new Vector4(bloom ? Mathf.Max(0f, s.bloomStrength) : 0f, Mathf.Max(0f, s.bloomEffects), s.bloomEffectsLo, Mathf.Max(s.bloomEffectsHi, s.bloomEffectsLo + 1e-3f)));
             m.SetVector(IdBloomParams2, new Vector4(f.hdr != null ? 1f : 0f, Mathf.Max(0.1f, s.bloomClamp), Mathf.Max(0f, s.bloomMaxAdd), Mathf.Clamp01(s.bloomProtect)));
             m.SetVector(IdHdrScale, new Vector4(f.hdrScale.x, f.hdrScale.y, 0, 0));
+            bool hdr = f.hdrGain != null && f.pre != null;
+            if (bloom || hdr)
+            {
+                cmd.SetGlobalTexture(IdPre, f.pre);
+                cmd.SetGlobalTexture(IdLate, f.preHaze != null ? f.preHaze : _scene);
+            }
             if (bloom)
             {
                 EnsureMips(target.width, target.height, s.bloomMips);
-                cmd.SetGlobalTexture(IdPre, f.pre);
-                cmd.SetGlobalTexture(IdLate, f.preHaze != null ? f.preHaze : _scene);
                 cmd.SetGlobalTexture(IdHdr, f.hdr != null ? (Texture)f.hdr : Texture2D.blackTexture);
                 cmd.SetRenderTarget(_mips[0]);
                 cmd.DrawProcedural(Matrix4x4.identity, m, 0, MeshTopology.Triangles, 3);
@@ -398,7 +407,29 @@ namespace UltraRT
             }
             else cmd.SetGlobalTexture(IdBloom, Texture2D.blackTexture);
             cmd.SetRenderTarget(new RenderTargetIdentifier(target));
-            cmd.DrawProcedural(Matrix4x4.identity, m, 3, MeshTopology.Triangles, 3);
+            if (hdr)
+            {
+                // The same pass, plus the HDR late gain map through a UAV (u1): the colour target is unchanged.
+                m.SetVector(IdHdrFx, f.hdrFx);
+                m.SetVector(IdHdrTop, f.hdrTop);
+                cmd.SetRandomWriteTarget(1, f.hdrGain);
+                cmd.DrawProcedural(Matrix4x4.identity, m, 4, MeshTopology.Triangles, 3);
+                cmd.ClearRandomWriteTargets();
+            }
+            else cmd.DrawProcedural(Matrix4x4.identity, m, 3, MeshTopology.Triangles, 3);
+        }
+
+        /// <summary>HDR display: the late gain map, at the camera target's size (docs/hdr.md).</summary>
+        public RenderTexture EnsureHdrGain(Texture target)
+        {
+            if (_hdrGain == null || _hdrGain.width != target.width || _hdrGain.height != target.height || !_hdrGain.IsCreated())
+            {
+                Release(ref _hdrGain); // the native side holds its own reference while frames are in flight
+                _hdrGain = new RenderTexture(target.width, target.height, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear)
+                    { name = "UltraRT HDR Late Gain", enableRandomWrite = true, filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+                _hdrGain.Create();
+            }
+            return _hdrGain;
         }
 
         public void Dispose()
@@ -406,6 +437,7 @@ namespace UltraRT
             Release(ref _scene);
             Release(ref _pre);
             Release(ref _hdr);
+            Release(ref _hdrGain);
             foreach (var mip in _mips) { var t = mip; Release(ref t); }
             _mips.Clear();
             if (_noise != null) { Object.Destroy(_noise); _noise = null; }
