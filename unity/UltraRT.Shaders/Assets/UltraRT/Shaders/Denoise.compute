@@ -689,6 +689,7 @@ float4 _OutDim;    // output w, h
 int    _DebugView; // see DenoiserDebugView
 
 #include "UltraRTExposure.hlsl" // relight: auto exposure and tone map (docs/relight.md)
+#include "UltraRTDither.hlsl"   // the 8-bit output (Plugin.GameDither.cs)
 
 float3 Heat(float x)
 {
@@ -794,7 +795,9 @@ void Composite(uint3 id : SV_DispatchThreadID)
         if (_HdrParams.x > 0.5)
             _HdrOut[id.xy] = UltraRTHdrGain(hdr, saturate(c), UltraRTHdrEmissive(max(_Emission[s].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams, _HdrParams);
     }
-    _Output[id.xy] = float4(saturate(c), 1.0);
+    // _Output is ARGB32 (the denoised image the upsampler and composite read): dithered to its 8 bits while the game's dither
+    // is off (UltraRTDither.hlsl; debug views too, where half a step does not matter).
+    _Output[id.xy] = float4(saturate(UltraRTOutputDither(c, id.xy, 3.0)), 1.0);
 }
 
 // ---------------------------------------------------------------- bench: motion-noise classes

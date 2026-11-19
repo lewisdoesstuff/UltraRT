@@ -104,6 +104,7 @@ namespace UltraRT
             bool rtTraced = _viewEnabled && _proxies?.Rtas != null && Time.frameCount - _rtTracedFrame < 30;
             _proxies?.SetOrbShells(rtTraced);
             _proxies?.SetFlatWaterFade(rtTraced && _flatWaterFade); // 1-1's fountain checkerboard (TransparentSurfaces.cs)
+            UpdateGameDither(rtTraced); // the game's screen dither off while traced (Plugin.GameDither.cs)
             if (_litParticles == null) return;
 
             var (name, kind, _) = Modes[_mode];

@@ -23,6 +23,7 @@ Shader "UltraRT/Vfx"
         HLSLINCLUDE
             #include "UnityCG.cginc"
             #include "UltraRTToneCurve.hlsl"
+            #include "UltraRTDither.hlsl"
 
             Texture2D _VfxScene;               // copy of the target after the transparents (screen resolution)
             Texture2D _VfxPre;                 // copy of the target right after the RT composite (before the transparents)
@@ -358,7 +359,7 @@ Shader "UltraRT/Vfx"
                     if (_VfxBloomParams2.z > 0.0) h = min(h, _VfxBloomParams2.z);
                     c = c + h * (1.0 - exp(-delta / h));
                 }
-                return float4(c, 1.0);
+                return float4(UltraRTOutputDither(c, i.pos.xy, 2.0), 1.0); // a no-op on pixels nothing changed (already 8-bit)
             }
 
             // Pass 4: a copy of fragFinal (keep the two in step) that also writes the HDR late gain map. fragFinal itself
@@ -457,7 +458,7 @@ Shader "UltraRT/Vfx"
                 }
                 if (any(isnan(gain)) || any(isinf(gain))) gain = 1.0;
                 _VfxHdrGain[uint2(i.pos.xy)] = float4(clamp(gain, 1.0, max(_VfxHdrTop.y, 1.0)), UltraRTHdrPack(c));
-                return float4(c, 1.0);
+                return float4(UltraRTOutputDither(c, i.pos.xy, 2.0), 1.0);
             }
         ENDHLSL
 

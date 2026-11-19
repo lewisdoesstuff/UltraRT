@@ -322,6 +322,8 @@ namespace UltraRT
                     case "-ultrart-nomirrorfix": SceneProxies.MirroredSkinFix = false; break; // mirrored skinned meshes keep the default winding (docs/scene-proxies.md)
                     case "-ultrart-noreadd": SceneProxies.NewInstanceReAdd = false; break; // new rigid instances are added once only (docs/scene-proxies.md, "Instances added too early")
                     case "-ultrart-trace-proxies": SceneProxies.TraceFilter = Next(); break;
+                    case "-ultrart-game-dither": { var v = (Next() ?? "").ToLowerInvariant(); _gameDither = v != "off" && v != "0" && v != "false"; break; } // Plugin.GameDither.cs
+                    case "-ultrart-output-dither": { var v = (Next() ?? "").ToLowerInvariant(); _outputDither = v != "off" && v != "0" && v != "false"; break; } // Plugin.GameDither.cs
                     case "-ultrart-orb-light": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _orbLightScale); break;
                 }
             }

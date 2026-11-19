@@ -1,0 +1,72 @@
+{
+ "Name": "game-dither",
+ "Note": "The game's screen dither (PostProcessV2 _DitherStrength) off while traced, our +-0.5 step output dither instead (Plugin.GameDither.cs, UltraRTDither.hlsl, docs/ultrakill-rendering.md). Each pose: the game (off), traced (game dither off, ours on), +plugin._outputDither=0 (no dither at all: the banding check) and +plugin._gameDither=1 (the old look). 8-2 ends with off to check the restore. For HDR add -Extra '-ultrart-hdr','on','-ultrart-hdr-capture','raw'.",
+ "Scenarios": [
+  {
+   "Name": "8-2 street",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-2-c.json",
+    "Position": [
+     5.772,
+     -2.76,
+     379.065
+    ],
+    "Yaw": 226,
+    "Pitch": -1,
+    "Duration": 5
+   },
+   "Modes": [
+    "pathtrace",
+    "pathtrace+plugin._outputDither=0",
+    "pathtrace+plugin._gameDither=1",
+    "off"
+   ],
+   "Enemies": "blind",
+   "Screenshots": [
+    2.5
+   ],
+   "ShotSettle": 1.0
+  },
+  {
+   "Name": "1-4 lamps",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-4-lamps.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "relight+plugin._outputDither=0",
+    "pathtrace",
+    "pathtrace+plugin._outputDither=0",
+    "pathtrace+plugin._gameDither=1"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-1 grass",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-1-grass-approach.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "hybrid",
+    "hybrid+plugin._outputDither=0",
+    "pathtrace",
+    "pathtrace+plugin._gameDither=1"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

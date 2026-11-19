@@ -18,6 +18,7 @@ Shader "UltraRT/VolumetricsComposite"
     {
         HLSLINCLUDE
             #include "UnityCG.cginc"
+            #include "UltraRTDither.hlsl"
 
             Texture2D _VolSceneColor;          // copy of the target (screen resolution)
             Texture2D _UltraRTGameDepth;       // the game's depth (raw), set by the plugin for the RT composite
@@ -183,7 +184,7 @@ Shader "UltraRT/VolumetricsComposite"
                 float3 h = max(1.0 - c, 1e-3);
                 if (_VolMaxAdd > 0.0) h = min(h, _VolMaxAdd);
                 o = c + h * (1.0 - exp(-delta / h));
-                return float4(o, 1.0);
+                return float4(UltraRTOutputDither(o, i.pos.xy, 1.0), 1.0);
             }
 
             // ---- beam channel

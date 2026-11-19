@@ -22,6 +22,7 @@ Shader "UltraRT/Composite"
             #pragma fragment frag
             #pragma target 4.5
             #include "UnityCG.cginc"
+            #include "UltraRTDither.hlsl"
 
             Texture2D _UltraRTImage;
             Texture2D _UltraRTNormalDepth;  // w < 0: the ray hit nothing (sky) -> keep the game's own sky
@@ -93,7 +94,7 @@ Shader "UltraRT/Composite"
                     // Replace modes with the temporal upsampler: it already matched the game's depth per screen pixel.
                     float4 up = _UltraRTUpsampled.Sample(my_point_clamp_sampler, screenUV);
                     if (up.a <= 0.0) discard;
-                    return float4(up.rgb, 1.0);
+                    return float4(UltraRTOutputDither(up.rgb, i.pos.xy, 0.0), 1.0);
                 }
                 // RT buffers may cover a slightly wider view than the screen (guard band): screen uv -> trace uv.
                 float2 uvScale = _UltraRTUVScale.x > 0.0 ? _UltraRTUVScale.xy : float2(1.0, 1.0);
@@ -204,9 +205,9 @@ Shader "UltraRT/Composite"
                         if (_UltraRTMode < 4.5) return float4(sh * 0.25, 1.0);
                         return float4(bounce * 0.5, 1.0);
                     }
-                    return float4(result, 1.0);
+                    return float4(UltraRTOutputDither(result, i.pos.xy, 0.0), 1.0);
                 }
-                return float4(_UltraRTImage.Sample(my_point_clamp_sampler, i.uv).rgb, 1.0);
+                return float4(UltraRTOutputDither(_UltraRTImage.Sample(my_point_clamp_sampler, i.uv).rgb, i.pos.xy, 0.0), 1.0);
             }
             ENDHLSL
         }

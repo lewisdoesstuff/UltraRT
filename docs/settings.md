@@ -16,7 +16,7 @@ The log says which case applies (`BepInEx/LogOutput.log`):
 
 | Section | Settings |
 |---|---|
-| View | Ray tracing on/off (F7), view mode (Page Up / Down: hybrid, relight, pathtrace, pt-dn, and the debug views) |
+| View | Ray tracing on/off (F7), view mode (Page Up / Down: hybrid, relight, pathtrace, pt-dn, and the debug views), the game's screen dither while ray traced (off by default: the game's Options > Graphics > Dithering draws a fine checkerboard over the frame; [ultrakill-rendering.md](ultrakill-rendering.md), "Final post-process: dither") |
 | Quality and performance | Trace resolution (Performance 0.5x, Balanced 0.67x, Quality 1x), temporal upsampler (F2), denoiser preset (Ctrl+F3), radiance cache mode (F3), light sampling (F6) |
 | Path tracing (view mode pathtrace) | Denoiser (Auto = DLSS RR when available, UltraRT, DLSS RR), render resolution with RR (1/3, 1/2, 0.67x), paths per pixel, bounces per path, light samples per pixel, radiance cache after the last bounce, end wide paths in the cache (footprint, in cache cells), sky sample at every bounce; DLSS RR in relight / pt-dn (Ctrl+F8) and its exact-texel remodulation (docs/path-tracing.md, docs/dlss.md) |
 | Lighting | Light reference, light exposure, fill light cut, sky + linear light (Ctrl+F5), sky sampling, sky light, emissive lighting (F5: glowing surfaces as lights) and its brightness |
