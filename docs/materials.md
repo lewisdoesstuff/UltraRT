@@ -579,3 +579,44 @@ variant of a slot whose original has `_FOG_OFF` (`AtlasVariant`; 1-4's windows a
 `ULTRART_FLAG_NOFOG`, `PackSurface` keeps it as the sign bit of emission.b's half (`SurfaceNoFog`), and the fog pass
 reads the depth-matched trace texel of the 2x2 and leaves those pixels alone. Bench `plugin._noFogSkip=0` fogs them
 again. Run (first implementation): `bench/results/20261118-234255_glass-fog_alt`.
+
+## 13. Shipping without the maps (2026-11-19, `t3/detail-maps-comparison-dlss`)
+
+The maps are made from the game's textures, so the release will not bundle them: they become a separate texture-pack
+download. What does a user without the pack see? Suite `bench/suites/detail-pack.json` (6 poses: 0-1 metal, 1-1
+start, 1-1 indoor a, 8-2 a, 6-2 pose 1, 2-1 pose 1; `off`, pathtrace and relight, each with the `ai` maps and with
+`mat.enabled=0`) and `detail-pack-src.json` (pathtrace, relight) run with `-ultrart-materials-source proc` and with a
+source folder that does not exist (the real no-pack path: `Material maps: no cache at ...: per-texel detail off`).
+Defaults of the day: strength 1, smoothing 1, LOD on. Alt slot, 2560x1440, RR at 1/3. Runs
+`bench/results/20261119-171951_detail-pack_alt` (ai, off, maps off), `-172244_detail-pack-src_alt` (proc),
+`-172457_detail-pack-src_alt` (no cache); sheets (local, game-derived) `bench/results/detail-pack-sheets/<pose>_sheet.png`
+(columns game / no maps / proc / ai, rows pathtrace / relight) and `<pose>_zoom.png` (2x crops of a textured wall).
+The proc set was installed in the alt install for this (`BepInEx\ultrart\materials\proc`).
+
+- **How visible.** Small. At full frame the three RT columns are hard to tell apart in every pose; in the 2x crops
+  the `ai` maps add a little bevel shading to 1-1's torch-lit bricks and 0-1's louvres, and almost nothing on 8-2's
+  facades, 6-2's skull wall, 2-1's carved walls or 1-1's shaded gate. Mean frame difference `ai` vs maps off is
+  2-4 of 255, and the same settings in two launches (no cache vs `mat.enabled=0`) already differ by 2-7 (gun sway,
+  flames, haze): most poses are at the noise floor. Only the 1-1 brick wall crop is clearly above it (3.0 vs 1.1 in
+  pathtrace). Local contrast (mean |pixel - 3x3 mean| in the crops) is the same with and without maps within 0.05,
+  so the maps change the shading of texels, not the frame's texel-scale contrast. Since strength 1 and smoothing 1
+  (section 8, 9) the relief is deliberately gentle; section 5's "relight is where it pays off" was at strength 2.
+- **No maps does not look broken anywhere seen.** The detail roughness is an offset around the class roughness
+  (b = 0.5 + (r - mean) / 2), so without a detail texture (`_DetailParams.w` 0) the hit shader keeps the class
+  roughness, the value the maps vary around; Toksvig widening only applies with detail. Signed mean brightness
+  change with maps vs without is within +-1 of 255 in every pose and mode; the metal room's reflections look the same
+  (a little smoother on the slats). `mat.enabled=0` and the no-cache path give the same picture (the no-cache frames
+  differ from `mat.enabled=0` only by the launch-to-launch noise above).
+- **proc vs ai.** As close to each other as each is to no maps (1.4-4 of 255). In the crops proc is a shade flatter
+  than ai on bricks; nothing looks wrong with it at these poses. A reasonable no-pack default if it can be made on
+  the user's machine (below); "maps off" is an equally defensible default, and costs nothing.
+- **Generating proc at runtime.** The generator (`generate.py`, `procedural`) needs only the albedo texels: sRGB
+  luminance, a wrapped 3x3 Sobel (slope scale 2), and roughness from the mean luminance and the 3x3 standard
+  deviation, plus the `fill_transparent` mean colour for cutouts and the texture's mean roughness (`rmean`). That is
+  a few dozen operations per texel: 1-1 binds 136 textures, 8-2 323, nearly all 32-256 px, so the arithmetic is a few
+  ms per level in C# (or one compute dispatch). The cost is getting the texels: game textures are not CPU-readable,
+  so each would be blitted into an sRGB RGBA32 render target (point, same size: decodes DXT/crunch) and read back,
+  ideally in one batched AsyncGPUReadback per level, then fed to `MakeDetailTexture` (which already builds the mips
+  and variance from `Color32[]`) and to the atlas composition (which also wants the CPU pixels). Estimate: tens to
+  ~150 ms per level load, in the range of today's 65-140 ms PNG decode, and a disk cache keyed by `<name>@<w>x<h>`
+  (the same keys) would make it a one-time cost. Nothing game-derived would ship. Not implemented.

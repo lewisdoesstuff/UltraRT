@@ -360,10 +360,30 @@ The DLSS SDK is under the "NVIDIA RTX SDKs" license (`lib\dlss\LICENSE.txt`; fet
 - **Don't commit or redistribute NVIDIA's files.** You may distribute the SDK only "incorporated in object code format
   into a software application" with "material additional functionality" and terms at least as protective as NVIDIA's,
   and never under an open-source license. `fetch-dlss.ps1` keeps the binaries out of git.
-- **Release builds.** NVIDIA must be notified before a commercial release. Shipping the SDK requires NVIDIA attribution
-  (marks on a splash screen, about box or credits). The RR guide says the `dev` and `rel` DLLs in the public SDK are for
-  development and that a distributable DLL comes from NVIDIA. Public distribution of a mod with RR therefore needs
-  NVIDIA's involvement. Fine for local experiments; not something to ship in a release zip as is.
+- **Release builds.** NVIDIA must be notified before a *commercial* release (license, "Notification for the DLSS SDK";
+  form at developer.nvidia.com/sw-notification). Shipping the SDK requires NVIDIA attribution (marks on a splash
+  screen, about box or credits), and the DLL's third-party notices (Programming Guide section 9.5) go in the
+  product's documentation.
+- **Which DLL.** `fetch-dlss.ps1` fetches `lib/Windows_x86_64/rel/nvngx_dlssd.dll` (48.3 MB at v310.9.16; the main
+  checkout's `lib\dlss\version.txt` says `v310.9.16 rel`); `-Dev` fetches the `dev` one (93.5 MB, with the debug
+  overlay, Ctrl+Alt+F12). What NVIDIA's documents in that SDK (checked 2026-11-19, tag v310.9.16) say about shipping:
+  - *DLSS Programming Guide* (SR, 310.6.0, section 4.2 "Distributable Libraries", and the deployment checklist in 2.5):
+    the release library is the one in `./lib/<plat>_<arch>/rel/`; only the `dev` DLL "MUST NOT be included or
+    distributed in any public release"; the checklist asks for the "full production non-watermarked" library. The
+    watermark (3.18) is in the SDK's development library, "not included in the production library".
+  - *DLSS-RR Integration Guide* (August 2026), section 5.1: "The release DLL should be used in the final version of
+    the application (in the rel folder)" and "do not release / ship a develop DLL". But its section 4.2 says that
+    *both* the dev and rel DLLs "included in the NDA SDK package must not be included or distributed in any public
+    release ... To obtain a distributable DLL, please contact NVIDIA" (the wording of the NDA-era RR package; the same
+    section also calls `rel` "the release library").
+  - So our earlier note ("a distributable DLL comes from NVIDIA") is what RR section 4.2 says, but the same guide and
+    the SR guide name the public `rel` DLL as the one to ship. The `rel` DLL shows no watermark
+    in our captures (`bench/results/*_detail-pack_alt`, pathtrace frames, 2026-11-19). Until NVIDIA answers
+    (nvidia-rtx-license-questions@nvidia.com, license section 19), the safe reading for a public release: ship the
+    `rel` DLL unmodified and signed, never `dev`, with the attribution and notices above, or ask NVIDIA first.
+- **Open-source terms.** The license forbids putting the SDK under terms that make it redistributable as source or
+  "at no charge" as a condition (restriction e), so the DLL can't sit inside a release that is licensed as a whole
+  under an open-source license; a separate download or a release with its own terms for the NVIDIA files avoids that.
 - The NGX helper headers' notice ("This software contains source code provided by NVIDIA Corporation.") is in
   `Dlss.cpp`.
 
