@@ -563,7 +563,9 @@ the glass, tinted; the leading (dark texels) blocks.
   run was colder).
 
 **No-fog surfaces.** ULTRAKILL/Master materials with `_FOG_OFF` are drawn without the distance fog; the fog pass
-(VolumetricsComposite.shader pass 0) fogged every traced pixel. Now the proxy material or atlas variant carries
-`_NoFog`, the hit sets `ULTRART_FLAG_NOFOG`, PathTrace keeps it in `_Surface` (z bit 31 while x bit 31 is clear;
-UltraRTMaterial.hlsl `SurfaceNoFog`), and the fog pass reads the depth-matched trace texel of the 2x2 and leaves those
-pixels alone. Bench `vol.noFogSurfaces=0` fogs them again. Run: `bench/results/20261118-234255_glass-fog_alt`.
+(VolumetricsComposite.shader pass 0) fogged every traced pixel. One implementation since the merge with
+`t3/playtest-materials` (0-1's gears, docs/volumetrics.md): the proxy material carries `_NoFog`, and so does the atlas
+variant of a slot whose original has `_FOG_OFF` (`AtlasVariant`; 1-4's windows are atlas slots), the hit sets
+`ULTRART_FLAG_NOFOG`, `PackSurface` keeps it as the sign bit of emission.b's half (`SurfaceNoFog`), and the fog pass
+reads the depth-matched trace texel of the 2x2 and leaves those pixels alone. Bench `plugin._noFogSkip=0` fogs them
+again. Run (first implementation): `bench/results/20261118-234255_glass-fog_alt`.

@@ -326,15 +326,31 @@ namespace UltraRT
         private LightResolved ResolveLight(Light l)
         {
             if (!_ovActiveThisFrame) return null;
-            if (!_resolved.TryGetValue(l, out var r)) _resolved[l] = r = BuildResolved(l);
-            return r;
+            return ResolvedFor(l);
         }
 
         /// <summary>The same for the editor and the census: also while overrides are not applied.</summary>
         private LightResolved ResolvedFor(Light l)
         {
-            if (!_resolved.TryGetValue(l, out var r)) _resolved[l] = r = BuildResolved(l);
+            if (!_resolved.TryGetValue(l, out var r) || CarriedChanged(l, r)) _resolved[l] = r = BuildResolved(l);
             return r;
+        }
+
+        /// <summary>
+        /// A carried item's light (0-S's skull, 4-3's torch) is "item" on the ground and "player" in the hand
+        /// (ClassifyLight). The resolved set is cached, so the class used to be whichever the light had when the cache
+        /// was last cleared: picked up after a clear, the skull kept "item" (x2.5, reach 0) until the next one, then
+        /// turned "player" (x1, full reach) mid-play (2026-11-18, `t3/dark-0-S`). Re-resolved when that changes.
+        /// </summary>
+        private bool CarriedChanged(Light l, LightResolved r)
+        {
+            if (r.Class != LightClasses.Item && r.Class != LightClasses.Player) return false;
+            if (l == null) return false;
+            var t = l.transform;
+            var player = MonoSingleton<NewMovement>.Instance != null ? MonoSingleton<NewMovement>.Instance.transform : null;
+            var camT = _camera != null ? _camera.transform : null;
+            bool carried = (player != null && t.IsChildOf(player)) || (camT != null && t.IsChildOf(camT));
+            return carried != (r.Class == LightClasses.Player);
         }
 
         /// <summary>BeginLightOverrides: the resolved set follows the files, the fixture data and the review switches.</summary>

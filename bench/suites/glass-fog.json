@@ -1,6 +1,6 @@
 {
  "Name": "glass-fog",
- "Note": "Branch t3/stained-glass: 1-4 pose 4 windows: game fog on traced pixels (the glass is _FOG_OFF in the game).",
+ "Note": "Branch t3/stained-glass: no-fog surfaces (_FOG_OFF): 1-4 pose 4's stained glass (atlas slots) and 0-1 pose 2's gears; plugin._noFogSkip=0 = fogged like everything else.",
  "Scenarios": [
   {
    "Name": "1-4 pose 4",
@@ -13,7 +13,25 @@
    },
    "Modes": [
     "off",
-    "pathtrace+vol.noFogSurfaces=0",
+    "pathtrace+plugin._noFogSkip=0",
+    "pathtrace",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "0-1 pose 2",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-0-1-2.json",
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "pathtrace+plugin._noFogSkip=0",
     "pathtrace",
     "relight"
    ],

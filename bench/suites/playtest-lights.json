@@ -1,0 +1,58 @@
+{
+ "Name": "playtest-lights",
+ "Note": "t3/playtest-lights as shipped: 1-4's white orb (glow shell while traced; plugin._orbShellGain), 0-3's light pillars (coneGain 1.6; plugin._coneGainOverride=1 = before), Gabriel's light in 6-2's intro (lc.class.boss=0 = before; one load, shot at 0.5 s: the cutscene runs on).",
+ "Scenarios": [
+  {
+   "Name": "1-4 white orb",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-3.json",
+    "Duration": 4,
+    "LookAt": "3C - Boss Door/*/Statue (1)/Sphere_8",
+    "LookDistance": 3.5
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._orbShellGain=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "0-3 pose 1",
+   "Scene": "Level 0-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-0-3-1.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._coneGainOverride=1"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "6-2 gabriel",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-6-2-4.json",
+    "Duration": 2
+   },
+   "Modes": [
+    "pathtrace",
+    "pathtrace+lc.class.boss=0"
+   ],
+   "Screenshots": [
+    0.5
+   ]
+  }
+ ]
+}

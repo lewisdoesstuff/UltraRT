@@ -27,7 +27,8 @@ namespace UltraRT
         private ComputeBuffer _volSkipBuffer;    // one bit per light: lights attached to the player / camera
         private readonly uint[] _volSkip = new uint[(MaxLights + 31) / 32];
         private Vector3 _volSurveyPos = new Vector3(1e9f, 0, 0);
-        private const float AttachedLightReach = 1.5f; // m from the eye: player-attached lights the medium skips (the gun, a held torch)
+        private int _volSkipLogs;
+        private readonly System.Collections.Generic.HashSet<string> _volSkipLogged = new System.Collections.Generic.HashSet<string>();
 
         private void ParseVolumetricsArgs()
         {
@@ -83,10 +84,15 @@ namespace UltraRT
                 // Attached lights only while they are at the player: a held item thrown on the whiplash (4-3's torch) stays
                 // in the camera's hierarchy while it flies, and its halo is what shows it moving through the air.
                 float eye2 = (new Vector3(l0.x, l0.y, l0.z) - camPos).sqrMagnitude;
-                bool attached = eye2 < AttachedLightReach * AttachedLightReach && lt != null &&
+                bool attached = eye2 < _volSettings.attachedReach * _volSettings.attachedReach && lt != null &&
                                 ((player != null && lt.transform.IsChildOf(player)) || (camT != null && lt.transform.IsChildOf(camT)));
                 bool atEye = eye2 < 0.25f;
                 if ((attached || atEye) && !_volSettings.playerLights) _volSkip[i >> 5] |= 1u << (i & 31);
+                if (_volSkipLogs < 24 && lt != null && eye2 < 25f && ((player != null && lt.transform.IsChildOf(player)) || (camT != null && lt.transform.IsChildOf(camT))))
+                {
+                    string key = lt.name + ":" + Mathf.RoundToInt(Mathf.Sqrt(eye2) * 2f);
+                    if (_volSkipLogged.Add(key)) { _volSkipLogs++; Logger.LogInfo($"Volumetrics: carried light '{lt.name}' packed {Mathf.Sqrt(eye2):F2} m from the eye (transform {(lt.transform.position - camPos).magnitude:F2} m): {(attached || atEye ? "skipped" : "lights the air")}"); }
+                }
             }
             _cmd.SetBufferData(_volSkipBuffer, _volSkip);
             return _volSkipBuffer;
@@ -163,7 +169,6 @@ namespace UltraRT
                 falloff = new Vector4(_relightActive ? _relightFalloff : 0f, lightExposure, 1f, 0f),
                 localLightCount = _lightCount,
                 applyGameFog = upsampled && kind != Kind.Hybrid,
-                surface = upsampled && kind != Kind.Hybrid ? _gSurface : null,
                 autoExposure = AutoExposureFor(name),
                 exposure = _autoExposure?.ExposureBuffer,
                 composite = _volCompositeMat,

@@ -19,7 +19,6 @@ Shader "UltraRT/Proxy"
         _BlendTex ("Blend atlas", 2D) = "white" {}
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
-        _NoFog ("The game draws it without fog (_FOG_OFF)", Float) = 0
         _Transmit ("Stained glass: shadow rays pass, tinted by the colour x this (0 = opaque)", Float) = 0
         // ULTRAKILL/Master SCROLLING: uv * _MainTex_ST + _ScrollOffset + _ScrollSpeed * _Time.y (5-2's sea current, conveyor
         // belts, opaque lava). _ScrollOffset is ScrollingTexture's per-renderer property block value (SceneProxies.Sync.cs).
@@ -41,6 +40,7 @@ Shader "UltraRT/Proxy"
         // rules: a partial value, SceneProxies.Unlit.cs). Non-atlas only; atlas geometry carries it in the vertex colour alpha,
         // and an atlas variant with a "lit" rule lifts the fullbright part: lerp(_LitOverride, 1, alpha) (-1 = alpha alone).
         _Unlit ("Unlit (0 lit, 1 fullbright)", Float) = 0
+        _NoFog ("The game draws it without distance fog (_FOG_OFF)", Float) = 0
         _LitOverride ("Atlas lit weight of fullbright slots (-1 = vertex alpha)", Float) = -1
         // BLOOD_FILLER (7-3's tree): the game paints the albedo's green and blue out below a fill height (mesh TEXCOORD2.y in
         // [-1, 1]) with a noisy edge. _BloodFill: the renderer's _FillAmount (0 = off), _BloodScale its _MeshScale.z
@@ -143,7 +143,6 @@ Shader "UltraRT/Proxy"
             float _AtlasMode;
             float _SkyWall;
             float _AlphaTest;
-            float _NoFog;
             float _CameraSkip;
             float _Transparent;
             float _TransOpacity;
@@ -151,6 +150,7 @@ Shader "UltraRT/Proxy"
             float4 _UltraRTGlass; // global (SceneProxies.Glass): x transmission gain (0 = stained glass blocks light, the old look)
             float _UltraRTTransAlpha; // global: 1 = water's path tint follows the game's blend alpha
             float _Unlit;
+            float _NoFog;
             float _LitOverride;
             float _BloodFill, _BloodScale;
             Texture2D _BloodNoiseTex;
@@ -749,8 +749,7 @@ Shader "UltraRT/Proxy"
                 p.material = PackMaterialWord(rough, metal, f0, specWeight);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls)
-                        | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT);
-                if (_NoFog > 0.5) p.flags |= ULTRART_FLAG_NOFOG;
+                        | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT) | (_NoFog > 0.5 ? ULTRART_FLAG_NOFOG : 0u);
 
                 // Hybrid primary hits: the game's cubemap term for the composite to remove. uvHalf / primitive are debug-only
                 // otherwise; PathTrace's primary rays never read them.

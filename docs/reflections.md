@@ -480,6 +480,27 @@ pixels long, reflecting a bright and a dark part of the room in turn: that is re
 rougher water surface would calm it). Sheets `bench/results/review/ghost/pool_before_after.png`, `pool_variants.png`
 (`trans.waves=0` = the clean mirror, `trans.cacheSpread` = no effect).
 
+### 8-2's pool: still water, and limbo water without its fade (2026-11-18, `t3/playtest-materials`)
+
+- **Still water.** The user (playtest of 2026-11-18, 8-2 pose 1): the pool should be still, a calm mirror-like
+  surface, not a rough one. The near water's mottling is the ripples themselves (waves several pixels long reflecting
+  bright and dark parts of the room in turn). A level's light file can scale the traced water's ripples:
+  `"exposure": { "waterWaves": F }` (`AutoExposure`'s level block, read in `Plugin.Transparent.cs`; bench
+  `ae.levelOverride=0` = without). 8-2 ships 0.25: pool sigma (16-frame burst, region of the pool) 2.12 -> 1.85;
+  `trans.waves` 0.5 / 0.25 / 0 gave 1.95 / 1.58 / 1.66 in one launch (the flat mirror is no calmer than 0.25: what is
+  left is the reflection's shading, one sample per pixel). Sheets `bench/results/review/ptm/pool_crop.png`
+  (game, 1, 0.5 | 0.25, 0), runs `20261118-234335_playtest-materials` and `20261118-235641_playtest-materials`.
+  A temporal filter on the reflection was not needed for the user's ask and is not done.
+- **Limbo water fade.** The game fades `LIMBO_WATER_FADE` water around the player and enemies:
+  alpha = saturate(n + (d - near) / (far - near)), n = length(rg) of its `_DitherTexture` (`bayer16_offset_xy`) at
+  uv x 4, so within the band the surface shows the texture's squares (1-1's fountain, pose 2: the user's
+  "checkerboard"). The user: "drop the fade out on the water too". While frames are traced the dither is a
+  half-float texture with n = 1000 on the water's materials and our overlays (`TransparentOverlays.SetFlatFade`): the
+  water is drawn at full strength at every distance; the game's texture is back within 30 frames of tracing stopping.
+  The game instances these materials after the overlay is attached (`Limbo Water 2 (Instance)`, ours too), so the
+  instances are looked up on the renderers every 30 frames (why the earlier attempt on the shared materials found
+  none). Bench `plugin._flatWaterFade=0` = the game's fade. Sheet `bench/results/review/ptm/final_1-1_pose_2.png`.
+
 ### Limits
 
 - **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF then, 0x6F now: `ULTRART_MASK_SCENE`) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.

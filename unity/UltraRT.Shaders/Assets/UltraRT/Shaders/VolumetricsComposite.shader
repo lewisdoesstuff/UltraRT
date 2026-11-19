@@ -22,6 +22,8 @@ Shader "UltraRT/VolumetricsComposite"
             Texture2D _VolSceneColor;          // copy of the target (screen resolution)
             Texture2D _UltraRTGameDepth;       // the game's depth (raw), set by the plugin for the RT composite
             Texture2D _UltraRTUpsampled;       // temporal upsampler output: a > 0 where the RT image replaced the game's pixel
+            Texture2D<uint4> _UltraRTSurface;  // PathTrace's packed surface (trace resolution): SurfaceNoFog = the game draws it unfogged
+            float _UltraRTSurfaceOn;
             Texture2D<float4> _VolHist;        // low-res accumulated in-scattering (linear, unexposed)
             Texture2D<float>  _VolDepthTex;    // low-res ray lengths
             StructuredBuffer<float4> _VolExposure; // [0].x auto exposure (AutoExposure's buffer)
@@ -30,10 +32,9 @@ Shader "UltraRT/VolumetricsComposite"
             float4 _VolLowDim;                 // low-res width, height, 1 / width, 1 / height
             float4 _VolViewRay;                // x 1 / P00, y 1 / P11, z ray length used for the sky, w eye depth from which a pixel is sky
             float4 _VolFog;                    // x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
-            float4 _VolFogColor;               // rgb the game's fog colour, w 1 = apply fog to RT pixels, 2 = and skip no-fog surfaces
-            // No-fog surfaces (_FOG_OFF materials, UltraRTMaterial.hlsl SurfaceNoFog): the trace's G-buffer, read at the trace
-            // texel of the 2x2 nearest the pixel whose depth matches the game's best (as Composite.shader picks it).
-            Texture2D<uint4> _UltraRTSurface;
+            float4 _VolFogColor;               // rgb the game's fog colour, w 1 = apply fog to RT pixels
+            // No-fog surfaces (_UltraRTSurfaceOn): _UltraRTSurface read at the trace texel of the 2x2 nearest the pixel whose
+            // depth matches the game's best (as Composite.shader picks it; the trace has a guard band).
             Texture2D _UltraRTNormalDepth;
             float4 _UltraRTDepthParams;        // x: guard x / P00, y: guard y / P11 (view ray from a trace uv)
             float4 _UltraRTUVScale;            // xy: visible size / traced size (guard band)
@@ -135,8 +136,7 @@ Shader "UltraRT/VolumetricsComposite"
                     float err = abs(t / length(float3(ndc * _UltraRTDepthParams.xy, 1.0)) - z);
                     if (err < bestErr) { bestErr = err; best = int2(texel); }
                 }
-                uint4 sf = _UltraRTSurface.Load(int3(best, 0));
-                return (sf.x >> 31) == 0u && (sf.z >> 31) != 0u; // SurfaceNoFog
+                return (_UltraRTSurface.Load(int3(best, 0)).z & 0x8000u) != 0u; // SurfaceNoFog (UltraRTMaterial.hlsl)
             }
 
             // Pass 0: Blend One SrcAlpha -> dst' = fog (1 - vis) + dst vis on our pixels, dst elsewhere.
@@ -145,7 +145,8 @@ Shader "UltraRT/VolumetricsComposite"
                 if (_VolFogColor.w < 0.5 || _UltraRTUpsampled.Sample(my_point_clamp_sampler, i.uv).a <= 0.0) return float4(0, 0, 0, 1);
                 float z, d;
                 PixelRay(i.uv, z, d);
-                if (_VolFogColor.w > 1.5 && NoFogSurface(i.uv, z)) return float4(0, 0, 0, 1);
+                // "NoFog" materials (_FOG_OFF): the game leaves them unfogged (0-1's gears, 1-4's stained glass; 2026-11-18).
+                if (_UltraRTSurfaceOn > 0.5 && NoFogSurface(i.uv, z)) return float4(0, 0, 0, 1);
                 float vis = FogVisibility(z);
                 return float4(_VolFogColor.rgb * (1.0 - vis), vis);
             }

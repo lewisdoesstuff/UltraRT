@@ -1,0 +1,23 @@
+{
+ "Name": "nofog-0-1",
+ "Note": "0-1 pose 2: the gears (NoFog) with and without the fog skip; needs a load where the gears are traced (raw frame not black there).",
+ "Scenarios": [
+  {
+   "Name": "0-1 pose 2",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-0-1-2.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._noFogSkip=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

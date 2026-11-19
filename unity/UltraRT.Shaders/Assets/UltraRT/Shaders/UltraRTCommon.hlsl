@@ -32,7 +32,6 @@ struct RayPayload
     uint   flags;
 };
 
-#define ULTRART_FLAG_NOFOG 0x40u // hit -> ray gen: the game draws this material without its distance fog (_FOG_OFF: 1-4's windows)
 #define ULTRART_FLAG_TRANSPARENT_SHIFT 4u // hit -> ray gen: (flags >> 4) & 3 = the transparent kind (0 = an ordinary surface)
 #define ULTRART_PAYLOAD_WANT_MOTION 0x40000000u // PathTrace's primary ray: return the hit's motion in p.motion
 #define ULTRART_PAYLOAD_EFFECTS 0x08000000u     // ray gen -> hit: the effects ray (UltraRTEffects.hlsl); effect billboards

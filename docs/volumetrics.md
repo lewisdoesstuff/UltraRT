@@ -89,7 +89,7 @@ lighting is irradiance / pi, since displayed = albedo x lighting; the medium's r
   proportional to 1/d^2. One shadow ray per sample, stopping 0.35 m short of the light like surface shadow rays (lights
   sit inside their fixtures). Falloff and spot cone are relight's (physical inverse square windowed to 2x range, in
   linear light). Directional and fill lights are skipped, and so are **lights attached to the player or the camera**
-  (`playerLights` false; those within 1.5 m of the eye, `AttachedLightReach`; also any light within 0.5 m of the eye): the game's player light (range 15, grey, at the eye)
+  (`playerLights` false; those within 2.5 m of the eye, `attachedReach`, 1.5 m before 2026-11-18; also any light within 0.5 m of the eye): the game's player light (range 15, grey, at the eye)
   starts every view ray inside its core. It took 45-72% of the light picks in every pose tested.
 - **Haze range** (`hazeRange` 20 m): a light's scattering is weighted by `1 / (1 + (range / hazeRange)^3)`. Torches,
   fires and lamps (range 15-25) keep 70-34% of their halo; a light that reaches across a whole room is the level's mood
@@ -147,9 +147,8 @@ in ULTRAKILL (not in the depth buffer): drawn over the glowing air they stood ou
 user). After the transparents, grates, water, glass and the game's own light-shaft meshes get the glow of the air
 behind them. The price of that order: an alpha-blended effect close to the camera (smoke, a sprite) gets the glow of
 the whole ray behind it rather than of the air in front of it (additive effects are unaffected: addition commutes).
-The game's fog still applies to transparents as the game draws them. Materials the game draws without fog (`_FOG_OFF`, 1-4's stained glass) are skipped by
-pass 0 since 2026-11-19 (docs/materials.md, "Stained glass"; `vol.noFogSurfaces`). Stained glass tints the in-scatter
-of light that crosses it (`g_VolTint`, same section).
+The game's fog still applies to transparents as the game draws them. Stained glass tints the in-scatter of light that
+crosses it (`g_VolTint`, docs/materials.md "Stained glass").
 
 ## Settings
 
@@ -173,14 +172,29 @@ of light that crosses it (`g_VolTint`, same section).
 | `-ultrart-vol-lights F` | `lights`, `lightCandidates`, `lightSamples` | 1, 8, 1 | 0 = no point/spot lights; samples (shadow rays) per low-res px |
 | | `hazeRange`, `core` | 20 m, 0 | light scattering x 1 / (1 + (range / hazeRange)^3) (0 = off); soft core (x range) |
 | | `playerLights` | false | let lights attached to the player / camera light the air |
+| | `attachedReach` | 2.5 m | how far from the eye an attached light still counts as carried (`vol.attachedReach`; 1.5 m before 2026-11-18) |
 | | `sun` | 1 | sun scattering multiplier (diagnostics: `vol.sun=0`) |
 | `-ultrart-vol-emissive F` | `emissive`, `emissiveSamples` | 0.5, 1 | 0 = no emissive surfaces |
 | | `maxSample` | 2 | firefly clamp |
-| `-ultrart-vol-nofog` | `gameFog` | true | the game's fog on RT pixels |
+| `-ultrart-vol-nofog` | `gameFog` | true | the game's fog on RT pixels (not on "NoFog" materials, below the table) |
 | | `alphaMin`, `maxHistory`, `clipSigma`, `spatialSigma`, `depthTolerance`, `spatialDepthSigma` | 0.03, 64, 3, 1.5, 0.1, 0.05 | temporal filter |
 | | `atrous`, `atrousLumSigma`, `atrousDepthSigma`, `prefilterSamples`, `momentsAlpha` | 3, 4, 0.1, 8, 0.1 | a-trous filter (0 passes = off) |
 | | `meterHaze` | 0 | > 0: auto exposure meters the haze with the image (last frame's in-scattering, as the composite adds it) |
 | | `debugView` | 0 | 1 = the exposed in-scattering alone, 2 = the same without the temporal filter |
+
+**The game's fog skips "NoFog" materials (2026-11-18, `t3/playtest-materials`).** The fog pass (VolumetricsComposite
+pass 0) fogged every traced pixel, but the game draws `_FOG_OFF` materials (named "... NoFog": 0-1's 445 m gears in the
+Curved Hallway, `Metal Decoration * NoFog`, 79 m away) without its distance fog. User, playtest of 2026-11-18 (0-1 pose
+2): the cogs "don't look properly lit": flat orange with every light off. The orange was the fog colour (0.52, 0.24,
+0.11) added after the trace: raw frame (8, 3, 1) in the cog's region, final (113, 51, 25), run
+`20261118-234907_playtest-materials_alt`. Now a proxy material carries `_NoFog` from its source's `_FOG_OFF`, the hit
+sets payload flag `ULTRART_FLAG_NOFOG` (0x40), PathTrace keeps it in `_Surface` as the sign bit of emission.b's half
+(emission is never negative; `SurfaceEmission` masks it, `SurfaceNoFog` reads it), and the fog pass leaves such pixels
+alone (`_UltraRTSurface`, at the depth-matched trace texel of the 2x2 through the guard band, as Composite.shader picks
+it; 2026-11-19, merged with `t3/stained-glass`, which had the same idea). Atlas slots get it through their variant
+(`AtlasVariant`): 1-4's stained-glass windows (docs/materials.md, "Stained glass"). Bench `plugin._noFogSkip=0` = before. **Not verified in game**: in the two verification
+loads the gears were not in the traced image at that pose (raw frame black there; the level's state differs between
+loads), so the before / after could not be shown.
 
 GPU timer slots `volumetrics` (after `upsample`: depth, trace, temporal, a-trous, the fog pass) and `vollate` (after the
 transparents: the target copy and the scatter pass; not inside `total`). The plugin logs the medium every 10 s
@@ -455,6 +469,13 @@ the bench's `holdtorch` and the whiplash pressed `ShotDelay` before each capture
   parented to the hand. Lights in those hierarchies are now skipped only within 1.5 m of the eye
   (`AttachedLightReach`, `Plugin.Volumetrics.cs`), so a thrown torch (or skull) carries its halo through the air; held,
   nothing changes.
+- **2026-11-18 (`t3/dark-0-S`)**: "held, nothing changes" was true of the torch (`Torch.Update` pins its light to the
+  eye: 0.2 m) but not of a carried skull, whose light hangs 2.1-2.9 m from the eye in world space (the HUD camera draws
+  the item nearer). Its halo fogged 0-S's dark corridors teal: far end of the corridor 11.9 luma against the game's 1.7.
+  The reach is a setting now, `attachedReach` 2.5 m (`vol.attachedReach`): 5.7. The first metres of a throw lose their
+  halo; past 2.5 m it is there as before. The log prints each carried light's distance once
+  (`Volumetrics: carried light '...' packed N m from the eye`). Run `20261118-231755_dark-0-S-diag_alt`, sheet
+  `bench/results/review/dark0s/corridor_before_after.png`.
 - Not done: matching the game's per-vertex look (the room going dark as soon as the torch leaves) would need a steeper
   falloff for moving lights; relight keeps the physical one.
 

@@ -610,3 +610,19 @@ The 1-3 room gets brighter: the orb lit little of it, and auto-exposure lifts th
 lit mostly by its four statue orbs and drops to the game's level (it was twice the game's).
 
 The bright rim that followed the silhouette of some statues was mirrored skinning, fixed in "Mirrored skinned meshes" above.
+
+### White orbs (2026-11-18, `t3/playtest-lights`)
+
+User, playtest of 2026-11-18 (1-4 pose 3): the white Cerberus orbs should look translucent like the orange ones. The
+orange orbs' shell (`Statue/Sphere_8`, the orb light's parent) is the additive `ExplosionSphere` around the lit
+`Cerb_Apple`; the white ones' shell is the opaque, unlit, white `Light` material (queue 2000, z-write), so the apple is
+hidden and the orb is a flat white ball, in the game as well.
+
+`SceneProxies.OrbShells.cs`: a `Sphere_N` renderer with the `Light` material, a point light under it and a `Cerb_Apple`
+beside it is a white orb's shell. It is kept out of the RT scene (as the transparent ExplosionSphere shells are), and
+while frames are traced it is drawn with a copy of its material set to the game's additive blend (`TRANSPARENCY`, One
+One, no z-write, queue 3000), coloured with the orb light's colour normalised to its brightest channel x
+`OrbShellGain` 0.35 (bench `plugin._orbShellGain`). The game's material is back within 30 frames of tracing stopping,
+and at scene teardown. `InGlowShell` accepts such a shell, so the apple is an orb fixture and the statue an orb holder,
+as with the orange orbs. Log: `White orb shell: '...'`. Off: `-ultrart-noorbshells`. 1-4 has six (boss door, main
+hall).

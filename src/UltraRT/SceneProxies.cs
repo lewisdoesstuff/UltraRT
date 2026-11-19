@@ -515,6 +515,7 @@ namespace UltraRT
         private void ProcessMeshRenderer(MeshRenderer r, Dictionary<Mesh, List<MeshRenderer>> batches, ScanStats stats)
         {
             if (IsProxyClone(r)) return; // our own proxies (and copies of them)
+            if (NoteOrbShell(r)) return; // a white orb's glow shell: drawn by the game, not traced (SceneProxies.OrbShells.cs)
             NoteSky(r);
             bool player = IsPlayerModel(r); // V1's third-person model (SceneProxies.Player.cs), on layer 30
             bool portalLayer = !player && IsPortalLayer(r.gameObject.layer); // seen only through portals (SceneProxies.Portals.cs)
@@ -1120,9 +1121,8 @@ namespace UltraRT
         /// <summary>Reflection parameters of a source material (the viewmodel G-buffer, docs/viewmodel.md).</summary>
         internal MaterialParams ClassifyMaterial(Material m) => _classifier.Classify(m, out _);
 
-        private static readonly int IdNoFog = Shader.PropertyToID("_NoFog");
-
-        /// <summary>The game draws this material without its distance fog (Master's _FOG_OFF): 1-4's stained glass.</summary>
+        /// <summary>The game draws this material without its distance fog (Master's _FOG_OFF): 0-1's gears, 1-4's stained
+        /// glass (an atlas slot: AtlasVariant). The proxy carries it as _NoFog (IdNoFog, SceneProxies.Unlit.cs).</summary>
         internal static bool NoFog(Material m) => m != null && m.IsKeywordEnabled("_FOG_OFF");
 
         internal static bool SourceAlphaTested(Material m)
@@ -1234,6 +1234,7 @@ namespace UltraRT
             var mr = parent != null ? parent.GetComponent<MeshRenderer>() : null;
             var m = mr != null ? mr.sharedMaterial : null;
             if (m == null || !mr.bounds.Contains(orb.center)) return false;
+            if (IsOpaqueOrbShell(mr, out _) || m.name.EndsWith("[UltraRT orb shell]")) return true; // a white orb (SceneProxies.OrbShells.cs)
             if (m.HasProperty("_PLDstBlend") && m.shader != null && m.shader.name.StartsWith("UltraRT/")) return Mathf.RoundToInt(m.GetFloat("_PLDstBlend")) == (int)BlendMode.One;
             return m.IsKeywordEnabled("TRANSPARENCY") && m.HasProperty("_DstBlend") && Mathf.RoundToInt(m.GetFloat("_DstBlend")) == (int)BlendMode.One;
         }
@@ -1395,8 +1396,8 @@ namespace UltraRT
             // Enemies keep part of the RT lighting, so they still sit in the scene's shadows; "lit" rules set any material's
             // weight (SceneProxies.Unlit.cs).
             ApplyLitWeight(src, m);
-            // The game draws it without its distance fog: so does the fog pass (VolumetricsComposite.shader, ULTRART_FLAG_NOFOG).
-            if (NoFog(src)) m.SetFloat(IdNoFog, 1f);
+            // The game draws _FOG_OFF ("NoFog") materials without its distance fog: so does the fog pass (Proxy.shader _NoFog).
+            m.SetFloat(IdNoFog, NoFog(src) ? 1f : 0f);
             // Stained glass: shadow rays pass, tinted (SceneProxies.Glass.cs).
             ApplyTransmit(src, m);
             // BLOOD_FILLER (7-3's tree): the noise for the fill edge; the fill itself comes from the renderer's property block.
@@ -1493,6 +1494,7 @@ namespace UltraRT
 
         public void Dispose()
         {
+            RestoreOrbShells();
             Rtas?.Dispose();
             Rtas = null;
             DisposeCutoutRtas();
