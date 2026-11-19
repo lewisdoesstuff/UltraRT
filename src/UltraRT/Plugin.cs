@@ -1264,6 +1264,7 @@ namespace UltraRT
             SceneProxies.MovingPortalEdges = _portalEdges;
             SceneProxies.HideHeldItems = _hideHeld; SceneProxies.SkinnedScaleUpdates = _skinScale;
             DlssRR.GrazingMatch = _grazingMatch;
+            DlssRR.MatchDebug = _matchDebug;
             DlssRR.ThinMatch = _thinMatch;
             DlssRR.ThinNear = _thinNear;
             Shader.SetGlobalFloat("_UltraRTWaterBand", _waterBand ? 1f : 0f);

@@ -340,7 +340,8 @@ each got its own rule:
 
 Measured (`bench/suites/ghost-graze.json`, pathtrace, 1440p, DLSS RR; sheets `bench/results/review/ghost/`):
 - 7-1 poses 3 and 4: the rows across the landings are gone (`graze_before_after.png`). **Left**: short dashes on the
-  top edge of ledges, where the 3x3 holds two surfaces and neither rule applies.
+  top edge of ledges, where the 3x3 holds two surfaces and neither rule applies. *Gone on master by 2026-11-19 (see
+  "Kept-pixel debug view" below).*
 - 7-1 pose 2 grass: kept game pixels in the grass crop 8.73 % -> 6.18 %; 16-frame burst sigma over the crop 2.85 ->
   1.93 (all pixels), 0.84 -> 0.65 (8-frame block means). It still sparkles: the remaining kept pixels are blades with
   no traced counterpart in the 3x3 at all. **Not solved**; the real fix is tracing at a resolution where the blade
@@ -360,6 +361,18 @@ guessing from depth: trace the cutout instances (their own instance mask) at scr
 game keeps on purpose (lava, acid, untraced sprites) in a screen mask. The cutout pass below does the first.
 
 Cost: not measured with a perf run yet (the rules reuse the 3x3 the kernel already reads, plus one normal read per sample).
+
+**Kept-pixel debug view (2026-11-19, `t3/ledge-dashes`).** `plugin._matchDebug=1` (`DlssRR.MatchDebug`, `_Match2.z` = 2)
+paints every pixel `Finish` leaves to the game, by the 5x5's trace sample nearest the game's depth: red when it lies
+behind the game's surface, blue in front (full colour at 10 %), dark green when there is no sample (sky). Off, it costs
+nothing (a branch on a constant). On 1-3 pose 1 it paints the lava (pink: samples on the bed behind and on the banks in
+front), the sky and a blood decal, as expected. On 7-1 poses 3 and 4 (`bench/suites/ledge-dashes.json`,
+`bench/results/20261119-002056_ledge-dashes_alt`, two shots each) it paints **no pixel outside the gun and HUD**: the
+ledge-top dashes above no longer happen on master (6a46c93, after the cutout pass and the thin match). A one-sided
+plane test for ledge edges (any sample of the 3x3 as the anchor, the slope to one neighbour per axis) was built first
+and measured with five shots per mode: no difference, since there was nothing left to match. It was dropped.
+Measurement trap: counting "game-identical pixels" (|traced - game| <= 1) in a crop is not a count of kept pixels.
+On 7-1's grey stairs about 1 % of traced pixels equal the game's by chance. Use this view instead.
 
 ### Cutout pass (2026-11-18, `t3/cutout-pass`; on by default)
 

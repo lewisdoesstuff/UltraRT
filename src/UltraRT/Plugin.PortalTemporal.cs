@@ -13,6 +13,7 @@ namespace UltraRT
     public partial class Plugin
     {
         private bool _portalRemap = true;   // bench plugin._portalRemap=0: off (histories restart at a crossing, as before)
+        private bool _matchDebug;      // bench plugin._matchDebug=1: Finish paints the pixels the game keeps by the nearest trace depth (diagnostic)
         private float _grazingMatch = 0.02f; // bench plugin._grazingMatch=0: DLSS RR's depth match without the bracket test (white rows on grazing floors)
         private bool _thinMatch = true;     // bench plugin._thinMatch=0: thin geometry keeps the game's pixel in pathtrace (grass sparkle)
         private float _thinNear = 0f;       // bench plugin._thinNear=0.1: unmatched thin pixels take the nearest-depth sample (off: breaks lava, docs/path-tracing.md)

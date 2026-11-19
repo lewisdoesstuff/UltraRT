@@ -228,7 +228,7 @@ float4 _OutDim;   // W, H, 1/W, 1/H
 float4 _TraceMap; // xy trace px per screen px, zw guard band (trace px)
 float4 _TraceRay; // xy trace ndc -> view ray slope
 float4 _ZParams;  // eye depth = 1 / (z * raw + w)
-float4 _Match2;   // x: nearest-depth fallback for thin geometry (relative depth tolerance over the 5x5; 0 = off); y: 1 = _Cutout is valid
+float4 _Match2;   // x: nearest-depth fallback for thin geometry (relative depth tolerance over the 5x5; 0 = off); y: 1 = _Cutout is valid; z: cutout debug; w unused
 Texture2D<float4> _Cutout; // screen res (CutoutTrace.raytrace): rgb the albedo of the blade a screen-res camera ray found up to the game's depth, a -(its view depth + 8) (> -8: none; -1..-4 why, for the debug view)
 float4 _Match;    // x depth tolerance (relative), y (absolute, m), z plane test: allowed bend of 1/z (relative; 0 = off), w slope tolerance in trace texels (0 = off; also turns on thin geometry from the screen-resolution history)
 float4 _RRMap;    // xy RR output px per screen px (1 unless the bench's 1440p cost probe renders RR larger), zw RR size
@@ -321,7 +321,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
     // Debug (plugin._cutoutDebug=1): the pixels the game keeps, by what the cutout ray found. Blue: no blade in front of
     // the game's surface, yellow: a fullbright blade, cyan: an emitter, grey: the ray didn't run (prep skipped it, or no
     // pass); green tint: pixels the pass made traced. (Red, orange, magenta: whole-scene version only.)
-    if (_Match2.z > 0.5 && _Match2.y > 0.5)
+    if (_Match2.z > 0.5 && _Match2.z < 1.5 && _Match2.y > 0.5)
     {
         float4 cd = _Cutout[p];
         if (cd.a <= -8.0) cd.a = -cd.a - 8.0;
@@ -389,6 +389,23 @@ void Finish(uint3 id : SV_DispatchThreadID)
         float gb = _NormalDepth[clamp(kn, 0, tdim - 1)].w < 0.0 ? _HdrGame.y : _HdrGame.x;
         _HdrOut[p] = a > 0.0 ? UltraRTHdrGain(hdr, c, UltraRTHdrEmissive(max(_Emission[kHit].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams, _HdrParams)
                              : float4(max(gb, 1.0), 1.0, 1.0, -(UltraRTHdrPack(_HdrGameColor[p].rgb) + 1.0));
+    }
+    // Debug (plugin._matchDebug=1): the pixels the game keeps, by the relative depth of the 5x5's trace sample nearest the
+    // game's depth: red behind the game's surface, blue in front, full at 10 %; dark green: no sample.
+    if (_Match2.z > 1.5 && a == 0.0)
+    {
+        float best = 1e9, bestS = 0.0;
+        [unroll] for (int j4 = 0; j4 < 25; j4++)
+        {
+            int2 k = clamp(kn + int2(j4 % 5 - 2, j4 / 5 - 2), 0, tdim - 1);
+            float t = _NormalDepth[k].w;
+            if (t < 0.0) continue;
+            float2 ndc = ((float2)k + 0.5 + _Jitter.xy) * _Dim.zw * 2.0 - 1.0;
+            float dz = (t / length(float3(ndc * _TraceRay.xy, 1.0)) - zg) / max(zg, 1e-4);
+            if (abs(dz) < best) { best = abs(dz); bestS = dz; }
+        }
+        c = best > 1e8 ? float3(0, 0.25, 0) : float3(saturate(bestS * 10.0), 0.0, saturate(-bestS * 10.0));
+        a = 1;
     }
     _Final[p] = float4(c, a);
 }

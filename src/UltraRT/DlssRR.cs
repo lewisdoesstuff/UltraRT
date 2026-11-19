@@ -19,6 +19,9 @@ namespace UltraRT
         /// samples around it lie on one plane (1 / depth bends by at most this fraction) that passes through that depth (a floor at a grazing angle;
         /// docs/path-tracing.md, "The game's pixels in the traced image"). 0 = off. Bench plugin._grazingMatch=0.</summary>
         public static float GrazingMatch = 0.02f;
+        /// <summary>Finish paints the pixels the game keeps by the relative depth of the 5x5's nearest trace sample: red =
+        /// behind the game's surface, blue = in front, full at 10 %; green 0.25 = no sample (bench plugin._matchDebug=1).</summary>
+        public static bool MatchDebug;
         /// <summary>Finish: a pixel no trace sample of this frame matches is still traced when the screen-resolution
         /// demodulation history has its surface (geometry thinner than a trace texel). Bench plugin._thinMatch=0.</summary>
         public static bool ThinMatch = true;
@@ -515,7 +518,7 @@ namespace UltraRT
                 cmd.DispatchRays(rs, "RayGen", (uint)Ws, (uint)Hs, 1);
                 CutoutFrames++;
             }
-            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinMatch ? ThinNear : 0f, cutout ? 1f : 0f, CutoutDebug ? 1f : 0f, 0f));
+            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinMatch ? ThinNear : 0f, cutout ? 1f : 0f, MatchDebug ? 2f : CutoutDebug ? 1f : 0f, 0f));
             cmd.SetComputeTextureParam(cs, k, "_Cutout", cutout ? (Texture)_cutout : Texture2D.blackTexture);
             cmd.SetComputeTextureParam(cs, k, "_RRColor", _out);
             cmd.SetComputeTextureParam(cs, k, "_GameDepth", i.gameDepth, 0, RenderTextureSubElement.Depth);
