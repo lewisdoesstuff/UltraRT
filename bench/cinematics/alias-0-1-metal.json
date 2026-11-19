@@ -1,0 +1,52 @@
+{
+  "Version": 1,
+  "Name": "alias-0-1-metal",
+  "Scene": "Level 0-1",
+  "Note": "Aliasing measurement (docs/aliasing.md): 8 frames still, 12 frames of a slow pan (3 deg/s, 0.3 m/s), 12 of a fast one (60 deg/s, 6 m/s) at 60 fps. Written by tools/aliasing/make_suite.py.",
+  "Keys": [
+    {
+      "Player": [
+        35.084,
+        0.0,
+        386.1976
+      ],
+      "Yaw": 38.52,
+      "Pitch": -7.8,
+      "Duration": 0.1333333,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        35.084,
+        0.0,
+        386.1976
+      ],
+      "Yaw": 38.52,
+      "Pitch": -7.8,
+      "Duration": 0.2,
+      "Ease": "linear"
+    },
+    {
+      "Player": [
+        35.1309,
+        0.0,
+        386.1602
+      ],
+      "Yaw": 39.12,
+      "Pitch": -7.8,
+      "Duration": 0.2,
+      "Ease": "linear"
+    },
+    {
+      "Player": [
+        36.0698,
+        0.0,
+        385.4129
+      ],
+      "Yaw": 51.12,
+      "Pitch": -7.8,
+      "Duration": 1.0,
+      "Ease": "linear"
+    }
+  ]
+}

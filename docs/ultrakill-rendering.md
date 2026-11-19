@@ -5,7 +5,10 @@ Observed in the Steam build running Unity 2022.3.29f1 (Mono, built-in render pip
 See also: [portals.md](portals.md) (layer 8's portals and mirrors), [relight.md](relight.md) (the physical light model and HDR output), [vfx.md](vfx.md) (the screen effects UltraRT adds on top of the ray-traced image).
 
 ## Pipeline
-- Forward rendering, no HDR, no MSAA, no depth texture. Everything is point-filtered.
+- Forward rendering, no HDR, no MSAA, no depth texture. Everything is point-filtered. MSAA is off because
+  `PostProcessV2_Handler.SetupRTs` creates the world camera's MRT (`mainTex` ARGB32, `reusableBufferA` RG16,
+  `viewNormal` RGB565, `depthBuffer` 32-bit) with `antiAliasing = 1`; swapping in 4x targets works for the game's image
+  but breaks every depth reader ([aliasing.md](aliasing.md), "MSAA on the game's raster").
 - Cameras: `Main Camera` (world), `HUD Camera` (viewmodel/HUD, layer 13, FOV 90, clears depth, same colour/depth buffers; see [viewmodel.md](viewmodel.md)), `Virtual Camera`.
 - Command buffers on `Main Camera`: `Reset Clip Plane` @BeforeDepthTexture, `Blood and Oil` @BeforeForwardAlpha, `Outlines` @AfterEverything.
 - Final composite: `ULTRAKILL/PostProcessV2` reads a `Main` render texture at screen resolution (and dithers it: see "Final post-process: dither").

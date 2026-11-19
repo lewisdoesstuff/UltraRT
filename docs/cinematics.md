@@ -234,6 +234,12 @@ table (playback frame times; frames, size, sub-frames per frame, s/frame, ms per
                  "Start": 1, "Seconds": 3, "Samples": 16, "Aa": 4 } }
 ```
 
+`"Takes"` renders several takes of the path in one scenario, each with its own bench view mode (`"View"`, runtime
+variants allowed), render mode, `Aa`, `Samples`, `Bounces`, `Start` and `Seconds`, into `cine_<scenario>_<Name>`; with
+`"TimeScale": 0` every take is the same instant, so live frames, accumulated references and debug views line up
+pixel for pixel (`bench/suites/aliasing.json`, [aliasing.md](aliasing.md)). Add `"Render": false`, or the block's own
+take renders first.
+
 To render a path saved in game from a fresh load: copy it and its `approach_*.json` (and `areas_*.json`) from
 `BepInEx\ultrart\cinematics\` / `recordings\` into `bench/cinematics/` / `bench/recordings/`, point `Path.Approach` at the
 approach file, and run the suite. Long renders need `bench.ps1 -TimeoutSec` (default 900 s).
@@ -320,5 +326,8 @@ earlier, and the recoil swings the gun out of it for a moment.
   frozen world (game speed 0) every take is identical.
 - The offline image is the path tracer's converged mean at the window's resolution: textures stay as sharp as the game
   draws them, there is no depth of field, and screen effects (bloom, haze) are the real-time ones.
+- Accumulating renders (`pathtrace`, `relight`, `current`) have no game fog: the volumetrics pass applies it only on
+  the upsampled path (`applyGameFog = upsampled`), and accumulation turns the upsampler off. `live` renders have it.
+  Found 2026-11-19 ([aliasing.md](aliasing.md), "Traps"); not fixed yet.
 - Pixels the game draws itself over our image (its sprites, particles, UI-like glows) are averaged across the AA samples
   but are not path traced.

@@ -263,6 +263,34 @@ namespace UltraRT
                         _cineState = CineState.Free;
                     }
                 }
+
+                if (spec.Takes != null && spec.Takes.Count > 0 && sr.Error == null)
+                {
+                    // Takes with their own view mode and sample counts (aliasing measurement: live frames, references and
+                    // debug views of one frozen instant). The view mode is the bench's, variants included.
+                    foreach (var take in spec.Takes)
+                    {
+                        var ot = o.Clone();
+                        if (!string.IsNullOrEmpty(take.Mode)) ot.mode = (CineRenderMode)Enum.Parse(typeof(CineRenderMode), take.Mode, true);
+                        if (take.Aa.HasValue) ot.aa = take.Aa.Value;
+                        if (take.Samples.HasValue) ot.samples = take.Samples.Value;
+                        if (take.Bounces.HasValue) ot.bounces = take.Bounces.Value;
+                        if (take.Start.HasValue) ot.renderStart = take.Start.Value;
+                        if (take.Seconds.HasValue) ot.renderSeconds = take.Seconds.Value;
+                        ot.encode = false;
+                        ApplyBenchMode(string.IsNullOrEmpty(take.View) ? live : take.View);
+                        var r = new CineRenderResult();
+                        sr.Cinematic = r;
+                        (sr.CinematicTakes ?? (sr.CinematicTakes = new List<CineRenderResult>())).Add(r);
+                        string name = string.IsNullOrEmpty(take.Name) ? (take.View ?? live) + "_" + ot.mode : take.Name;
+                        string dir = Path.Combine(outDir, $"cine_{Sanitize(sc.Name)}_{Sanitize(name)}");
+                        Logger.LogInfo($"Benchmark: cinematic take '{name}': {ot.mode} of {take.View ?? live}, AA {ot.aa}, samples {ot.samples}, start {ot.renderStart:F3}s, {(ot.renderSeconds > 0f ? ot.renderSeconds.ToString("F3") + "s" : "to the end")}");
+                        yield return CineRender(sp, ot, dir, _cineName, r, bench: true);
+                        _cineState = CineState.Free;
+                        if (r.Error != null) { sr.Error = $"cinematic take '{name}': " + r.Error; break; }
+                    }
+                    ApplyBenchMode(live);
+                }
             }
             finally
             {

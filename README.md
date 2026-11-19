@@ -116,6 +116,7 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 | [docs/vfx.md](docs/vfx.md) | Bloom, heat haze, shockwaves, soft particles, underwater, rain and wet blood |
 | [docs/lava.md](docs/lava.md) | Lava and acid as ray-traced emitters |
 | [docs/viewmodel.md](docs/viewmodel.md) | The first-person gun and arms, lit by the ray tracer |
+| [docs/aliasing.md](docs/aliasing.md) | Aliasing per view mode measured against supersampled references (edges, thin geometry, specular, motion), MSAA probe, which AA would help |
 | [docs/cinematics.md](docs/cinematics.md) | Free camera, camera paths, offline renderer, bench cinematic scenarios |
 | [docs/trailer.md](docs/trailer.md) | Trailer shots, paths, edit lists, graphics and assembly |
 | [docs/performance.md](docs/performance.md) | Where the 1440p frame goes and what was done about it |
