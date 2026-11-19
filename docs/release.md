@@ -185,8 +185,8 @@ bundle (the code path is the same notice), Steam's own launch options combined w
   notification form) before uploading with the DLL, or upload with `-IncludeDlss:$false` and tell RTX users where to
   get `nvngx_dlssd.dll`. License 2(c) also asks that the DLL be distributed under terms at least as protective as
   NVIDIA's: shipping NVIDIA's license beside it is the minimum.
-- [ ] **UltraRT's own licence** (decision): none chosen; the package README says "copyright its author, all rights
-  reserved (no licence chosen yet)" (`$LicenseLine` in `package.ps1`). An open-source licence for UltraRT must not
+- [x] **UltraRT's own licence**: MIT (2026-11-19, `LICENSE`, copyright lemmonsltd), shipped in the package root. Its
+  "not covered" list excludes the NVIDIA runtime and the NGX helper code in `Dlss.cpp`, the game, and the detail maps. An open-source licence for UltraRT must not
   cover the NVIDIA files (license restriction e): say so in the licence text, or keep the DLL out of the package.
 - [ ] **Detail maps** (decision): they contain no game textures but are derived from every one of them (normal and
   roughness by PBRify Remix). Decide whether to publish them, perhaps after asking New Blood / Hakita; the generator
@@ -200,10 +200,11 @@ bundle (the code path is the same notice), Steam's own launch options combined w
 1. **Icon**: done 2026-11-19. `packaging/thunderstore/icon.png` (256x256: "ULTRA" white over "RT" the trailer red, inside a
    diamond traced by a glowing ray bouncing off the frame edges), drawn by `tools/icon/make_icon.py` in VCR OSD Mono (free font). Build
    without `-SkipIconCheck` now.
-2. **Thunderstore team**: create it on thunderstore.io, then build the detail-map package with `-Team <team>` (its
-   dependency string names the team).
+2. **Thunderstore team**: done, `lemmonsltd` (the `-Team` default since 2026-11-19; the detail-map package depends on
+   `lemmonsltd-UltraRT-<version>`).
 3. **Website URL** (optional): `-WebsiteUrl`, e.g. the repository if it becomes public.
-4. **Decisions above**: NVIDIA email / DLL or no DLL, UltraRT's licence, whether the detail maps ship.
+4. **Decisions above**: licence MIT and the detail maps ship (user, 2026-11-19, non-commercial); left: the NVIDIA email / DLL
+   or no DLL.
 5. **Upload**: thunderstore.io > Upload, community ULTRAKILL, the zip from `dist\`; categories by hand. Check the
    dependency versions first (table above).
 6. Optional: the native DLL initialises NGX with the engine version string `UltraRT-0.1` (`Dlss.cpp`); harmless

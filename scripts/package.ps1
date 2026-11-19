@@ -16,7 +16,7 @@ param(
     [switch] $IncludeDlss = $true,
     [switch] $SkipIconCheck,
     [string] $Icon,
-    [string] $Team = 'Author',
+    [string] $Team = 'lemmonsltd',
     [string] $WebsiteUrl = '',
     [switch] $TexturePack,
     [string] $MapsDir,
@@ -40,7 +40,7 @@ $Name = 'UltraRT'
 $Description = 'Hardware ray tracing and path tracing for ULTRAKILL: shadows, bounce light, reflections, volumetrics, NVIDIA DLSS Ray Reconstruction. Needs a DXR GPU and the launch options -force-d3d12 -force-gfx-jobs legacy.'
 $PackName = 'UltraRT_DetailMaps'
 $PackDescription = 'Optional surface detail maps for UltraRT: per-texel normal and roughness for the game''s textures, made with PBRify Remix (CC0). UltraRT finds them by itself.'
-$LicenseLine = 'copyright its author, all rights reserved (no licence chosen yet).'
+$LicenseLine = 'MIT (see LICENSE in the package), except the NVIDIA DLSS runtime and NGX helper code, which stay under NVIDIA''s license.'
 $PackMarker = 'ultrart-detailmaps.json'   # MaterialMaps.PackMarker
 $PackFormat = 1                            # MaterialMaps.PackFormat
 
@@ -213,6 +213,7 @@ if ($IncludeDlss) {
     Copy-Item (Join-Path $tsDir 'NVIDIA-DLSS-THIRD-PARTY-NOTICES.txt') $plug
 }
 
+Copy-Item (Join-Path $root 'LICENSE') (Join-Path $pkgDir 'LICENSE')   # MIT + the 'not covered' list
 Write-Manifest (Join-Path $pkgDir 'manifest.json') $Name $version $Description @($BepInExPack, $PluginConfigurator)
 $readme = Get-Content (Join-Path $tsDir 'README.md') -Raw
 $tokens = @{

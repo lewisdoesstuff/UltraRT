@@ -1,0 +1,37 @@
+MIT License
+
+Copyright (c) 2026 lemmonsltd
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---------------------------------------------------------------------------
+Not covered by this licence
+
+- NVIDIA DLSS / NGX: nvngx_dlssd.dll, the DLSS SDK headers and libraries
+  (lib/dlss, fetched by scripts/fetch-dlss.ps1, never committed), and the NGX
+  helper code compiled into UltraRT.Native.dll (native/UltraRT.Native/Dlss.cpp
+  includes NVIDIA's helper headers). These are (c) NVIDIA Corporation under the
+  NVIDIA RTX SDKs license (NVIDIA-RTX-SDKs-LICENSE.txt in the release package)
+  and are not licensed under MIT. UltraRT is not sponsored or endorsed by NVIDIA.
+- ULTRAKILL and its assets are (c) New Blood Interactive / Arsi "Hakita" Patala.
+  No game files are included. The optional UltraRT_DetailMaps package holds
+  normal/roughness maps generated from the game's textures for non-commercial
+  use with the game; it is not covered by this licence.
+- Third-party tools and models keep their own licences (BepInEx, PluginConfigurator,
+  PBRify by Kim2091 (CC0)).
