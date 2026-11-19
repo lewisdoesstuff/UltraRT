@@ -388,7 +388,8 @@ its old material (a merged slot can't be switched off).
 
 **Diagnostics.** `-ultrart-viewprobe` logs, at every bench screenshot (after the first RT mode's effects spawned), the
 renderers in a 30 degree cone ahead: materials, keywords, notable properties, property blocks, static slots' original
-materials, and the proxy state (`SceneProxies.Probe.cs`). Bench effect kinds `coin`, `coinfront` (the revolver's coin,
+materials, and the proxy state (`SceneProxies.Probe.cs`). Since 2026-11-19 it also lists sprites, particle systems
+(render mode, count, size), lines and trails (no proxy), and every texture with its size and filter mode. Bench effect kinds `coin`, `coinfront` (the revolver's coin,
 hovering) and `opendoors` (the game's `FinalDoor.Open()` on every final door) exist for these tests;
 `bench/suites/materials-pm.json` is the suite. Static slots also list their slot (part, transparent kind, proxy material) and each material its
 `transp=` / `lava=` classification. The game overwrites `BepInEx/LogOutput.log` at the next launch in that slot (often

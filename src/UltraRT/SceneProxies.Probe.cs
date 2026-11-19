@@ -28,7 +28,8 @@ namespace UltraRT
             var hits = new List<(float d, Renderer r)>();
             foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
-                if (!(r is MeshRenderer || r is SkinnedMeshRenderer) || !r.enabled || IsProxyObject(r.gameObject)) continue;
+                // Particles, sprites, lines and trails too (the game's glow sprites; 2026-11-19): listed with no proxy.
+                if (!r.enabled || IsProxyObject(r.gameObject)) continue;
                 var b = r.bounds;
                 var c = b.ClosestPoint(pos);
                 float dist = (c - pos).magnitude;
@@ -66,6 +67,9 @@ namespace UltraRT
                                           $"kw=[{string.Join(" ", orig[i].shaderKeywords)}] props{{{DescribeProps(orig[i], null)}}}");
                 }
                 else sb.Append(" NO PROXY");
+                if (r is ParticleSystemRenderer psr && r.GetComponent<ParticleSystem>() is ParticleSystem ps)
+                    sb.Append($" particles[mode={psr.renderMode} align={psr.alignment} count={ps.particleCount} size={ps.main.startSize.constant:F2}..{ps.main.startSize.constantMax:F2} pos={r.transform.position:F2}]");
+                else if (!(r is MeshRenderer || r is SkinnedMeshRenderer)) sb.Append($" pos={r.transform.position:F2}");
                 if (r is SkinnedMeshRenderer smr)
                 {
                     int nullBones = smr.bones.Count(x => x == null);
@@ -133,7 +137,7 @@ namespace UltraRT
                         break;
                     case ShaderPropertyType.Texture:
                         if (block != null) { if (block.HasTexture(name)) parts.Add($"{name}={block.GetTexture(name)?.name}"); }
-                        else { var tex = m.GetTexture(name); if (tex != null) parts.Add($"{name}={tex.name}({tex.dimension})"); }
+                        else { var tex = m.GetTexture(name); if (tex != null) parts.Add($"{name}={tex.name}({tex.dimension} {tex.width}x{tex.height} {tex.filterMode})"); }
                         break;
                 }
             }

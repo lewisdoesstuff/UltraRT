@@ -309,6 +309,7 @@ namespace UltraRT
                     case "-ultrart-refl-keepcube": _reflSettings.replaceGameCube = false; break;
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
                     case "-ultrart-viewprobe": SceneProxies.ViewProbe = true; break;
+                    case "-ultrart-glow-smooth": _smoothGlow = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
                     case "-ultrart-nomatsync": SceneProxies.MaterialSync = false; break;
                     case "-ultrart-albedo-emission-glow": SceneProxies.LitAlbedoEmission = false; break;
                     case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
