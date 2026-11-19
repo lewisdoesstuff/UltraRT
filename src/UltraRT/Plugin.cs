@@ -385,6 +385,7 @@ namespace UltraRT
             LoadLavaShader(bundle);
             LoadVolumetricsShaders(bundle);
             LoadVeilShaders(bundle);
+            LoadCutoutShader(bundle);
             LoadViewmodelShaders(bundle);
             LoadDlssShader(bundle);
             LoadEffectShaders(shaders);
