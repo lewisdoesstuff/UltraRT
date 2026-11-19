@@ -197,8 +197,25 @@ namespace UltraRT.Bench
         /// on the phase it needs; outside the stretches it flickers by itself. A steady light named here is switched
         /// on or off for the stretch (the Light component only: its lamp mesh keeps glowing) and put back after it.</summary>
         public List<FlickerHold> Flickers;
+        /// <summary>Game events on cue: at each entry's path second, a parameterless method of the level's components
+        /// of one type is called (e.g. 5-2's lightning: <c>{ "At": 1.6, "Type": "DistantThunder", "Method": "ForceThunder" }</c>),
+        /// so a random event lands where the cut needs it.</summary>
+        public List<CineCall> Calls;
         /// <summary>auto | locked</summary>
         public string Exposure;
+    }
+
+    /// <summary>One game event on cue (see <see cref="CinematicSpec.Calls"/>).</summary>
+    public sealed class CineCall
+    {
+        /// <summary>Path seconds.</summary>
+        public float At;
+        /// <summary>The component's class name (no namespace), e.g. "DistantThunder".</summary>
+        public string Type;
+        /// <summary>A parameterless method of it (public or not), e.g. "ForceThunder".</summary>
+        public string Method;
+        /// <summary>Which of the active components, nearest the camera first (0 = the nearest); -1 (default): all of them.</summary>
+        public int Index = -1;
     }
 
     /// <summary>One lamp held in a flicker phase (see <see cref="CinematicSpec.Flickers"/>).</summary>

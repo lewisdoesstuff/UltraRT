@@ -1,0 +1,34 @@
+{
+  "Name": "trailer-v4-scout3",
+  "Note": "Camera scouting (scripts/trailer-paths.py --scout): one low-sample frame per candidate key.",
+  "Scenarios": [
+    {
+      "Name": "scout-6-2-beams",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/u1118-6-2-1.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../results/trailer/scout/scout-6-2-beams.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 13,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    }
+  ]
+}

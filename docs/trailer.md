@@ -405,7 +405,7 @@ starting after `Off` seconds and taking `Sweep`; `Slant`, `Flip` as in a wipe). 
 length; `File` the path in bench/cinematics; `Path` and `Scenario` go to the bench scenario, `Cinematic` to its
 cinematic block, `TierCinematic` the same for one tier; `ModeAdd` appends runtime variants to the tier's `Modes` for one
 shot; `In` starts the clip that far into the take and `Render` renders a longer take than the clip (a shot whose best
-moment is picked afterwards: 5-2's lightning is random; `TierIn` gives `In` per tier); `TimeScale` 0 freezes the world for one shot; `Caption` and `Tag`
+moment is picked afterwards; `TierIn` gives `In` per tier; 5-2's lightning is now called on cue instead, `Calls` in docs/cinematics.md); `TimeScale` 0 freezes the world for one shot; `Caption` and `Tag`
 as in the edit list.
 
 ### How the footage is made
@@ -455,7 +455,7 @@ layer returns under the end card and fades over 4.5 s. Every cut, switch and gun
 
 ### Shot list
 
-Candidate for the next cut (user, 2026-11-18): a camera sweep at 2-1 (`bench/recordings/u1118-2-1-1.json`, the pose is its last sample), for ray-traced reflections.
+The cut as of the fourth render (v4, 2026-11-19): 2-4's tunnel and 2-1's water (the user's request of 2026-11-18) replace 8-2's standing lamp and 6-2's hall.
 
 All comparisons are paired live takes (the game's image / real-time path tracing with RR); "beauty" is one traced take.
 
@@ -469,15 +469,15 @@ All comparisons are paired live takes (the game's image / real-time path tracing
 | 6 | 0:36.3 | 7.5 | Street, lamp posts and the pool | 8-2 | sweep from the right | Lamp light |
 | 7 | 0:43.8 | 6.0 | Glide down to the water | 1-3 | sweep | Water reflections |
 | 8 | 0:49.8 | 6.0 | Boss hall, low arc | 4-4 | sweep from the right | Coloured bounce light |
-| 9 | 0:55.8 | 4.5 | Storm sea, lightning | 5-2 | beauty | |
+| 9 | 0:55.8 | 4.5 | Storm sea, a lightning strike on the second bar (`Calls`) | 5-2 | beauty | |
 | 10 | 1:00.3 | 6.0 | First-person jog down the street (`Player` camera) | P-2 | switch at 2.25 s | Wet surfaces |
 | 11 | 1:06.3 | 6.0 | V1 walks up to the shop terminal (`Player` path, `ShopScreensOff`) | 1-1 | switch at 2.25 s | Ray-traced reflections |
 | 12 | 1:12.3 | 4.5 | Neon street pan | 2-2 | sweep | |
 | 13 | 1:16.8 | 6.0 | First-person walk, revolver fired on the half bars (`ShowWeapon`, `Shots`) | 7-3 | switch at 1.5 s | Gunfire is a light source |
 | 14 | 1:22.8 | 4.5 | Low along the lava | 0-5 | switch at 1.5 s | |
-| 15 | 1:27.3 | 4.5 | Standing lamp in the apartment corridor | 8-2 | switch at 1.5 s | |
+| 15 | 1:27.3 | 4.5 | Push down the tunnel towards the red-lit arches (the user's pose 3) | 2-4 | switch at 1.5 s | |
 | 16 | 1:31.8 | 4.5 | Fountain in daylight | museum | sweep | |
-| 17 | 1:36.3 | 6.0 | First hall, pillars and stained glass | 6-2 | sweep from the right | |
+| 17 | 1:36.3 | 6.0 | Glide down onto the water channel towards the door (the user's pose) | 2-1 | sweep from the right | Reflective water |
 | 18 | 1:42.3 | 6.0 | Night lamps, pull back | 1-4 | beauty, fade out | |
 | 19 | 1:48.3 | 6.5 | End card | - | card | |
 
@@ -488,13 +488,19 @@ light on the ground and the pool's reflections.
 Total 1:54.8. Tried and left out: 6-1's candle hall and 8-2's vending machine (the bench's area loads land in a void
 there), a replay of the recorded 0-2 run (no gunfire, and it leaves the level after 20 s), 1-1's fountain (the water is
 too small in frame to read), 7-1's pool (the pose loaded without its level state: grey and unlit), layer 8's mirrors and portals, 3-1.
+Out since v4: 8-2's standing lamp and 6-2's first hall (both kept in `paths.json`: `final-8-2-lamp`, `final-6-2-nave`).
+Scouted for v4 and left out: 6-2's Grand Hall at the user's pose 1 after `t3/stained-glass` (the windows show their
+lead pattern, but no beam on the floor read from any of 14 views, and the hall is the same all-red look as the 6-2 shot
+that went out), 0-S's skull-lit corridor (a held item needs the skull in a cinematic take; the 2-4 tunnel showed the
+same week's work better).
 
 Known problems in the footage, left as they are (renderer bugs are not fixed on this branch):
 - V1's body reads grey in 1-1's orange room when path traced (blue in the game's image and in its own reflection).
-- P-2's puddles have a yellow-green tint.
+- P-2's puddles have a yellow-green tint (v1-v3; in v4's P-2 hall take, on the stained-glass build, the puddle reads red).
 - The bench's install has no custom gun colours, so the revolver and V1's gun are in the default colours.
 - P-2's long shadow from the street lamp is faint: the steady lamp post beside it lights the same ground.
-- 5-2's lightning is random; the clip's `In` is set to a strike of the take in use (the plan's `In`, and `TierIn` per
-  tier: the final take's strikes are at 6.35, 10.8 and 14.2 s, and the clip starts at 4.85 s so the first lands on its
-  second bar). The 15 s path is the longest take there is.
+- 5-2's lightning is random. Up to v3 the clip's `In` was set to a strike of the take in use (`TierIn`, a 15 s take);
+  v4's 15 s take had no strike at all. Since v4 the strike is called on cue (`Calls`: the nearest
+  `LightningStrikeDecorative_Animated`'s `FlashStart` at 2.45 s of the path; the flash comes 0.3 s later, 1.55 s into
+  the clip, mean luma 33 -> 116, back to 33 after a second), and the take is the clip's length.
 - The game's image of a gunshot shows the gun one animation frame later than the traced image of the same frame.
