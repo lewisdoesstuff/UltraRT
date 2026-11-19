@@ -97,6 +97,9 @@ The code is in `src/UltraRT/SceneProxies.Displaced.cs` and `Displace.compute`.
   - `plugin._displaceRange=0`: freezes every copy.
   - `plugin._displace=0`: the copies get the rest pose.
   - `plugin._displaceMotion=0`: no per-vertex motion.
+- **The water overlay** (`TransparentOverlay.shader`) displaces its vertices with the same function since 2026-11-19
+  (`UltraRTDisplace.hlsl`, shared with `Displace.compute`): at the rest pose it failed the depth test against the
+  game's displaced water and 6-2's blood pools flickered (docs/reflections.md, "Displaced water and the temporal filter").
 - **Not covered:**
   - Static-batched renderers keep the rest pose, because the static groups merge them into shared meshes. Counts: 3-1 21, 8-3 about 50, 5-S 23, 8-1 10. They are logged as `keeps the rest pose`.
   - Skinned renderers keep the rest pose too. The only one is the `Puppet` prefab.

@@ -66,68 +66,18 @@ float4x4 InverseAffine(float4x4 m)
     return float4x4(float4(inv3[0], t.x), float4(inv3[1], t.y), float4(inv3[2], t.z), float4(0, 0, 0, 1));
 }
 
-struct Mat
-{
-    float3 flow;
-    float  mode, reverse, noiseScale, vcolStrength;
-    float2 uvNoiseScale, uvNoiseSpeed;
-    float  noiseSpeed, amplitude, localOffset, recalc, normalOffset, preventClip;
-};
+#include "UltraRTDisplace.hlsl" // DispMat, DisplaceVertex: the game's function (also the transparent overlay's vertex shader)
 
-Mat LoadMat(uint slot)
+DispMat LoadMat(uint slot)
 {
     float4 a = _Params[slot * 5u], b = _Params[slot * 5u + 1u], c = _Params[slot * 5u + 2u], d = _Params[slot * 5u + 3u], e = _Params[slot * 5u + 4u];
-    Mat m;
+    DispMat m;
     m.flow = a.xyz;
     m.mode = b.x; m.reverse = b.y; m.noiseScale = b.z; m.vcolStrength = b.w;
     m.uvNoiseScale = c.xy; m.uvNoiseSpeed = c.zw;
     m.noiseSpeed = d.x; m.amplitude = d.y; m.localOffset = d.z; m.recalc = d.w;
     m.normalOffset = e.x; m.preventClip = e.y;
     return m;
-}
-
-// One displaced point: the game's function, world space.
-float3 DisplacePoint(Mat m, float3 p, float3 n, float4 col, float2 uv, float3 origin)
-{
-    bool rev = m.reverse == 1.0;
-    float sgn = rev ? -1.0 : 1.0;
-    float3 d;
-    if (m.mode == 0.0)
-    {
-        float3 dir = normalize(max(m.flow, 0.0)) * (rev ? 3.0 : -1.0);
-        float s = dot(p - origin, dir) * m.noiseScale * 0.1 + _GameTime.x * m.noiseSpeed;
-        float v = _VertexNoiseTex.SampleLevel(sampler_VertexNoiseTex, float2(s, s), 0).r;
-        d = (v - 0.5) * m.amplitude * dir;
-        if (m.vcolStrength == 1.0) d *= col.g;
-    }
-    else
-    {
-        float w;
-        if (m.mode == 2.0)
-        {
-            w = (col.r * 2.0 - 1.0) * sin(sgn * m.noiseSpeed * _GameTime.y) * 0.5 + 0.5;
-            if (m.vcolStrength == 1.0) w *= col.g;
-        }
-        else if (m.mode == 1.0)
-        {
-            float f = frac(frac(uv.y * m.noiseScale * 0.1) * m.noiseScale + sgn * m.noiseSpeed * _GameTime.y);
-            w = abs(f * 2.0 - 1.0);
-        }
-        else if (m.mode == 3.0)
-        {
-            float v = _VertexNoiseTex.SampleLevel(sampler_VertexNoiseTex, uv * m.uvNoiseScale + m.uvNoiseSpeed * _GameTime.y, 0).r;
-            w = (v - 0.5) * m.amplitude * 0.1;
-        }
-        else w = 0.0;
-        d = n * w * m.amplitude * 5.0;
-    }
-    float3 q = p + d;
-    if (m.preventClip == 1.0)
-    {
-        float k = saturate((length(q - _CameraPos.xyz) - 5.0) * -0.333333);
-        q = lerp(q, p, k);
-    }
-    return q;
 }
 
 [numthreads(64, 1, 1)]
@@ -141,23 +91,15 @@ void Displace(uint id : SV_DispatchThreadID)
     float3 pObj = r.pos, nObj = r.nrm;
     if (_Enabled != 0u && r.slot != 0xffffffffu)
     {
-        Mat m = LoadMat(r.slot);
+        DispMat m = LoadMat(r.slot);
         float4x4 _WorldToObject = InverseAffine(_ObjectToWorld);
         float3 p = mul(_ObjectToWorld, float4(r.pos, 1.0)).xyz;
         float3 n = normalize(mul(r.nrm, (float3x3)_WorldToObject)); // UnityObjectToWorldNormal
         float3 origin = m.localOffset != 0.0 ? _ObjectToWorld._m03_m13_m23 : 0.0;
-        float3 q = DisplacePoint(m, p, n, r.col, r.uv, origin);
+        float3 q, nw;
+        DisplaceVertex(m, p, n, r.col, r.uv, origin, _GameTime, _CameraPos.xyz, _VertexNoiseTex, sampler_VertexNoiseTex, q, nw);
         pObj = mul(_WorldToObject, float4(q, 1.0)).xyz;
-        if (m.recalc == 1.0)
-        {
-            float k = m.normalOffset;
-            float3 t = normalize(float3(-0.05 * n.y / n.x, 0.05, 0.0));
-            float3 b = normalize(cross(n, t));
-            float3 qt = DisplacePoint(m, p + t * k, n, r.col, r.uv + t.xz * k * 0.1, origin);
-            float3 qb = DisplacePoint(m, p + b * k, n, r.col, r.uv + b.xz * k * 0.1, origin);
-            float3 nw = normalize(cross(normalize(qt - q), normalize(qb - q)));
-            if (all(isfinite(nw))) nObj = normalize(mul(nw, (float3x3)_ObjectToWorld)); // world -> object normal (inverse of the line above)
-        }
+        if (m.recalc == 1.0) nObj = normalize(mul(nw, (float3x3)_ObjectToWorld)); // world -> object normal (inverse of the line above)
     }
     _Dst.Store3(at, asuint(pObj));
     if (_NrmOffset >= 0 && r.slot != 0xffffffffu) _Dst.Store3(id * _Stride + (uint)_NrmOffset, asuint(nObj));

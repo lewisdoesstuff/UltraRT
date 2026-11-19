@@ -308,7 +308,8 @@ the material's, so a rule with a path gives no `glow`; objects baked into a stat
 
 with the orbs' lights off like the lamps': Main Hall x1.14-1.16 at fixed exposure, x0.97 -> x1.14 as shipped
 (scale 0.4: x1.26-1.28), the lamps and bridge poses x1.06 and x1.04 (`20261117-221634_review-1-4_alt`). The Arena,
-already x2.2 at fixed exposure, goes to x2.65 with its four lamps' bulbs (x1.02 -> x1.08 as shipped): open.
+already x2.2 at fixed exposure, goes to x2.65 with its four lamps' bulbs (x1.02 -> x1.08 as shipped): open. (Since
+2026-11-19 the Arena's lamps have their own rule: "1-4's Arena" below.)
 
 Open: the per-level application for the other
 levels comes with their light proposals; a first rule match was missed once because numbered copies
@@ -892,6 +893,53 @@ and pose 2 has a second beam that looks like a floating light aimed at the windo
   game draws it unshadowed; the entry sets `"shadows": false` and the wedge is gone. This room's windows have no light
   of their own and their beam (`Corner Room/Cube (13)`) is part of a 10,535-vertex combined mesh the fit can't read, so
   no light was added there (a question for the user).
+
+## 1-4's Arena (2026-11-19, `t3/remove-glints-blood-arena-fix`)
+
+The user (playtest 2026-11-19): "1-4's arena seems way too bright". The pose: the tour stop "Arena" (teleport menu
+entry 1, V2's room: two lamp pairs along the walls, stained glass, the open roof with the moon), two views
+(`bench/suites/blood-arena.json`, scenario `1-4 arena`). Auto exposure held x1.0 there in every mode, so the frame is
+the lighting itself: pathtrace mean luma 48 against the game's 25 (view 0) and 29 against 11 (view 1); the game's
+dark pixels (luma under 16: 66 % and 87 % of the frame) were 11 % and 30 %, while the top end did not move (p99 213
+against 208, clipped 2.3 % in both: the moon and the lamps). Relight read the same as pathtrace. Not blown, but
+lifted: walls and floor the game leaves black were lit.
+
+Attribution (modes in one launch, `20261119-232037_arena-diag_alt` and `20261119-232748_arena-diag`, view 0 mean):
+
+| Variant | mean | under 16 |
+|---|---|---|
+| as shipped | 48.1 | 11 % |
+| sky light off (`plugin._skyScale=0`), fill, accent, scripted, checkpoint light, `M_LimboEmitter` off | 47.5-48.1 | 11 % |
+| every light off (`lc.solo=zzz`; the handed-over bulbs stay) | 35.6 | 27 % |
+| ... and emissive lighting off | 16.6 | 87 % |
+| the four lamps off (`lc.light.Streetlight=0`: light and bulb) | 29.0 | 27 % |
+| handover off (`lc.handover=0`: the lamps as plain lights at the punch) | 57.7 | 9 % |
+
+So it is the Arena's four street lamps (`V2 - Arena/V2 Nonstuff/Decorations/Streetlight*`, game range 25, intensity
+5), under 1-4's `street lamp bulbs` rule: handover gain 4 to the bulb and 35 % kept as a light at the fixture punch
+x2.5 (x0.88 of the game's light). That rule was tuned on the open lamp garden; the Arena's lamps stand against the
+walls, which the bulb and the kept light floodlit into white fans with the floor lit between them.
+
+**Fix**: a rule for the Arena's lamps ahead of the garden's in `data/lights/Level 1-4.json` (`arena street lamps`:
+gain 2, the global rule's, and 15 % kept). Tried, as proposal layers in one launch (`20261119-233149_arena-diag_alt`,
+pathtrace view 0 / view 1):
+
+| gain, keep | mean | p95 | under 16 |
+|---|---|---|---|
+| game | 25.2 / 10.8 | 110 / 28 | 67 % / 88 % |
+| 4, 0.35 (before) | 48.1 / 28.0 | 172 / 67 | 11 % / 32 % |
+| 2, 0.35 | 42.2 / 24.0 | 159 / 58 | 15 % / 43 % |
+| **2, 0.15 (shipped)** | **35.7 / 20.6** | **109 / 39** | **19 % / 50 %** |
+| 1.5, 0.15 | 34.3 / 19.9 | 101 / 38 | 21 % / 55 % |
+| 4, 0.1 | 43.0 / 25.5 | 140 / 52 | 13 % / 34 % |
+| 1, 0.2 | 35.3 / 19.9 | 113 / 39 | 21 % / 56 % |
+
+Final build (`20261119-233340_blood-arena_alt`): pathtrace 36.0 / 20.5, p95 109 / 39, p99 203 / 178, under 16
+19 % / 49 %; relight 36.3 / 20.3; game 25.0 / 10.7, p95 109 / 26.
+
+Shipped: the lamps keep their hot spots on the walls next to them (as the game has them), p95 is the game's, and the
+floor and far walls fall back toward dark; the frame stays x1.4 / x1.9 of the game's mean (relight 36.2 / 20.0), within
+"RT may be brighter, darks stay dark". The garden's lamps keep their rule.
 
 ## Playtest of 2026-11-18: level look and stray lights (`t3/level-look-3`)
 
@@ -1495,7 +1543,7 @@ pathtrace, shipped settings / fixed exposure):
 | tour 6-2 (first room, Organ Hall) | 6 | x1.27 | x2.03 | +4.0 / +9.4 | 0 |
 | tour 3-1 (first room and five checkpoints) | 18 | x1.03 | x1.57 | +1.6 / +5.6 | 6 |
 
-The fixed-exposure column is the work list for the lights: 1-4's Arena reads x2.1 to x5.2 of the game there (its
+The fixed-exposure column is the work list for the lights (1-4's Arena: its lamps' own rule since 2026-11-19, "1-4's Arena" above): 1-4's Arena reads x2.1 to x5.2 of the game there (its
 walls and floor, black in the game, are fully lit; 37-70 % of the frame "revealed"), the Main Hall's statue wall is
 +47 on the game's dark pixels even with auto exposure. The exposure hides the mean, not the distribution. 3-1's
 Bridge Arena and Stairways, nearly black in the game (luma 4-10), read x2.3 to x4 at fixed exposure. Two runs of the
