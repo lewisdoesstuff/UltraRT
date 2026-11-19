@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-museum-gallery",
+  "Scene": "CreditsMuseum2",
+  "Note": "Trailer v5b: a slow push down one of the museum's picture galleries (dev space, the hall at z 805 west of the fountain: the user remembered the west side's light as better, and in final takes it was the brightest of three, frame mean 61-63 against 52-54 for the east hall at z 628), replacing v5's water hall, whose floor texture clipped through the water. World frame: keys [z, x, feet y]; the level is loaded with the fountain's areas file, the camera flies in.",
+  "Keys": [
+    {"Player": [-52.0, 22.4, 805.0], "Yaw": -90, "Pitch": 2, "Fov": 85, "Duration": 5.0, "Ease": "smooth"},
+    {"Player": [-66.0, 22.8, 805.0], "Yaw": -90, "Pitch": 4, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

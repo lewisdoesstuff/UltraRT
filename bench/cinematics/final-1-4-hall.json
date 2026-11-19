@@ -2,9 +2,9 @@
   "Version": 1,
   "Name": "final-1-4-hall",
   "Scene": "Level 1-4",
-  "Note": "Trailer v5: a push down 1-4's lamp-lit hall inside the building, towards the stained glass (base = end of bench/recordings/u1118-1-4-4.json, the user's pose 4).",
+  "Note": "Trailer v5b: a slow arc across 1-4's lamp-lit hall from beside the pool, the pool's reflections in front and the stained glass (fullbright in the game, so as bright with tracing) smaller in frame (base = end of bench/recordings/u1118-1-4-4.json, the user's pose 4). v5 pushed straight at the windows.",
   "Keys": [
-    {"Player": [1.154, -15.54, 573.87], "Yaw": 359.04, "Pitch": 6.08, "Fov": 85, "Duration": 6.5, "Ease": "smooth"},
-    {"Player": [0.885, -15.94, 589.868], "Yaw": 359.04, "Pitch": 9.08, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+    {"Player": [7.951, -16.24, 585.986], "Yaw": 307.04, "Pitch": 5.08, "Fov": 85, "Duration": 6.5, "Ease": "smooth"},
+    {"Player": [5.368, -16.44, 590.943], "Yaw": 318.04, "Pitch": 6.08, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
   ]
 }

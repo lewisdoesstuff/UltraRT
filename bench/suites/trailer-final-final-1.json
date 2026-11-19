@@ -31,6 +31,33 @@
       }
     },
     {
+      "Name": "6-2 organ",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/u1118-6-2-4.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-6-2-organ.json",
+        "Mode": "live",
+        "Fps": 60.0,
+        "Seconds": 16.033,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 90,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 16.0
+      }
+    },
+    {
       "Name": "1-1 hallway",
       "Scene": "Level 1-1",
       "Path": {
@@ -96,32 +123,6 @@
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-7-3-tree.json",
-        "Mode": "live",
-        "Fps": 60.0,
-        "Seconds": 7.533,
-        "OutputScale": 1,
-        "TimeScale": 1,
-        "Preroll": 90,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 2.0,
-        "OffUntil": 4.0
-      }
-    },
-    {
-      "Name": "P-2 hall",
-      "Scene": "Level P-2",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/p-2-vent-smoke.json",
-        "Duration": 1
-      },
-      "Modes": [
-        "pathtrace+ptx.scaleRR=1"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-p-2-hall.json",
         "Mode": "live",
         "Fps": 60.0,
         "Seconds": 7.533,

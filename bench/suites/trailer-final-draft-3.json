@@ -35,6 +35,32 @@
       }
     },
     {
+      "Name": "6-2 entry",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/6-2-start.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-6-2-entry.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.067,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 1.25,
+        "OffUntil": 3.25
+      }
+    },
+    {
       "Name": "2-2 street",
       "Scene": "Level 2-2",
       "Path": {
@@ -111,34 +137,6 @@
         "Paired": true,
         "OnFrom": 1.25,
         "OffUntil": 1.75
-      }
-    },
-    {
-      "Name": "museum hall",
-      "Scene": "CreditsMuseum2",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/late-museum-fountain.json",
-        "Areas": "../recordings/late-museum-fountain-areas.json",
-        "Load": "areas",
-        "Duration": 1
-      },
-      "Modes": [
-        "pathtrace"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-museum-hall.json",
-        "Mode": "live",
-        "Fps": 30.0,
-        "Seconds": 4.567,
-        "OutputScale": 0.5,
-        "TimeScale": 1,
-        "Preroll": 40,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 0.95,
-        "OffUntil": 2.95
       }
     }
   ]
