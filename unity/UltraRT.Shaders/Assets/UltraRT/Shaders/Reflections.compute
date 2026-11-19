@@ -8,10 +8,15 @@
 //             history stays unblurred.
 //   Resolve   _Surface -> albedo + emission textures, and the specular term: rgb = specW * reflection, a = keep
 //             (final = colour * keep + rgb). Optional debug view.
+//   TransparentTemporal  the water / glass / blood reflection (PathTrace's _Output in denoised modes: rgb radiance, a the
+//             distance to the transparent surface): reprojected by the transparent hit, clipped to the current 3x3
+//             neighbourhood, blended. The overlay (TransparentOverlay.shader) reads the result. docs/reflections.md,
+//             "Displaced water and the temporal filter".
 
 #pragma kernel Temporal
 #pragma kernel Spatial
 #pragma kernel Resolve
+#pragma kernel TransparentTemporal
 
 #include "UltraRTMaterial.hlsl"
 #include "UltraRTCommon.hlsl" // UnpackMotion
@@ -308,4 +313,63 @@ void Resolve(uint3 id : SV_DispatchThreadID)
         else if (_DebugView == 4) { if (refl.a >= 0.0) c = Heat(refl.a / max(_MaxHistory, 1.0)); }
         _DebugOut[id.xy] = float4(saturate(c), 1.0);
     }
+}
+
+// ---------------------------------------------------------------- water, glass and blood (TransparentOverlay)
+
+// One reflection ray per trace texel, on the jittered trace grid, over rippled and displaced water: without a history
+// each frame showed a different sample of the ripples (6-2's blood pools flickered, 2026-11-19).
+Texture2D<float4>   _TransCur;     // this frame: rgb reflected radiance (display units), a distance to the surface (< 0 none)
+Texture2D<float4>   _TransHistIn;  // the previous result, same layout
+RWTexture2D<float4> _TransHistOut;
+float4 _PrevCamPos;
+float4 _TransFilter; // x blend factor of the new sample (1 = no history), y clip half-size (standard deviations),
+                     // z distance tolerance (fraction of the distance), w distance tolerance (m)
+
+[numthreads(8, 8, 1)]
+void TransparentTemporal(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_Dim.xy)) return;
+    float4 cur = _TransCur[id.xy];
+    if (cur.a <= 0.0 || _HistoryValid == 0) { _TransHistOut[id.xy] = cur; return; }
+    float tol = cur.a * _TransFilter.z + _TransFilter.w;
+
+    // The current neighbourhood on the same surface (distance within the tolerance): mean and spread to clip against.
+    float3 m1 = 0, m2 = 0;
+    float n = 0;
+    [unroll] for (int dy = -1; dy <= 1; dy++)
+    [unroll] for (int dx = -1; dx <= 1; dx++)
+    {
+        int2 q = clamp((int2)id.xy + int2(dx, dy), int2(0, 0), (int2)_Dim.xy - 1);
+        float4 c = _TransCur[q];
+        if (c.a > 0.0 && abs(c.a - cur.a) < tol * 2.0) { m1 += c.rgb; m2 += c.rgb * c.rgb; n += 1.0; }
+    }
+    m1 /= n; // n >= 1: the centre always counts
+    float3 sigma = sqrt(max(m2 / n - m1 * m1, 0.0));
+
+    // History at the transparent hit's position in the previous frame, on the same surface.
+    float3 p = _CamPos.xyz + PrimaryDir(id.xy) * cur.a;
+    float4 clip = mul(_PrevViewProj, float4(p, 1.0));
+    if (clip.w <= 1e-4) { _TransHistOut[id.xy] = cur; return; }
+    float2 f = (clip.xy / clip.w * 0.5 + 0.5) * _Dim.xy - 0.5;
+    int2 b = (int2)floor(f);
+    float2 fr = f - b;
+    float prevDist = length(p - _PrevCamPos.xyz);
+    float3 hist = 0;
+    float ws = 0;
+    [unroll] for (int k = 0; k < 4; k++)
+    {
+        int2 o = int2(k & 1, k >> 1);
+        int2 q = b + o;
+        if (any(q < 0) || any(q >= (int2)_Dim.xy)) continue;
+        float4 h = _TransHistIn[q];
+        float wb = (o.x ? fr.x : 1.0 - fr.x) * (o.y ? fr.y : 1.0 - fr.y);
+        if (h.a > 0.0 && abs(h.a - prevDist) < tol) { hist += h.rgb * wb; ws += wb; }
+    }
+    if (ws < 0.05) { _TransHistOut[id.xy] = cur; return; }
+    hist /= ws;
+    float clipK = _TransFilter.y;
+    hist = clamp(hist, m1 - clipK * sigma, m1 + clipK * sigma);
+    float a = saturate(_TransFilter.x / max(ws, 0.25)); // a partly matched history counts less
+    _TransHistOut[id.xy] = float4(lerp(hist, cur.rgb, a), cur.a);
 }

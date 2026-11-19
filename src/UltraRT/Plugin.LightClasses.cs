@@ -34,9 +34,6 @@ namespace UltraRT
             public LightRule RuleObject;
             /// <summary>Handover (Plugin.Handover.cs): "handed", "hybrid", "no part", or null.</summary>
             public string Handed;
-            /// <summary>The intensity before a handover cut it (-1: none). The lamp keeps it for its glints, the
-            /// highlight on water and wet floors, which emissive parts don't make (Plugin.Glints.cs).</summary>
-            public float GlintIntensity = -1f;
 
             public string PolicyText()
             {

@@ -64,7 +64,7 @@ namespace UltraRT
     internal sealed class ReflectionFilter : IDisposable
     {
         private readonly ComputeShader _cs;
-        private readonly int _kTemporal, _kSpatial, _kResolve;
+        private readonly int _kTemporal, _kSpatial, _kResolve, _kTrans;
         private int _width, _height, _cur;
         private bool _historyValid;
         private Matrix4x4 _prevViewProj;
@@ -78,12 +78,65 @@ namespace UltraRT
             _kTemporal = cs.FindKernel("Temporal");
             _kSpatial = cs.FindKernel("Spatial");
             _kResolve = cs.FindKernel("Resolve");
+            _kTrans = cs.HasKernel("TransparentTemporal") ? cs.FindKernel("TransparentTemporal") : -1;
         }
 
-        public void Reset() => _historyValid = false;
+        public void Reset() { _historyValid = false; _transValid = false; }
 
         /// <summary>The camera went through a portal: last frame's view of this frame's world (docs/portals.md, "Temporal").</summary>
-        public void RemapHistory(Matrix4x4 nowToOld) { _prevViewProj = _prevViewProj * nowToOld; }
+        public void RemapHistory(Matrix4x4 nowToOld)
+        {
+            _prevViewProj = _prevViewProj * nowToOld;
+            _transValid = false; // the camera position moved too; a few frames of raw reflection are fine
+        }
+
+        // ---- water, glass and blood (TransparentOverlay): the traced reflection's own history
+        private readonly RenderTexture[] _transHist = new RenderTexture[2];
+        private int _transCur, _transFrame = -10;
+        private bool _transValid;
+        private Matrix4x4 _transPrevViewProj;
+        private Vector3 _transPrevCam;
+
+        /// <summary>
+        /// Temporal filter of the water / glass / blood reflection (PathTrace's _Output in denoised modes; docs/reflections.md,
+        /// "Displaced water and the temporal filter"). Returns the texture the overlay should read: <paramref name="raw"/> itself
+        /// when the filter is off or missing. History is dropped when a frame went by without the pass.
+        /// </summary>
+        public Texture ExecuteTransparent(CommandBuffer cmd, RenderTexture raw, Matrix4x4 viewProj, Vector3 camPos, TransparentSettings s)
+        {
+            if (!s.temporal || _kTrans < 0 || raw == null) { _transValid = false; return raw; }
+            int w = raw.width, h = raw.height;
+            if (_transHist[0] == null || _transHist[0].width != w || _transHist[0].height != h || !_transHist[0].IsCreated())
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    Release(ref _transHist[i]);
+                    _transHist[i] = CreateSized($"UltraRT Transparent History {i}", w, h, RenderTextureFormat.ARGBHalf);
+                }
+                _transValid = false;
+            }
+            bool valid = _transValid && _transFrame == Time.frameCount - 1;
+            int prev = _transCur ^ 1;
+            var cs = _cs;
+            cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(w, h, 1f / w, 1f / h));
+            cmd.SetComputeVectorParam(cs, "_CamPos", camPos);
+            cmd.SetComputeVectorParam(cs, "_PrevCamPos", valid ? _transPrevCam : camPos);
+            cmd.SetComputeMatrixParam(cs, "_InvViewProj", viewProj.inverse);
+            cmd.SetComputeMatrixParam(cs, "_PrevViewProj", valid ? _transPrevViewProj : viewProj);
+            cmd.SetComputeIntParam(cs, "_HistoryValid", valid ? 1 : 0);
+            cmd.SetComputeVectorParam(cs, "_TransFilter", new Vector4(Mathf.Clamp(s.temporalAlpha, 0.02f, 1f), Mathf.Max(0f, s.temporalClip), 0.05f, 0.2f));
+            cmd.SetComputeTextureParam(cs, _kTrans, "_TransCur", raw);
+            cmd.SetComputeTextureParam(cs, _kTrans, "_TransHistIn", _transHist[prev]);
+            cmd.SetComputeTextureParam(cs, _kTrans, "_TransHistOut", _transHist[_transCur]);
+            cmd.DispatchCompute(cs, _kTrans, Mathf.CeilToInt(w / 8f), Mathf.CeilToInt(h / 8f), 1);
+            var result = _transHist[_transCur];
+            _transCur = prev;
+            _transValid = true;
+            _transFrame = Time.frameCount;
+            _transPrevViewProj = viewProj;
+            _transPrevCam = camPos;
+            return result;
+        }
 
         /// <param name="debugView">0 none, 1 raw reflection, 2 filtered reflection, 3 specular contribution, 4 history length.</param>
         public void Execute(CommandBuffer cmd, in ReflectionInputs inp, ReflectionSettings s, int debugView)
@@ -182,9 +235,11 @@ namespace UltraRT
             _historyValid = false;
         }
 
-        private RenderTexture Create(string name, RenderTextureFormat format)
+        private RenderTexture Create(string name, RenderTextureFormat format) => CreateSized(name, _width, _height, format);
+
+        private static RenderTexture CreateSized(string name, int width, int height, RenderTextureFormat format)
         {
-            var rt = new RenderTexture(_width, _height, 0, format, RenderTextureReadWrite.Linear)
+            var rt = new RenderTexture(width, height, 0, format, RenderTextureReadWrite.Linear)
             {
                 name = name,
                 enableRandomWrite = true,
@@ -217,6 +272,10 @@ namespace UltraRT
             _historyValid = false;
         }
 
-        public void Dispose() => ReleaseTargets();
+        public void Dispose()
+        {
+            ReleaseTargets();
+            for (int i = 0; i < 2; i++) Release(ref _transHist[i]);
+        }
     }
 }
