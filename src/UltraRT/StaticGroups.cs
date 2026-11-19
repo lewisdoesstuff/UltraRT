@@ -293,7 +293,7 @@ namespace UltraRT
                     if (!Traceable(src[i])) continue;
                     var pm = Proxy(src[i]);
                     // Baked geometry: the atlas material says nothing about the surface; use the source's original material.
-                    var mat = IsAtlasProxy(pm) ? AtlasVariant(pm, r) : pm;
+                    var mat = IsAtlasProxy(pm) ? AtlasVariant(pm, r) : CausticVariant(pm, r); // mode-2 caustics: per-renderer bounds centre
                     c.Slots[sub] = new Slot { Sub = sub, Material = mat, BaseMaterial = pm, Source = r, Part = (IsTwoSided(pm) ? 1 : 0) | (IsSkyWall(pm) ? 2 : 0) };
                     c.SubMaterials[sub] = mat;
                     any = true;

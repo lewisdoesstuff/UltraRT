@@ -1,6 +1,8 @@
-# Water caustics and refraction (research, 2026-11-19)
+# Water caustics and refraction (research and implementation, 2026-11-19)
 
-Investigation only: nothing in the renderer changed. Branch `t3/water-caustics-research`. The user sees water caustics
+**Since 2026-11-19 (branch `t3/caustics-volumes-water-check`) the game's caustics are traced**: option (a) below, with
+its shadow ray, in relight and pathtrace; see section 5. Sections 1-4 are the research as it was written (branch
+`t3/water-caustics-research`), so section 2's "lost" describes the build before that. The user sees water caustics
 in 5-1, most of all in the tall shaft near the start with the blue grapple point, and asked how the game makes them, how
 they look in our modes, how we could render them properly, and whether we "do diffraction" (they meant **refraction**).
 
@@ -75,7 +77,7 @@ two blue point lights at y 6 and 26 (range 25 / 20), the water `Plane (2)` (`Wat
 `CaveRock1/3 MossDesaturated` (mode 2, scale 1 / 0.33, speed 0.5). Every wall that faces the volume within about 20 m
 gets a blue-white cell network that drifts upwards and sideways. The room is switched off when the level loads.
 
-## 2. How it looks in our modes today
+## 2. How it looked in our modes before the implementation
 
 Suite `bench/suites/caustics-5-1.json`: `LookAt` the room's `Hint` trigger (the shaft floor centre) with `LookActivate`
 (that switches on `Intro C` and `IntroParent/Intro`, which are off at load), `LookDistance` 0.5, so the camera stands at
@@ -233,9 +235,107 @@ Gains: correct pool depth and edges, refracted views into pools from above, Snel
 (today the overlay leaves underwater views to the game), and the refracting light segments that physical caustics
 (3e/3b) need.
 
+## 5. Implementation: the game's pattern, traced and shadowed (2026-11-19)
+
+Option (a) with the a2 shadow ray, in every traced mode. Files: `src/UltraRT/SceneProxies.Caustics.cs` (materials,
+per-renderer variants, volumes, settings), `Proxy.shader` (`CausticTerm`: the pattern at every hit),
+`PathTrace.raytrace` (`CausticShadowed`: the shadow ray at camera hits), `UltraRTCommon.hlsl` (`ULTRART_FLAG_CAUSTIC`).
+
+### What is evaluated
+
+- **Materials.** A `ULTRAKILL/Master` source with `CAUSTICS` (keyword list checked as well as `IsKeywordEnabled`, which
+  misses some Master keywords) gives its proxy `_Caustics` = `_CausticMode` + 1, `_CausticColor`, `_CausticsDirection`,
+  `_Scale` / `_Speed` / `_Falloff` and the material's own `_Cells` / `_Perlin` textures, sampled with the proxy's point
+  repeat sampler (the game's point filtering and texel grid are kept). 5-1: 19 materials; 1-4 and 8-1: `Mercury` (mode
+  0, the altars' mercury pools, scale 2.5).
+- **Formula.** Exactly the decompiled GLCore program (section 1): the same projection (the rotation that takes "up" to
+  the axis, `P.xz` when the axis is up), the same two scrolling layers, `(1 - max(a, b))^10`, the mode 0 facing fade, the
+  mode 2 loop over the volumes with the unnormalised facing dot and the near/far ramp, times `_CausticColor`. The clock
+  is `Time.timeSinceLevelLoad`, the game's `_Time.y`. The normal is the unflipped vertex normal (no detail map), as the
+  game's. Measured over the game's own textures, the pattern averages 0.29 and peaks at about 4, so it is not clamped.
+- **Mode 2's bounds centre.** The projection axis is (renderer bounds centre - volume), per renderer. Proxies share a
+  material per source material, and static groups merge each material's slots into one submesh, so every renderer with
+  `ObjectBoundsToShader` gets its own copy of the proxy material (`CausticVariant`; 65 in 5-1, so up to 65 more
+  shader-table records, about 26 us at 0.4 us each). The copy reads the game's own `_BoundsCenter_VolumeCount` from the
+  renderer's property block every 30 frames: the game writes it only while the renderer is active, and without it the
+  game draws no caustic, so neither do we (`w` 0). Renderers without the script keep the shared proxy and show nothing
+  in mode 2, as in the game (2-1, 8-2, 5-3).
+- **Volumes.** `CausticVolumeManager.causticVolumes` (active ones), packed like the game's `_CausticVolumeData`
+  ((position, near), (colour x intensity, far)) into the global `_UltraRTCausticVolumes` every frame, at most 64. The
+  buffer is always bound (a dummy without volumes) and never released.
+
+### Lit: the shadow ray
+
+Ray tracing shaders here run with recursion depth 1, so the hit shader cannot trace. On camera hits
+(`ULTRART_PAYLOAD_WANT_MOTION`) the hit returns the caustic apart from the emission: rgb as halves in `uvHalf` and the
+high half of `emissionHalf.y`, the volume that contributes most (weight x colour luminance) in the top byte of
+`primitive`, flag `ULTRART_FLAG_CAUSTIC` (bit 31). The ray generation shader traces one visibility ray from the hit
+toward that volume's centre through the one shadow-ray site (`VisibleMasked`, mask geometry + fixtures + V1 where V1
+casts shadows), stopping at the volume's near radius so a centre inside a rock or under the water's floor does not black
+everything out, and adds the caustic only if it gets through. V1, enemies and rocks between a wall and the volume
+shadow the pattern; water does not (mask 0x10). Modes 0 and 1 have no volume: unshadowed, as the game draws them.
+Reflection, bounce and transparent-pass hits get the caustic unshadowed, in their emission.
+
+### Radiance: fed as emission
+
+The caustic is added to the primary hit's emission (`_Surface`), so every consumer treats it like the game treats it, an
+emissive term after lighting: relight's composite (`albedo x lighting + emission`), UltraRT's denoiser (emission is not
+filtered), and DLSS RR, whose colour input and diffuse-albedo guide both include emission (RayReconstruction.compute),
+so remodulation leaves it alone instead of dividing it into the lighting. Reflections see it in full; bounce rays drop
+it with the other emission (`_EmissiveBounceWeight` 0 while emitters are sampled directly), so caustic walls don't
+light the room, as in the game. Side effect: a caustic pixel counts as an emitter for the cutout-ray mask
+(`CutoutPrep` skips pixels with emission), irrelevant in 5-1's caves.
+
+### Settings
+
+| Setting | Default | Where |
+|---|---|---|
+| Strength (`[Effects] Caustics`, `-ultrart-caustics X`, bench `caustics.strength=X`) | 1 (the game's), 0 = off | Advanced page, Effects |
+| Shadow ray (`[Effects] CausticShadows`, `-ultrart-caustics-noshadow`, bench `caustics.shadows=0`) | on | Advanced page, Effects |
+
+The log: `Caustics: N traced CAUSTICS material(s), M mode-2 renderer variant(s): ...` at the scene build, and
+`Caustics: V active volume(s), ... (K with the game's bounds centre)` when the volumes change.
+
+### Validation (alt and main, 2560x1440, trace scale 0.5)
+
+Suites `bench/suites/caustics-rt.json` (shaft views, A/B without caustics and without the shadow, sequences, the 1-4
+bridge) and `caustics-iso.json` (auto exposure off, strength 4, game sequence). Runs `20261119-193810_caustics-rt_alt`,
+`20261119-194530_caustics-iso`; sheets (gitignored) in `bench/results/review/caustics-rt/`: `sheet_E.png`,
+`crop_E_wall.png`, `iso_wall.png`, `motion_game_vs_pt4.png` (what moves in 0.3 s: the game at x6, pathtrace at strength
+4 x2).
+
+- **Present and moving** in relight, pathtrace (RR) and pathtrace with UltraRT's denoiser. Of 65 mode-2 renderers, the
+  6 in the active room (Intro C) had the game's bounds centre; the others are in rooms that are switched off. Caustics on against off at
+  the same pose: the walls change by 6-8 % per pixel (median, exposure-normalised; p95 22-25 %). Between frames 0.3 s
+  apart the traced walls change by 7.9 % (relight) / 6.1 % (pathtrace, strength 4), the game's by 6.5 % (8-11 % in the
+  research run's 0.25 s frames).
+- **Same shape**: the motion images show the same stretched, blocky cells along the same diagonals on both walls in the
+  game and in pathtrace. RR softens the moving cells a little (it accumulates the emission like the rest of the colour).
+- **Looks weaker than the game's** relative to the wall: the pattern is the game's absolute amount (about +0.1 on a
+  0-1 scale at the shaft's volume, intensity 0.35), but our walls are lit brighter than the game's (mean luma 100-107
+  against 72 at this pose), so the same addition is a smaller share. A strength above 1 would give the game's relative contrast (not tuned:
+  the default stays at the game's absolute value; the menu slider goes to 3).
+- **Shadow ray**: traced (its cost is measured below) and blocks where the volume is hidden; at the shaft pose the
+  volume sits under the camera and V1's shadow falls upward, and the moving pattern makes still A/B shots noisy, so no
+  capture shows a clean V1 shadow on the pattern yet. Worth a look in play: stand between a wall and the shaft's water.
+- **Not checked on a second level with a volume**: 8-1's window view had no active volume (its three `CausticsVolume`
+  objects under `Outside/Pipe` were off there), and 5-3's one volume lights a renderer without `ObjectBoundsToShader`
+  (invisible in the game too). 1-4's and 8-1's `Mercury` (mode 0) is traced but was off screen.
+
+### Cost (perf hold, `bench/suites/caustics-perf.json`, run `20261119-194454_caustics-perf`, the shaft E view: caustic walls fill the screen)
+
+| Mode | GPU total ms (off -> on) | dispatch ms | render thread |
+|---|---|---|---|
+| relight (trace 0.5) | 4.05 -> 4.26 (+0.22) | 2.19 -> 2.38 (+0.19) | unchanged (0.33) |
+| pathtrace, RR (trace 1/3) | 4.32 -> 4.48 (+0.16) | 1.54 -> 1.67 (+0.13): pattern +0.06, shadow ray +0.07 | unchanged |
+
+Nothing is spent on pixels without a CAUSTICS material (a branch on the proxy's `_Caustics`), and no new dispatch or
+binding (the payload is unchanged at 64 bytes).
+
 ## Files and tools
 
-- Suite: `bench/suites/caustics-5-1.json` (8 scenarios, about 1.5 min with one level load).
+- Suites: `bench/suites/caustics-5-1.json` (8 scenarios, about 1.5 min with one level load), `caustics-rt.json`,
+  `caustics-iso.json`, `caustics-perf.json` (section 5).
 - Game data was read offline with UnityPy (a scratch venv): materials from `materials.bundle`, scene objects from each
   `campaign_scenes_level*.bundle` (MonoScript names from `monoscript_monoscripts.bundle`), the Master shader's GLCore
   program for keyword set `CAUSTICS VERTEX_LIGHTING _FOG_ON` (platform 15 in the shader's `platforms`; the vertex

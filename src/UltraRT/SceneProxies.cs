@@ -299,6 +299,7 @@ namespace UltraRT
             _log.LogInfo(GlassSummary());
             LogDisplacementInventory();
             LogScrolling();
+            LogCaustics();
             LogVeils();
             LogVeilProxies();
             LogTransparents();
@@ -534,6 +535,7 @@ namespace UltraRT
             {
                 var proxyMats = new Material[mats.Length];
                 for (int i = 0; i < mats.Length; i++) proxyMats[i] = player ? PlayerProxyOrDisabled(mats[i]) : ProxyOrDisabled(mats[i]);
+                if (!player) CausticVariants(r, proxyMats); // mode-2 caustics: per-renderer bounds centre
                 var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
                 AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
                 TrackSync(_dynamic[_dynamic.Count - 1], mats, mesh);
@@ -1318,6 +1320,7 @@ namespace UltraRT
             }
             if (src.HasProperty("_Color")) m.SetColor("_Color", src.GetColor("_Color"));
             ApplyScrolling(src, m);
+            ApplyCaustics(src, m); // the game's caustic pattern (SceneProxies.Caustics.cs)
             if (SourceAlphaTested(src))
             {
                 m.SetFloat("_AlphaTest", 1f);
@@ -1422,6 +1425,7 @@ namespace UltraRT
             Motion.Dispose();
             DisposeTransparents();
             DisposeLava();
+            DisposeCaustics();
             DisposeVeils();
             DisposeSync();
             DisposeDisplaced();

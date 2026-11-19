@@ -30,7 +30,7 @@ static uint g_RayKind;
 //   emissionHalf  emission rgb as 3 halves (PayloadEmission; every consumer stores it as half anyway)
 //   motion     packed world-space motion of the hit (PackMotion) when the caller set ULTRART_PAYLOAD_WANT_MOTION, else 0
 //   material   packed roughness / metalness / f0 / specular weight (UltraRTMaterial.hlsl, PackMaterialWord)
-//   uvHalf     half(uv.x) | half(uv.y) << 16: debug views only (was float2 uv).
+//   uvHalf     half(uv.x) | half(uv.y) << 16: debug views only (was float2 uv). Camera hits with ULTRART_FLAG_CAUSTIC: the caustic.
 //   primitive  PrimitiveIndex(): debug views only. Primary hits (ULTRART_PAYLOAD_WANT_MOTION) with a per-texel detail
 //              normal (ULTRART_FLAG_DETAIL): bits 0-23 the interpolated vertex normal (PackOct24).
 //   flags      bit 0: vertex normals missing (geometric normal used); bits 1-2: reflection mode; bit 3: `normal` is a
@@ -71,6 +71,10 @@ struct RayPayload
 // ray gen -> any-hit: the transparent pass's ray (PathTrace TraceTransparent). Transparent instances that also carry the
 // geometry bit (stained glass, for shadow rays) are ignored by every other ray.
 #define ULTRART_PAYLOAD_TRANSPARENT 0x00800000u
+// hit -> ray gen, camera hits (ULTRART_PAYLOAD_WANT_MOTION) only: the hit has a caustic (Proxy.shader CAUSTICS, docs/caustics.md)
+// that is not in emissionHalf: its rgb in uvHalf (r | g << 16) and emissionHalf.y >> 16 (b), as halves; primitive >> 24 = 1 + the
+// caustic volume to shadow it from (0 = unshadowed). PayloadCaustic.
+#define ULTRART_FLAG_CAUSTIC 0x80000000u
 #define ULTRART_FLAG_DETAIL 0x8u // ray gen -> hit: apply per-texel detail (primary rays only; reflection, bounce, cache and
                                  // volumetric rays skip it). Hit -> ray gen: p.normal carries a per-texel detail normal; on
                                  // primary rays (WANT_MOTION) the vertex normal is in p.primitive bits 0-23 (PackOct24)
@@ -113,6 +117,7 @@ float3 PayloadEmission(RayPayload p)
 }
 
 uint PayloadLayer(RayPayload p) { return (p.flags >> 8) & 0xFFu; }
+float3 PayloadCaustic(RayPayload p) { return float3(f16tof32(p.uvHalf), f16tof32(p.uvHalf >> 16), f16tof32(p.emissionHalf.y >> 16)); }
 float2 PayloadUV(RayPayload p) { return float2(f16tof32(p.uvHalf), f16tof32(p.uvHalf >> 16)); }
 
 struct AttributeData

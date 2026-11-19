@@ -177,6 +177,8 @@ namespace UltraRT
                 v => _effectSettings.spawnedLights = _effectSettings.virtualLights = _effectSettings.flicker = v);
             m.Bool("Effects", "EffectReflections", "Fire and explosions in reflections", () => _fxgSettings.enabled, v => _fxgSettings.enabled = v, "-ultrart-noeffectgeometry");
             m.Bool("Effects", "Lava", "Ray-traced lava and acid", () => LavaCfg.active, v => LavaCfg.active = v, "-ultrart-nolava");
+            m.Float("Effects", "Caustics", "Water caustics (strength, 0 = off)", 0f, 3f, 2, () => SceneProxies.Caustics.strength, v => SceneProxies.Caustics.strength = Mathf.Max(v, 0f), "-ultrart-caustics");
+            m.Bool("Effects", "CausticShadows", "Water caustics: shadows", () => SceneProxies.Caustics.shadows, v => SceneProxies.Caustics.shadows = v, "-ultrart-caustics-noshadow");
 
             // Screen-space effects (docs/vfx.md)
             m.Group = "Screen effects";
