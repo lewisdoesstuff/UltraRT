@@ -17,6 +17,7 @@ namespace UltraRT
     ///   -ultrart-water-refraction X       screen-space refraction strength (default 1, 0 = off)
     ///   -ultrart-caustics X               the game's water caustics in the traced modes (default 2, 0 = off; docs/caustics.md)
     ///   -ultrart-caustics-noshadow        caustics without their shadow ray (as the game draws them)
+    ///   -ultrart-glints X / -ultrart-noglints  lights' highlights on water and wet surfaces (default 1, 0 = off; Plugin.Glints.cs)
     /// F4 (reflections) switches the pass too.
     /// </summary>
     public partial class Plugin
@@ -25,6 +26,7 @@ namespace UltraRT
         private static readonly int TransCamId = Shader.PropertyToID("_UltraRTTransCam");
         private static readonly int TransVPId = Shader.PropertyToID("_UltraRTTransVP");
         private static readonly int TransReflId = Shader.PropertyToID("_UltraRTTransRefl");
+        private static readonly int TransGlintId = Shader.PropertyToID("_UltraRTTransGlint");
         private static readonly int TransParamsId = Shader.PropertyToID("_UltraRTTransParams");
         private static readonly int TransFogId = Shader.PropertyToID("_UltraRTFog");
         private static readonly int TransWaterId = Shader.PropertyToID("_UltraRTWater");
@@ -53,6 +55,8 @@ namespace UltraRT
                     case "-ultrart-water-refraction": s.refraction = F(s.refraction); break;
                     case "-ultrart-caustics": SceneProxies.Caustics.strength = F(SceneProxies.Caustics.strength); break;
                     case "-ultrart-caustics-noshadow": SceneProxies.Caustics.shadows = false; break;
+                    case "-ultrart-glints": _glintSettings.strength = F(_glintSettings.strength); break;
+                    case "-ultrart-noglints": _glintSettings.strength = 0f; break;
                 }
             }
         }
@@ -121,6 +125,7 @@ namespace UltraRT
             _cmd.SetRayTracingVectorParam(shader, "_TransRect", rect);
             _cmd.SetRayTracingVectorParam(shader, "_TransParams", new Vector4(s.cacheSpread, _transActive ? 1f : 0f, 0, 0));
             _cmd.SetRayTracingVectorParam(shader, "_UltraRTWater", _transWater);
+            BindGlints(shader); // lights' highlights on water and wet surfaces (Plugin.Glints.cs)
         }
 
         /// <summary>After the denoisers: point the overlays at this frame's result (written by RayGen into _Output).</summary>
@@ -134,8 +139,9 @@ namespace UltraRT
             _cmd.SetGlobalVector(TransCamId, new Vector4(cam.x, cam.y, cam.z, refract ? 1f : 0f));
             _cmd.SetGlobalMatrix(TransVPId, viewProj);
             _cmd.SetGlobalTexture(TransReflId, _output);
+            _cmd.SetGlobalTexture(TransGlintId, _gLitWeight); // xy: the glints (PathTrace.raytrace, TraceTransparent)
             _cmd.SetGlobalVector(TransWaterId, _transWater);
-            _cmd.SetGlobalVector(TransParamsId, new Vector4(s.strength, s.maxWeight, _relightActive ? _relightWhite : 0f, 0f));
+            _cmd.SetGlobalVector(TransParamsId, new Vector4(s.strength, s.maxWeight, _relightActive ? _relightWhite : 0f, s.legacyGamma ? 1f : 0f));
             float mode = !RenderSettings.fog ? 0f : RenderSettings.fogMode == FogMode.Linear ? 1f : RenderSettings.fogMode == FogMode.Exponential ? 2f : 3f;
             _cmd.SetGlobalVector(TransFogId, new Vector4(mode, RenderSettings.fogStartDistance, RenderSettings.fogEndDistance, RenderSettings.fogDensity));
             _transTraced = refract;

@@ -16,7 +16,7 @@ RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by alb
 RWTexture2D<uint4>  _Surface;     // packed albedo, emission and reflection material (UltraRTMaterial.hlsl, PackSurface)
 RWTexture2D<float4> _NormalDepth; // xyz world normal, w = hit distance (< 0 = sky)
 RWTexture2D<int2>   _InstanceId;  // RGInt: x InstanceIndex() (-1 = sky), y packed world-space motion (PackMotion, 0 = static)
-RWTexture2D<uint4>  _LitWeight;   // w & 0xFF: lit weight unorm8 (0 = fullbright), for auto exposure and DLSS RR; xyz unused
+RWTexture2D<uint4>  _LitWeight;   // w & 0xFF: lit weight unorm8 (0 = fullbright), for auto exposure and DLSS RR; xy: the water glint (halves, TraceTransparent)
 RWTexture2D<float4> _Reflection;  // rgb reflected radiance; a: reflection hit distance (sky: 1000), -1 = not traced
 
 float4x4 _InvViewProj;
@@ -185,13 +185,214 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
 // the surface, so particles in front still cover it.
 #include "UltraRTWater.hlsl"
 
+// ---------------------------------------------------------------- glints (docs/reflections.md, "Glints")
+
+// The lights' specular highlights on water and wet surfaces: lamp and moon streaks. A reflection ray only sees what it
+// hits, and ULTRAKILL's lights are points (the sun and moon directions), which no ray ever hits, so a night pool used to
+// reflect the dark room and none of its lamps. This is next-event estimation on a sharp GGX lobe: each light's specular
+// term at the pixel, one light picked in proportion to it, one shadow ray. Emissive surfaces are left out: the reflection
+// ray sees those itself.
+// _UltraRTGlint:  x strength (0 = off), y water / glass GGX alpha (before the ripples the sample can't resolve), z wet
+//                 surfaces: the lobe's minimum GGX alpha, w firefly clamp (display luminance of what a glint adds)
+// _UltraRTGlint2: x evaluate every light when there are at most this many (else y candidates from the light table, RIS),
+//                 z the most a light's size widens the lobe (GGX alpha; 0 = not at all), w bits: 1 water / glass / blood,
+//                 2 wet opaque surfaces, 4 the player's own lights too (the held torch and the lights at the eye)
+float4 _UltraRTGlint;
+float4 _UltraRTGlint2;
+// The lights that can glint this frame (Plugin.Glints.cs, GlintList): not the player's own, and reaching (twice their
+// range) into the view frustum; every light while a portal is in view. Weighing all of 8-2's 126 lights at every pixel
+// of its pool cost +1.2 ms (relight) with the pool filling the screen.
+StructuredBuffer<uint> _GlintLights;
+// Per list entry, so the cheap tests need no dependent load: xyz the light's position (directional: its direction),
+// w its reach (twice the range; 0 directional; < 0 an area light, reach -w; -1e9 padding to a multiple of 4).
+StructuredBuffer<float4> _GlintRecs;
+int _GlintCount;
+
+// GGX D x height-correlated Smith visibility G2 / (4 N.L N.V): the specular BRDF without its Fresnel factor.
+float GlintBrdf(float3 n, float3 V, float3 L, float alpha)
+{
+    float nl = dot(n, L);
+    if (nl <= 0.0) return 0.0;
+    float nv = max(dot(n, V), 1e-3);
+    float a2 = max(alpha * alpha, 1e-6);
+    float nh = saturate(dot(n, normalize(V + L)));
+    float d = nh * nh * (a2 - 1.0) + 1.0;
+    float D = a2 / (3.14159265 * d * d);
+    float vis = 0.5 / max(nl * sqrt(nv * nv * (1.0 - a2) + a2) + nv * sqrt(nl * nl * (1.0 - a2) + a2), 1e-6);
+    return D * vis;
+}
+
+// Light i's highlight at p: c (lighting space; LightEval's colour, which carries N.L) x the BRDF, x Schlick Fresnel at
+// V.H when f0 >= 0 (else the caller's composite applies its Fresnel). The lobe widens by the light's angular radius seen
+// from p (a lamp's soft-shadow sphere, an area light's half size, the sun disk), so a big light makes a bigger, dimmer
+// highlight instead of a pinpoint. Returns its luminance (the selection weight); 0 = no highlight.
+float GlintTerm(uint i, float3 p, float3 n, float3 V, float alpha, float f0, uint layer, out float3 c, out float3 L, out float dist)
+{
+    // The player's own lights (flag in [1].w: at the eye, on the gun, the head-mounted light) are fill for the view, not
+    // lamps anyone sees: their highlight lit the whole floor around the camera (P-2's streets, 2-1's channel).
+    float4 l0 = _Lights[i * 4];
+    bool local = l0.w != 0.0;
+    float3 toC = local ? l0.xyz - p : l0.xyz;
+    float dC = local ? max(length(toC), 1e-4) : 1.0e4;
+    // Out of reach: every falloff (the game's, relight's window) ends at twice the range. Most of a level's lights land
+    // here or in the lobe test below, before the light model runs.
+    if (local && dC > 2.0 * l0.w) return 0.0;
+    if ((((uint)_UltraRTGlint2.w) & 4u) == 0u && LightPlayerFlag(_Lights[i * 4 + 1].w) > 0.75) return 0.0;
+    float4 l2 = _Lights[i * 4 + 2], l3 = _Lights[i * 4 + 3];
+    float a = alpha;
+    if (_UltraRTGlint2.z > 0.0)
+    {
+        float ang = _SkyLight.y; // directional lights: the sun disk
+        if (local)
+        {
+            float r = LightIsArea(l3) ? max(l2.w, -2.0 - l3.x) : (l2.w != 0.0 ? abs(l2.w) : _LightRadius);
+            ang = r / max(dC, 0.1);
+        }
+        a += min(0.5 * ang, _UltraRTGlint2.z);
+    }
+    // A point or spot light whose half vector lies outside the lobe: GGX D below about 1/300 of its peak (tan^2 of the
+    // half angle over 16 alpha^2). Measured: with 64 alpha^2 8-2's pool seen straight down cost +2.1 ms (relight).
+    if (!LightIsArea(l3))
+    {
+        float nh = dot(n, normalize(V + toC / (local ? dC : 1.0)));
+        if (nh <= 0.0 || 1.0 - nh * nh > 16.0 * a * a * nh * nh) return 0.0;
+    }
+    if (!ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer)) return 0.0;
+    // A lamp whose glowing part carries its light (handover: its own strength cut to the rule's "keep") still glints at
+    // its own strength: l3.w holds that colour (Plugin.Glints.cs, GlintColorCode). P-2's and 2-1's street lamps.
+    float4 l1 = _Lights[i * 4 + 1];
+    if (l3.w > 0.5)
+    {
+        uint code = (uint)(l3.w - 0.5);
+        float3 g = float3(code & 0xFFu, (code >> 8) & 0xFFu, code >> 16) * (1.0 / 255.0);
+        l1.rgb = g * g * 16.0;
+    }
+    if (!LightEvalRaw(l0, l1, l2, l3, p, n, L, dist, c)) return 0.0;
+    float f = GlintBrdf(n, V, L, a);
+    if (f0 >= 0.0) f *= SchlickFresnel(f0, dot(V, normalize(V + L)));
+    c *= f;
+    return LightLuminance(c);
+}
+
+// The lights' highlights at p (lighting space, like DirectLighting). n: the lobe's normal (rippled water, the shading
+// normal); ng: the normal for the shadow ray's offset. Unshadowed (fill) lights add their highlight directly; of the
+// shadowed ones one is picked in proportion to its highlight (every light while there are few, else RIS over candidates
+// from the light table) and traced. lightDist: the picked light's distance (1000 for the sun), < 0 = none.
+// stable (water, glass: no temporal filter after this pass): while every light is weighed, the brightest highlight is
+// the one traced and its visibility stands for all of them. A random pick turned 8-2's pool into grain wherever two
+// lamps' lobes overlap; this is slightly biased (a second lamp's highlight follows the first one's shadow) but the
+// same from frame to frame. Its shadow ray also aims at the light's centre (no soft-shadow jitter, which was grain too).
+float3 GlintLight(float3 p, float3 n, float3 ng, float3 V, float alpha, float f0, uint layer, bool stable, inout uint rng, out float lightDist)
+{
+    lightDist = -1.0;
+    float3 sum = 0;
+    uint pick = ULTRART_NO_LIGHT;
+    float wSum = 0.0, pickW = 0.0, M = 1.0;
+    float3 pickC = 0, pickL = 0;
+    float pickD = 0.0;
+    float3 c, L;
+    float dist;
+    if (_GlintCount <= (int)_UltraRTGlint2.x || _LightSampling <= 0 || _RisLightCount <= 0)
+    {
+        // Four entries per step, their records loaded up front: the loop is bound by load latency, not arithmetic (8-2's
+        // pool seen straight down: +1.1 ms with one dependent load chain per light). Out of reach or outside the widest
+        // lobe the light can have (alpha + the size widening's cap) skips the light model entirely.
+        float aMax = alpha + _UltraRTGlint2.z;
+        float t2Max = 16.0 * aMax * aMax;
+        [loop] for (int k = 0; k < _GlintCount; k += 4)
+        {
+            float4 rec[4] = { _GlintRecs[k], _GlintRecs[k + 1], _GlintRecs[k + 2], _GlintRecs[k + 3] };
+            [unroll] for (int j = 0; j < 4; j++)
+            {
+                float4 r = rec[j];
+                if (r.w < -1.0e8) continue;
+                float3 toC = r.w != 0.0 ? r.xyz - p : r.xyz;
+                float d2 = max(dot(toC, toC), 1e-8);
+                if (r.w != 0.0 && d2 > r.w * r.w) continue;
+                if (r.w >= 0.0)
+                {
+                    float nh = dot(n, normalize(V + toC * rsqrt(d2)));
+                    if (nh <= 0.0 || 1.0 - nh * nh > t2Max * nh * nh) continue;
+                }
+                uint i = _GlintLights[k + j];
+                float w = GlintTerm(i, p, n, V, alpha, f0, layer, c, L, dist);
+                if (w <= 0.0) continue;
+                if (LightUnshadowed(i)) { sum += c; continue; }
+                wSum += w;
+                if (stable)
+                {
+                    pickC += c; // all shadowed highlights, under the brightest one's visibility
+                    if (w > pickW) { pick = i; pickW = w; pickL = L; pickD = dist; }
+                }
+                else if (Rand(rng) * wSum < w) { pick = i; pickW = w; pickC = c; pickL = L; pickD = dist; }
+            }
+        }
+        if (stable) wSum = pickW; // the estimate below is then pickC itself
+    }
+    else
+    {
+        [loop] for (int k = 0; k < _FillCount; k++)
+        {
+            if (GlintTerm(_FillLights[k], p, n, V, alpha, f0, layer, c, L, dist) > 0.0) sum += c;
+        }
+        int count = max((int)_UltraRTGlint2.y, 1);
+        M = (float)count;
+        [loop] for (int j = 0; j < count; j++)
+        {
+            uint li;
+            float pdf;
+            SampleLightTable(Rand(rng), li, pdf);
+            float t = 0.0;
+            if (pdf > 0.0) t = GlintTerm(li, p, n, V, alpha, f0, layer, c, L, dist); // not ?: (both sides run)
+            float w = t > 0.0 ? t / pdf : 0.0;
+            wSum += w;
+            if (w > 0.0 && Rand(rng) * wSum < w) { pick = li; pickW = t; pickC = c; pickL = L; pickD = dist; }
+        }
+    }
+    // Nothing worth a shadow ray: a highlight that would add under about 1/255 once displayed (the lobe's tails over most
+    // of a pool). Measured: 8-2's pool seen straight down traced one per pixel (+1.25 ms in relight before this).
+    float3 est = pickC * (pickW > 0.0 ? wSum / (M * pickW) : 0.0) * (_LightScale * _UltraRTGlint.x);
+    bool worth = LightLuminance(LightToDisplay(est)) > 0.004;
+    [branch] if (pick != ULTRART_NO_LIGHT && pickW > 0.0 && worth)
+    {
+        // One trace site for both cases (docs/performance.md, "One shadow-ray trace site").
+        float3 sL = pickL;
+        float sD = pickD;
+        uint mask, s = 2u;
+        if (stable)
+        {
+            mask = (_FixtureShadows > 0.5 && !LightSkipsFixtures(_Lights[pick * 4 + 3]) ? 0x05u : 0x01u) | (LightSkipsPlayer(pick) ? 0u : g_ShadowPlayerMask);
+            sD -= min(kLightFixtureClearance, 0.5 * sD);
+        }
+        else s = LightShadowSetup(pick, p, ng, sL, sD, mask);
+        if ((((uint)_UltraRTGlint2.w) & 8u) != 0u) s = 1u; // bench glint.noShadow=1: unshadowed (cost split)
+        bool vis = s == 1u;
+        g_ShadowTint = 1.0;
+        if (s == 2u) vis = VisibleRaw(p, ng, sL, sD, mask);
+        if (vis) sum += pickC * g_ShadowTint * (wSum / (M * pickW));
+        lightDist = min(pickD, 1000.0);
+    }
+    return max(sum, 0.0) * (_LightScale * _UltraRTGlint.x);
+}
+
+// Limits what a glint adds (display units) to luminance _UltraRTGlint.w: a pinpoint lamp under a sharp lobe would
+// otherwise light single trace texels far above white, which upscaling turns into blobs.
+float3 GlintClamp(float3 add)
+{
+    add = max(add, 0.0);
+    float l = dot(add, float3(0.2126, 0.7152, 0.0722));
+    return l > _UltraRTGlint.w ? add * (_UltraRTGlint.w / l) : add;
+}
+
 // x: lobe spread used for the reflection hit's cache footprint test (large = always shade from the radiance cache:
 // smooth, no shadow-ray noise; there is no temporal filter on this pass). y: 1 = trace transparents into _Output.
 float4 _TransParams;
 float4 _TransRect; // NDC rectangle that holds every water / glass / blood instance (Plugin.Transparent.cs); outside: no transparent ray
 
-float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint rng)
+// glint: the lights' highlights on the surface (display units, Fresnel applied), for the overlay to add.
+float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint rng, out float3 glint)
 {
+    glint = 0;
     ray.TMin = 0.0;
     ray.TMax = opaqueT > 0.0 ? opaqueT + 0.05 : 1.0e5;
     RayPayload p = (RayPayload)0;
@@ -206,12 +407,21 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint
     SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
     float3 n = ng;
     // 13 = Wet: water. One texel of this trace covers p.t x pixelAngle across the view and 1 / cos more along it.
-    if (mat.cls == 13u)
-        n = WaterNormalBand(ng, pos, p.t, _UltraRTWaterBand > 0.5 ? p.t * pixelAngle / max(abs(dot(ng, ray.Direction)), 0.05) : 0.0);
+    float footprint = _UltraRTWaterBand > 0.5 ? p.t * pixelAngle / max(abs(dot(ng, ray.Direction)), 0.05) : 0.0;
+    if (mat.cls == 13u) n = WaterNormalBand(ng, pos, p.t, footprint);
     float3 L = reflect(ray.Direction, n);
     if (dot(L, ng) < 0.02) L = reflect(ray.Direction, ng);
     float dist;
     float3 lr = TraceReflection(pos, ng, L, false, _TransParams.x, 0.0, p.t, rng, dist);
+    // Glints: the lobe at the rippled normal, widened by the ripples this sample can't resolve (far water is a calm mirror
+    // for the reflection ray, but still spreads a lamp into a long path). Fresnel here; the overlay adds the result.
+    [branch] if (_UltraRTGlint.x > 0.0 && (((uint)_UltraRTGlint2.w) & 1u) != 0u)
+    {
+        float a = _UltraRTGlint.y;
+        if (mat.cls == 13u) a = sqrt(a * a + WaterUnresolvedVariance(p.t, footprint));
+        float ld;
+        glint = GlintClamp(LightToDisplay(GlintLight(pos, n, ng, -ray.Direction, a, mat.f0, PayloadLayer(p), true, rng, ld)));
+    }
     return float4(lr, p.t);
 }
 
@@ -299,6 +509,7 @@ void RayGenBody(bool full)
     TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_CAMERA), inFlags, ray, p, path);
 
     float3 c, lighting, albedo, emission;
+    uint litWord = 0u; // _LitWeight.w
     if (p.t < 0.0)
     {
         c = SkyRadiance(ray.Direction);
@@ -306,7 +517,6 @@ void RayGenBody(bool full)
         albedo = 1;
         emission = 0;
         _NormalDepth[id] = float4(0, 0, 0, -1);
-        _LitWeight[id] = uint4(0, 0, 0, 0);
         _InstanceId[id] = int2(-1, 0);
         _Surface[id] = PackSurface(albedo, emission, 0u, 0u);
         _Reflection[id] = float4(0, 0, 0, -1);
@@ -416,12 +626,13 @@ void RayGenBody(bool full)
             g_PlayerF = saturate(1.0 - p.alpha * dot(g_PlayerBlocked, lw) / max(dot(lighting, lw), 1e-6));
         }
         albedo = p.albedo;
+        float bw = 0.0; // fresh blood's wetness here
         if (_BloodWetParams.x > 0.0 && path.hops == 0u && p.alpha > 0.5)
         {
             // Fresh blood on this pixel: a glossy, darker film over the surface (a dielectric coat, as rain; REFLECTION
             // materials keep the game's model). The game multiplies the stain's red over the result afterwards.
             float2 suv = ndc * _BloodWetParams.yz * 0.5 + 0.5;
-            float bw = all(suv > 0.0) && all(suv < 1.0) ? _BloodWetTex.SampleLevel(my_linear_clamp_sampler, suv, 0) * _BloodWetParams.x : 0.0;
+            bw = all(suv > 0.0) && all(suv < 1.0) ? _BloodWetTex.SampleLevel(my_linear_clamp_sampler, suv, 0) * _BloodWetParams.x : 0.0;
             if (bw > 0.0)
             {
                 SurfaceMaterial bm = MaterialFromPayload(p.material, p.flags);
@@ -461,6 +672,21 @@ void RayGenBody(bool full)
                 float3 lr;
                 if (full) lr = PtReflection(pos, nv, n, ray.Direction, mat.roughness, hitCone, rng, dist); // specular paths
                 else lr = TraceReflection(pos, nv, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, tTotal, rng, dist);
+                // Glints on wet surfaces (rain film, puddles, the Wet class, fresh blood): the lights' highlights join the
+                // reflected radiance, so the composite's Fresnel and specular weight (and the reflection filter, or RR's
+                // specular guides) treat both alike. The lobe is at least _UltraRTGlint.z wide: a puddle is a near mirror
+                // for the reflection ray, but a pinpoint lamp needs a streak to read.
+                bool wetHere = (p.flags & ULTRART_FLAG_WET) != 0u || mat.cls == 13u || bw > 0.0;
+                [branch] if (_UltraRTGlint.x > 0.0 && (((uint)_UltraRTGlint2.w) & 2u) != 0u && wetHere && mat.mode == ULTRART_REFL_SPECULAR)
+                {
+                    float ld;
+                    float3 g = GlintLight(pos, n, nv, -ray.Direction, max(mat.roughness * mat.roughness, _UltraRTGlint.z), -1.0, layer, false, rng, ld);
+                    float3 add = GlintClamp(LightToDisplay(ToLight(lr) + g) - lr);
+                    // Where the highlight outweighs the reflection, its virtual image is the light's: the reflection filter
+                    // and RR reproject the streak from there.
+                    if (ld > 0.0 && dot(add, float3(0.2126, 0.7152, 0.0722)) > dot(lr, float3(0.2126, 0.7152, 0.0722))) dist = ld;
+                    lr += add;
+                }
                 refl = float4(lr, dist);
                 // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered
                 // reflection in Reflections.compute instead.
@@ -470,7 +696,7 @@ void RayGenBody(bool full)
         _Reflection[id] = refl;
         _Surface[id] = PackSurface(albedo, emission, p.material, p.flags);
         _NormalDepth[id] = float4(PortalToVirtual(path, n), tTotal);
-        _LitWeight[id] = uint4(0, 0, 0, Unorm8(p.alpha));
+        litWord = Unorm8(p.alpha);
         // x: instance (consumers use its low 7 bits). Seen through a portal, the high half holds the distance to the first
         // portal surface (half float, > 0), which is what the game's depth buffer has there (Composite.shader).
         uint instWord = p.instance & 0xFFFFu;
@@ -494,9 +720,12 @@ void RayGenBody(bool full)
     // shows through a portal).
     // An if, not ?: (HLSL 2018 evaluates both sides: the transparent ray and its reflection were traced in every mode).
     float4 outC = float4(c, 1.0);
+    float3 glint = 0;
     [branch] if (_TransParams.y > 0.5 && all(ndc >= _TransRect.xy) && all(ndc <= _TransRect.zw))
-        outC = TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, pixelAngle, rng);
+        outC = TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, pixelAngle, rng, glint);
     _Output[id] = outC;
+    // xy: the transparent surface's glints (halves, display units) for TransparentOverlay.shader; w: the lit weight.
+    _LitWeight[id] = uint4(f32tof16(glint.r) | (f32tof16(glint.g) << 16), f32tof16(glint.b), 0u, litWord);
 }
 
 #ifdef ULTRART_RAY_COUNTS

@@ -20,7 +20,8 @@
 //       _LightMasks.
 //   [2] forward, soft-shadow radius (m; 0 = _LightRadius; < 0 upper half-sphere). Lights lifted out of their fixture
 //       get the fixture's size.
-//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), w unused (was
+//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), w: 0, or the colour a
+//       handed-over lamp keeps for its glints (Plugin.Glints.cs, GlintColorCode; PathTrace.raytrace GlintTerm). Was
 //       the removed hybrid mode's weight for lights the game doesn't draw)
 // Area lights (per-level light overrides, LightOverrides.cs; docs/lighting-overrides.md) keep this layout:
 //   [2] xyz the emission normal (rect/disc emit to its side only), w half-size x (sphere/disc: radius)

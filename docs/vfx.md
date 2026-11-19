@@ -207,6 +207,10 @@ its dark sky (a metal's reflection replaces its diffuse colour). REFLECTION mate
 wherever the game sets it: P-2 (1,245 of 1,427 rain-capable materials at the vent pose), 8-2's streets, 7-3's
 outdoor parts (the recorded 7-3 poses are indoors: 2 of 366 materials raining, so there is no 7-3 screenshot).
 
+Lamp highlights on the wet film and puddles (they had none: the lights' specular term was missing, not too rough) are
+glints since 2026-11-19 (docs/reflections.md, "Glints"): the rain film flags its hits (`ULTRART_FLAG_WET`), and fresh
+blood and the Wet class get them too.
+
 ### Soft puddles (2026-11-17, `t3/trailer-fixes`; on by default since the user's review the same day, `-ultrart-wet-soft off` for the old look)
 (Measuring trap: P-2's puddle pose changes with the level's own lighting over time. The game frame's mean luma was
 9.8 in one launch and 25.7 in another, and two identical modes of one launch differ by a factor of two: compare the

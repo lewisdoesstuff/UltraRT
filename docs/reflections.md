@@ -382,6 +382,7 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 | `-ultrart-transparent-strength X` (Fresnel weight multiplier) | 1 |
 | `-ultrart-water-waves X` (ripple slope scale, 0 = flat mirror) | 1 |
 | `-ultrart-water-refraction X` (0 = off, skips the colour copy) | 1 |
+| `-ultrart-glints X` / `-ultrart-noglints` (the lights' highlights on water and wet surfaces, "Glints" below) | 1 |
 
 F0 is 0.12 (water) and 0.08 (glass), above the physical 0.02/0.04: the game's water and glass textures are bright and fairly opaque, and at physical strength the reflection only showed at grazing angles. GPU timer slot `prealpha`: the colour copy. The trace itself is part of `dispatch`.
 
@@ -522,7 +523,7 @@ sheets `bench/results/review/caustics-rt/sheet_1-4.png`, `crop_1-4_water.png`, `
 - **Tried**: `trans.strength=3` and `trans.waterF0=0.3` only make the strips darker and more navy (more of the dark sky).
   A stronger Fresnel is not the lever in a night level.
 - **What would make it read ray traced**, with trade-offs:
-  1. Bright things to reflect: the bridge lamps and the moon. A glint on rippled water needs the reflection to hit them;
+  1. (Done since 2026-11-19: "Glints" below.) Bright things to reflect: the bridge lamps and the moon. A glint on rippled water needs the reflection to hit them;
      today the reflection hit is shaded from the radiance cache and the lamp fixtures are small. Specular highlights of
      the lights on the water (an NEE term in the overlay's reflection, GGX at the ripple normal) would put moving lamp
      and moon streaks on the water: the most "RT" cue at night, about one more shadow ray per water pixel.
@@ -533,6 +534,104 @@ sheets `bench/results/review/caustics-rt/sheet_1-4.png`, `crop_1-4_water.png`, `
      bluer deep water; the biggest change, the most work (RR guide buffers for the refracted surface).
   4. Rougher, wider reflection lobe: softer, more visible sheen under the sky gradient; costs sharpness and is noisier
      (one ray, no temporal filter on this pass).
+
+### Glints: the lights' highlights on water and wet surfaces (2026-11-19, `t3/water-wet-specular-glints`)
+
+A reflection ray only sees what it hits. ULTRAKILL's lights are points (the sun and moon are directions), which no ray
+hits, so night water reflected the dark room and none of its lamps, and wet floors had no lamp streaks: opaque surfaces
+got the lights' diffuse term only, and their specular lobe came from the reflection ray alone. Glints add the missing
+term, next-event estimation on a sharp GGX lobe (`PathTrace.raytrace`, `GlintLight` / `GlintTerm`).
+
+- **The term.** Per light: its colour from the light model (`LightEvalRaw`: falloff, spot cone, N.L) x GGX D x the
+  height-correlated Smith visibility, Fresnel apart. Emissive surfaces are left out: the reflection ray sees them. The
+  lobe widens by half the light's angular radius (its soft-shadow sphere, an area light's half size, the sun disk), by
+  at most `lightSize` (0.1 GGX alpha): a broad lobe is a sheen over the floor, not a streak.
+- **Which lights.** Per frame the plugin lists the lights whose reach (twice the range: every falloff ends there) meets
+  the view frustum, or every light while a portal is in view (`Plugin.Glints.cs`, `GlintList`; log `Glints: N of M
+  lights reach the view`). Each entry carries a record (position, reach), so the shader rejects a light that is out of
+  reach or outside the lobe (D under about 1/300 of its peak) without a dependent load, four at a time. The player's
+  own lights (at the eye, the held torch; flag in `_Lights[i*4+1].w`) never glint: their highlight lit the floor around
+  the camera.
+- **Handed-over lamps.** A lamp whose glowing part carries its light (docs/lighting-overrides.md, "Handover") keeps a
+  zero or cut colour, so it had no glint: P-2's and 1-4's street lamps. `ApplyResolved` stores the light's own colour x
+  intensity in the unused `_Lights[i*4+3].w` (`GlintColorCode`: 8-bit sqrt(c / 16) per channel as an exact integer,
+  plus 1), and `GlintTerm` uses it in place of the packed colour. The reflection ray still sees the glowing part itself,
+  so a mirror-sharp puddle shows the bulb plus the glint around it.
+- **Water, glass, liquid blood** (`TraceTransparent`). The lobe sits at the rippled normal. Its alpha is `waterAlpha`
+  (0.05), widened by the ripples this trace texel cannot resolve (`UltraRTWater.hlsl`, `WaterUnresolvedVariance`: the
+  slope variance of the waves `WaterNormalBand` fades out by distance or footprint; alpha^2 += it). So far water, a calm
+  mirror for the reflection ray, still spreads a lamp into a long path. Fresnel is applied here (Schlick at V.H, the
+  surface's f0). This pass has no temporal filter, so it is deterministic: every listed light is weighed, the light
+  with the brightest highlight gets the one shadow ray (aimed at its centre: no soft-shadow jitter), and its visibility
+  stands for all of them. Nothing is traced where the glint would add under about 1/255 once displayed. The result
+  (display units, clamped to luminance `maxLuminance` 4) goes to `_LitWeight.xy` as halves (xyz were unused: no new
+  UAV). The overlay's Reflect pass adds it on top of the Fresnel blend, past its weight cap and tone curve, times
+  exposure, fog visibility, the limbo fade and the material's weight (frosted 0.25, blood 0.4).
+- **Wet surfaces** (opaque: the rain film or a puddle, flagged `ULTRART_FLAG_WET` 0x80 by `Proxy.shader`; the Wet
+  class; fresh blood under `BloodWet`). They already traced a reflection ray but had no highlight from any light (not
+  a weak one), so no wet roughness or weight was retuned. The glint joins the reflected radiance (`lr`, Fresnel-free;
+  added in lighting space, converted back to display), so the composite's Fresnel and specular weight, the reflection
+  filter and DLSS RR's specular guides treat both alike. Its lobe is at least `wetAlpha` (0.06): a puddle is roughness
+  0.03 (alpha 0.001) for the reflection ray, which would make a lamp a dot. One light is picked in proportion to its
+  highlight (unbiased; the filters clean it up), with the ordinary soft-shadow ray. Where the highlight outweighs the
+  reflection, the reflection's hit distance becomes the light's, so the filter and RR reproject the streak from its
+  virtual image.
+- **Sun and moon.** Directional lights glint like the others (a disk of the sun's angular radius). The sky's own
+  picture (1-4's moon in the sky texture) is seen by the mirror ray only; it is not sampled for glints, which would
+  count the sky twice. 1-4's three moonlight directions do not line up with the drawn moon, so there is no moon path
+  under it (`1-4 strip moon`).
+
+| Setting | Default | Where |
+|---|---|---|
+| Strength (`[Effects] Glints`, `-ultrart-glints X`, `-ultrart-noglints`, bench `glint.strength=X`) | 1, 0 = off | Advanced page, Effects |
+| `glint.water`, `glint.wet` | on, on | bench |
+| `glint.waterAlpha`, `glint.wetAlpha`, `glint.lightSize` | 0.05, 0.06, 0.1 | bench |
+| `glint.maxLuminance` (firefly clamp, display units) | 4 | bench |
+| `glint.playerLights`, `glint.cull`, `glint.noShadow` (cost split only) | off, on, off | bench |
+| `trans.legacyGamma` | off | bench: the overlay's old double gamma conversion (below) |
+
+**Overlay gamma fix.** Since the sky/GI merge (2026-11-14) the overlay converted the traced water reflection to display
+units a second time under linear transport (`^(1/2.2)` of a value `TraceReflection` had already converted): a night sky
+at 0.05 showed as 0.26, so dark water reflections read hazy and washed out. That conversion is gone;
+`trans.legacyGamma=1` restores it for A/B. Water reflections are darker and clearer now (8-2's pool, 1-4's strips).
+
+Validation (alt, 2560x1440, trace scale 0.5; suites `bench/suites/glints-final.json` (the look), `glints3.json` (pool
+burst, motion with flat water), `glints-perf.json` and `glints-perf3.json` (cost, perf hold); final run
+`20261119-205424_glints-final_alt`; sheets, gitignored, in `bench/results/review/glints/`):
+
+- **1-4's water strip toward the bridge lamps** (`1-4 strip lamps`): a bright rippled streak runs across the water toward
+  the end lamp (a handed-over lamp) in relight and pathtrace, and V1's reflection shows dark against it. Before, the
+  strip mirrored the night sky only (`f14.png`).
+- **2-1's channel**: the lamps along the channel become long broken streaks on the far water. A level light above the
+  near water makes a large soft highlight there (not the player's light: it stays with `glint.playerLights=0`).
+- **8-2's pool (pose 1)**: little change in the look (few lamps fall in its lobe at that pose). Noise over the pool,
+  16-frame burst sigma, glints on / off: relight 1.66 / 1.77, pathtrace 1.74 / 1.76. Two earlier versions turned the
+  pool into grain (sigma 3.2): first a random pick between overlapping lamps, then the soft-shadow jitter of the one
+  ray. Both are why the water path is deterministic.
+- **P-2's streets**: the level's own lighting changes by up to 2 EV between shots (red flashes; the `game match` lines
+  range from -2.7 to -5.9), so with/without pairs differ more by the moment than by the glints. At matching moments the
+  wet street gains faint highlights from the red lights, and no artefacts. Its white street lamps glint as handed-over
+  lamps, but no streak under them showed at the bench poses.
+- **Motion** (`2-1 channel sweep`, 12 deg/s, motion noise over 64 frames): with flat water (`trans.waves=0`) glints
+  change nothing (relight 0.90 -> 0.85, pathtrace 1.17 -> 1.23). With ripples the metric reads 1.58 -> 1.93, but the
+  replays don't rewind the ripples' clock (`Time.timeSinceLevelLoad`), so each pass sees different wave phases, which
+  the glints make visible: animation, not noise.
+
+Cost (perf hold, `glints-perf.json`, run `20261119-205101_glints-perf`, dispatch ms, glints on vs off). A video encode
+ran on the same GPU during these runs, so absolute times may be high; on and off alternate within each launch.
+
+| Pose | relight | pathtrace |
+|---|---|---|
+| 8-2's pool seen straight down (water fills the screen: the worst case) | 5.14 vs 4.16 (+0.99) | 3.00 vs 2.43 (+0.58) |
+| 8-2 pose 1 (pool in the lower third) | 2.71 vs 2.69 (+0.02) | 1.64 vs 1.62 (+0.02) |
+| 1-4's water strip | 1.43 vs 1.35 (+0.08) | 1.01 vs 0.97 (+0.04) |
+| P-2's street (wet floors fill the view) | 3.83 vs 3.59 (+0.24) | 3.01 vs 2.72 (+0.30) |
+
+The worst case, split (`glints-perf3.json`): the shadow ray is about 0.2 ms of it, and the frustum list changes nothing
+there (most of 8-2's lights reach the view: 86 of 121 at pose 1); the rest is the per-pixel light loop. Earlier versions: +2.1 ms
+(no range cull, lobe cut at 1/4000), +1.25 ms (with both), +1.1 ms (before the records, four per step). Not done: a
+per-water-plane mirror-image cull (a light glints on a horizontal surface only if its mirror image is in view), which
+would cut the straight-down case to the few lamps overhead.
 
 ### Limits
 

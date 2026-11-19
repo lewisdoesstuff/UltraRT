@@ -47,6 +47,9 @@ namespace UltraRT
         /// <summary>-ultrart-nofrosted / bench variant trans.frosted=0: frosted transparents leave the scene (they stay a
         /// transparent surface). Runtime switch, like LavaSettings.active.</summary>
         public bool frosted = true;
+        /// <summary>Bench trans.legacyGamma=1: the overlay converts the traced reflection to display units a second time
+        /// under linear transport, as it did until 2026-11-19 (it lifted dark reflections: 0.05 showed as 0.26).</summary>
+        public bool legacyGamma = false;
     }
 
     /// <summary>

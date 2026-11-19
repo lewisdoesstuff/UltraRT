@@ -1,0 +1,34 @@
+{
+  "Name": "glints3",
+  "Note": "Glints, third pass: frame-to-frame noise on 8-2's pool (burst, region = the pool), the 2-1 sweep with flat water (trans.waves=0: replays don't rewind the ripples' clock, so only flat water isolates noise), P-2's street.",
+  "Scenarios": [
+    {
+      "Name": "8-2 pose 1",
+      "Scene": "Level 8-2",
+      "Path": { "Type": "static", "Approach": "../recordings/u1118-8-2-1.json", "Duration": 4 },
+      "Modes": [ "off", "relight", "relight+glint.strength=0", "pathtrace", "pathtrace+glint.strength=0" ],
+      "Screenshots": [ 2 ],
+      "Burst": 16,
+      "BurstModes": [ "relight", "relight+glint.strength=0", "pathtrace", "pathtrace+glint.strength=0" ],
+      "BurstRegions": [ [ 0.36, 0.48, 0.56, 0.62 ] ]
+    },
+    {
+      "Name": "2-1 channel sweep",
+      "Scene": "Level 2-1",
+      "Path": { "Type": "sweep", "Approach": "../recordings/u1118-2-1-1.json", "YawSpeed": 12, "PitchAmplitude": 3, "Duration": 5 },
+      "Modes": [ "off", "relight", "relight+glint.strength=0", "pathtrace" ],
+      "Screenshots": [ 2.5 ],
+      "Motion": 64,
+      "MotionStrip": 0,
+      "MotionModes": [ "off", "relight+vol=0+trans.waves=0", "relight+vol=0+trans.waves=0+glint.strength=0", "pathtrace+vol=0+trans.waves=0", "pathtrace+vol=0+trans.waves=0+glint.strength=0" ]
+    },
+    {
+      "Name": "P-2 street",
+      "Scene": "Level P-2",
+      "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Duration": 6 },
+      "Modes": [ "off", "relight", "relight+glint.strength=0", "pathtrace", "pathtrace+glint.strength=0" ],
+      "Screenshots": [ 2.5, 3.5, 4.5 ],
+      "ShotSettle": 1
+    }
+  ]
+}
