@@ -169,7 +169,7 @@ namespace UltraRT
             _disabledMaterial = new Material(proxyShader) { name = "UltraRT Disabled" };
             _classifier = new MaterialClassifier(log, MaterialOverrideFolders);
             MaterialClassifier.Current = _classifier;
-            Maps = new MaterialMaps(log, System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "ultrart", "materials"));
+            Maps = new MaterialMaps(log, System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "ultrart", "materials"), BepInEx.Paths.PluginPath);
         }
 
         /// <summary>Per-texel normal/roughness maps (docs/materials.md).</summary>

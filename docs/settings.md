@@ -4,6 +4,9 @@ UltraRT has an in-game settings page, so view mode, quality, lighting and the ef
 
 ## Install and open
 
+The page's first line is the version (`UltraRT 0.3.0`, from `Version.props`; since 2026-11-19), and its end has a
+**Credits** block (NVIDIA DLSS Ray Reconstruction, PBRify Remix; [release.md](release.md), licensing checklist).
+
 PluginConfigurator is optional. Without it UltraRT works as before: flags, hotkeys, and the config file `BepInEx/config/ooo.lew.ultrart.cfg`. Install it from Thunderstore (r2modman or the Thunderstore Mod Manager: search "PluginConfigurator", EternalsTeam), or by hand: unzip the package into `BepInEx/plugins` so that `BepInEx/plugins/PluginConfigurator/PluginConfigurator.dll` exists.
 
 In game: pause, Options, **Plugin Config** (a button PluginConfigurator adds), then **UltraRT**. PluginConfigurator also opens its page list with `]` (rebindable in its own settings).

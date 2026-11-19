@@ -31,6 +31,20 @@ are atlases, kept for reference). Sizes: 730 are 32 px, 373 64 px, 351 128 px, 2
 `_d.png` is RGBA: normal xy, 0.5 + (roughness - the texture's mean) / 2, alpha 1. Without the cache the feature is off
 and logged as such.
 
+**Where the plugin looks** (since 2026-11-19, `MaterialMaps.ResolveDir`), once per source and session:
+1. the local cache, `BepInEx/ultrart/materials/<source>/manifest.json` (as above; maps made on this PC win);
+2. a detail-map package under `BepInEx/plugins` (searched 3 folders deep): a folder with the marker
+   `ultrart-detailmaps.json` (`{"format": 1, "name", "version", "sources": [...]}`; a higher format is skipped with a
+   warning) and `<source>/manifest.json` + `<source>/*_d.png` beside it. r2modman installs the `UltraRT_DetailMaps`
+   package (`scripts/package.ps1 -TexturePack`, [release.md](release.md)) to `BepInEx/plugins/<Team>-UltraRT_DetailMaps/`.
+   Several packages: the newest marker wins, with a warning.
+
+The log says which one in one line: `Material maps (ai): local cache <dir>`, `Material maps (ai): package
+UltraRT_DetailMaps 0.3.0 in <dir>`, or with neither `Material maps (ai): none installed (optional: ...): per-texel detail
+off` (info, no warning: the maps are optional). Tested in an r2modman layout on the alt install (2026-11-19,
+`bench/results/20261119-175409_release-install_alt`: 1955 textures from the package; `-175550_release-dx11_alt`: the
+local cache wins over an installed package).
+
 ### PBRify Remix through spandrel
 
 `1x-PBRify_NormalV3` and `1x-PBRify_RoughnessV2` (Kim2091, CC0, trained on ambientCG/PolyHaven) are SPAN networks.
@@ -586,7 +600,8 @@ The maps are made from the game's textures, so the release will not bundle them:
 download. What does a user without the pack see? Suite `bench/suites/detail-pack.json` (6 poses: 0-1 metal, 1-1
 start, 1-1 indoor a, 8-2 a, 6-2 pose 1, 2-1 pose 1; `off`, pathtrace and relight, each with the `ai` maps and with
 `mat.enabled=0`) and `detail-pack-src.json` (pathtrace, relight) run with `-ultrart-materials-source proc` and with a
-source folder that does not exist (the real no-pack path: `Material maps: no cache at ...: per-texel detail off`).
+source folder that does not exist (the real no-pack path: `Material maps: no cache at ...: per-texel detail off`;
+since the package search the line is `Material maps (<source>): none installed ...`).
 Defaults of the day: strength 1, smoothing 1, LOD on. Alt slot, 2560x1440, RR at 1/3. Runs
 `bench/results/20261119-171951_detail-pack_alt` (ai, off, maps off), `-172244_detail-pack-src_alt` (proc),
 `-172457_detail-pack-src_alt` (no cache); sheets (local, game-derived) `bench/results/detail-pack-sheets/<pose>_sheet.png`

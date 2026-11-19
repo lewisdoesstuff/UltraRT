@@ -38,8 +38,9 @@ namespace UltraRT.Preload
                 bool force;
                 if (!Wanted(out force, out string why)) return;
                 log = Logger.CreateLogSource("UltraRT.Preload");
-                string dll = Path.Combine(Paths.PluginPath, "UltraRT", "UltraRT.Native.dll");
-                if (!File.Exists(dll)) { log.LogWarning($"HDR output asked for ({why}), but {dll} is missing"); return; }
+                string dll = FindNativeDll(log);
+                if (dll == null) { log.LogWarning($"HDR output asked for ({why}), but no {NativeDll} was found under {Paths.PluginPath}"); return; }
+                log.LogInfo($"HDR output: using {dll}");
                 IntPtr module = LoadLibraryW(dll);
                 if (module == IntPtr.Zero) { log.LogWarning($"HDR output: LoadLibrary({dll}) failed, Win32 error {Marshal.GetLastWin32Error()}"); return; }
                 IntPtr fn = GetProcAddress(module, "UltraRT_Hdr_Install");
@@ -54,6 +55,58 @@ namespace UltraRT.Preload
             {
                 try { (log ?? Logger.CreateLogSource("UltraRT.Preload")).LogWarning($"HDR output: preload failed: {e.GetType().Name}: {e.Message}"); }
                 catch { }
+            }
+        }
+
+        private const string NativeDll = "UltraRT.Native.dll";
+        private const string PluginDll = "UltraRT.dll";
+
+        /// <summary>
+        /// UltraRT.Native.dll, wherever UltraRT is installed under BepInEx\plugins: plugins\UltraRT\ (a manual install, the
+        /// repo's deploy) or plugins\&lt;Team&gt;-UltraRT\ (r2modman / Thunderstore Mod Manager; docs/release.md). The plugin
+        /// loads the DLL from the folder of UltraRT.dll, so that folder wins: the copy the HDR hooks go into has to be the one
+        /// the plugin uses later. With several installs (BepInEx loads only one of them) the newest UltraRT.dll wins, with a
+        /// warning. A DLL without UltraRT.dll beside it is the last resort.
+        /// </summary>
+        private static string FindNativeDll(ManualLogSource log)
+        {
+            var withPlugin = new List<(string dir, DateTime stamp)>();
+            var loose = new List<(string dir, DateTime stamp)>();
+            foreach (string dir in Folders(Paths.PluginPath, 4))
+            {
+                string native = Path.Combine(dir, NativeDll);
+                if (!File.Exists(native)) continue;
+                string plugin = Path.Combine(dir, PluginDll);
+                if (File.Exists(plugin)) withPlugin.Add((dir, File.GetLastWriteTimeUtc(plugin)));
+                else loose.Add((dir, File.GetLastWriteTimeUtc(native)));
+            }
+            var pick = withPlugin.Count > 0 ? withPlugin : loose;
+            if (pick.Count == 0) return null;
+            pick.Sort((a, b) => b.stamp.CompareTo(a.stamp));
+            if (pick.Count > 1)
+            {
+                var dirs = new List<string>();
+                foreach (var p in pick) dirs.Add(p.dir);
+                log.LogWarning($"{NativeDll} is in {pick.Count} folders ({string.Join(", ", dirs)}): using {pick[0].dir}. " +
+                               @"Keep only one UltraRT install in BepInEx\plugins.");
+            }
+            return Path.Combine(pick[0].dir, NativeDll);
+        }
+
+        /// <summary>A folder and its subfolders down to maxDepth levels; folders that can't be read are skipped.</summary>
+        private static IEnumerable<string> Folders(string root, int maxDepth)
+        {
+            if (!Directory.Exists(root)) yield break;
+            var stack = new Stack<(string dir, int depth)>();
+            stack.Push((root, 0));
+            while (stack.Count > 0)
+            {
+                var (dir, depth) = stack.Pop();
+                yield return dir;
+                if (depth >= maxDepth) continue;
+                string[] subs;
+                try { subs = Directory.GetDirectories(dir); } catch { continue; }
+                foreach (string d in subs) stack.Push((d, depth + 1));
             }
         }
 

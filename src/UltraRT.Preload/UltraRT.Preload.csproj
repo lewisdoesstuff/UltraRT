@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\Version.props" />
+
   <!-- BepInEx preloader patcher (BepInEx\patchers): runs before Unity creates its graphics device, which is the only
        moment the HDR swapchain proxy can be installed (docs/hdr.md). It patches no assembly. -->
   <PropertyGroup>

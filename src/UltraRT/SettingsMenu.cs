@@ -509,6 +509,7 @@ namespace UltraRT
         {
             var pc = PluginConfig.API.PluginConfigurator.Create("UltraRT", "ooo.lew.ultrart");
             pc.saveToFile = false; // the values live in the BepInEx config; the page only shows and edits them
+            new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel, $"UltraRT {PluginVersion.Number}", 24); // Version.props
             new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel, "Changes apply and save at once. Hotkeys: session only.", 14);
             AddPage(pc.rootPanel, menu.All.Where(s => s.IsBasic));
 
@@ -529,6 +530,13 @@ namespace UltraRT
                 var p = line.Split('|');
                 new PluginConfig.API.Decorators.ConfigHeader(keys, $"{p[0]}  -  {p[1]}", 16);
             }
+
+            // Credits: the NVIDIA DLSS SDK license asks for attribution in an about box or credits (docs/release.md).
+            new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel, "Credits", 22);
+            new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel,
+                "Denoising and upscaling in pathtrace: NVIDIA DLSS Ray Reconstruction (NVIDIA DLSS SDK). NVIDIA and DLSS are trademarks of NVIDIA Corporation.", 14);
+            new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel,
+                "Surface detail maps (optional package): made with PBRify Remix (CC0).", 14);
         }
 
         /// <summary>The settings in registration order, with a header wherever the group changes.</summary>
