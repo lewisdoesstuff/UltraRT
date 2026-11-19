@@ -279,6 +279,70 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## The final trailer, fourth render (2026-11-19, `trailer-final-v4`)
+
+The v3 cut on master with two shots replaced and the 5-2 strike on cue (branch `t3/trailer-v4-render`). Output:
+`bench\results\trailer\trailer-final-v4\` (`trailer-final-final.mp4`, 2560x1440, 60 fps, 114.84 s, 45 Mbit/s, 648 MB;
+`trailer-final-final-1080p.mp4`, 241 MB; `clips\`; `weak-shots-v3-v4.png`: one late frame per shot, v3 | v4). The
+frames are kept in the branch worktree's `bench\results\2026111*_trailer-final-final-*_alt` (37 GB), to delete once
+the cut is accepted.
+
+Builds: run 1 (0-1 statue room, 7-3 tree, 1-1 hallway, 8-2 street) on master bb80589 (film tone curve, fixtures and
+door hot lights, HDR-aware exposure, cutout pass, held-skull and grazing-floor fixes, 0-S, Gabriel's light, 8-2's still
+pool, portals, level look 3); every other shot, P-2's hall again among them, on master 1c2ec96 (+ `t3/stained-glass`,
+which came in while run 1 was rendering).
+
+Changes against v3:
+- **2-4 tunnel** (new, 3 bars, hard switch on the bar) replaces 8-2's standing lamp: a 20 m push down the tunnel of
+  the user's 2-4 pose 3 towards the arches that RT lights red and the game leaves purple and dark ("looks phenomenally
+  good", user 2026-11-18). Path `final-2-4-tunnel` (`Load: checkpoint`).
+- **2-1 water** (new, 4 bars, sweep from the right, caption "Reflective water") replaces 6-2's hall: the user's 2-1
+  reflection sweep. From 0.8 m above the user's pose (the channel is 3.5 m to its right, the water about 2 m under its
+  feet) the camera glides 10 m down the channel and drops to just over the water, turning from the left wall to the
+  door, so the walls and the door's green ring end up mirrored in the rippling water; the game's water is a flat
+  transparent blue. Path `final-2-1-water`; scouts `bench/trailer/scout-v4.json`, `scout-v4b.json`.
+- **5-2 strike on cue**: the 15 s take of run 2 had no strike at all, so v4 calls one (`Calls`, docs/cinematics.md):
+  `LightningStrikeDecorative_Animated.FlashStart` on the second-nearest of the sea's three bolts (`Index` 1, the one
+  ahead and to the right, in frame; the nearest is out of frame to the left) at path 2.45 s. The flash is 0.3 s after
+  the call, 1.53 s into the clip (bar at 1.5 s); mean luma 34 -> 120, back after a second. Take = the clip, 5.7 s.
+- **7-3 gun** (the user's v3 note: not too dark): left as rendered, no trailer-only lift. Late frame mean 18 -> 22,
+  p95 91 -> 111; at the switch the traced frame is mean 24 against the game's own 13, with the trees along the path
+  visible. 7-3 is a dark level, and RT is already brighter than the game there.
+- 1-1 terminal: some of the start room's red is back (chroma 36 -> 47; the shaft light, `prefab:firstroomshaft`).
+- P-2 hall: the stained-glass take; its puddle reads red, not yellow-green.
+
+One late frame per clip (the traced side; mean and 95th percentile of luma, chroma = mean channel spread; frames
+include the captions; the replaced slots compare v3's old shot with the new one):
+
+| Shot | v3 -> v4 | |
+|---|---|---|
+| 0-1 statue room | mean 45 -> 38, p95 140 -> 113, chroma 59 -> 51 | a little darker highlights (film curve) |
+| 7-3 tree | mean 39 -> 44, p95 105 -> 154 | brighter trunk, the red holds |
+| P-2 hall | mean 11 -> 15, p95 27 -> 36 | a little brighter |
+| 1-1 hallway | mean 98 -> 116, p95 197 -> 233 | brighter torch light, warmer white |
+| 8-2 street | mean 77 -> 66, p95 138 -> 121 | the night street a little darker (8-2 `followGame` 0.75), pools and the still pool kept |
+| 1-3 water | mean 83 -> 80 | the same |
+| 4-4 hall | mean 68 -> 86, p95 199 -> 227, chroma 107 -> 124 | brighter, more colour |
+| 5-2 sea (t 1.7 s) | mean 79 -> 111 | in the strike in both; v4's bolt is the same one, called on cue |
+| P-2 street | mean 33 -> 22, p95 88 -> 40 | **darker** at this frame: the arch is lit less (the street's lamps flicker at random; the hard switch is unchanged) |
+| 1-1 terminal | mean 38 -> 41, chroma 36 -> 47 | more red behind the terminal |
+| 2-2 street | mean 39 -> 44 | a little brighter |
+| 7-3 gun | mean 18 -> 22, p95 91 -> 111 | brighter (above) |
+| 0-5 lava, museum fountain, 1-4 lamps | within 1 | the same |
+| 8-2 lamp -> 2-4 tunnel | - | new shot, mean 30, chroma 60 |
+| 6-2 hall -> 2-1 water | - | new shot, mean 39 |
+
+Render (alt slot, the lock released between runs): scouts 82 s, about 80 s and about 60 s; a test of the two new
+shots 86 s; final runs 263 s (run 1), about 200 s (run 2), 185 s (run 3), 155 s (run 4 + the P-2 hall / 5-2 redo),
+then three 5-2 takes of about 45 s each to get the strike (`DistantThunder` and `LightningStrikeDecorative`: none in
+5-2; then the nearest bolt, out of frame; then `Index` 1). Under 20 minutes of game time in all, 0 exceptions.
+Assembly 29.9 minutes, the 5-2 clip and the join again 9.2 minutes (`trailer.py --only 9`).
+
+Scouted and left out: 6-2's Grand Hall at the user's pose 1 with `t3/stained-glass` (`scout-v4c.json`): the windows
+show their lead pattern, but no window beam read on the floor in 14 views, and the hall is the same all-red look as the
+6-2 shot that went out. 0-S's skull corridor was not tried: the held skull needs a cinematic take with a held item
+(`Shots` with `holditem` and `ShowWeapon` might do it), and the 2-4 tunnel showed this week's work better.
+
 ## The final trailer, third render (2026-11-18, `trailer-final-v3`)
 
 The same cut again (`bench/trailer/trailer-final-final.json`; one plan change: the 5-2 shot's `TierIn` for the final
@@ -500,7 +564,7 @@ Known problems in the footage, left as they are (renderer bugs are not fixed on 
 - The bench's install has no custom gun colours, so the revolver and V1's gun are in the default colours.
 - P-2's long shadow from the street lamp is faint: the steady lamp post beside it lights the same ground.
 - 5-2's lightning is random. Up to v3 the clip's `In` was set to a strike of the take in use (`TierIn`, a 15 s take);
-  v4's 15 s take had no strike at all. Since v4 the strike is called on cue (`Calls`: the nearest
-  `LightningStrikeDecorative_Animated`'s `FlashStart` at 2.45 s of the path; the flash comes 0.3 s later, 1.55 s into
-  the clip, mean luma 33 -> 116, back to 33 after a second), and the take is the clip's length.
+  v4's 15 s take had no strike at all. Since v4 the strike is called on cue (`Calls`: `FlashStart` of the
+  second-nearest `LightningStrikeDecorative_Animated`, the bolt in frame, at 2.45 s of the path; the flash comes 0.3 s
+  later, 1.53 s into the clip, mean luma 34 -> 120, back after a second), and the take is the clip's length.
 - The game's image of a gunshot shows the gun one animation frame later than the traced image of the same frame.
