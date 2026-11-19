@@ -1275,6 +1275,7 @@ namespace UltraRT
             if (_readdDynamic) { _readdDynamic = false; Logger.LogInfo($"Re-added {_proxies.ReAddDynamic()} dynamic instances (diagnostic)"); }
             _proxies.SyncDynamic();
             _proxies.UpdateLava(); // scroll offsets of the lava proxies (SceneProxies.Lava.cs)
+            _proxies.UpdateCaustics(); // caustic volumes and settings (SceneProxies.Caustics.cs)
             _proxies.UpdateVeils(); // the same for the veil proxies (SceneProxies.Veils.cs)
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;

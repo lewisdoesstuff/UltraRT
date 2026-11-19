@@ -15,6 +15,8 @@ namespace UltraRT
     ///   -ultrart-transparent-strength X   Fresnel weight multiplier (default 1)
     ///   -ultrart-water-waves X            ripple strength (default 1, 0 = flat mirror water)
     ///   -ultrart-water-refraction X       screen-space refraction strength (default 1, 0 = off)
+    ///   -ultrart-caustics X               the game's water caustics in the traced modes (default 1, 0 = off; docs/caustics.md)
+    ///   -ultrart-caustics-noshadow        caustics without their shadow ray (as the game draws them)
     /// F4 (reflections) switches the pass too.
     /// </summary>
     public partial class Plugin
@@ -49,6 +51,8 @@ namespace UltraRT
                     case "-ultrart-transparent-strength": s.strength = F(s.strength); break;
                     case "-ultrart-water-waves": s.waves = F(s.waves); break;
                     case "-ultrart-water-refraction": s.refraction = F(s.refraction); break;
+                    case "-ultrart-caustics": SceneProxies.Caustics.strength = F(SceneProxies.Caustics.strength); break;
+                    case "-ultrart-caustics-noshadow": SceneProxies.Caustics.shadows = false; break;
                 }
             }
         }

@@ -95,6 +95,16 @@ Shader "UltraRT/Proxy"
         _WarpDetail ("Warp detail", Float) = 1
         _LocalOffsetRain ("Local offset rain", Float) = 0
         _RainCeilingToggle ("Rain ceiling toggle", Float) = 1
+        // ULTRAKILL/Master CAUSTICS (SceneProxies.Caustics.cs, docs/caustics.md): the game's _CausticMode + 1 (0 = none),
+        // _CausticColor, _CausticsDirection, (_Scale, _Speed, _Falloff), its _Cells / _Perlin textures, and for mode 2 the
+        // renderer's ObjectBoundsToShader bounds centre (w 1 = set; without it the game draws nothing).
+        _Caustics ("Caustics (mode + 1)", Float) = 0
+        _CausticColor ("Caustic colour", Color) = (1,1,1,1)
+        _CausticDir ("Caustics direction", Vector) = (0,1,0,0)
+        _CausticParams ("Caustics scale, speed, falloff", Vector) = (1,1,1,0)
+        _CausticBounds ("Caustics bounds centre (w = set)", Vector) = (0,0,0,0)
+        _CausticCells ("Caustic cells", 2D) = "white" {}
+        _CausticPerlin ("Caustic perlin", 2D) = "white" {}
     }
 
     SubShader
@@ -182,6 +192,81 @@ Shader "UltraRT/Proxy"
             float _UltraRTTexScroll; // global: 1 = SCROLLING textures move (bench plugin._texScroll=0: frozen, as before)
             float _UltraRTScrollMotion; // global: 1 = scrolling surfaces report the texture's motion (bench plugin._texScrollMotion=0)
             float _UltraRTFrameDt;      // global: Time.deltaTime of this frame (the game's scroll step)
+
+            // ---------------------------------------------------------------- caustics (docs/caustics.md)
+            float _Caustics;
+            float4 _CausticColor, _CausticDir, _CausticParams, _CausticBounds;
+            Texture2D _CausticCells, _CausticPerlin;
+            // Globals (SceneProxies.UpdateCaustics): per CausticVolume two entries, as the game's _CausticVolumeData:
+            // (position, nearRadius), (colour x intensity, farRadius). _UltraRTCaustics: x strength (0 = off), y volume
+            // count, z 1 = camera hits shadow the pattern (PathTrace.raytrace, CausticShadowed).
+            StructuredBuffer<float4> _UltraRTCausticVolumes;
+            float4 _UltraRTCaustics;
+
+            // The game's projection (ULTRAKILL/Master GLCore, decompiled): P rotated by the rotation that takes "up" to d
+            // (axis normalize(d.z, 0, -d.x), angle acos(d.y)); its x and z. d = up (or straight down) projects on world xz.
+            float2 CausticProject(float3 P, float3 d)
+            {
+                float3 e = d - float3(0.0, 1.0, 0.0);
+                float l2 = d.x * d.x + d.z * d.z;
+                if (dot(e, e) <= 1e-5 || l2 < 1e-12) return P.xz;
+                float2 k = float2(-d.x, d.z) * rsqrt(l2);
+                float c = clamp(d.y, -1.0, 1.0);
+                float s = sqrt(1.0 - c * c);
+                float oc = 1.0 - c;
+                float3 r0 = float3(k.y * k.y * oc + c, -k.x * s, oc * k.x * k.y);
+                float3 r1 = float3(oc * k.x * k.y, k.y * s, k.x * k.x * oc + c);
+                return float2(dot(r0, P), dot(r1, P));
+            }
+
+            // Two scrolling layers of the point-sampled cells minus perlin, (1 - max)^10 (values 0-4, mean 0.29).
+            float3 CausticPattern(float2 uv, float t)
+            {
+                float3 a = _CausticCells.SampleLevel(my_point_repeat_sampler, uv + t * float2(0.1, 0.1), 0).rgb
+                         - _CausticPerlin.SampleLevel(my_point_repeat_sampler, uv + float2(0.36, -0.19) + t * float2(-0.1, 0.0), 0).r;
+                float3 b = _CausticCells.SampleLevel(my_point_repeat_sampler, uv + float2(0.62, 0.62) + t * float2(-0.1, 0.1), 0).rgb
+                         - _CausticPerlin.SampleLevel(my_point_repeat_sampler, uv + float2(-0.61, 0.62) + t * float2(0.0, 0.1), 0).r;
+                float3 r = 1.0 - max(a, b);
+                float3 r2 = r * r;
+                float3 r4 = r2 * r2;
+                return r2 * r4 * r4;
+            }
+
+            // The caustic the game adds after lighting at world point P with the (unflipped) vertex normal N, times
+            // _CausticColor. vol: 1 + the volume that contributes most (the shadow ray's target), 0 = none (modes 0, 1).
+            float3 CausticTerm(float3 P, float3 N, out uint vol)
+            {
+                vol = 0u;
+                float scale = _CausticParams.x * 0.02;
+                float t = _UltraRTRainTime * _CausticParams.y; // the game's _Time.y * _Speed
+                float3 sum = 0;
+                if (_Caustics < 2.5)
+                {
+                    // Modes 0 and 1: one projection along _CausticsDirection; mode 0 fades with the facing (x _Falloff).
+                    float w = _Caustics > 1.5 ? 1.0 : saturate(dot(N, _CausticDir.xyz) * _CausticParams.z);
+                    if (w > 0.0) sum = w * CausticPattern(CausticProject(P, _CausticDir.xyz) * scale, t);
+                }
+                else if (_CausticBounds.w > 0.5)
+                {
+                    // Mode 2: every volume in range; the facing test is the unnormalised dot (full at 1 m from the centre).
+                    uint n = (uint)_UltraRTCaustics.y;
+                    float best = 0.0;
+                    for (uint i = 0u; i < n; i++)
+                    {
+                        float4 a = _UltraRTCausticVolumes[2u * i];
+                        float4 c = _UltraRTCausticVolumes[2u * i + 1u];
+                        float3 toV = a.xyz - P;
+                        float w = saturate(dot(N, toV)) * saturate(1.0 - (length(toV) - a.w) / max(c.w - a.w, 1e-4));
+                        if (w <= 0.0) continue;
+                        float3 D = _CausticBounds.xyz - a.xyz;
+                        float3 dn = dot(D, D) > 1e-12 ? normalize(D) : float3(0.0, 1.0, 0.0);
+                        sum += w * CausticPattern(CausticProject(P, dn) * scale, t) * c.rgb;
+                        float score = w * dot(c.rgb, float3(0.2126, 0.7152, 0.0722));
+                        if (score > best) { best = score; vol = i + 1u; }
+                    }
+                }
+                return sum * _CausticColor.rgb;
+            }
 
             // The game's RAIN term (ULTRAKILL/Master and ULTRAKILL-Stationary pixel shaders, decoded from their DXBC): an
             // albedo change before lighting. Dominant-axis planar projection of the world position (tile 16 / _RainScale
@@ -698,6 +783,15 @@ Shader "UltraRT/Proxy"
                     emission += c * (1.0 - _GameRefl.z);
                 }
 
+                // The game's caustic pattern (CAUSTICS materials), added like emission. Camera hits return it on its own (and
+                // the volume to shadow it from): the ray generation shader traces the shadow ray and adds it (CausticShadowed).
+                float3 caustic = 0;
+                uint causticVol = 0u;
+                [branch] if (_Caustics > 0.5 && _UltraRTCaustics.x > 0.0)
+                    caustic = CausticTerm(WorldRayOrigin() + WorldRayDirection() * RayTCurrent(), nGame, causticVol) * _UltraRTCaustics.x;
+                bool causticApart = wantMotion && any(caustic > 0.0);
+                if (!causticApart) emission += caustic;
+
                 p.albedo = albedo.rgb;
                 // Water the game draws nearly transparent (P-2's puddles: alpha about 0.1) must tint a path about as little:
                 // towards white by the game's blend alpha, full tint from alpha 0.5 up (pools and seas keep their colour).
@@ -759,6 +853,15 @@ Shader "UltraRT/Proxy"
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls)
                         | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT) | (_NoFog > 0.5 ? ULTRART_FLAG_NOFOG : 0u);
+                if (causticApart)
+                {
+                    // UltraRTCommon.hlsl, ULTRART_FLAG_CAUSTIC: rgb in uvHalf and emissionHalf.y's high half, the volume in
+                    // primitive's top byte (its low 24 bits keep the vertex normal of a detail hit).
+                    p.uvHalf = f32tof16(caustic.r) | (f32tof16(caustic.g) << 16);
+                    p.emissionHalf.y = (p.emissionHalf.y & 0xFFFFu) | (f32tof16(min(caustic.b, 65000.0)) << 16);
+                    p.primitive = (p.primitive & 0xFFFFFFu) | (min(causticVol, 255u) << 24);
+                    p.flags |= ULTRART_FLAG_CAUSTIC;
+                }
             }
             ENDHLSL
         }

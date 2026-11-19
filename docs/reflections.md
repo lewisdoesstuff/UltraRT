@@ -106,8 +106,8 @@ SSO collapses a renderer's submeshes into **one slot**, so the slot takes the **
 |---|---|
 | albedo, alpha, normal, t, emission, instance | as before |
 | `material` | roughness 8 \| metalness 8 << 8 \| f0 8 << 16 \| specular weight 8 << 24 (unorm8) |
-| `uvHalf` | half(uv.x) \| half(uv.y) << 16, debug views only (`PayloadUV()`) |
-| `primitive` | debug views only |
+| `uvHalf` | half(uv.x) \| half(uv.y) << 16, debug views only (`PayloadUV()`); camera hits with `ULTRART_FLAG_CAUSTIC` (flags bit 31): the caustic's r, g (docs/caustics.md, section 5) |
+| `primitive` | debug views only; camera hits with a detail normal: the vertex normal (bits 0-23); with `ULTRART_FLAG_CAUSTIC`: 1 + the caustic volume (bits 24-31). The caustic's b is in `emissionHalf.y`'s high half |
 | `flags` | bit 0 geometric normal \| reflection mode 2 << 1 \| layer 8 << 8 \| reflection strength 8 << 16 \| class 5 << 24 |
 
 ## 4. UAVs: still exactly 8
@@ -504,6 +504,36 @@ rougher water surface would calm it). Sheets `bench/results/review/ghost/pool_be
   instances are looked up on the renderers every 30 frames (why the earlier attempt on the shared materials found
   none). Bench `plugin._flatWaterFade=0` = the game's fade. Sheet `bench/results/review/ptm/final_1-1_pose_2.png`.
 
+### 1-4's bridge water (2026-11-19, check only)
+
+The user: on the 1-4 bridge the water "looks not wildly different from stock". Run `20261119-193810_caustics-rt_alt`
+(`caustics-rt.json`, "1-4 bridge", the `1-4-drift-a` route) and `20261119-194530_caustics-iso` ("1-4 bridge down");
+sheets `bench/results/review/caustics-rt/sheet_1-4.png`, `crop_1-4_water.png`, `sheet_1-4_down.png`.
+
+- **Which water**: the strips beside the bridge are `2 - Bridge/2 Nonstuff/Start Side/Plane` (`Limbo Water 2`:
+  TRANSPARENCY, LIMBO_WATER_FADE, SCROLLING, texture `water`, colour alpha about 0.37) and the end side's `Cube`s
+  (`Water`, SCROLLING). Both are classified as water and traced (mask 0x10, overlay attached); not an opaque look-alike.
+  The log shows the transparent ray active with `Plane` the widest at 46-48 % of the view.
+- **What the overlay adds there**: little. Over the left strip (pathtrace against `refl.enabled=0`, which also switches
+  the pass off) the mean difference is 2 / 255, p99 14. The reflection is Fresnel-weighted (f0 0.12) at a steep angle and
+  mirrors a dark night sky and dark hills, so it adds almost nothing and slightly darkens the relit floor seen through
+  the water. Refraction moves only a shallow, thin strip. What reads as "stock" is the game's own faint water drawn over
+  our relit floor.
+- **Tried**: `trans.strength=3` and `trans.waterF0=0.3` only make the strips darker and more navy (more of the dark sky).
+  A stronger Fresnel is not the lever in a night level.
+- **What would make it read ray traced**, with trade-offs:
+  1. Bright things to reflect: the bridge lamps and the moon. A glint on rippled water needs the reflection to hit them;
+     today the reflection hit is shaded from the radiance cache and the lamp fixtures are small. Specular highlights of
+     the lights on the water (an NEE term in the overlay's reflection, GGX at the ripple normal) would put moving lamp
+     and moon streaks on the water: the most "RT" cue at night, about one more shadow ray per water pixel.
+  2. Lower the game's water opacity while traced (draw `Limbo Water*` at a fraction of its alpha) so the traced view
+     through and off the water dominates: a clearer, more glassy look, but the game's water colour and its scrolling
+     texture fade, and the floor under it (relit, brighter than the game's) shows more.
+  3. Traced refraction and depth absorption (section 4 of caustics.md): a real bent view of the floor and darker,
+     bluer deep water; the biggest change, the most work (RR guide buffers for the refracted surface).
+  4. Rougher, wider reflection lobe: softer, more visible sheen under the sky gradient; costs sharpness and is noisier
+     (one ray, no temporal filter on this pass).
+
 ### Limits
 
 - **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF then, 0x6F now: `ULTRART_MASK_SCENE`) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.
@@ -511,7 +541,7 @@ rougher water surface would calm it). Sheets `bench/results/review/ghost/pool_be
 - **Game geometry vs. RT mesh**: SCROLLING UVs are not reproduced on water/glass (LIMBO_WATER_FADE is, see above), so the alpha estimate ignores scrolling; opaque scrolling surfaces (5-2's sea) do scroll since 2026-11-15 (docs/scene-proxies.md, "Scrolling textures"). VERTEX_DISPLACEMENT waves are, since 2026-11-15, except on static-batched water (docs/scene-proxies.md, "Vertex displacement"). The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
 - **The game's own cubemap stays** on REFLECTION water (`Water 10A-D`, `1C`, `6 Still/Reflection`, `Limbo Water ... V2Arena`), on top of ours. For opaque materials it is removed (section 7), but here it is baked into the game's transparent draw.
 - **Renderers whose last material slot is not water/glass** get no overlay (logged as `without overlay`). Unity repeats only the last submesh for an extra material.
-- **Total internal reflection, caustics, glass thickness**: not done (frosted glass is, see "Late playtest fixes"). Glass is a single mirror-Fresnel surface with no refraction. What refracts where today, the game's own caustics (5-1) and the options: [caustics.md](caustics.md).
+- **Total internal reflection, physical caustics, glass thickness**: not done (frosted glass is, see "Late playtest fixes"). Glass is a single mirror-Fresnel surface with no refraction. What refracts where today and the options: [caustics.md](caustics.md). The game's own caustic pattern (5-1) is traced since 2026-11-19 (caustics.md, section 5).
 - **Relight tone mapping** is replicated in the overlay (`Tonemap`, from `Denoise.compute`). If the exposure/tone-mapping work changes that curve, update both.
 - Water/glass are now invisible to shadow, bounce, reflection and cache rays (mask 0xEF at the time, now `ULTRART_MASK_SCENE` 0x6F). Before, they were absent from the RTAS, except the two queue-2999 glass materials, which were traced as opaque cutouts and cast RT shadows. Those no longer do.
 

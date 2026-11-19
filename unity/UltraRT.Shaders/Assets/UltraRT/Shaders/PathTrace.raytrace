@@ -215,6 +215,28 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint
     return float4(lr, p.t);
 }
 
+// ---------------------------------------------------------------- caustics (docs/caustics.md)
+
+// The game's caustic pattern at a camera hit (Proxy.shader returns it apart: ULTRART_FLAG_CAUSTIC), shadowed by one ray
+// toward the CausticVolume that contributes most: V1, enemies and rocks block it (the volume acts as a patterned light).
+// The ray stops at the volume's near radius, so a centre inside a rock or the water's floor doesn't black it out.
+StructuredBuffer<float4> _UltraRTCausticVolumes; // global (SceneProxies.UpdateCaustics): (position, near), (colour, far)
+float4 _UltraRTCaustics;                         // x strength, y volume count, z 1 = shadow ray
+float3 CausticShadowed(RayPayload p, float3 pos, float3 nv)
+{
+    float3 c = PayloadCaustic(p);
+    uint vol = p.primitive >> 24;
+    [branch] if (vol > 0u && _UltraRTCaustics.z > 0.5)
+    {
+        float4 a = _UltraRTCausticVolumes[2u * (vol - 1u)];
+        float3 toV = a.xyz - pos;
+        float d = length(toV);
+        float reach = d - a.w;
+        if (reach > 0.1 && !VisibleMasked(pos, nv, toV / d, reach, 0x05u)) c = 0;
+    }
+    return c;
+}
+
 // Texture LOD (docs/materials.md, "Texture LOD"; Plugin.Materials.cs): _UltraRTTexLod2.y = the spread angle a diffuse
 // bounce adds to the ray cone (its sample stands for a wide lobe: the hit's albedo is averaged accordingly).
 float4 _UltraRTTexLod2;
@@ -417,6 +439,7 @@ void RayGenBody(bool full)
             }
         }
         emission = PayloadEmission(p) * _EmissionScale;
+        if ((p.flags & ULTRART_FLAG_CAUSTIC) != 0u) emission += CausticShadowed(p, pos, nv) * _EmissionScale;
         if (_StainParams.x > 1.5) { float sw; if (StainAt(pos, n, sw) > 0.0) emission += float3(0.0, 2.0, 0.0); } // debug: the lookup at camera hits (green), to line up with the game's decals
         float3 shown = LightToDisplay(lighting); // = lighting unless linear transport (_Radiance keeps lighting space)
         c = albedo * shown + emission;
