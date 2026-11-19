@@ -34,9 +34,13 @@ namespace UltraRT
         /// <summary>Counts for the scene log.</summary>
         public int GlassMaterials, GlassAtlasSlots, GlassTransparentInstances;
 
-        /// <summary>Per frame (Plugin.MaterialsUpdate): the any-hit's switch and gain.</summary>
-        public static void SetGlassGlobals() =>
-            Shader.SetGlobalVector(IdGlobalGlass, new Vector4(Glass.enabled ? Mathf.Max(0f, Glass.gain) : 0f, 0f, 0f, 0f));
+        /// <summary>The scene has stained glass: a material or atlas variant with _Transmit, or a transparent instance with
+        /// the geometry bit. Without, every any-hit runs the plain alpha test (Proxy.shader, _UltraRTGlass.y).</summary>
+        public bool HasGlass => GlassMaterials + GlassAtlasSlots + GlassTransparentInstances > 0;
+
+        /// <summary>Per frame (Plugin.MaterialsUpdate): x the any-hit's gain (0 = off), y 1 = the scene has stained glass.</summary>
+        public static void SetGlassGlobals(bool sceneHasGlass) =>
+            Shader.SetGlobalVector(IdGlobalGlass, new Vector4(Glass.enabled ? Mathf.Max(0f, Glass.gain) : 0f, sceneHasGlass ? 1f : 0f, 0f, 0f));
 
         /// <summary>Sets _Transmit on a new proxy material from its source's "transmit" rule.</summary>
         private void ApplyTransmit(Material src, Material proxy)

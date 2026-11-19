@@ -107,7 +107,7 @@ namespace UltraRT
             // that becomes roughness (0 with LOD off), y the cone spread a diffuse bounce adds.
             Shader.SetGlobalVector(MaterialMaps.LodId, new Vector4(s.lod ? 1f : 0f, s.lodBias, s.lodAniso, s.lod && s.albedoLod ? 1f : 0f));
             Shader.SetGlobalVector(MaterialMaps.Lod2Id, new Vector4(s.lod ? s.toksvig : 0f, s.lodDiffuse, 0f, 0f));
-            SceneProxies.SetGlassGlobals(); // stained glass: shadow rays pass, tinted (SceneProxies.Glass.cs)
+            SceneProxies.SetGlassGlobals(_proxies != null && _proxies.HasGlass); // stained glass: shadow rays pass, tinted (SceneProxies.Glass.cs)
         }
     }
 }

@@ -561,6 +561,15 @@ the glass, tinted; the leading (dark texels) blocks.
   4.80 -> 4.97; 1-4 pose 4 relight 4.06 -> 4.20, pathtrace 4.45 -> 4.51; 8-3 pose 1 relight 6.33 -> 6.25, pathtrace
   5.97 -> 5.91 (noise). About 0.1-0.2 ms where stained glass is in view; frame times in that run are noisy (the first
   run was colder).
+- **Scenes without stained glass** (2026-11-19): merge-regress after the merge (1c2ec96) showed GPU +0.2-0.3 ms in
+  0-1 metal's dispatch. In one exclusive session (`bench/suites/glass-cost.json`, `-Perf`, GPU total / dispatch ms):
+  bb80589 0-1 metal relight 4.98 / 2.89 (repeat 4.97 / 2.90), pathtrace 5.62 / 2.58 (5.60 / 2.59), 6-2 start relight
+  4.66 / 2.59 (4.68 / 2.61), pathtrace 4.83 / 1.88 (4.82 / 1.88); 1c2ec96 5.00 / 2.92, 5.67 / 2.64, 4.70 / 2.62,
+  4.86 / 1.91. So +0.03-0.06 ms, not +0.2-0.3: the merge-regress run shared the GPU with other agents. Since then
+  the any-hit runs the old alpha-only test unless the scene has stained glass (`_UltraRTGlass.y`, `SceneProxies.HasGlass`):
+  the glass path samples the full colour, which the plain alpha test never needed. Measured after: 5.04 / 2.95,
+  5.70 / 2.67, 4.76 / 2.66, 4.88 / 1.92 (`-ultrart-glass off`: 5.02 / 2.93, 5.66 / 2.64, 4.72 / 2.63, 4.88 / 1.91),
+  the same within the session's drift.
 
 **No-fog surfaces.** ULTRAKILL/Master materials with `_FOG_OFF` are drawn without the distance fog; the fog pass
 (VolumetricsComposite.shader pass 0) fogged every traced pixel. One implementation since the merge with
