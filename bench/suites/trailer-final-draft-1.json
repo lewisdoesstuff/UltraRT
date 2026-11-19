@@ -3,6 +3,60 @@
   "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier draft, run 1): do not edit, change the plan.",
   "Scenarios": [
     {
+      "Name": "0-3 beams",
+      "Scene": "Level 0-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/v5-0-3-before-beams.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-0-3-beams.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 10.067,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 10.0,
+        "Player": "../cinematics/final-0-3-beams-walk.json",
+        "ShowPlayer": true
+      }
+    },
+    {
+      "Name": "1-1 hallway",
+      "Scene": "Level 1-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-1-red-skull-hall.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-1-1-hallway.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 9.067,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.0,
+        "OffUntil": 4.0
+      }
+    },
+    {
       "Name": "0-1 statue room",
       "Scene": "Level 0-1",
       "Path": {
@@ -18,13 +72,13 @@
         "File": "../cinematics/final-0-1-statue-room.json",
         "Mode": "live",
         "Fps": 30.0,
-        "Seconds": 7.567,
+        "Seconds": 6.067,
         "OutputScale": 0.5,
         "TimeScale": 0,
         "Preroll": 40,
         "Encode": false,
         "Paired": true,
-        "OnFrom": 2.75,
+        "OnFrom": 1.25,
         "OffUntil": 3.25
       }
     },
@@ -68,58 +122,6 @@
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-p-2-hall.json",
-        "Mode": "live",
-        "Fps": 30.0,
-        "Seconds": 7.567,
-        "OutputScale": 0.5,
-        "TimeScale": 1,
-        "Preroll": 40,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 2.0,
-        "OffUntil": 4.0
-      }
-    },
-    {
-      "Name": "1-1 hallway",
-      "Scene": "Level 1-1",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/1-1-red-skull-hall.json",
-        "Duration": 1
-      },
-      "Modes": [
-        "pathtrace"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-1-1-hallway.json",
-        "Mode": "live",
-        "Fps": 30.0,
-        "Seconds": 9.067,
-        "OutputScale": 0.5,
-        "TimeScale": 1,
-        "Preroll": 40,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 2.0,
-        "OffUntil": 4.0
-      }
-    },
-    {
-      "Name": "8-2 street",
-      "Scene": "Level 8-2",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/8-2-c.json",
-        "Duration": 1
-      },
-      "Modes": [
-        "pathtrace"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-8-2-street.json",
         "Mode": "live",
         "Fps": 30.0,
         "Seconds": 7.567,

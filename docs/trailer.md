@@ -476,7 +476,10 @@ length; `File` the path in bench/cinematics; `Path` and `Scenario` go to the ben
 cinematic block, `TierCinematic` the same for one tier; `ModeAdd` appends runtime variants to the tier's `Modes` for one
 shot; `In` starts the clip that far into the take and `Render` renders a longer take than the clip (a shot whose best
 moment is picked afterwards; `TierIn` gives `In` per tier; 5-2's lightning is now called on cue instead, `Calls` in docs/cinematics.md); `TimeScale` 0 freezes the world for one shot; `Caption` and `Tag`
-as in the edit list.
+as in the edit list. With `Render`, a comparison shot can set `"Cinematic": { "OnFrom": 0, "OffUntil": <Render> }` so both
+images cover the whole take and `In` can still move after the render (v5's 0-3 and organ shots). `"Slot": "main"` renders
+the shot in the main install (the user's save, so the user's gun colours) in a run of its own: suite
+`trailer-final-<tier>-main`, sources `*_trailer-final-<tier>-main*/...` (a main-slot results folder has no `_alt` suffix).
 
 ### How the footage is made
 
@@ -513,52 +516,61 @@ assets (`LevelNamePopup`, `HudMessageReceiver`, `HudOpenEffect`, the fonts bundl
 | State badge | - | top left, the same box: `RT OFF` grey with a hollow marker, `PATH TRACED` white with an accent marker; it snaps open again and flashes when the picture under it changes (at the switch, or when the divider passes it) |
 | Cards | - | on black, laid out as a level title: sub line typed first, then `ULTRART` under it in large type ("RT" in the accent colour), further lines typed, small print faded in. `Beats`: when the sub line, the title and the first further line start. |
 
-No logo and no art of the game is used; the cards say "a path tracing mod for ULTRAKILL" and "unofficial", and the end
-card's small print says how the footage was captured and that the mod is not affiliated with the game's developers.
+No logo and no art of the game is used; the title card says "a ray tracing mod for ULTRAKILL" (v1-v4: "a path tracing
+mod" and "unofficial /// work in progress"), and the end card's small print says how the footage was captured and that
+the mod is unofficial and not affiliated with the game's developers.
 
 ### Music
 
 0-1's theme, both layers from the game's files, 160 bpm, bars at 0.34 + 1.5 n seconds. The calm layer (`0-1 Clean`)
-plays from its start under the title and the first eight shots (40 bars, to 60.34 s); the battle layer (`0-1`) comes in
-there from its step up at 36.34 s of the song and runs 32 bars to its loop point (108.34 s of the trailer); the calm
-layer returns under the end card and fades over 4.5 s. Every cut, switch and gunshot (half bars) is on the grid.
+plays from its start under the title and the first nine shots (44 bars, to 66.34 s; v4: 40 bars and eight shots, to
+60.34 s); the battle layer (`0-1`) comes in there from its step up at 36.34 s of the song and runs 32 bars to its loop
+point (114.34 s of the trailer); the calm layer returns under the end card and fades over 4.5 s. Every cut, switch and
+gunshot (half bars) is on the grid, and so are v5's two staged events: 0-3's light pillars come on and 6-2's organ hall
+turns red on a bar.
 
 ### Shot list
 
-The cut as of the fourth render (v4, 2026-11-19): 2-4's tunnel and 2-1's water (the user's request of 2026-11-18) replace 8-2's standing lamp and 6-2's hall.
+The cut as of the fifth render (v5, 2026-11-19; "The final trailer, fifth render" below has what changed).
 
 All comparisons are paired live takes (the game's image / real-time path tracing with RR); "beauty" is one traced take.
 
 | # | Start | s | Shot | Level | Treatment | Caption |
 |---|---|---|---|---|---|---|
-| 1 | 0:00.0 | 4.84 | Title card | - | card | |
-| 2 | 0:04.8 | 7.5 | Statue room glide (world frozen) | 0-1 | switch at 3.0 s | Ray-traced shadows |
-| 3 | 0:12.3 | 7.5 | Tree orbit | 7-3 | sweep | Emissive lighting |
-| 4 | 0:19.8 | 7.5 | Hall crane from the stained glass | P-2 | sweep from the right | Global illumination |
-| 5 | 0:27.3 | 9.0 | Torch hallway, round the corner to the doorway | 1-1 | sweep | |
-| 6 | 0:36.3 | 7.5 | Street, lamp posts and the pool | 8-2 | sweep from the right | Lamp light |
-| 7 | 0:43.8 | 6.0 | Glide down to the water | 1-3 | sweep | Water reflections |
-| 8 | 0:49.8 | 6.0 | Boss hall, low arc | 4-4 | sweep from the right | Coloured bounce light |
-| 9 | 0:55.8 | 4.5 | Storm sea, a lightning strike on the second bar (`Calls`) | 5-2 | beauty | |
-| 10 | 1:00.3 | 6.0 | First-person jog down the street (`Player` camera) | P-2 | switch at 2.25 s | Wet surfaces |
-| 11 | 1:06.3 | 6.0 | V1 walks up to the shop terminal (`Player` path, `ShopScreensOff`) | 1-1 | switch at 2.25 s | Ray-traced reflections |
-| 12 | 1:12.3 | 4.5 | Neon street pan | 2-2 | sweep | |
-| 13 | 1:16.8 | 6.0 | First-person walk, revolver fired on the half bars (`ShowWeapon`, `Shots`) | 7-3 | switch at 1.5 s | Gunfire is a light source |
-| 14 | 1:22.8 | 4.5 | Low along the lava | 0-5 | switch at 1.5 s | |
-| 15 | 1:27.3 | 4.5 | Push down the tunnel towards the red-lit arches (the user's pose 3) | 2-4 | switch at 1.5 s | |
-| 16 | 1:31.8 | 4.5 | Fountain in daylight | museum | sweep | |
-| 17 | 1:36.3 | 6.0 | Glide down onto the water channel towards the door (the user's pose) | 2-1 | sweep from the right | Reflective water |
-| 18 | 1:42.3 | 6.0 | Night lamps, pull back | 1-4 | beauty, fade out | |
-| 19 | 1:48.3 | 6.5 | End card | - | card | |
+| 1 | 0:00.0 | 4.84 | Title card: "A RAY TRACING MOD FOR ULTRAKILL" / ULTRART | - | card | |
+| 2 | 0:04.8 | 7.5 | Opening room from its back wall: V1 walks in through the door, the room and its light pillars come on (on the second bar) | 0-3 | sweep | |
+| 3 | 0:12.3 | 9.0 | Torch hallway, round the corner to the doorway | 1-1 | sweep from the right | |
+| 4 | 0:21.3 | 6.0 | Statue room glide (world frozen) | 0-1 | sweep | Real-time path tracing |
+| 5 | 0:27.3 | 7.5 | Tree orbit | 7-3 | sweep from the right | Glowing objects cast real light |
+| 6 | 0:34.8 | 7.5 | Hall crane from the stained glass | P-2 | sweep | Light bounces realistically, carrying color |
+| 7 | 0:42.3 | 7.5 | Street, lamp posts and the pool | 8-2 | sweep from the right | Water reflections |
+| 8 | 0:49.8 | 6.0 | Glide down onto the water channel towards the door (the user's pose) | 2-1 | sweep | |
+| 9 | 0:55.8 | 6.0 | Down the entryway between the windows to the lit arch | 6-2 | sweep from the right | |
+| 10 | 1:01.8 | 4.5 | Storm sea, a lightning strike on the second bar (`Calls`) | 5-2 | beauty | |
+| 11 | 1:06.3 | 6.0 | First-person jog down the street to the red arch (`Player` camera; the tunnel lamp held on from 1 s) | P-2 | beauty | Reflective wet surfaces |
+| 12 | 1:12.3 | 6.0 | V1 walks up to the shop terminal (`Player` path, `ShopScreensOff`) | 1-1 | beauty | Ray-traced reflections |
+| 13 | 1:18.3 | 4.5 | Neon street pan | 2-2 | sweep from the right | |
+| 14 | 1:22.8 | 6.0 | First-person walk, the pump shotgun fired on the half bars (main install: the user's gun colours) | 7-3 | switch at 1.5 s | Gunfire is a light source |
+| 15 | 1:28.8 | 4.5 | Low along the lava | 0-5 | sweep | |
+| 16 | 1:33.3 | 4.5 | Push down the tunnel towards the red-lit arches (the user's pose 3) | 2-4 | switch at 1.5 s | |
+| 17 | 1:37.8 | 4.5 | Low over the water of the main hall towards the statue's door | museum | sweep from the right | |
+| 18 | 1:42.3 | 6.0 | Push down the lamp-lit hall inside the building to the stained glass (the user's pose 4) | 1-4 | sweep | |
+| 19 | 1:48.3 | 6.0 | Gabriel's intro: his light on the organ, then the hall turns red on the fourth bar | 6-2 | sweep from the right, fade out | |
+| 20 | 1:54.3 | 6.5 | End card: ULTRART (and the small print) | - | card | |
+
+Total 2:00.8. Where gameplay footage (the user's own capture) could go: at the battle layer's entry (1:06.3, before or
+instead of P-2's street), between 2-2's street and the 7-3 gun shot (1:22.8, the action stretch), or in place of 2-2's
+street or 0-5's lava; a clip of whole bars keeps the grid.
 
 8-2's street was first captioned "Volumetric light": the game draws its lamp cones as bold polygons and the traced
 cones are soft and faint, so the comparison did not carry that caption. What the traced image adds there is the lamps'
 light on the ground and the pool's reflections.
 
-Total 1:54.8. Tried and left out: 6-1's candle hall and 8-2's vending machine (the bench's area loads land in a void
+Tried and left out: 6-1's candle hall and 8-2's vending machine (the bench's area loads land in a void
 there), a replay of the recorded 0-2 run (no gunfire, and it leaves the level after 20 s), 1-1's fountain (the water is
 too small in frame to read), 7-1's pool (the pose loaded without its level state: grey and unlit), layer 8's mirrors and portals, 3-1.
 Out since v4: 8-2's standing lamp and 6-2's first hall (both kept in `paths.json`: `final-8-2-lamp`, `final-6-2-nave`).
+Out since v5: 1-3's water, 4-4's hall, the museum fountain, 1-4's night lamps (kept in `paths.json`).
 Scouted for v4 and left out: 6-2's Grand Hall at the user's pose 1 after `t3/stained-glass` (the windows show their
 lead pattern, but no beam on the floor read from any of 14 views, and the hall is the same all-red look as the 6-2 shot
 that went out), 0-S's skull-lit corridor (a held item needs the skull in a cinematic take; the 2-4 tunnel showed the
@@ -567,7 +579,8 @@ same week's work better).
 Known problems in the footage, left as they are (renderer bugs are not fixed on this branch):
 - V1's body reads grey in 1-1's orange room when path traced (blue in the game's image and in its own reflection).
 - P-2's puddles have a yellow-green tint (v1-v3; in v4's P-2 hall take, on the stained-glass build, the puddle reads red).
-- The bench's install has no custom gun colours, so the revolver and V1's gun are in the default colours.
+- The alt install has no custom gun colours (no `Prefs.json`), so V1's gun in the terminal shot is in the default colours;
+  v5's gun shot is rendered in the main install for the user's.
 - P-2's long shadow from the street lamp is faint: the steady lamp post beside it lights the same ground.
 - 5-2's lightning is random. Up to v3 the clip's `In` was set to a strike of the take in use (`TierIn`, a 15 s take);
   v4's 15 s take had no strike at all. Since v4 the strike is called on cue (`Calls`: `FlashStart` of the

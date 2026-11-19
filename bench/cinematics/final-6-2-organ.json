@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Name": "final-6-2-organ",
+  "Scene": "Level 6-2",
+  "Note": "Trailer v5: Gabriel's intro in 6-2's organ hall, a slow push towards him from beside the candles (world frame: keys [z, x, feet y]; base pose = end of bench/recordings/u1118-6-2-4.json, the user's pose 4). 16 s long: the clip's In point is picked from the take.",
+  "Keys": [
+    {"Player": [-283.0, 16.5, 344.0], "Yaw": -68.96, "Pitch": 13.46, "Fov": 80, "Duration": 9.0, "Ease": "in"},
+    {"Player": [-285.8, 16.7, 345.5], "Yaw": -70.63, "Pitch": 24.65, "Fov": 80, "Duration": 7.0, "Ease": "out"},
+    {"Player": [-288.0, 16.9, 346.6], "Yaw": -72.22, "Pitch": 32.92, "Fov": 80, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

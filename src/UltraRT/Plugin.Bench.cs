@@ -839,7 +839,16 @@ namespace UltraRT
                 var gc = MonoSingleton<GunControl>.Instance;
                 if (gc != null && gc.slots.Count >= sc.Weapon && gc.slots[sc.Weapon - 1].Count > 0)
                 {
-                    if (gc.currentSlotIndex != sc.Weapon) gc.SwitchWeapon(sc.Weapon);
+                    int variant = -1;
+                    if (!string.IsNullOrEmpty(sc.WeaponVariant))
+                    {
+                        var list = gc.slots[sc.Weapon - 1];
+                        for (int vi = 0; vi < list.Count; vi++)
+                            if (list[vi] != null && list[vi].name.StartsWith(sc.WeaponVariant, StringComparison.OrdinalIgnoreCase)) { variant = vi; break; }
+                        if (variant < 0) Logger.LogWarning($"Benchmark: no '{sc.WeaponVariant}' in weapon slot {sc.Weapon}");
+                    }
+                    if (variant >= 0) { if (gc.currentWeapon != gc.slots[sc.Weapon - 1][variant]) gc.SwitchWeapon(sc.Weapon, variant); }
+                    else if (gc.currentSlotIndex != sc.Weapon) gc.SwitchWeapon(sc.Weapon);
                     Logger.LogInfo($"Benchmark: holding weapon slot {sc.Weapon}: {(gc.currentWeapon != null ? gc.currentWeapon.name : "none")}");
                     yield return new WaitForSecondsRealtime(1.0f); // the draw animation
                 }

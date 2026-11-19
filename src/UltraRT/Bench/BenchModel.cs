@@ -95,6 +95,9 @@ namespace UltraRT.Bench
         /// <summary>Weapon slot to hold (GunControl.SwitchWeapon: 1 revolver, 2 shotgun, 3 nailgun, 4 railcannon, 5 rocket
         /// launcher), switched to when the bench takes the player over; 0 = whatever the save holds.</summary>
         public int Weapon;
+        /// <summary>With Weapon: the variant to hold, by the start of its object's name in that slot (e.g. "Shotgun Grenade",
+        /// the blue pump shotgun; "Hammer Pump" is the impact hammer); empty = whichever variant the save last held.</summary>
+        public string WeaponVariant;
         /// <summary>Cinematic camera path instead of the measurement (docs/cinematics.md, bench/README.md "Cinematics"): the
         /// level is loaded as for a pose (Path.Approach / Areas / Load), then the path plays and/or renders offline.</summary>
         public CinematicSpec Cinematic;

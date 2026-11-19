@@ -3,11 +3,12 @@
   "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier final, run 4): do not edit, change the plan.",
   "Scenarios": [
     {
-      "Name": "2-1 water",
-      "Scene": "Level 2-1",
+      "Name": "1-4 hall",
+      "Scene": "Level 1-4",
       "Path": {
         "Type": "static",
-        "Approach": "../recordings/u1118-2-1-1.json",
+        "Load": "checkpoint",
+        "Approach": "../recordings/u1118-1-4-4.json",
         "Duration": 1
       },
       "Modes": [
@@ -15,7 +16,7 @@
       ],
       "Enemies": "blind",
       "Cinematic": {
-        "File": "../cinematics/final-2-1-water.json",
+        "File": "../cinematics/final-1-4-hall.json",
         "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,
@@ -29,11 +30,12 @@
       }
     },
     {
-      "Name": "1-4 lamps",
-      "Scene": "Level 1-4",
+      "Name": "6-2 organ",
+      "Scene": "Level 6-2",
       "Path": {
         "Type": "static",
-        "Approach": "../recordings/1-4-drift-a.json",
+        "Load": "checkpoint",
+        "Approach": "../recordings/u1118-6-2-4.json",
         "Duration": 1
       },
       "Modes": [
@@ -41,14 +43,17 @@
       ],
       "Enemies": "blind",
       "Cinematic": {
-        "File": "../cinematics/final-1-4-lamps.json",
+        "File": "../cinematics/final-6-2-organ.json",
         "Mode": "live",
         "Fps": 60.0,
-        "Seconds": 6.033,
+        "Seconds": 16.033,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
-        "Encode": false
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 16.0
       }
     }
   ]

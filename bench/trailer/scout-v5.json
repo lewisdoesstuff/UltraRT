@@ -1,0 +1,23 @@
+[
+  { "Name": "v5-museum", "Scene": "CreditsMuseum2",
+    "Note": "Trailer v5: the museum's interior (world frame: base at the origin, yaw 0, so a key is [z, x, feet y, yaw, pitch]). Rooms from the scene's hierarchy: lobby z 600-650, main hall floor y 22 z 670-830, side wings with water at y 41, theater x 180-264 y 76, aquarium x 190-323, west garden x -266..-208 y 70-88.",
+    "Base": { "Player": [0, 0, 0], "Yaw": 0, "Pitch": 0 }, "Fov": 85,
+    "Path": { "Type": "static", "Approach": "../recordings/late-museum-fountain.json", "Areas": "../recordings/late-museum-fountain-areas.json", "Load": "areas", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [610, 0, 22, 0, 0], [645, 0, 22, 180, 0], [680, 0, 22, 0, 5], [740, 0, 30, 0, -10], [790, 0, 24, 180, 0],
+              [700, -30, 22, 90, 0], [700, 60, 22, 0, 0], [790, -90, 22, -90, 0], [700, 0, 62, 0, 0], [620, 0, 62, 0, 0],
+              [700, 70, 42, 90, -15], [740, -80, 42, -90, -15], [713, 250, 76, -90, 0], [713, 200, 78, 90, 5],
+              [741, 270, 80, 90, -10], [713, 300, 72, 0, 0], [741, 214, 100, 90, -20], [712, -205, 74, -90, 5], [712, -250, 74, 90, 5] ] },
+  { "Name": "v5-1-4-hall", "Scene": "Level 1-4",
+    "Note": "Trailer v5: 1-4's V2 hall inside the building (base = end of bench/recordings/u1118-1-4-4.json, the user's pose 4).",
+    "Base": { "Player": [1.12, -16.54, 575.87], "Yaw": 359.04, "Pitch": 3.08 }, "Fov": 85,
+    "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/u1118-1-4-4.json", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [0, 0, 0], [-3, 0, 1.5, 0, 6], [10, 0, 0, 0, 6], [20, 0, 0, 0, 10], [30, 0, 0, 180, 0], [15, -6, 0, 30, 5], [15, 6, 0, -30, 5], [5, 0, 4, 0, 0], [40, 0, 0, 0, 15] ] },
+  { "Name": "v5-6-2-entry", "Scene": "Level 6-2",
+    "Note": "Trailer v5: 6-2's entryway (start room; base = end of bench/recordings/6-2-start.json).",
+    "Base": { "Player": [0.14, -8.25, 303.34], "Yaw": 1.0, "Pitch": 0 }, "Fov": 85,
+    "Path": { "Type": "static", "Approach": "../recordings/6-2-start.json", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [0, 0, 0], [10, 0, 0], [25, 0, 0], [40, 0, 0], [55, 0, 0, 0, 5], [70, 0, 0, 180, 0], [25, 0, 6, 0, -10], [40, -8, 0, 30, 0], [40, 8, 0, -30, 0], [0, 0, 0, -50, 0], [60, 0, 0, 0, 20] ] }
+]

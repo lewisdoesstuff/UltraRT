@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-6-2-entry",
+  "Scene": "Level 6-2",
+  "Note": "Trailer v5: down 6-2's entryway between the windows to the lit arch (base = end of bench/recordings/6-2-start.json).",
+  "Keys": [
+    {"Player": [-0.825, -7.85, 305.357], "Yaw": -5.0, "Pitch": 1, "Fov": 85, "Duration": 6.4, "Ease": "smooth"},
+    {"Player": [0.989, -7.35, 323.328], "Yaw": 5.0, "Pitch": 3, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}
