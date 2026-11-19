@@ -1,0 +1,52 @@
+{
+  "Version": 1,
+  "Name": "alias-8-2-street",
+  "Scene": "Level 8-2",
+  "Note": "Aliasing measurement (docs/aliasing.md): 8 frames still, 12 frames of a slow pan (3 deg/s, 0.3 m/s), 12 of a fast one (60 deg/s, 6 m/s) at 60 fps. Written by tools/aliasing/make_suite.py.",
+  "Keys": [
+    {
+      "Player": [
+        5.772,
+        -2.76,
+        379.065
+      ],
+      "Yaw": 226.0,
+      "Pitch": -1.0,
+      "Duration": 0.1333333,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        5.772,
+        -2.76,
+        379.065
+      ],
+      "Yaw": 226.0,
+      "Pitch": -1.0,
+      "Duration": 0.2,
+      "Ease": "linear"
+    },
+    {
+      "Player": [
+        5.7303,
+        -2.76,
+        379.1082
+      ],
+      "Yaw": 226.6,
+      "Pitch": -1.0,
+      "Duration": 0.2,
+      "Ease": "linear"
+    },
+    {
+      "Player": [
+        4.8967,
+        -2.76,
+        379.9714
+      ],
+      "Yaw": 238.6,
+      "Pitch": -1.0,
+      "Duration": 1.0,
+      "Ease": "linear"
+    }
+  ]
+}

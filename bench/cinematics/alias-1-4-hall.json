@@ -1,0 +1,52 @@
+{
+  "Version": 1,
+  "Name": "alias-1-4-hall",
+  "Scene": "Level 1-4",
+  "Note": "Aliasing measurement (docs/aliasing.md): 8 frames still, 12 frames of a slow pan (3 deg/s, 0.3 m/s), 12 of a fast one (60 deg/s, 6 m/s) at 60 fps. Written by tools/aliasing/make_suite.py.",
+  "Keys": [
+    {
+      "Player": [
+        1.1189,
+        -16.5404,
+        575.8654
+      ],
+      "Yaw": 359.04,
+      "Pitch": 3.08,
+      "Duration": 0.1333333,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        1.1189,
+        -16.5404,
+        575.8654
+      ],
+      "Yaw": 359.04,
+      "Pitch": 3.08,
+      "Duration": 0.2,
+      "Ease": "linear"
+    },
+    {
+      "Player": [
+        1.1789,
+        -16.5404,
+        575.8664
+      ],
+      "Yaw": 359.64,
+      "Pitch": 3.08,
+      "Duration": 0.2,
+      "Ease": "linear"
+    },
+    {
+      "Player": [
+        2.3787,
+        -16.5404,
+        575.8865
+      ],
+      "Yaw": 371.64,
+      "Pitch": 3.08,
+      "Duration": 1.0,
+      "Ease": "linear"
+    }
+  ]
+}

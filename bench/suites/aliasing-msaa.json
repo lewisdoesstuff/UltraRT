@@ -1,0 +1,142 @@
+{
+ "Name": "aliasing-msaa",
+ "Note": "MSAA feasibility probe (docs/aliasing.md, 'MSAA on the game's raster'). Written by tools/aliasing/make_suite.py --msaa.",
+ "Scenarios": [
+  {
+   "Name": "7-1 graves msaa",
+   "Scene": "Level 7-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-7-1-2.json",
+    "Duration": 1
+   },
+   "Modes": [
+    "hybrid"
+   ],
+   "Enemies": "blind",
+   "Cinematic": {
+    "File": "../cinematics/alias-7-1-graves.json",
+    "Fps": 60,
+    "TimeScale": 0,
+    "Preroll": 90,
+    "OutputScale": 1,
+    "Encode": false,
+    "Render": false,
+    "Takes": [
+     {
+      "Name": "off",
+      "Mode": "off",
+      "Aa": 1,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "off-msaa4",
+      "Mode": "off",
+      "View": "off+plugin._msaaProbe=4",
+      "Aa": 1,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "off-ref",
+      "Mode": "off",
+      "Aa": 16,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "hybrid-msaa4",
+      "Mode": "live",
+      "View": "hybrid+plugin._msaaProbe=4",
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     }
+    ]
+   }
+  },
+  {
+   "Name": "7-1 graves msaa cost",
+   "Scene": "Level 7-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-7-1-2.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "off+plugin._msaaProbe=4"
+   ],
+   "Segment": 2,
+   "Enemies": "blind"
+  },
+  {
+   "Name": "0-1 metal msaa",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 1
+   },
+   "Modes": [
+    "hybrid"
+   ],
+   "Enemies": "blind",
+   "Cinematic": {
+    "File": "../cinematics/alias-0-1-metal.json",
+    "Fps": 60,
+    "TimeScale": 0,
+    "Preroll": 90,
+    "OutputScale": 1,
+    "Encode": false,
+    "Render": false,
+    "Takes": [
+     {
+      "Name": "off",
+      "Mode": "off",
+      "Aa": 1,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "off-msaa4",
+      "Mode": "off",
+      "View": "off+plugin._msaaProbe=4",
+      "Aa": 1,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "off-ref",
+      "Mode": "off",
+      "Aa": 16,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "hybrid-msaa4",
+      "Mode": "live",
+      "View": "hybrid+plugin._msaaProbe=4",
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     }
+    ]
+   }
+  },
+  {
+   "Name": "0-1 metal msaa cost",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 12
+   },
+   "Modes": [
+    "off",
+    "off+plugin._msaaProbe=4"
+   ],
+   "Segment": 2,
+   "Enemies": "blind"
+  }
+ ]
+}

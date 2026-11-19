@@ -426,6 +426,7 @@ namespace UltraRT
             UpdateConeGain(); // the game's light cones while traced (Plugin.Beams.cs)
             MaterialsUpdate(); // Ctrl+F1, _UltraRTDetail global
             HdrTick(); // HDR display output: settings and log (Plugin.Hdr.cs)
+            MsaaProbeUpdate(); // measurement probe, bench plugin._msaaProbe only (Plugin.MsaaProbe.cs)
             try
             {
                 if (Input.GetKeyDown(KeyCode.F7) && !CtrlHeld() && !ShiftHeld()) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }

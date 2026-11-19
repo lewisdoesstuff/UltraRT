@@ -203,6 +203,25 @@ namespace UltraRT.Bench
         public List<CineCall> Calls;
         /// <summary>auto | locked</summary>
         public string Exposure;
+        /// <summary>Takes with their own view mode and sample counts, rendered one after another in this scenario (after
+        /// <see cref="Modes"/>' takes, if any), each into cine_&lt;scenario&gt;_&lt;Name&gt;. With TimeScale 0 the world is the same
+        /// instant in all of them: live frames, accumulated references and debug views of one pose line up pixel for pixel
+        /// (bench/suites/aliasing.json, docs/aliasing.md).</summary>
+        public List<CineTake> Takes;
+    }
+
+    /// <summary>One take of <see cref="CinematicSpec.Takes"/>: unset fields keep the scenario's Cinematic settings.</summary>
+    public sealed class CineTake
+    {
+        /// <summary>Folder suffix: cine_&lt;scenario&gt;_&lt;Name&gt;.</summary>
+        public string Name;
+        /// <summary>The render mode: pathtrace | relight | current | off | live (as <see cref="CinematicSpec.Mode"/>).</summary>
+        public string Mode;
+        /// <summary>The bench view mode (with runtime variants, "relight+refl=0") set before the take: what "live" plays
+        /// and what "current" accumulates. Default: the scenario's first RT mode.</summary>
+        public string View;
+        public int? Aa, Samples, Bounces;
+        public float? Start, Seconds;
     }
 
     /// <summary>One game event on cue (see <see cref="CinematicSpec.Calls"/>).</summary>

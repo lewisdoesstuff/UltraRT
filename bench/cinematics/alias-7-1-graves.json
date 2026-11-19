@@ -1,0 +1,52 @@
+{
+  "Version": 1,
+  "Name": "alias-7-1-graves",
+  "Scene": "Level 7-1",
+  "Note": "Aliasing measurement (docs/aliasing.md): 8 frames still, 12 frames of a slow pan (3 deg/s, 0.3 m/s), 12 of a fast one (60 deg/s, 6 m/s) at 60 fps. Written by tools/aliasing/make_suite.py.",
+  "Keys": [
+    {
+      "Player": [
+        8.9406,
+        -10.1772,
+        315.8913
+      ],
+      "Yaw": 39.0,
+      "Pitch": -24.88,
+      "Duration": 0.1333333,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        8.9406,
+        -10.1772,
+        315.8913
+      ],
+      "Yaw": 39.0,
+      "Pitch": -24.88,
+      "Duration": 0.2,
+      "Ease": "linear"
+    },
+    {
+      "Player": [
+        8.9872,
+        -10.1772,
+        315.8535
+      ],
+      "Yaw": 39.6,
+      "Pitch": -24.88,
+      "Duration": 0.2,
+      "Ease": "linear"
+    },
+    {
+      "Player": [
+        9.9198,
+        -10.1772,
+        315.0984
+      ],
+      "Yaw": 51.6,
+      "Pitch": -24.88,
+      "Duration": 1.0,
+      "Ease": "linear"
+    }
+  ]
+}

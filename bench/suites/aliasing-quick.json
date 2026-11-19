@@ -1,0 +1,157 @@
+{
+ "Name": "aliasing-quick",
+ "Note": "Aliasing per mode (docs/aliasing.md). Written by tools/aliasing/make_suite.py; analyse with tools/aliasing/analyze.py. Needs -TimeoutSec 3600.",
+ "Scenarios": [
+  {
+   "Name": "7-1 graves",
+   "Scene": "Level 7-1",
+   "Note": "rails, crosses, tree branches and grass against a bright sky: thin geometry",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-7-1-2.json",
+    "Duration": 1
+   },
+   "Modes": [
+    "pathtrace"
+   ],
+   "Enemies": "blind",
+   "Cinematic": {
+    "File": "../cinematics/alias-7-1-graves.json",
+    "Fps": 60,
+    "TimeScale": 0,
+    "Preroll": 90,
+    "OutputScale": 1,
+    "Encode": false,
+    "Exposure": "auto",
+    "Render": false,
+    "Takes": [
+     {
+      "Name": "inst",
+      "Mode": "current",
+      "View": "instance",
+      "Aa": 1,
+      "Samples": 1,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "nrm",
+      "Mode": "current",
+      "View": "normals",
+      "Aa": 1,
+      "Samples": 1,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "depth",
+      "Mode": "current",
+      "View": "depth",
+      "Aa": 1,
+      "Samples": 1,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "spec",
+      "Mode": "current",
+      "View": "spec-params",
+      "Aa": 1,
+      "Samples": 1,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "off",
+      "Mode": "off",
+      "Aa": 1,
+      "Start": 0,
+      "Seconds": 0.5333333333333333
+     },
+     {
+      "Name": "off-ref",
+      "Mode": "off",
+      "Aa": 16,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "relight",
+      "Mode": "live",
+      "View": "relight+vol.enabled=0",
+      "Start": 0,
+      "Seconds": 0.5333333333333333
+     },
+     {
+      "Name": "relight-ref",
+      "Mode": "current",
+      "View": "relight+vol.enabled=0",
+      "Aa": 8,
+      "Samples": 16,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "relight-ref1",
+      "Mode": "current",
+      "View": "relight+vol.enabled=0",
+      "Aa": 1,
+      "Samples": 128,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "hybrid",
+      "Mode": "live",
+      "View": "hybrid+vol.enabled=0",
+      "Start": 0,
+      "Seconds": 0.5333333333333333
+     },
+     {
+      "Name": "hybrid-ref",
+      "Mode": "current",
+      "View": "hybrid+vol.enabled=0",
+      "Aa": 8,
+      "Samples": 16,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "hybrid-ref1",
+      "Mode": "current",
+      "View": "hybrid+vol.enabled=0",
+      "Aa": 1,
+      "Samples": 128,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "pathtrace",
+      "Mode": "live",
+      "View": "pathtrace+vol.enabled=0",
+      "Start": 0,
+      "Seconds": 0.5333333333333333
+     },
+     {
+      "Name": "pathtrace-ref",
+      "Mode": "current",
+      "View": "pathtrace+vol.enabled=0",
+      "Aa": 8,
+      "Samples": 16,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     },
+     {
+      "Name": "pathtrace-ref1",
+      "Mode": "current",
+      "View": "pathtrace+vol.enabled=0",
+      "Aa": 1,
+      "Samples": 128,
+      "Start": 0.13333333333333333,
+      "Seconds": 0.001
+     }
+    ]
+   }
+  }
+ ]
+}

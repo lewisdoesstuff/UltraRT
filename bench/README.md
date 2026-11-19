@@ -126,7 +126,7 @@ when ffmpeg is found). Every `[Cinematics]` setting can be overridden per scenar
 `Paths`, `Bounces`, `CacheTail`, `OutputScale`, `MotionBlur`, `Shutter`, `Exposure`, `TimeScale`, `Png16`, `Encode`,
 `Crf`, plus `Start` / `Seconds` (part of the path) and `Preroll`. The summary gets a "Cinematics" table. Offline renders
 take seconds per frame: give long ones `-TimeoutSec`. Suites: `cine-test.json` (smoke test, ~1 min), `cine-test2.json`,
-`cine-demo.json` (the sample renders, ~25 min). More `Cinematic` fields (`Modes`, `Paired` capture, `OnFrom` / `OffUntil`, a moving `Player`, `TracePlayer`, `ShowWeapon`, `Shots` / `ShotKinds`, `Flickers`, `Calls`) are in docs/cinematics.md ("Bench: cinematic scenarios", "Before / after pairs and trailers") and docs/trailer.md.
+`cine-demo.json` (the sample renders, ~25 min). `Takes` (a list of `{ "Name", "Mode", "View", "Aa", "Samples", "Bounces", "Start", "Seconds" }`) renders several takes of one path with their own bench view mode (variants allowed), render mode and sample counts into `cine_<scenario>_<Name>`; with `TimeScale` 0 they all show the same instant (`bench/suites/aliasing.json`, docs/aliasing.md; set `"Render": false` so the block's own take is skipped). More `Cinematic` fields (`Modes`, `Paired` capture, `OnFrom` / `OffUntil`, a moving `Player`, `TracePlayer`, `ShowWeapon`, `Shots` / `ShotKinds`, `Flickers`, `Calls`) are in docs/cinematics.md ("Bench: cinematic scenarios", "Before / after pairs and trailers") and docs/trailer.md.
 
 ```json
 { "Name": "1-3 glide pathtrace", "Scene": "Level 1-3",
