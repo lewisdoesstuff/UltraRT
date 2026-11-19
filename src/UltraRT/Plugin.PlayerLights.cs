@@ -38,39 +38,58 @@ namespace UltraRT
         private Bounds _playerLightBox;
 
         /// <summary>End of GatherLights, after the effect lights: sets the player-light flag on every packed light.</summary>
-        private void FlagPlayerLights()
+        private Transform _plPlayer, _plCam;
+        private Vector3 _plEye;
+        private bool _plHaveBox;
+
+        /// <summary>Before <see cref="PlayerOwnedLight"/>: this frame's eye, player, camera and player box.</summary>
+        private void PlayerLightTestBegin()
         {
-            if (_camera == null) return;
             // Hierarchies change (an item picked up, a weapon switched): the cache follows the 4 Hz active-light refresh.
             if (_playerLightCacheVersion != _activeLightsVersion)
             {
                 _playerLightCacheVersion = _activeLightsVersion;
                 _playerLightCache.Clear();
             }
-            var player = MonoSingleton<NewMovement>.Instance != null ? MonoSingleton<NewMovement>.Instance.transform : null;
-            var camT = _camera.transform;
-            var eye = camT.position;
-            bool haveBox = _proxies != null && _proxies.PlayerShadowBox(eye, out _playerLightBox);
+            _plPlayer = MonoSingleton<NewMovement>.Instance != null ? MonoSingleton<NewMovement>.Instance.transform : null;
+            _plCam = _camera.transform;
+            _plEye = _plCam.position;
+            _plHaveBox = _proxies != null && _proxies.PlayerShadowBox(_plEye, out _playerLightBox);
+        }
+
+        /// <summary>Packed light i (not directional) is the player's own; after <see cref="PlayerLightTestBegin"/>.</summary>
+        private bool PlayerOwnedLight(int i)
+        {
+            var l0 = _lightData[i * 4];
+            bool owned = (new Vector3(l0.x, l0.y, l0.z) - _plEye).sqrMagnitude < PlayerLightEye * PlayerLightEye;
+            var l = _packedLights[i];
+            if (!owned && !ReferenceEquals(l, null) && l != null)
+            {
+                if (!_playerLightCache.TryGetValue(l, out owned))
+                {
+                    var t = l.transform;
+                    owned = (_plPlayer != null && t.IsChildOf(_plPlayer)) || t.IsChildOf(_plCam);
+                    _playerLightCache[l] = owned;
+                }
+            }
+            // Spawned (or virtual: no Light) lights at the first-person gun / third-person weapon: muzzle flashes.
+            if (!owned && _plHaveBox && (ReferenceEquals(l, null) || l == null || !_proxies.IsBuildLight(l)))
+                owned = _playerLightBox.Contains(new Vector3(l0.x, l0.y, l0.z));
+            return owned;
+        }
+
+        private void FlagPlayerLights()
+        {
+            if (_camera == null) return;
+            PlayerLightTestBegin();
             var model = _besideV1 ? _proxies?.PlayerModelBounds : null;
             int n = 0, beside = 0;
             for (int i = 0; i < _lightCount; i++)
             {
                 var l0 = _lightData[i * 4];
                 if (l0.w == 0f) continue; // directional
-                bool owned = (new Vector3(l0.x, l0.y, l0.z) - eye).sqrMagnitude < PlayerLightEye * PlayerLightEye;
+                bool owned = PlayerOwnedLight(i);
                 var l = _packedLights[i];
-                if (!owned && !ReferenceEquals(l, null) && l != null)
-                {
-                    if (!_playerLightCache.TryGetValue(l, out owned))
-                    {
-                        var t = l.transform;
-                        owned = (player != null && t.IsChildOf(player)) || t.IsChildOf(camT);
-                        _playerLightCache[l] = owned;
-                    }
-                }
-                // Spawned (or virtual: no Light) lights at the first-person gun / third-person weapon: muzzle flashes.
-                if (!owned && haveBox && (ReferenceEquals(l, null) || l == null || !_proxies.IsBuildLight(l)))
-                    owned = _playerLightBox.Contains(new Vector3(l0.x, l0.y, l0.z));
                 float flag = owned ? 1f : 0f;
                 if (!owned && model.HasValue && !_lightPlaced[i] && FreeStandingLevelLight(l))
                 {

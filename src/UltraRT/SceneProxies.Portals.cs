@@ -297,6 +297,47 @@ namespace UltraRT
             for (int k = 0; k < _viewWork.Count && k < max; k++) output.Add(_viewWork[k].p);
         }
 
+        /// <summary>A light's image behind one portal side: where it shines from on the exit side, as a spot whose cone
+        /// holds the exit's opening (Plugin.PortalLights.cs).</summary>
+        public struct PortalImage
+        {
+            public Vector3 Pos, Axis;
+            public float CosHalf, CosInner, Distance;
+            public int Side;
+        }
+
+        public int PortalSideCount => _portalSideList.Count;
+
+        /// <summary>
+        /// The images of a point light at <paramref name="p"/> through the active portal sides (not mirrors) it can shine
+        /// through, by the game's rule as in <see cref="PortalViewpoints"/> (from the side's back half-space), within
+        /// <paramref name="reach"/> of the opening. One hop; nearest first, at most 4.
+        /// </summary>
+        public void PortalImages(Vector3 p, float reach, List<PortalImage> output)
+        {
+            output.Clear();
+            foreach (var s in _portalSideList)
+            {
+                if (!s.Seen || !s.InRtas || s.Proxy == null || s.Portal == null || s.Portal.mirror) continue;
+                Vector3 c = s.Pose.GetColumn(3), f = s.Pose.GetColumn(2);
+                if (Vector3.Dot(p - c, f) > 0f) continue;
+                float w = ((Vector3)s.Pose.GetColumn(0)).magnitude, h = ((Vector3)s.Pose.GetColumn(1)).magnitude;
+                float rad = 0.5f * Mathf.Sqrt(w * w + h * h);
+                float d = (p - c).magnitude;
+                if (d - rad > reach) continue;
+                var v = s.Travel.MultiplyPoint3x4(p);
+                if ((v - p).sqrMagnitude <= 1f) continue; // a pair that leads back to the same place
+                var toC = s.Travel.MultiplyPoint3x4(c) - v;
+                float dc = toC.magnitude;
+                if (dc < 1e-3f) continue;
+                // The cone from the image through the opening's bounding circle, soft over its outer quarter.
+                float half = Mathf.Min(Mathf.Atan2(rad, dc), 80f * Mathf.Deg2Rad);
+                output.Add(new PortalImage { Pos = v, Axis = toC / dc, CosHalf = Mathf.Cos(half), CosInner = Mathf.Cos(half * 0.75f), Distance = d, Side = s.Index });
+            }
+            output.Sort((a, b) => a.Distance.CompareTo(b.Distance));
+            if (output.Count > 4) output.RemoveRange(4, output.Count - 4);
+        }
+
         private readonly List<(Vector3 p, float length, int hop)> _viewWork = new List<(Vector3 p, float length, int hop)>();
 
         private Vector4[] _portalFogRows = new Vector4[2];

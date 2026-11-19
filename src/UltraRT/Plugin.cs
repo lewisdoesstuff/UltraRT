@@ -599,6 +599,7 @@ namespace UltraRT
             AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
             AppendEnemyGlowLights(); // Plugin.EnemyGlow.cs: the glowing parts of skinned enemies
+            AppendPortalLightImages(); // Plugin.PortalLights.cs: the player's own lights imaged through portals
             // Lights [0, _surfLightCount) light surfaces (every surface pass binds that count); the ones after it only
             // the air (the volumetric pass takes _lightCount). docs/lighting-overrides.md, "Classes and rules".
             _surfLightCount = _lightCount;
@@ -1262,6 +1263,7 @@ namespace UltraRT
             SceneProxies.TraceMirrors = _rtMirrors;
             SceneProxies.MovingPortalMotion = _portalMotion;
             SceneProxies.MovingPortalEdges = _portalEdges;
+            Shader.SetGlobalFloat("_UltraRTPortalStart", _portalStart);
             SceneProxies.HideHeldItems = _hideHeld; SceneProxies.SkinnedScaleUpdates = _skinScale;
             DlssRR.GrazingMatch = _grazingMatch;
             DlssRR.MatchDebug = _matchDebug;

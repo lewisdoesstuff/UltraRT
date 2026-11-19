@@ -1,0 +1,29 @@
+{
+ "Name": "portal-hairline",
+ "Note": "t3/portal-light: 8-3 pose 1's pale hairline on the far side of the Shifting Hallway's moving portal. Is it the 1 mm start offset of continued rays past the exit plane? plugin._portalStart = 0.1 mm / 1 cm.",
+ "Scenarios": [
+  {
+   "Name": "8-3 pose 1",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-8-3-1.json",
+    "Duration": 7
+   },
+   "Modes": [
+    "albedo",
+    "albedo+plugin._portalStart=0.0001",
+    "albedo+plugin._portalStart=0.01"
+   ],
+   "Screenshots": [
+    2,
+    2.5,
+    3,
+    3.5,
+    4,
+    4.5
+   ],
+   "ShotSettle": 0.05
+  }
+ ]
+}
