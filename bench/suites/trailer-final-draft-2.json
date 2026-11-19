@@ -3,6 +3,32 @@
   "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier draft, run 2): do not edit, change the plan.",
   "Scenarios": [
     {
+      "Name": "P-2 hall",
+      "Scene": "Level P-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/p-2-vent-smoke.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-p-2-hall.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 7.567,
+        "OutputScale": 0.5,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 2.0,
+        "OffUntil": 4.0
+      }
+    },
+    {
       "Name": "8-2 street",
       "Scene": "Level 8-2",
       "Path": {
@@ -42,32 +68,6 @@
       "Enemies": "blind",
       "Cinematic": {
         "File": "../cinematics/final-2-1-water.json",
-        "Mode": "live",
-        "Fps": 30.0,
-        "Seconds": 6.067,
-        "OutputScale": 0.5,
-        "TimeScale": 1,
-        "Preroll": 40,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 1.25,
-        "OffUntil": 3.25
-      }
-    },
-    {
-      "Name": "6-2 entry",
-      "Scene": "Level 6-2",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/6-2-start.json",
-        "Duration": 1
-      },
-      "Modes": [
-        "pathtrace"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-6-2-entry.json",
         "Mode": "live",
         "Fps": 30.0,
         "Seconds": 6.067,

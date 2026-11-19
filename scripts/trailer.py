@@ -189,8 +189,13 @@ class Builder:
     # ------------------------------------------------------------ motion graphics
 
     def gfx_dir(self):
+        # Emptied first: the numbers restart with every run, and a work folder kept from an earlier run (a failed or
+        # killed one) held a longer sequence under the same number, whose extra frames ffmpeg then played on (v5's
+        # 2-4 tunnel clip showed 5-2's level title after its own).
         self.gfx_n += 1
-        return os.path.join(self.work, f"gfx{self.gfx_n:03d}")
+        d = os.path.join(self.work, f"gfx{self.gfx_n:03d}")
+        shutil.rmtree(d, ignore_errors=True)
+        return d
 
     def motion_overlays(self, c, dur, first_input, switch_at=None, labels=None, beauty=False):
         """The animated overlays of a clip: (ffmpeg input args, [(input index, x, y, start time)])."""
@@ -228,11 +233,17 @@ class Builder:
             add(r, W * 0.972 - r["w"], H * 0.955 - r["h"], 0.25)
         return args, items
 
-    def overlay_chain(self, label, items, tail):
-        """[label] with every overlay on it, then the tail filters, to [v]."""
+    def overlay_chain(self, label, items, tail, dur):
+        """[label] with every overlay on it, then the tail filters, to [v]. Each overlay is padded with transparent
+        frames to cover the whole clip: an overlay that started late or ended early (a caption's last frame) made
+        ffmpeg 9.0.2's overlay drop main frames there, a visible jump of about 6 frames (v5's P-2 street and terminal
+        clips, at their captions' ends)."""
         parts, cur = [], label
+        clear = "0x00000000"
         for k, (idx, x, y, t0) in enumerate(items):
-            parts.append(f"[{idx}:v]format=rgba,setpts=PTS-STARTPTS+{num(t0)}/TB[o{k}]")
+            parts.append(f"[{idx}:v]format=rgba,setpts=PTS-STARTPTS,fps={num(self.fps)},"
+                         f"tpad=start_mode=add:start_duration={num(t0)}:stop_mode=add:stop_duration={num(dur)}:color={clear},"
+                         f"trim=duration={num(dur)},setpts=PTS-STARTPTS[o{k}]")
             parts.append(f"[{cur}][o{k}]overlay=x={x}:y={y}:eof_action=pass:format=auto[m{k}]")
             cur = f"m{k}"
         parts.append(f"[{cur}]" + ",".join(["format=yuv420p"] + list(tail)) + "[v]")
@@ -307,7 +318,7 @@ class Builder:
         args, src = self.source_args(c["Source"], float(c.get("In", 0)), dur, float(c.get("Speed", 1)))
         if self.motion:
             ov_args, items = self.motion_overlays(c, dur, 1, labels=c.get("Labels", self.e.get("Labels")), beauty=True)
-            graph = self.base_chain(c, dur, "0:v") + "[m];" + self.overlay_chain("m", items, self.fades(c, dur))
+            graph = self.base_chain(c, dur, "0:v") + "[m];" + self.overlay_chain("m", items, self.fades(c, dur), dur)
             args = args + ov_args
         else:
             graph = self.base_chain(c, dur, "0:v", self.caption_filters(c, dur) + self.fades(c, dur)) + ",format=yuv420p[v]"
@@ -417,7 +428,7 @@ class Builder:
                                    "-c:v", "ffv1", base], self.work, self.log, timeout=max(600, 60 * dur))
             ov_args, items = self.motion_overlays(c, dur, 1, switch_at=switch, labels=labels)
             # A render a frame or two short of the clip (the museum take) holds its last frame.
-            self.encode(["-i", base] + ov_args, f"[0:v]tpad=stop_mode=clone:stop_duration={num(dur)}[m];" + self.overlay_chain("m", items, self.fades(c, dur)), dur, out)
+            self.encode(["-i", base] + ov_args, f"[0:v]tpad=stop_mode=clone:stop_duration={num(dur)}[m];" + self.overlay_chain("m", items, self.fades(c, dur), dur), dur, out)
             os.remove(base)
             return dur, f"{b_src} | {a_src}"
         tail = ",".join(["format=yuv420p"] + self.caption_filters(c, dur) + self.fades(c, dur))

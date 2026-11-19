@@ -279,6 +279,68 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## The final trailer, v5b (2026-11-19, `trailer-final-v5b`)
+
+The user's notes on v5, on branch `t3/trailer-v5b` from master 1e9adda (glints on water and wet surfaces, caustics
+strength 2). Output: `bench\results\trailer\trailer-final-v5b\` (`trailer-final-final.mp4`, 2560x1440, 60 fps,
+120.84 s, 565 MB; no 1080p copy; `clips\`; `contact-v5-v5b.jpg`: one frame per shot, v5 | v5b; `timing.txt`: the
+frame check below), in the branch worktree and copied to the main checkout's `bench\results\trailer\trailer-final-v5b\`.
+Every shot is a new take on this master.
+
+Changes against v5:
+- **Captions**: the big headings are back and the user's lines are their sub lines: 7-3's tree "Emissive lighting" /
+  "Glowing objects cast real light", P-2's hall "Global illumination" / "Light bounces realistically, carrying color".
+  The others are unchanged (0-1 "Real-time path tracing", 8-2 "Water reflections", P-2 street "Reflective wet
+  surfaces", terminal "Ray-traced reflections", gun "Gunfire is a light source").
+- **Gabriel's intro is the second shot** (the user: it "should absolutely be closer to the start"), straight after 0-3's
+  room and still on the calm layer; his level title comes with it (6-2's entry later has none). No fade out: it cuts to
+  1-1's hallway on the bar after the hall turns red. The shots between move one slot down, 6-2's entry moves to the
+  battle layer (after the terminal), 2-2 and 0-5 swap their wipe directions so the directions still alternate.
+- **1-4's hall closes the trailer** and fades into the end card. It is re-framed (below).
+- **The museum shot is a picture gallery** (`final-museum-gallery`, the user: "one of the halls with the paintings looks
+  good"): a slow push down the dev-space gallery at z 805 west of the fountain, the yellow-framed portraits on both
+  walls, the skylit end wall ahead. The museum has four such galleries (x +-48 to 125, z 600-650 and 790-830); final
+  takes of three of them were compared, and the user's pick, the west side, had the better light: frame mean 61-63
+  (west z 805) against 56-60 (west z 628, a book on a pedestal passes close) and 52-54 (east z 628, the first pick).
+  v5's water hall is out: its floor texture showed through the water surface.
+- **End card**: ULTRART only, no small print.
+- **The stutters** (6-2's entry, P-2's street, the terminal, 2-2) and **2-4's wrong level title** were `trailer.py`
+  bugs, not the takes: see the traps below.
+
+**1-4's stained glass is not a renderer bug.** The glass (`StainedGlassBig` / `StainedGlassBlue`, Master shader with
+`_FOG_OFF`, atlas slots) is fullbright in the game: it shows its texture at full brightness whatever lights it. The
+traced image does the same (lit weight 0 for unlit Master, docs/materials.md section 11; section 12 has these windows,
+whose game colour the traced image matches): crops of the windows in the v5 take's game and traced images have the
+same brightness. A lit weight cannot be tried on them with `unlit.extra` (atlas slots), and a `"lit"` rule would grey
+the windows against the game's look. Against a hall that tracing lights only
+dimly it reads as glowing, and v5's push went straight at it. v5b frames the hall from beside the pool in a slow arc
+(`final-1-4-hall`; scouted with `bench/trailer/scout-v5b.json`): the pool's reflections in front, the windows smaller.
+The arc's first take had a planter cut into the top-right corner throughout; it now turns 10 degrees further left.
+
+The staged events moved a little in the new takes: 0-3's light pillars start at frame 185 (3.08 s; v5 3.17 s) and the
+organ hall turns red at frame 642 (10.70 s; v5 10.80 s), so `In` is 1.583 and 6.2 (v5 1.667 and 6.3).
+
+Render: suites 1-4 in one alt launch (about 12 minutes, 0 failures), the gun shot in the main install (about 1.5
+minutes), then two one-shot redo runs (1-4's arc, the museum gallery) and one comparison run of the two west galleries,
+about 1.5 minutes each. Assembly: 31 minutes in one run, no stalls. The frames are in the branch worktree's
+`bench\results\20261119-21*_trailer-final-final-*` and `20261119-220202_trailer-final-final-redo_alt`; delete them once
+the cut is accepted.
+
+Frame check (`timing.txt`): every clip's frame-to-frame difference (holds and jumps against the neighbouring frames), and
+each clip mapped frame by frame back to its takes. No frame is dropped or repeated; every flag is an event in the take
+(the pillars, the red flip, lightning, gunfire, the hard switches, the P-2 hall's flickering lamps) or the cards' typing.
+
+Traps found:
+- **The overlay filter drops frames when an overlay ends.** In ffmpeg 9.0.2 `overlay` with `eof_action=pass` skipped
+  about 6 frames of the main picture at the moment an overlay input (a caption's or level title's PNG sequence) ran
+  out: a hold, then a jump, a tenth of a second of footage lost. That was every stutter in v5 (at 6-2's level title, at
+  the captions' ends on P-2's street, the terminal and 2-2). `trailer.py` now pads every overlay with transparent
+  frames to the whole clip (`tpad` before and after, then `trim`), so no overlay ends before the picture. Checked by
+  mapping every output frame back to its take frame (`bench\results\trailer\trailer-final-v5b\timing.txt`).
+- **Stale graphics frames.** Each overlay's PNG sequence is written to `work\gfxNNN\`, numbered by the order clips are
+  built; the folders were not emptied, so a shorter sequence left the rest of an earlier, longer one behind and ffmpeg
+  read them too. That put 5-2's level title after 2-4's in v5's tunnel clip. `trailer.py` now empties the folder first.
+
 ## The final trailer, fifth render (2026-11-19, `trailer-final-v5`)
 
 The user's shot-by-shot notes on v4, rendered on master 3692116 (torches x1.25, smooth glow sprites, the game's dither
@@ -290,8 +352,8 @@ off while traced) on branch `t3/trailer-v5-shot-revisions`. Output: `bench\resul
 Changes against v4:
 - **Cards**: the title is "A RAY TRACING MOD FOR ULTRAKILL" / ULTRART (no "unofficial /// work in progress" line); the
   end card is ULTRART and the small print only.
-- **Captions**: 0-1 "Real-time path tracing" (it shows the room filling with lamp light more than shadows, and
-  "Global illumination" was P-2's); 7-3 tree "Glowing objects cast real light"; P-2 hall "Light bounces realistically,
+- **Captions** (v5b put the headings back, with these lines as their sub lines): 0-1 "Real-time path tracing" (it
+  shows the room filling with lamp light more than shadows, and "Global illumination" was P-2's); 7-3 tree "Glowing objects cast real light"; P-2 hall "Light bounces realistically,
   carrying color"; 8-2 street "Water reflections"; P-2 street "Reflective wet surfaces"; terminal "Ray-traced
   reflections"; gun "Gunfire is a light source". No sub lines.
 - **0-3's opening room opens the trailer** (the user's idea, 2026-11-19): path traced throughout, from the room's back
@@ -601,11 +663,12 @@ plays from its start under the title and the first nine shots (44 bars, to 66.34
 60.34 s); the battle layer (`0-1`) comes in there from its step up at 36.34 s of the song and runs 32 bars to its loop
 point (114.34 s of the trailer); the calm layer returns under the end card and fades over 4.5 s. Every cut, switch and
 gunshot (half bars) is on the grid, and so are v5's two staged events: 0-3's light pillars come on and 6-2's organ hall
-turns red on a bar.
+turns red on a bar. Since v5b both are in the first 20 seconds, on the calm layer (the organ shot ends on the bar after
+the red flip); 1-4's hall closes the battle layer.
 
 ### Shot list
 
-The cut as of the fifth render (v5, 2026-11-19; "The final trailer, fifth render" below has what changed).
+The cut as of v5b (2026-11-19; "The final trailer, v5b" above has what changed).
 
 All comparisons are paired live takes (the game's image / real-time path tracing with RR); "beauty" is one traced take.
 
@@ -613,24 +676,24 @@ All comparisons are paired live takes (the game's image / real-time path tracing
 |---|---|---|---|---|---|---|
 | 1 | 0:00.0 | 4.84 | Title card: "A RAY TRACING MOD FOR ULTRAKILL" / ULTRART | - | card | |
 | 2 | 0:04.8 | 7.5 | Opening room from its back wall: V1 walks in through the door, the room and its light pillars come on (on the second bar) | 0-3 | beauty | |
-| 3 | 0:12.3 | 9.0 | Torch hallway, round the corner to the doorway | 1-1 | sweep from the right | |
-| 4 | 0:21.3 | 6.0 | Statue room glide (world frozen) | 0-1 | sweep | Real-time path tracing |
-| 5 | 0:27.3 | 7.5 | Tree orbit | 7-3 | sweep from the right | Glowing objects cast real light |
-| 6 | 0:34.8 | 7.5 | Hall crane from the stained glass | P-2 | sweep | Light bounces realistically, carrying color |
-| 7 | 0:42.3 | 7.5 | Street, lamp posts and the pool | 8-2 | sweep from the right | Water reflections |
-| 8 | 0:49.8 | 6.0 | Glide down onto the water channel towards the door (the user's pose) | 2-1 | sweep | |
-| 9 | 0:55.8 | 6.0 | Down the entryway between the windows to the lit arch | 6-2 | sweep from the right | |
+| 3 | 0:12.3 | 6.0 | Gabriel's intro: his light on the organ, then the hall turns red on the fourth bar | 6-2 | sweep | |
+| 4 | 0:18.3 | 9.0 | Torch hallway, round the corner to the doorway | 1-1 | sweep from the right | |
+| 5 | 0:27.3 | 6.0 | Statue room glide (world frozen) | 0-1 | sweep | Real-time path tracing |
+| 6 | 0:33.3 | 7.5 | Tree orbit | 7-3 | sweep from the right | Emissive lighting / Glowing objects cast real light |
+| 7 | 0:40.8 | 7.5 | Hall crane from the stained glass | P-2 | sweep | Global illumination / Light bounces realistically, carrying color |
+| 8 | 0:48.3 | 7.5 | Street, lamp posts and the pool | 8-2 | sweep from the right | Water reflections |
+| 9 | 0:55.8 | 6.0 | Glide down onto the water channel towards the door (the user's pose) | 2-1 | sweep | |
 | 10 | 1:01.8 | 4.5 | Storm sea, a lightning strike on the second bar (`Calls`) | 5-2 | beauty | |
 | 11 | 1:06.3 | 6.0 | First-person jog down the street to the red arch (`Player` camera; the tunnel lamp held on from 1 s) | P-2 | beauty | Reflective wet surfaces |
 | 12 | 1:12.3 | 6.0 | V1 walks up to the shop terminal (`Player` path, `ShopScreensOff`) | 1-1 | beauty | Ray-traced reflections |
-| 13 | 1:18.3 | 4.5 | Neon street pan | 2-2 | sweep from the right | |
-| 14 | 1:22.8 | 6.0 | First-person walk, the pump shotgun fired on the half bars (main install: the user's gun colours) | 7-3 | switch at 1.5 s | Gunfire is a light source |
-| 15 | 1:28.8 | 4.5 | Low along the lava | 0-5 | sweep | |
-| 16 | 1:33.3 | 4.5 | Push down the tunnel towards the red-lit arches (the user's pose 3) | 2-4 | switch at 1.5 s | |
-| 17 | 1:37.8 | 4.5 | Low over the water of the main hall towards the statue's door | museum | sweep from the right | |
-| 18 | 1:42.3 | 6.0 | Push down the lamp-lit hall inside the building to the stained glass (the user's pose 4) | 1-4 | sweep | |
-| 19 | 1:48.3 | 6.0 | Gabriel's intro: his light on the organ, then the hall turns red on the fourth bar | 6-2 | sweep from the right, fade out | |
-| 20 | 1:54.3 | 6.5 | End card: ULTRART (and the small print) | - | card | |
+| 13 | 1:18.3 | 6.0 | Down the entryway between the windows to the lit arch | 6-2 | sweep from the right | |
+| 14 | 1:24.3 | 4.5 | Neon street pan | 2-2 | sweep | |
+| 15 | 1:28.8 | 6.0 | First-person walk, the pump shotgun fired on the half bars (main install: the user's gun colours) | 7-3 | switch at 1.5 s | Gunfire is a light source |
+| 16 | 1:34.8 | 4.5 | Low along the lava | 0-5 | sweep from the right | |
+| 17 | 1:39.3 | 4.5 | Push down the tunnel towards the red-lit arches (the user's pose 3) | 2-4 | switch at 1.5 s | |
+| 18 | 1:43.8 | 4.5 | Push down a picture gallery | museum | sweep from the right | |
+| 19 | 1:48.3 | 6.0 | Slow arc beside the pool of the lamp-lit hall inside the building (the user's pose 4) | 1-4 | sweep, fade out | |
+| 20 | 1:54.3 | 6.5 | End card: ULTRART | - | card | |
 
 Total 2:00.8. Where gameplay footage (the user's own capture) could go: at the battle layer's entry (1:06.3, before or
 instead of P-2's street), between 2-2's street and the 7-3 gun shot (1:22.8, the action stretch), or in place of 2-2's
@@ -644,7 +707,8 @@ Tried and left out: 6-1's candle hall and 8-2's vending machine (the bench's are
 there), a replay of the recorded 0-2 run (no gunfire, and it leaves the level after 20 s), 1-1's fountain (the water is
 too small in frame to read), 7-1's pool (the pose loaded without its level state: grey and unlit), layer 8's mirrors and portals, 3-1.
 Out since v4: 8-2's standing lamp and 6-2's first hall (both kept in `paths.json`: `final-8-2-lamp`, `final-6-2-nave`).
-Out since v5: 1-3's water, 4-4's hall, the museum fountain, 1-4's night lamps (kept in `paths.json`).
+Out since v5: 1-3's water, 4-4's hall, the museum fountain, 1-4's night lamps (kept in `paths.json`). Out since v5b:
+the museum's main hall (its floor texture showed through the water; path removed).
 Scouted for v4 and left out: 6-2's Grand Hall at the user's pose 1 after `t3/stained-glass` (the windows show their
 lead pattern, but no beam on the floor read from any of 14 views, and the hall is the same all-red look as the 6-2 shot
 that went out), 0-S's skull-lit corridor (a held item needs the skull in a cinematic take; the 2-4 tunnel showed the

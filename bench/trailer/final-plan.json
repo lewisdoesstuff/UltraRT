@@ -1,6 +1,6 @@
 {
   "Name": "trailer-final",
-  "Note": "The final trailer's plan (docs/trailer.md): scripts/trailer-plan.py writes the suites (bench/suites/trailer-final-<tier>-<n>.json, and -main for shots rendered in the main install) and the edit lists (bench/trailer/trailer-final-<tier>.json) from it. Music: the calm layer of 0-1's theme for the title and the first nine shots (44 bars), the battle layer from its step up (36.34 s into the song) for the next nine (32 bars, to its loop point), the calm layer again under the end card. 160 bpm: a bar is 1.5 s and the bars fall at 0.34 + 1.5 n, so the title is 0.34 s + 3 bars and every other clip a whole number of bars.",
+  "Note": "The final trailer's plan (docs/trailer.md): scripts/trailer-plan.py writes the suites (bench/suites/trailer-final-<tier>-<n>.json, and -main for shots rendered in the main install) and the edit lists (bench/trailer/trailer-final-<tier>.json) from it. Music: the calm layer of 0-1's theme for the title and the first nine shots (44 bars, Gabriel second), the battle layer from its step up (36.34 s into the song) for the next nine (32 bars, to its loop point), the calm layer again under the end card. 160 bpm: a bar is 1.5 s and the bars fall at 0.34 + 1.5 n, so the title is 0.34 s + 3 bars and every other clip a whole number of bars.",
   "Bar": 1.5,
   "Margin": 0.25,
   "PerRun": 5,
@@ -24,10 +24,15 @@
     { "Kind": "title", "Name": "title", "Lead": 0.34, "Bars": 3,
       "Card": { "Text": "ULTRART", "AccentFrom": 5, "Sub": "A RAY TRACING MOD FOR ULTRAKILL", "Beats": [0.34, 1.84], "Y": 0.45, "OutFade": 0.35 } },
 
-    { "Kind": "beauty", "Name": "0-3 beams", "Scene": "Level 0-3", "File": "final-0-3-beams", "Bars": 5, "In": 1.667, "Render": 10.0,
+    { "Kind": "beauty", "Name": "0-3 beams", "Scene": "Level 0-3", "File": "final-0-3-beams", "Bars": 5, "In": 1.583, "Render": 10.0,
       "Path": { "Type": "static", "Approach": "../recordings/v5-0-3-before-beams.json", "Duration": 1 },
       "Cinematic": { "Player": "../cinematics/final-0-3-beams-walk.json", "ShowPlayer": true, "Paired": true, "OnFrom": 0, "OffUntil": 10.0 },
       "Tag": ["PRELUDE /// THIRD", "DOUBLE DOWN"] },
+
+    { "Kind": "sweep", "Name": "6-2 organ", "Scene": "Level 6-2", "File": "final-6-2-organ", "Bars": 4, "Off": 1.5, "Sweep": 1.5, "Slant": 0.18, "In": 6.2, "Render": 16.0,
+      "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/u1118-6-2-4.json", "Duration": 1 },
+      "Cinematic": { "OnFrom": 0, "OffUntil": 16.0 },
+      "Tag": ["HERESY /// ACT II CLIMAX", "AESTHETICS OF HATE"] },
 
     { "Kind": "sweep", "Name": "1-1 hallway", "Scene": "Level 1-1", "File": "final-1-1-hallway", "Bars": 6, "Off": 2.25, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
       "Path": { "Type": "static", "Approach": "../recordings/1-1-red-skull-hall.json", "Duration": 1 },
@@ -39,11 +44,11 @@
 
     { "Kind": "sweep", "Name": "7-3 tree", "Scene": "Level 7-3", "File": "final-7-3-tree", "Bars": 5, "Off": 2.25, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
       "Path": { "Type": "static", "Approach": "../recordings/7-3-tree-b.json", "Duration": 1 },
-      "Caption": { "Text": "Glowing objects cast real light", "At": 3.0 }, "Tag": ["VIOLENCE /// THIRD", "NO SOUND, NO MEMORY"] },
+      "Caption": { "Text": "Emissive lighting", "Sub": "Glowing objects cast real light", "At": 3.0 }, "Tag": ["VIOLENCE /// THIRD", "NO SOUND, NO MEMORY"] },
 
     { "Kind": "sweep", "Name": "P-2 hall", "Scene": "Level P-2", "File": "final-p-2-hall", "Bars": 5, "Off": 2.25, "Sweep": 1.5,
       "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Duration": 1 },
-      "Caption": { "Text": "Light bounces realistically, carrying color", "At": 3.0 }, "Tag": ["PRIME /// SECOND", "WAIT OF THE WORLD"] },
+      "Caption": { "Text": "Global illumination", "Sub": "Light bounces realistically, carrying color", "At": 3.0 }, "Tag": ["PRIME /// SECOND", "WAIT OF THE WORLD"] },
 
     { "Kind": "sweep", "Name": "8-2 street", "Scene": "Level 8-2", "File": "final-8-2-street", "Bars": 5, "Off": 2.25, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
       "Path": { "Type": "static", "Approach": "../recordings/8-2-c.json", "Duration": 1 },
@@ -52,10 +57,6 @@
     { "Kind": "sweep", "Name": "2-1 water", "Scene": "Level 2-1", "File": "final-2-1-water", "Bars": 4, "Off": 1.5, "Sweep": 1.5,
       "Path": { "Type": "static", "Approach": "../recordings/u1118-2-1-1.json", "Duration": 1 },
       "Tag": ["LUST /// FIRST", "BRIDGEBURNER"] },
-
-    { "Kind": "sweep", "Name": "6-2 entry", "Scene": "Level 6-2", "File": "final-6-2-entry", "Bars": 4, "Off": 1.5, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
-      "Path": { "Type": "static", "Approach": "../recordings/6-2-start.json", "Duration": 1 },
-      "Tag": ["HERESY /// ACT II CLIMAX", "AESTHETICS OF HATE"] },
 
     { "Kind": "beauty", "Name": "5-2 sea", "Scene": "Level 5-2", "File": "final-5-2-sea", "Bars": 3, "In": 1.2,
       "Cinematic": { "Calls": [ { "At": 2.45, "Type": "LightningStrikeDecorative_Animated", "Method": "FlashStart", "Index": 1 } ] },
@@ -72,7 +73,10 @@
       "Cinematic": { "Player": "../cinematics/final-1-1-terminal-walk.json", "ShopScreensOff": true },
       "Caption": { "Text": "Ray-traced reflections", "At": 1.5, "For": 3.4 } },
 
-    { "Kind": "sweep", "Name": "2-2 street", "Scene": "Level 2-2", "File": "final-2-2-street", "Bars": 3, "Off": 1.5, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
+    { "Kind": "sweep", "Name": "6-2 entry", "Scene": "Level 6-2", "File": "final-6-2-entry", "Bars": 4, "Off": 1.5, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
+      "Path": { "Type": "static", "Approach": "../recordings/6-2-start.json", "Duration": 1 } },
+
+    { "Kind": "sweep", "Name": "2-2 street", "Scene": "Level 2-2", "File": "final-2-2-street", "Bars": 3, "Off": 1.5, "Sweep": 1.5, "Slant": 0.18,
       "Path": { "Type": "static", "Approach": "../recordings/late-2-2-floor-noise-purple.json", "Duration": 1 },
       "Tag": ["LUST /// SECOND", "DEATH AT 20,000 VOLTS"] },
 
@@ -82,7 +86,7 @@
       "Cinematic": { "Player": "camera", "ShowWeapon": true, "Shots": [0.75, 2.25, 3.75, 5.25], "ShotKinds": ["shotgun"] },
       "Caption": { "Text": "Gunfire is a light source", "At": 1.5, "For": 3.4 } },
 
-    { "Kind": "sweep", "Name": "0-5 lava", "Scene": "Level 0-5", "File": "final-0-5-lava", "Bars": 3, "Off": 1.2, "Sweep": 1.5,
+    { "Kind": "sweep", "Name": "0-5 lava", "Scene": "Level 0-5", "File": "final-0-5-lava", "Bars": 3, "Off": 1.2, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
       "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 1 },
       "Tag": ["PRELUDE /// CLIMAX", "CERBERUS"] },
 
@@ -90,22 +94,14 @@
       "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/u1118-2-4-3.json", "Duration": 1 },
       "Tag": ["LUST /// CLIMAX", "COURT OF THE CORPSE KING"] },
 
-    { "Kind": "sweep", "Name": "museum hall", "Scene": "CreditsMuseum2", "File": "final-museum-hall", "Bars": 3, "Off": 1.2, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
+    { "Kind": "sweep", "Name": "museum gallery", "Scene": "CreditsMuseum2", "File": "final-museum-gallery", "Bars": 3, "Off": 1.2, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
       "Path": { "Type": "static", "Approach": "../recordings/late-museum-fountain.json", "Areas": "../recordings/late-museum-fountain-areas.json", "Load": "areas", "Duration": 1 } },
 
     { "Kind": "sweep", "Name": "1-4 hall", "Scene": "Level 1-4", "File": "final-1-4-hall", "Bars": 4, "Off": 1.5, "Sweep": 1.5,
       "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/u1118-1-4-4.json", "Duration": 1 },
-      "Tag": ["LIMBO /// CLIMAX", "CLAIR DE LUNE"] },
-
-    { "Kind": "sweep", "Name": "6-2 organ", "Scene": "Level 6-2", "File": "final-6-2-organ", "Bars": 4, "Off": 1.5, "Sweep": 1.5, "Slant": -0.18, "Flip": true, "In": 6.3, "Render": 16.0,
-      "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/u1118-6-2-4.json", "Duration": 1 },
-      "Cinematic": { "OnFrom": 0, "OffUntil": 16.0 },
-      "FadeOut": 0.6 },
+      "Tag": ["LIMBO /// CLIMAX", "CLAIR DE LUNE"], "FadeOut": 0.6 },
 
     { "Kind": "end", "Name": "end card", "Seconds": 6.5,
-      "Card": { "Text": "ULTRART", "AccentFrom": 5, "Scale": 0.8, "Y": 0.4, "OutFade": 1.2,
-                "Small": [ "Captured in ULTRAKILL with UltraRT: real-time path tracing with DLSS Ray Reconstruction,",
-                           "rendered at full resolution, frame by frame.",
-                           "An unofficial fan-made mod, not affiliated with the game's developers.  Music from the ULTRAKILL soundtrack." ] } }
+      "Card": { "Text": "ULTRART", "AccentFrom": 5, "Scale": 0.8, "Y": 0.4, "OutFade": 1.2 } }
   ]
 }
