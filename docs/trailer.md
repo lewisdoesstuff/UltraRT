@@ -338,6 +338,12 @@ then three 5-2 takes of about 45 s each to get the strike (`DistantThunder` and 
 5-2; then the nearest bolt, out of frame; then `Index` 1). Under 20 minutes of game time in all, 0 exceptions.
 Assembly 29.9 minutes, the 5-2 clip and the join again 9.2 minutes (`trailer.py --only 9`).
 
+**The user on v4** (2026-11-19): the 1-1 torch hall and 4-4 hall are "wildly bright on the lights"; the street lamps
+(P-2, 1-4) have a halo that "looks like a sprite". Both were the normal render (the shots are `live` RR takes), fixed
+there on `t3/trailer-v4-light-halo-fix`: torches x1.25 instead of x2.5 (docs/lighting-overrides.md, "Torches x1.25":
+1-1 hall clip 14 % -> 9 %, 4-4 hall 9 % -> 4 %), and the handed-over lamp glass keeps its class's air share in the
+haze (docs/volumetrics.md, "Handed-over lamps in the air": the halo about half). Not re-rendered yet.
+
 Scouted and left out: 6-2's Grand Hall at the user's pose 1 with `t3/stained-glass` (`scout-v4c.json`): the windows
 show their lead pattern, but no window beam read on the floor in 14 views, and the hall is the same all-red look as the
 6-2 shot that went out. 0-S's skull corridor was not tried: the held skull needs a cinematic take with a held item

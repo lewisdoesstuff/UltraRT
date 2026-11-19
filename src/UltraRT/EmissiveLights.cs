@@ -82,11 +82,13 @@ namespace UltraRT
 
         /// <summary>Handover (Plugin.Handover.cs): the light output a surface is to give instead of its own, as
         /// (r, g, b, kind): the sum of radiance x area (m2) over the triangles that share the target. kind 0 = none,
-        /// 1 = this object's triangles of this material. Read when the table is built, like LightScaleOf.</summary>
+        /// 1 + air = this object's triangles of this material, where air is the share of the output the volumetric pass
+        /// scatters (the handed light's class "medium"). Read when the table is built, like LightScaleOf.</summary>
         public Func<Material, Transform, Vector4> PowerOf;
         /// <summary>The same for parts baked into a static batch, which have no object: per material, the world bounds
-        /// of each part and its target. A batch triangle belongs to the first part whose bounds hold its centroid.</summary>
-        public Func<Material, List<KeyValuePair<Bounds, Vector3>>> BakedPowerOf;
+        /// of each part and its target (xyz) and air share (w). A batch triangle belongs to the first part whose bounds
+        /// hold its centroid.</summary>
+        public Func<Material, List<KeyValuePair<Bounds, Vector4>>> BakedPowerOf;
         /// <summary>A material some handover part uses. Such a surface joins the table even when the game does not
         /// mark it emissive (a fullbright bulb): its albedo stands in for the emission, the target sets the amount, and
         /// triangles of it that belong to no part are left out again. Nothing changes for the camera.</summary>
@@ -171,7 +173,7 @@ namespace UltraRT
             var groups = new Dictionary<object, List<int>>();
             var targets = new Dictionary<object, Vector4>();
             var seen = new Dictionary<SceneProxies.TracedSubmesh, object>();
-            var baked = new Dictionary<Material, List<KeyValuePair<Bounds, Vector3>>>();
+            var baked = new Dictionary<Material, List<KeyValuePair<Bounds, Vector4>>>();
             for (int i = 0; i < cands.Count; i++)
             {
                 var src = cands[i].Src;
@@ -192,7 +194,7 @@ namespace UltraRT
                     {
                         if (!list[k].Key.Contains(p)) continue;
                         object bk = new KeyValuePair<object, int>(list, k);
-                        if (!groups.TryGetValue(bk, out var g)) { groups[bk] = g = new List<int>(); var t = list[k].Value; targets[bk] = new Vector4(t.x, t.y, t.z, 2f); }
+                        if (!groups.TryGetValue(bk, out var g)) { groups[bk] = g = new List<int>(); var t = list[k].Value; targets[bk] = new Vector4(t.x, t.y, t.z, 1f + Mathf.Max(0f, t.w)); }
                         g.Add(i);
                         break;
                     }
@@ -226,6 +228,7 @@ namespace UltraRT
                     float w = (float)(c.Lum / sum);
                     c.Le = new Color(t.x * w, t.y * w, t.z * w);
                     c.Lum = Lum(c.Le);
+                    c.AirDelta = Mathf.Max(0f, t.w - 1f) - 1f;
                     cands[i] = c;
                 }
                 foreach (int i in kv.Value) grouped.Add(i);
@@ -624,6 +627,9 @@ namespace UltraRT
             public float Area, Lum;
             /// <summary>Only in the table as a handover part (not emissive in the game).</summary>
             public bool Forced;
+            /// <summary>The share of Le the volumetric pass scatters, minus 1 (0 = all of it, an ordinary emitter): a handover
+            /// part carries its light's class "medium" (docs/volumetrics.md, "Handed-over lamps in the air").</summary>
+            public float AirDelta;
         }
 
         private readonly List<SceneProxies.TracedSubmesh> _changed = new List<SceneProxies.TracedSubmesh>();
@@ -753,7 +759,7 @@ namespace UltraRT
             _triData[b + 4] = AsUInt(c.E1.x); _triData[b + 5] = AsUInt(c.E1.y); _triData[b + 6] = AsUInt(c.E1.z);
             _triData[b + 7] = Half(c.Le.r) | (Half(c.Le.g) << 16);
             _triData[b + 8] = AsUInt(c.E2.x); _triData[b + 9] = AsUInt(c.E2.y); _triData[b + 10] = AsUInt(c.E2.z);
-            _triData[b + 11] = Half(c.Le.b);
+            _triData[b + 11] = Half(c.Le.b) | (Half(Mathf.Max(0f, 1f + c.AirDelta)) << 16); // high half: air share
             _triEmitter[t] = ei;
             _triCentroid[t] = c.P0 + (c.E1 + c.E2) / 3f;
             _triArea[t] = c.Area;

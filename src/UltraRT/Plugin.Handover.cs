@@ -32,7 +32,11 @@ namespace UltraRT
 
         private readonly Dictionary<Light, HandedLight> _handed = new Dictionary<Light, HandedLight>();
         private readonly Dictionary<KeyValuePair<Transform, string>, Vector3> _handPower = new Dictionary<KeyValuePair<Transform, string>, Vector3>();
-        private readonly Dictionary<string, List<KeyValuePair<Bounds, Vector3>>> _handBaked = new Dictionary<string, List<KeyValuePair<Bounds, Vector3>>>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Per part: the share of its output the volumetric pass scatters (the handed lights' "medium", weighted by
+        /// their output). EmissiveLights.PowerOf's w is 1 + this.</summary>
+        private readonly Dictionary<KeyValuePair<Transform, string>, float> _handAir = new Dictionary<KeyValuePair<Transform, string>, float>();
+        /// <summary>Baked parts per material: bounds, output (xyz) and air share (w).</summary>
+        private readonly Dictionary<string, List<KeyValuePair<Bounds, Vector4>>> _handBaked = new Dictionary<string, List<KeyValuePair<Bounds, Vector4>>>(StringComparer.OrdinalIgnoreCase);
         /// <summary>Material names of every handed-over part (EmissiveLights.IsPowerPart).</summary>
         private readonly HashSet<string> _handParts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private string _handKey;
@@ -102,6 +106,7 @@ namespace UltraRT
             _handScene = _proxies;
             _handed.Clear();
             _handPower.Clear();
+            _handAir.Clear();
             _handBaked.Clear();
             _handParts.Clear();
             if (_proxies == null || !_lightOverrides || !_handoverOn || !_lightOv.Classes.HasHandovers) return;
@@ -123,6 +128,9 @@ namespace UltraRT
                     HandoverParts(l, h, parts);
                     if (parts.Count == 0) { cnt[2]++; continue; }
                     var share = HandoverPowerOf(l, rb, h) / parts.Count;
+                    // What the light would have scattered in the air: its class's (or entry's) medium. The punch policy
+                    // boosts fixtures x2.5 with medium 0.4 so their haze stays where it was; the part must keep that cut.
+                    float air = Mathf.Max(0f, rb.Medium);
                     bool baked = false;
                     var hl = new HandedLight { Rule = rule, Parts = parts.Count };
                     foreach (var p in parts)
@@ -133,18 +141,25 @@ namespace UltraRT
                             // Baked into a static batch: no object of its own in the RT scene. Its world bounds
                             // (a little padded) pick its triangles out of the batch.
                             baked = true;
-                            if (!_handBaked.TryGetValue(p.Value, out var list)) _handBaked[p.Value] = list = new List<KeyValuePair<Bounds, Vector3>>();
+                            if (!_handBaked.TryGetValue(p.Value, out var list)) _handBaked[p.Value] = list = new List<KeyValuePair<Bounds, Vector4>>();
                             var bb = p.Key.bounds;
                             bb.Expand(Mathf.Max(0.04f, bb.size.magnitude * 0.05f));
                             int at = list.FindIndex(x => x.Key.center == bb.center && x.Key.size == bb.size);
-                            if (at >= 0) list[at] = new KeyValuePair<Bounds, Vector3>(bb, list[at].Value + share);
-                            else { at = list.Count; list.Add(new KeyValuePair<Bounds, Vector3>(bb, share)); }
+                            if (at >= 0)
+                            {
+                                var o = list[at].Value;
+                                var sum = new Vector3(o.x, o.y, o.z) + share;
+                                list[at] = new KeyValuePair<Bounds, Vector4>(bb, new Vector4(sum.x, sum.y, sum.z, MixAir(new Vector3(o.x, o.y, o.z), o.w, share, air)));
+                            }
+                            else { at = list.Count; list.Add(new KeyValuePair<Bounds, Vector4>(bb, new Vector4(share.x, share.y, share.z, air))); }
                             hl.Keys.Add(new KeyValuePair<object, int>(list, at));
                         }
                         else
                         {
                             var k = new KeyValuePair<Transform, string>(p.Key.transform, p.Value);
-                            _handPower.TryGetValue(k, out var b);
+                            bool had = _handPower.TryGetValue(k, out var b);
+                            _handAir.TryGetValue(k, out var ba);
+                            _handAir[k] = had ? MixAir(b, ba, share, air) : air;
                             _handPower[k] = b + share;
                             hl.ObjectParts.Add(k);
                         }
@@ -157,8 +172,16 @@ namespace UltraRT
                     Logger.LogInfo($"Handover ({_lightOv.Scene}): {_handed.Count} lights to {_handPower.Count} parts and {_handBaked.Values.Sum(x => x.Count)} baked parts; " +
                                    string.Join("; ", perRule.Select(kv => $"'{kv.Key}' {kv.Value[0]} handed, {kv.Value[1]} hybrid, {kv.Value[2]} without a part")));
             }
-            catch (Exception e) { Logger.LogWarning($"Handover: failed, the lights stay: {e.Message}"); _handed.Clear(); _handPower.Clear(); _handBaked.Clear(); _handParts.Clear(); }
+            catch (Exception e) { Logger.LogWarning($"Handover: failed, the lights stay: {e.Message}"); _handed.Clear(); _handPower.Clear(); _handAir.Clear(); _handBaked.Clear(); _handParts.Clear(); }
             finally { _handBuilding = false; }
+        }
+
+        /// <summary>The air share of a part that already gives <paramref name="had"/> at <paramref name="hadAir"/> and takes
+        /// <paramref name="add"/> at <paramref name="addAir"/> more: the mean weighted by output.</summary>
+        private static float MixAir(Vector3 had, float hadAir, Vector3 add, float addAir)
+        {
+            float a = had.x * 0.2126f + had.y * 0.7152f + had.z * 0.0722f, b = add.x * 0.2126f + add.y * 0.7152f + add.z * 0.0722f;
+            return a + b > 1e-12f ? (a * hadAir + b * addAir) / (a + b) : addAir;
         }
 
         /// <summary>EmissiveLights.PowerOf.</summary>
@@ -169,7 +192,9 @@ namespace UltraRT
             EnsureHandover();
             string name = CleanMaterialName(proxyMaterial.name);
             if (source == null) return Vector4.zero;
-            return _handPower.TryGetValue(new KeyValuePair<Transform, string>(source, name), out var p) ? new Vector4(p.x, p.y, p.z, 1f) : Vector4.zero;
+            var key = new KeyValuePair<Transform, string>(source, name);
+            if (!_handPower.TryGetValue(key, out var p)) return Vector4.zero;
+            return new Vector4(p.x, p.y, p.z, 1f + (_handAir.TryGetValue(key, out var air) ? air : 1f));
         }
 
         private bool HandoverFulfilled(HandedLight hl)
@@ -194,7 +219,7 @@ namespace UltraRT
         }
 
         /// <summary>EmissiveLights.BakedPowerOf.</summary>
-        private List<KeyValuePair<Bounds, Vector3>> HandoverBakedPower(Material proxyMaterial)
+        private List<KeyValuePair<Bounds, Vector4>> HandoverBakedPower(Material proxyMaterial)
         {
             if (!_lightOverrides || !_handoverOn || _lightOv == null || proxyMaterial == null || !_lightOv.Classes.HasHandovers) return null;
             if (_lightOv.Scene != SafeCurrentScene()) return null;

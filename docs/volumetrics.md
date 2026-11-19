@@ -175,6 +175,7 @@ crosses it (`g_VolTint`, docs/materials.md "Stained glass").
 | | `attachedReach` | 2.5 m | how far from the eye an attached light still counts as carried (`vol.attachedReach`; 1.5 m before 2026-11-18) |
 | | `sun` | 1 | sun scattering multiplier (diagnostics: `vol.sun=0`) |
 | `-ultrart-vol-emissive F` | `emissive`, `emissiveSamples` | 0.5, 1 | 0 = no emissive surfaces |
+| `-ultrart-vol-emitter-medium F` | `emitterMedium` | 1 | 1: an emitter triangle's air share applies (a fixture handed over to its glowing part keeps its class's `medium` in the air, below); 0 = the full emitter output in the air, as before 2026-11-19 (bench `vol.emitterMedium=0`) |
 | | `maxSample` | 2 | firefly clamp |
 | `-ultrart-vol-nofog` | `gameFog` | true | the game's fog on RT pixels (not on "NoFog" materials, below the table) |
 | | `alphaMin`, `maxHistory`, `clipSigma`, `spatialSigma`, `depthTolerance`, `spatialDepthSigma` | 0.03, 64, 3, 1.5, 0.1, 0.05 | temporal filter |
@@ -478,6 +479,47 @@ the bench's `holdtorch` and the whiplash pressed `ShotDelay` before each capture
   `bench/results/review/dark0s/corridor_before_after.png`.
 - Not done: matching the game's per-vertex look (the room going dark as soon as the torch leaves) would need a steeper
   falloff for moving lights; relight keeps the physical one.
+
+### Handed-over lamps in the air (2026-11-19, `t3/trailer-v4-light-halo-fix`)
+
+User report after trailer v4: a halo round the street lamps in several levels (P-2, 1-4) "looks like a sprite". What
+draws it, proven with variants at the lamps up close (`bench/suites/light-halo-diag3.json`, `LookAt` `mat:Light` at
+5-6 m; sheets `bench/results/review/halo-fix/`, `c3_door.png`, `c3_p2.png`):
+
+| Switch | The glow round the lamp head |
+|---|---|
+| the game's own frame (`off`) | none: the lamp prefab has no glow sprite or flare |
+| `vfx.enabled=0` (bloom and the other screen effects off) | stays |
+| `vol.lights=0` | stays |
+| `vol.emissive=0` | gone |
+| `vol.strength=0` | gone |
+| `lc.handover=0` (the lamp's game light instead of its glass) | a halo of about the same size, from the light (`vol.lights`) |
+
+So it is this pass's in-scattering from the lamp glass: since `t3/emissive-all` the street lamps' lights are handed
+over to their glass (docs/lighting-overrides.md, "Handover"), and the glass, an emitter in the emissive triangle table,
+lights the level's fog round the head. A lamp in fog has a halo; this one was too strong. The handed-over part emits
+its light's output **with the class policy**: fixtures x2.5 (the "punch", docs/lighting-overrides.md). The policy also
+has `medium` 0.4, so that a boosted light's haze stays where it was. The emitter dropped that cut, and scattered the
+full x2.5 (and the rule's handover gain: P-2 2, 1-4's lamps more) in the air. That is the "bloom": a round soft ball
+around a bright rectangle, the same from every side.
+
+The fix: every emitter triangle carries an **air share** (the high half of its third record's `w`, which held only
+the blue of its radiance), 1 for an ordinary emitter (lava, screens, panels: unchanged) and the handed light's resolved
+`medium` for a handover part (several lights on one part: their mean, weighted by output). `Volumetrics.raytrace`
+multiplies the emitter sample by it (`SampleEmissivePoint`). The surface lighting does not change.
+
+Measured 2026-11-19 (`20261119-140528_light-halo-fix_alt`, 1-4's bridge lamp at 6 m, mean luma of the sky beside the
+head, 1-4's moonlit fog): the game 26.1; before (`vol.emitterMedium=0`) 43.9; now 38.8; without any emitter haze
+(`vol.emissive=0`) 32.1. The emitters' part of the halo went from +11.8 to +6.7, 1 m out from +8.5 to +4.0: about
+half. P-2's lamps flicker at random, so its frames do not compare by number; by eye the head's glow is softer and the
+red haze the street lamps put over the far arch is lower.
+
+Options if the user wants the halo gone as well, not halved (not done):
+- `vol.emissive` lower for every emitter (0.5 now; 0.2 halves lava's rising glow too);
+- the handover gain out of the air as well as the punch (the gain calibrates the part's light on surfaces, about x3 in
+  1-4: air share = medium / gain would leave a tenth of today's halo in 1-4);
+- a per-rule air share in `_rules.json` (a `handover.medium`), for the lamps that should glow in the fog and those
+  that should not.
 
 ### Not done / limits
 - Hybrid is off by default (`-ultrart-vol-hybrid`): its colour already has the game's fog; only the in-scattering

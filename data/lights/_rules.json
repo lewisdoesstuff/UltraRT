@@ -46,6 +46,12 @@
       "medium": 0.4,
       "note": "Punch: no further than in the game, x2.5 (2026-11-18, was x1.8), haze as before (medium 1/2.5)."
     },
+    "fixture:torch": {
+      "reach": 0,
+      "intensity": 1.25,
+      "medium": 0.8,
+      "note": "Torches, braziers, open fires (2026-11-19, t3/trailer-v4-light-halo-fix): x1.25, half the fixture punch, haze as before (medium 1/1.25). Their game lights are already 5 to 8 (range 15 to 40), and the flame-driven light sits above the cup that shadowed it: at x2.5 1-1's torch hall and 4-4's boss hall burned out (trailer v4). 4-1 and 4-3 had their own cuts for the same reason. Candle piles are their own class (fixture:candle, the fixture policy: they are handed over to the candles' texture)."
+    },
     "accent": {
       "reach": 0,
       "intensity": 2.5,
@@ -207,7 +213,7 @@
       "signals": [
         "!scripted"
       ],
-      "class": "fixture:torch",
+      "class": "fixture:candle",
       "handover": {
         "part": "^M_CandlePile"
       },
