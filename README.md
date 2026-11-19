@@ -123,6 +123,7 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 | [docs/gpu-timer.md](docs/gpu-timer.md) | The native D3D12 GPU timer (`UltraRT.Native`) |
 | [docs/ultrakill-rendering.md](docs/ultrakill-rendering.md) | Notes on how ULTRAKILL itself renders, including its final screen dither and how UltraRT replaces it |
 | [docs/audit-2026-11-15.md](docs/audit-2026-11-15.md) | A visual audit of 33 poses against the game |
+| [docs/cleanup-audit-2026-11-19.md](docs/cleanup-audit-2026-11-19.md) | A static audit for dead code, duplication and stale suites and docs, with proposed cleanup PRs (report only) |
 | [docs/handoff-2026-11-18.md](docs/handoff-2026-11-18.md) | Handoff of the look-and-perf work: plan state, open playtest items with next steps, bench methods and traps |
 | [docs/plan-look-and-perf.md](docs/plan-look-and-perf.md) | Plan of 2026-11-17 (not implemented): light classes and brightness, material maps, trailer flaws, the 120 / 240 Hz targets |
 | [bench/README.md](bench/README.md) | Running benchmarks: the game lock, suites, scenario JSON, poses, noise and motion metrics |
