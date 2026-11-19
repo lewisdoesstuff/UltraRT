@@ -45,6 +45,9 @@ All figures are from the repo's own docs. Measured on an RTX 5070 Ti at 2560x144
 
 ## Build, install and deploy
 
+Players install the Thunderstore package (r2modman or Thunderstore Mod Manager); [docs/release.md](docs/release.md) says
+how it is built (`scripts\package.ps1`) and what goes where. The version is in `Version.props`.
+
 ```powershell
 # The shader bundle (Unity batch mode), the plugin and the native DLL. Without -NoDeploy this also copies
 # them into the game folder (ULTRAKILL_DIR sets which one; the default is in scripts\lib\slots.ps1).
@@ -98,6 +101,7 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 | Doc | What it covers |
 |---|---|
 | [docs/settings.md](docs/settings.md) | The in-game settings page: layout, saving, flags versus config, hotkeys |
+| [docs/release.md](docs/release.md) | Releasing on Thunderstore: `scripts/package.ps1`, the version, what goes where in an r2modman install, the optional detail-map package, the DX11 startup notice, licensing checklist, manual steps left |
 | [docs/relight.md](docs/relight.md) | The relight mode (default without DLSS RR): physical light model, tone curve, auto exposure, sky and sun, colour match |
 | [docs/hdr.md](docs/hdr.md) | HDR10 display output (prototype, off by default): the swapchain proxy, the highlight gain map, effects and bloom above white, settings |
 | [docs/path-tracing.md](docs/path-tracing.md) | The `pathtrace` mode: paths, settings, effects in reflections, cost and noise |

@@ -362,8 +362,12 @@ The DLSS SDK is under the "NVIDIA RTX SDKs" license (`lib\dlss\LICENSE.txt`; fet
   and never under an open-source license. `fetch-dlss.ps1` keeps the binaries out of git.
 - **Release builds.** NVIDIA must be notified before a *commercial* release (license, "Notification for the DLSS SDK";
   form at developer.nvidia.com/sw-notification). Shipping the SDK requires NVIDIA attribution (marks on a splash
-  screen, about box or credits), and the DLL's third-party notices (Programming Guide section 9.5) go in the
-  product's documentation.
+  screen, about box or credits), and the DLL's third-party notices go in the product's documentation. (The notices are
+  Programming Guide section 9.6 "3rd Party Software", 31 March 2026 edition: curl, an SGI bitmap font, d3dx12.h, xml,
+  npy, stb, DirectX-Graphics-Samples, Vulkan-Headers; 9.5 is NVIDIA's own disclaimer. This doc said 9.5 until
+  2026-11-19.) The release package carries them as `NVIDIA-DLSS-THIRD-PARTY-NOTICES.txt` and NVIDIA's license as
+  `NVIDIA-RTX-SDKs-LICENSE.txt` beside the DLL; the attribution is in its README and the settings page's Credits
+  ([release.md](release.md)).
 - **Which DLL.** `fetch-dlss.ps1` fetches `lib/Windows_x86_64/rel/nvngx_dlssd.dll` (48.3 MB at v310.9.16; the main
   checkout's `lib\dlss\version.txt` says `v310.9.16 rel`); `-Dev` fetches the `dev` one (93.5 MB, with the debug
   overlay, Ctrl+Alt+F12). What NVIDIA's documents in that SDK (checked 2026-11-19, tag v310.9.16) say about shipping:

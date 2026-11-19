@@ -15,7 +15,8 @@ See also: [relight.md](relight.md) ("HDR displays": why Unity itself can't do it
 - `[Display] HDR = true` in `BepInEx/config/ooo.lew.ultrart.cfg` (or **HDR display > HDR output** in the settings
   menu), then restart the game. `-ultrart-hdr [on|off]` on the command line wins over the config; `-ultrart-hdr force`
   uses the HDR10 swapchain even when Windows reports HDR off (testing).
-- `BepInEx/patchers/UltraRT/UltraRT.Preload.dll` must be deployed (`deploy.ps1` copies it from `stage\patchers`).
+- `BepInEx/patchers/UltraRT/UltraRT.Preload.dll` must be deployed (`deploy.ps1` copies it from `stage\patchers`; r2modman
+  puts it in `BepInEx/patchers/<Team>-UltraRT/`, which works the same: BepInEx loads patchers from any subfolder).
 
 | Setting (`[Display]`) | Flag | Default | |
 |---|---|---|---|
@@ -51,7 +52,10 @@ underneath it, the way RenoDX's swapchain proxy and Special K retrofit HDR:
 1. **Before the graphics device exists.** A BepInEx *preloader patcher* (`src/UltraRT.Preload`, in `BepInEx\patchers`)
    runs when Mono starts, which is before Unity creates its D3D12 device and swapchain. (Player.log suggests otherwise:
    BepInEx's lines appear there after `GfxDevice: creating device client`, but they are replayed into that log later.
-   The hook does see Unity's swapchain being created.) If HDR is asked for, the patcher loads `UltraRT.Native.dll` and
+   The hook does see Unity's swapchain being created.) If HDR is asked for, the patcher finds `UltraRT.Native.dll` under
+   `BepInEx\plugins` (up to 4 folders deep, preferring a folder that also holds `UltraRT.dll`, the copy the plugin loads
+   later; with several installs the newest `UltraRT.dll` wins, with a warning; logged as `HDR output: using <path>`;
+   until 2026-11-19 it only looked in `plugins\UltraRT\`, so a mod-manager install had no HDR), loads it and
    calls `UltraRT_Hdr_Install`, which patches two slots of the DXGI factory's vtable (`CreateSwapChain`,
    `CreateSwapChainForHwnd`). It patches no assembly, and with HDR off it loads nothing.
 2. **The swapchain.** When Unity creates its swapchain (2560x1440, `R8G8B8A8_UNORM`, 3 buffers, flip model), the hook
