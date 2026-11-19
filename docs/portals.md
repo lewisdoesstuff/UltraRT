@@ -255,7 +255,7 @@ not explained yet (open).
 
 **Not portal-aware yet** (from the audit, by value): volumetrics (the froxel march and its composite stop at the
 portal plane), the sky (one global sky; a portal into another sky shows the camera's), hybrid's game cube term (eye
-position), the player light and muzzle flash (not imaged through portals), the backdrop exclusion by player position
+position), the player light and muzzle flash (not imaged through portals; built off by default in section 11), the backdrop exclusion by player position
 at scene build.
 
 ## 10. Edges of a moving portal (2026-11-18, `t3/door-brightness`)
@@ -285,6 +285,72 @@ too (no history involved) and not in the game's image (`portal-edges-diag.json`,
 `8-3_edges_albedo_zoom.png`): rays slip through between two surfaces of the far side near the exit's plane and see
 the lit room behind. Not found yet; the suspects are the 1 mm start offset past the exit's plane against a wall face
 lying in that plane, and the proxy quad's size against the game's portal mesh.
+*2026-11-19: both suspects ruled out, see section 11.*
 
 Also fixed here: a new portal side counted as "moved" in its first frame (`SyncSide` compared after assigning).
+
+## 11. Player lights, the 8-2 re-check and the 8-3 hairline (2026-11-19, `t3/portal-light`)
+
+**8-2 portal in motion.** The user saw "slight edge artifacts plus noticeably noisy surfaces seen through the portal while
+moving" (playtest of 2026-11-18). Re-checked on master (6a46c93) with the user's sway recording, six shots in motion
+(`bench/suites/portal-light.json`, sheets `bench/results/review/portal-light/sway.png`, `sway_zoom.png`). Still there, slightly:
+stair-stepped edges along the doorway and the light panel inside it, on the shots taken mid-sway. Noise through the
+portal is not clearly worse than outside it on single shots; the 16-frame burst on 8-2 pose 4 gives sigma 0.57-0.60
+over the whole frame (region 0: 2.08-2.20), the same as section 9's. The walls behind the portal are darker than the
+game's (a general colour/brightness difference, not a portal one).
+
+**The player's light through portals** (`Plugin.PortalLights.cs`, `SceneProxies.PortalImages`; **off by default**,
+bench `plugin._portalLights=1`). The player's own lights (the eye light, muzzle flashes: `PlayerOwnedLight`, the test of
+`FlagPlayerLights`) get a virtual copy behind each portal side they can shine through, by the game's rule (from the
+side's back half-space, within 2 x range of the opening; not mirrors; one hop; at most 4 per light, 8 in all): at the
+light's image through the side's travel matrix, as a spot whose cone holds the exit's opening (its bounding circle as
+seen from the image, the outer quarter soft), unshadowed (`l3.z` 0.75) like the eye light. Packed with the surface
+lights before the air-only ones; no air scattering. Why off:
+- The game does not do it either. A Unity light lights its own place; the portal camera renders the far side with the
+  far side's lights, so in the game the view through a portal is not lit by the player light. On, RT departs from the
+  game there.
+- 8-2 (Player/Point Light: intensity 0.5, range 15) shows no visible difference on/off (`portal_lights_sheet.png`,
+  `bench/results/20261119-002934_portal-light`): the far hallway is lit by its own lamps.
+It is for a dark place behind a portal that only the player's light would show. None was found in 8-2 or 8-3.
+
+**8-3 hairline** (section 10, 8-3 pose 1). Two suspects tested, neither is it:
+- *Double-door seam.* 8-3's BigDoor portals come in pairs, 2.75 m wide with centres 2.75 m apart, so their quads only
+  touch. Traced quads 5 mm larger on every side: the line stays (`hairline_zoom.png`; the change was dropped).
+- *The 1 mm start offset past the exit plane.* Now a switch, `plugin._portalStart` (metres; 0 = 1 mm, global
+  `_UltraRTPortalStart`). At 0.1 mm and 1 cm the line is the same (`hairline_start.png`,
+  `bench/results/20261119-004514_portal-hairline_alt`).
+What the shots show: the line moves with the view through the Shifting Hallway's moving portals (10 x 20 m sides at
+x -61/-71, -91/-101, -121/-131, exits sliding in z), and it is always about 60 px (at 1440p) inside the slab from the
+slab's edge where the next segment's view begins. That fits a portal quad's edge seen through the moving portal (the
+next segment's side, seen at hop 2 or 3, slightly off from the geometry around it) more than anything in the slab.
+Next step: `-ultrart-compdebug 5` on that pose (which hop each pixel ended at), and the hop limit (past
+`_UltraRTPortalHops` a ray goes on without portals and sees the level behind, a pale room). Open.
+
+**Backdrop exclusion by player position** (scene build, `SceneProxies.IsBackdrop`: enclosures over 1 km that contain the
+player). Not changed: no level showed an enclosure around a portal's far side that blocks the sun there. Left as it is.
+
+## 12. Atmosphere behind portals (2026-11-19, `t3/portal-atmosphere`)
+
+**Haze past the portal plane: not built.** The volumetric march ends at the game's depth, the portal's plane, so no
+in-scattering is computed past a portal. The levels with portals have almost none to add: the medium in 8-1, 8-2,
+8-3 and 8-4 is at or near its floor, 0.002/m (at most 0.0046/m), in every bench log of the last two days. On 8-2 pose 4
+the whole volumetric pass (`vol.debugView=1`, in-scattering only) shows a glow around the far light panel and nothing
+else. Continuing the march through the portal (a second segment from the exit, lights of the far side) would add a
+fraction of that. Not worth a second march per portal pixel; left as a limit.
+
+**The lit box behind 8-2's Reception portal: fixed.** What did show was a lavender, hard-edged box under the far
+hallway's ceiling light, seen only through the portal (`bench/results/review/portal-light/box_split.png`,
+`veil_split.png`, `cone_fix.png`). Split by switches on 8-2 pose 4 (the far wall inside the box, mean RGB): game
+(108, 107, 125); pathtrace (167, 159, 204); without the game fog `vol.gameFog=0` (102, 96, 125), because without it the
+veil pass does not run here at all; veil fog only, `veil.gain=0+veil.cover=0`: (110, 96, 126) (8 % of the portal's pink
+fog, as the game's portal view has). So the box was the veil pass's layers: the game's additive light cone
+(`LightPillar 3C`) behind the portal, drawn without its vertex fade (scene-proxies.md, "Light cones"). Cones now take
+their vertex colours: (114, 100, 131), the cone a faint frustum like the game's (`cone_fix.png`, run
+`bench/results/20261119-010135_portal-atmosphere_alt`). Cost: none (a material setting at the scene build).
+
+Follow-up, not changed: `Plugin.Viewmodel.cs` and `LitParticles.cs` also test `IsKeywordEnabled("_VERTEXCOLORS_ON")`
+on ULTRAKILL/Master materials, which may be false the same way.
+
+**Not portal-aware, unchanged:** the sky (one global sky; no portal level here leads into another sky), hybrid's game
+cube term (eye position), particle lighting for the game's portal cameras (they get the game's look, section 9).
 

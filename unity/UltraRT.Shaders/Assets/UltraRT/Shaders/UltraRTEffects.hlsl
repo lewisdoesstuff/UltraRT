@@ -43,6 +43,7 @@ float3 EffectsAlong(float3 origin, float3 dir, float tMax)
     r.TMax = tMax;
     RayPayload p = (RayPayload)0;
     p.flags = ULTRART_PAYLOAD_EFFECTS;
+    ULTRART_COUNT_RAY(ULTRART_RAY_EFFECTS);
     TraceRay(_Scene, RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ULTRART_MASK_TRANSPARENT, 0, 1, 0, r, p);
     return max(p.albedo, 0.0) * (_UltraRTEffectParams.x * g_EffectVisible); // max: also drops NaN
 }

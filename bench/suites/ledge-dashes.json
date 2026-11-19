@@ -1,0 +1,44 @@
+{
+ "Name": "ledge-dashes",
+ "Note": "t3/ledge-dashes: kept game pixels on 7-1's ledges and stairs (poses 3, 4). plugin._matchDebug=1 paints every pixel the game keeps (red: nearest trace sample behind, blue: in front, green: none); with and without the one-sided plane test (plugin._edgeMatch=0).",
+ "Scenarios": [
+  {
+   "Name": "7-1 pose 3",
+   "Scene": "Level 7-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-7-1-3.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._matchDebug=1",
+    "pathtrace+plugin._matchDebug=1+plugin._edgeMatch=0"
+   ],
+   "Screenshots": [
+    1.5,
+    2.5
+   ]
+  },
+  {
+   "Name": "7-1 pose 4",
+   "Scene": "Level 7-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-7-1-4.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._matchDebug=1",
+    "pathtrace+plugin._matchDebug=1+plugin._edgeMatch=0"
+   ],
+   "Screenshots": [
+    1.5,
+    2.5
+   ]
+  }
+ ]
+}

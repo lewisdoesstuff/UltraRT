@@ -47,6 +47,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/ParticleLight.compute",
                     "Assets/UltraRT/Shaders/ParticleLight.raytrace",
                     "Assets/UltraRT/Shaders/PathTrace.raytrace",
+                    "Assets/UltraRT/Shaders/PathTraceCount.raytrace",
                     "Assets/UltraRT/Shaders/Portal.shader",
                     "Assets/UltraRT/Shaders/Proxy.shader",
                     "Assets/UltraRT/Shaders/CutoutTrace.raytrace",

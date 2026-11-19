@@ -87,6 +87,8 @@ namespace UltraRT
             public StaticSource Owner;      // first source seen; its ancestors define the grouping keys
             public int VisibleSources;
             public int MatGen;              // bumped when a source swaps this slot's material (SceneProxies.Sync.cs)
+            public Bounds LocalBounds;      // of its vertex range, in the combined mesh's space (HasBounds: read back)
+            public bool HasBounds;
         }
 
         private sealed class StaticSource
@@ -446,6 +448,7 @@ namespace UltraRT
                 }
                 c.Indices = idx;
                 c.CpuBytes = bytes;
+                SlotBounds(c);
                 return true;
             }
             catch (Exception e)
@@ -454,6 +457,34 @@ namespace UltraRT
                 c.Streams = null;
                 c.Indices = null;
                 return false;
+            }
+        }
+
+        /// <summary>Each slot's bounds from its vertex range (the transparent ray's screen rectangle,
+        /// SceneProxies.Transparent.cs: a whole combined mesh spans a level).</summary>
+        private static void SlotBounds(Combined c)
+        {
+            VertexAttributeReader pos = null;
+            foreach (var a in c.Attributes)
+            {
+                if (a.attribute != VertexAttribute.Position) continue;
+                if (a.format != VertexAttributeFormat.Float16 && a.format != VertexAttributeFormat.Float32) return;
+                pos = new VertexAttributeReader(c.Streams[a.stream], c.Strides[a.stream], c.Mesh.GetVertexAttributeOffset(VertexAttribute.Position),
+                                                a.dimension, a.format == VertexAttributeFormat.Float16);
+            }
+            if (pos == null) return;
+            foreach (var slot in c.Slots)
+            {
+                if (slot == null || slot.VMax < slot.VMin) continue;
+                Vector3 mn = Vector3.positiveInfinity, mx = Vector3.negativeInfinity;
+                for (int v = slot.VMin; v <= slot.VMax; v++)
+                {
+                    var p = (Vector3)pos.Read4(v);
+                    mn = Vector3.Min(mn, p);
+                    mx = Vector3.Max(mx, p);
+                }
+                slot.LocalBounds.SetMinMax(mn, mx);
+                slot.HasBounds = true;
             }
         }
 

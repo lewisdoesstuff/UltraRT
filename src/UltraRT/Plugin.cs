@@ -396,6 +396,7 @@ namespace UltraRT
             _bundle = bundle;
             _debugShader = debug;
             _ptShader = pt;
+            _ptCountShader = rts.FirstOrDefault(s => s.name == "PathTraceCount"); // optional: ray counters (Plugin.RayCounts.cs)
             _proxyShader = proxy;
             _bundleStamp = File.GetLastWriteTimeUtc(_bundlePath);
             return true;
@@ -407,7 +408,7 @@ namespace UltraRT
             ResetScene(); // proxy materials reference the old shader
             if (_bundle != null) _bundle.Unload(true);
             _bundle = null;
-            _debugShader = _ptShader = null;
+            _debugShader = _ptShader = _ptCountShader = null;
             _proxyShader = null;
             if (LoadShaders()) _host.StartCoroutine(BuildWhenLoaded());
         }
@@ -599,6 +600,7 @@ namespace UltraRT
             AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
             AppendEnemyGlowLights(); // Plugin.EnemyGlow.cs: the glowing parts of skinned enemies
+            AppendPortalLightImages(); // Plugin.PortalLights.cs: the player's own lights imaged through portals
             // Lights [0, _surfLightCount) light surfaces (every surface pass binds that count); the ones after it only
             // the air (the volumetric pass takes _lightCount). docs/lighting-overrides.md, "Classes and rules".
             _surfLightCount = _lightCount;
@@ -1262,8 +1264,10 @@ namespace UltraRT
             SceneProxies.TraceMirrors = _rtMirrors;
             SceneProxies.MovingPortalMotion = _portalMotion;
             SceneProxies.MovingPortalEdges = _portalEdges;
+            Shader.SetGlobalFloat("_UltraRTPortalStart", _portalStart);
             SceneProxies.HideHeldItems = _hideHeld; SceneProxies.SkinnedScaleUpdates = _skinScale;
             DlssRR.GrazingMatch = _grazingMatch;
+            DlssRR.MatchDebug = _matchDebug;
             DlssRR.ThinMatch = _thinMatch;
             DlssRR.ThinNear = _thinNear;
             Shader.SetGlobalFloat("_UltraRTWaterBand", _waterBand ? 1f : 0f);
@@ -1352,7 +1356,7 @@ namespace UltraRT
             _gpu?.End(_cmd, SlotRtas);
             _cmd.EndSample(SampleBuild);
 
-            var shader = pt ? _ptShader : _debugShader;
+            var shader = MainTraceShader(pt); // the counting variant with plugin._rayCounts=1 (Plugin.RayCounts.cs)
             shader.SetShaderPass("UltraRTHit");
             _cmd.SetRayTracingAccelerationStructure(shader, "_Scene", _proxies.Rtas);
             _cmd.SetRayTracingTextureParam(shader, "_Output", _output);
@@ -1406,7 +1410,7 @@ namespace UltraRT
                 long tc = Perf.Now;
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 Perf.Add(Perf.Sec.Cache, tc);
-                BindTransparents(shader, denoised); // water and glass (Plugin.Transparent.cs)
+                BindTransparents(shader, denoised, viewProj, w, h); // water and glass (Plugin.Transparent.cs)
                 BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
                 BindStains(shader, kind == Kind.Denoised || kind == Kind.Hybrid || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
                 BindPathTrace(shader, full, rr);
@@ -1430,6 +1434,7 @@ namespace UltraRT
             _gpu?.Begin(_cmd, SlotDispatch);
             _cmd.DispatchRays(shader, pt && full ? "RayGenPT" : "RayGen", (uint)w, (uint)h, 1);
             _rtTracedFrame = Time.frameCount; // white orb shells follow it (SceneProxies.OrbShells.cs)
+            RequestRayCounts(pt, w, h, (full ? "pathtrace" : kind == Kind.Denoised ? "relight/pt-dn" : kind.ToString()) + (_transRect ? "" : ", transRect off")); // plugin._rayCounts=1 (Plugin.RayCounts.cs)
             _gpu?.End(_cmd, SlotDispatch);
             _cmd.EndSample(SampleTrace);
             if (_diagDispatches > 0 && pt) DiagDispatches(invViewProj); // bench: per-dispatch render-thread cost (docs/performance.md)

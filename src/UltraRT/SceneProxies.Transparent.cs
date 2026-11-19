@@ -227,6 +227,109 @@ namespace UltraRT
 
         private void CountTransparent(bool added) => ActiveTransparent += added ? 1 : -1;
 
+        private readonly HashSet<DynamicProxy> _veilProxySet = new HashSet<DynamicProxy>();
+
+        /// <summary>
+        /// The rectangle (in the NDC of <paramref name="viewProj"/>, the trace's projection) that holds every active water,
+        /// glass and blood instance in the RTAS (veil proxies, which a camera ray never hits, are left out). False: none
+        /// can be on screen, and PathTrace skips its transparent ray at every pixel (docs/performance.md, "Ray counts":
+        /// that ray ran at every pixel whenever anything with the transparent mask was active, light cones included).
+        /// An instance reaching behind the camera's near plane gives the whole screen.
+        /// </summary>
+        public bool TransparentScreenRect(Matrix4x4 viewProj, out Vector4 rect)
+        {
+            rect = new Vector4(1f, 1f, -1f, -1f);
+            float bestArea = 0f;
+            TransparentRectWidestName = null; _widestArea = 0f;
+            foreach (var d in _active)
+            {
+                if (d.Mask != TransparentMask || _veilProxySet.Contains(d) || d.Source == null) continue;
+                AddRect(d.Source.bounds, viewProj, ref rect, d.Source.name, ref bestArea);
+            }
+            // Static groups: per slot, the bounds of its own vertices (a group's combined mesh spans a level: 8-2's and 8-3's
+            // glass parts covered every view). Without them (no CPU copy of the mesh) the part's mesh bounds.
+            foreach (var g in _groups)
+                for (int pi = 0; pi < PartCount; pi++)
+                {
+                    var gp = g.Parts[pi];
+                    if (gp == null || !gp.InRtas || !gp.Transparent || gp.Filter == null || gp.Filter.sharedMesh == null) continue;
+                    var toWorld = gp.Proxy.transform.localToWorldMatrix;
+                    var slots = g.Slots[pi];
+                    bool whole = slots == null || slots.Count == 0;
+                    if (!whole)
+                        foreach (var sl in slots)
+                        {
+                            if (!sl.HasBounds) { whole = true; break; }
+                            if (sl.VisibleSources <= 0) continue;
+                            AddRect(TransformBounds(sl.LocalBounds, toWorld), viewProj, ref rect, sl.Source != null ? sl.Source.name : gp.Proxy.name, ref bestArea);
+                        }
+                    if (whole) AddRect(TransformBounds(gp.Filter.sharedMesh.bounds, toWorld), viewProj, ref rect, gp.Proxy.name, ref bestArea);
+                }
+            // Nothing, or nothing overlapping the trace's view.
+            return rect.x <= 1f && rect.y <= 1f && rect.z >= -1f && rect.w >= -1f && rect.x <= rect.z;
+        }
+
+        /// <summary>The instance with the widest rectangle in the last <see cref="TransparentScreenRect"/> (diagnostics).</summary>
+        public string TransparentRectWidest => TransparentRectWidestName == null ? "-" : $"'{TransparentRectWidestName}' {_widestArea / 4f:P0} of the view";
+        public string TransparentRectWidestName { get; private set; }
+        private float _widestArea;
+
+        private void AddRect(Bounds b, Matrix4x4 viewProj, ref Vector4 rect, string name, ref float bestArea)
+        {
+            var r = new Vector4(1f, 1f, -1f, -1f);
+            if (!NdcRect(b, viewProj, ref r)) return;
+            float area = Mathf.Max(0f, Mathf.Min(r.z, 1f) - Mathf.Max(r.x, -1f)) * Mathf.Max(0f, Mathf.Min(r.w, 1f) - Mathf.Max(r.y, -1f));
+            if (area > bestArea) { bestArea = area; _widestArea = area; TransparentRectWidestName = name; }
+            rect = new Vector4(Mathf.Min(rect.x, r.x), Mathf.Min(rect.y, r.y), Mathf.Max(rect.z, r.z), Mathf.Max(rect.w, r.w));
+        }
+
+        private static readonly Vector4[] _boxH = new Vector4[8];
+
+        /// <summary>The NDC rectangle of the part of a box in front of the camera (its edges clipped at w = 0.05). False:
+        /// nothing of it is in front.</summary>
+        private static bool NdcRect(Bounds b, Matrix4x4 viewProj, ref Vector4 rect)
+        {
+            var mn = b.min; var mx = b.max;
+            for (int k = 0; k < 8; k++)
+                _boxH[k] = viewProj * new Vector4((k & 1) != 0 ? mx.x : mn.x, (k & 2) != 0 ? mx.y : mn.y, (k & 4) != 0 ? mx.z : mn.z, 1f);
+            const float near = 0.05f;
+            bool any = false;
+            for (int k = 0; k < 8; k++)
+            {
+                var h = _boxH[k];
+                if (h.w > near) { Grow(ref rect, h); any = true; }
+                // Edges to the corners that differ in one axis bit: where they cross the near plane.
+                for (int bit = 1; bit <= 4; bit <<= 1)
+                {
+                    int j = k ^ bit;
+                    if (j < k) continue;
+                    var o = _boxH[j];
+                    if ((h.w > near) == (o.w > near)) continue;
+                    float t = (near - h.w) / (o.w - h.w);
+                    Grow(ref rect, h + (o - h) * t);
+                    any = true;
+                }
+            }
+            return any;
+        }
+
+        private static void Grow(ref Vector4 rect, Vector4 h)
+        {
+            float x = h.x / h.w, y = h.y / h.w;
+            rect.x = Mathf.Min(rect.x, x); rect.y = Mathf.Min(rect.y, y);
+            rect.z = Mathf.Max(rect.z, x); rect.w = Mathf.Max(rect.w, y);
+        }
+
+        private static Bounds TransformBounds(Bounds b, Matrix4x4 m)
+        {
+            var c = m.MultiplyPoint3x4(b.center);
+            var e = b.extents;
+            var x = m.MultiplyVector(new Vector3(e.x, 0f, 0f)); var y = m.MultiplyVector(new Vector3(0f, e.y, 0f)); var z = m.MultiplyVector(new Vector3(0f, 0f, e.z));
+            var ext = new Vector3(Mathf.Abs(x.x) + Mathf.Abs(y.x) + Mathf.Abs(z.x), Mathf.Abs(x.y) + Mathf.Abs(y.y) + Mathf.Abs(z.y), Mathf.Abs(x.z) + Mathf.Abs(y.z) + Mathf.Abs(z.z));
+            return new Bounds(c, 2f * ext);
+        }
+
+
         private void CountTransparent(DynamicProxy d, bool added)
         {
             if (d.Mask == TransparentMask) ActiveTransparent += added ? 1 : -1;

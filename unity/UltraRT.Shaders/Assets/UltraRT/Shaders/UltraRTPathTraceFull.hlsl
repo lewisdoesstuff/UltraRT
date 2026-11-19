@@ -58,6 +58,7 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
     {
         RayPayload h;
         float travelled;
+        ULTRART_SET_RAY_KIND(specular ? ULTRART_RAY_REFLECTION : ULTRART_RAY_BOUNCE);
         TraceSceneCone(RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
                        surfaces | PlayerRayMask(specular ? ULTRART_PLAYER_REFLECTION : ULTRART_PLAYER_BOUNCE), cone, r, h, travelled); // r: the last segment after portals
         // Glowing effects in front of what a specular lobe sees (UltraRTEffects.hlsl). Cosine bounces get their light

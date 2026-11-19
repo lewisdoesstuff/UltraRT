@@ -1,0 +1,65 @@
+{
+ "Name": "trans-rect",
+ "Note": "t3/perf-dispatch-2: the transparent ray only inside the screen rectangle of the water/glass/blood instances (plugin._transRect=0 = before). 1-1 pose 2 (fountain) and 8-2 pose 1 (pool): reflections must not change. 0-1, 0-3, 8-3: ray counts (plugin._rayCounts=1, garbage image).",
+ "Scenarios": [
+  {
+   "Name": "1-1 pose 2",
+   "Scene": "Level 1-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-1-2.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "pathtrace+plugin._transRect=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "8-2 pose 1",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-8-2-1.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "pathtrace+plugin._transRect=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ],
+   "BurstRegions": [
+    [
+     0.36,
+     0.48,
+     0.56,
+     0.62
+    ]
+   ]
+  },
+  {
+   "Name": "8-3 b",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-b.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "pathtrace+plugin._rayCounts=1+plugin._transRect=0",
+    "pathtrace+plugin._rayCounts=1",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    5
+   ],
+   "Segment": 0.75,
+   "SwitchSkipFrames": 20
+  }
+ ]
+}

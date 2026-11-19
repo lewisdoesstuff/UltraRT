@@ -47,6 +47,7 @@ bool PortalSegmentThrough(uint side, float3 a, float3 b)
     return abs(q.x) <= 0.5 && abs(q.y) <= 0.5;
 }
 
+float _UltraRTPortalStart; // metres past the exit plane where a continued ray starts (0: 1 mm; bench plugin._portalStart)
 int _UltraRTPortalHops; // teleports per ray (SceneProxies.PortalHops, default 3); global, set every frame
 // 1: camera rays reflect off portal mirrors like any portal (-ultrart-rtmirrors); 0 (default): they stop there and the
 // game's mirror view is kept. Global, set every frame.
@@ -112,6 +113,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         p.t = -1.0;
         p.flags = inFlags | (i > 0u ? ULTRART_PORTAL_IN_RECURSION : 0u);
         if ((inFlags & ULTRART_PAYLOAD_CONE) != 0u) p.albedo = float3(g_Cone.x + g_Cone.y * path.travelled, g_Cone.y, 0.0);
+        ULTRART_COUNT_TRACE(i);
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
         if (p.t < 0.0) p.albedo = 0; // a miss leaves the cone input there
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
@@ -131,6 +133,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
             p.flags = inFlags | ULTRART_PORTAL_IN_RECURSION;
             mask &= ~ULTRART_MASK_PORTAL;
             if ((inFlags & ULTRART_PAYLOAD_CONE) != 0u) p.albedo = float3(g_Cone.x + g_Cone.y * path.travelled, g_Cone.y, 0.0);
+            ULTRART_COUNT_TRACE(1u);
             TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
             if (p.t < 0.0) p.albedo = 0;
             return;
@@ -151,7 +154,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         path.rot = mul(m, path.rot);
         path.hops++;
         mask = (p.material & 1u) != 0u ? baseMask | portalLayerMask : baseMask;
-        ray.Origin = float3(dot(r0, h), dot(r1, h), dot(r2, h)) + d * 1e-3;
+        ray.Origin = float3(dot(r0, h), dot(r1, h), dot(r2, h)) + d * (_UltraRTPortalStart > 0.0 ? _UltraRTPortalStart : 1e-3);
         ray.Direction = d;
         ray.TMin = 0.0;
         ray.TMax = max(ray.TMax - p.t, 0.0);
