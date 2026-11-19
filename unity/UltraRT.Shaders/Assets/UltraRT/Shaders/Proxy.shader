@@ -848,6 +848,7 @@ Shader "UltraRT/Proxy"
                     rough = lerp(rough, min(rough, lerp(_UltraRTWet2.z, 0.03, puddle)), film);
                     specWeight = max(specWeight, lerp(_UltraRTWet2.w * wet, 1.0, puddle) * nonMetal);
                     f0 = max(f0, 0.04);
+                    if (wet + puddle > 0.05) flags |= ULTRART_FLAG_WET; // lamp glints on the film (PathTrace.raytrace)
                 }
                 p.material = PackMaterialWord(rough, metal, f0, specWeight);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.

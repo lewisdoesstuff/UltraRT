@@ -1,0 +1,29 @@
+{
+  "Name": "glints-perf3",
+  "Note": "Glints cost split on the worst case (8-2's pool straight down): on, off, no shadow ray, no frustum cull.",
+  "Scenarios": [
+    {
+      "Name": "8-2 pool down perf",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Position": [
+          0,
+          -11.6,
+          345
+        ],
+        "Yaw": 0,
+        "Pitch": -89,
+        "Duration": 12
+      },
+      "Modes": [
+        "relight",
+        "relight+glint.strength=0",
+        "relight+glint.noShadow=1",
+        "relight+glint.cull=0",
+        "relight+glint.water=0"
+      ]
+    }
+  ]
+}

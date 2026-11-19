@@ -10,7 +10,8 @@
 //       blood (the floor, relit and much brighter than the game's own) is absorbed toward the blood's colour, so a river
 //       of blood reads as thick liquid. Multiplicative, so it is safe on 8-bit targets.
 //   4   Reflect: dst * (1 - w) + w * R, with R the ray-traced reflection (PathTrace.raytrace, TransparentGen) at trace
-//       resolution and w = Fresnel(ripple normal) x weight, faded by fog.
+//       resolution and w = Fresnel(ripple normal) x weight, faded by fog; plus the lights' glints (PathTrace.raytrace,
+//       GlintLight: Fresnel applied, display units, in _LitWeight.xy), added on top.
 // Everything is skipped unless the plugin traced this camera's frame (_UltraRTTransOn, camera position match).
 Shader "UltraRT/TransparentOverlay"
 {
@@ -64,7 +65,10 @@ Shader "UltraRT/TransparentOverlay"
         float4 _UltraRTTransCam;         // xyz camera position of that trace, w = refraction inputs bound
         float4x4 _UltraRTTransVP;        // the trace's view-projection (GL convention, not flipped)
         Texture2D _UltraRTTransRefl;     // rgb reflected radiance, a = distance to the transparent hit (< 0 none)
-        float4 _UltraRTTransParams;      // x global strength, y max weight, z tone map white point (0 = off)
+        Texture2D<uint4> _UltraRTTransGlint; // PathTrace's _LitWeight: xy the glints (halves, display units, Fresnel applied)
+        // x global strength, y max weight, z tone map white point (0 = off), w 1 = the old double gamma conversion of the
+        // reflection under linear transport (bench trans.legacyGamma=1; docs/reflections.md "Glints")
+        float4 _UltraRTTransParams;
         StructuredBuffer<float4> _UltraRTExposureGlobal; // relight auto exposure ([0].x), bound globally when in use
         float _UltraRTLinear;            // global, relight: 1 = RT lighting is linear (docs/relight.md "Sky and GI")
         float _UltraRTAutoExposure;      // 1: apply _UltraRTExposureGlobal (as the denoiser's composite does for the lit part)
@@ -259,7 +263,7 @@ Shader "UltraRT/TransparentOverlay"
                 float2 f = tuv * float2(w, h) - 0.5;
                 int2 b = (int2)floor(f);
                 float2 fr = f - b;
-                float3 sum = 0;
+                float3 sum = 0, gsum = 0;
                 float ws = 0;
                 [unroll] for (int k = 0; k < 4; k++)
                 {
@@ -267,19 +271,31 @@ Shader "UltraRT/TransparentOverlay"
                     int2 tx = clamp(b + o, int2(0, 0), int2(w - 1, h - 1));
                     float4 r = _UltraRTTransRefl.Load(int3(tx, 0));
                     float wb = (o.x ? fr.x : 1.0 - fr.x) * (o.y ? fr.y : 1.0 - fr.y);
-                    if (r.a > 0.0 && abs(r.a - dist) < dist * 0.03 + 0.1) { sum += r.rgb * wb; ws += wb; }
+                    if (r.a > 0.0 && abs(r.a - dist) < dist * 0.03 + 0.1)
+                    {
+                        uint4 g = _UltraRTTransGlint.Load(int3(tx, 0));
+                        sum += r.rgb * wb;
+                        gsum += float3(f16tof32(g.x), f16tof32(g.x >> 16), f16tof32(g.y)) * wb;
+                        ws += wb;
+                    }
                 }
                 if (ws < 1e-4) discard;
                 float3 refl = sum / ws;
-                // Relight's linear transport shades the reflection (radiance cache) in linear light: back to the game's
-                // gamma first, then exposure, as the denoiser's composite does (UltraRTExposure.hlsl).
-                if (_UltraRTLinear > 0.5) refl = pow(max(refl, 0.0), 1.0 / 2.2);
-                if (_UltraRTAutoExposure > 0.5) refl *= _UltraRTExposureGlobal[0].x;
+                float3 glint = max(gsum / ws, 0.0);
+                // The trace already returns display (gamma) units: TraceReflection converts each sample's lighting. Until
+                // 2026-11-19 this pass converted it a second time under linear transport (^(1/2.2) again), which lifted
+                // a dark reflection (a night sky at 0.05 showed at 0.26); _UltraRTTransParams.w = 1 keeps that for A/B.
+                if (_UltraRTLinear > 0.5 && _UltraRTTransParams.w > 0.5) refl = pow(max(refl, 0.0), 1.0 / 2.2);
+                // Exposure, as the denoiser's composite does (UltraRTExposure.hlsl).
+                if (_UltraRTAutoExposure > 0.5) { refl *= _UltraRTExposureGlobal[0].x; glint *= _UltraRTExposureGlobal[0].x; }
                 refl = Tonemap(refl);
 
                 float fres = SchlickFresnel(_F0, dot(n, v));
                 float wgt = min(saturate(fres * _Weight * _UltraRTTransParams.x) * FogVisibility(dist), _UltraRTTransParams.y) * LimboCoverage(i);
-                return float4(refl * wgt, 1.0 - wgt);
+                // Glints (the lights' highlights, Fresnel already applied by the trace) add on top, past the weight cap
+                // and the tone curve's white: a lamp's streak on night water is the brightest thing on it.
+                float gw = _Weight * FogVisibility(dist) * LimboCoverage(i);
+                return float4(refl * wgt + glint * gw, 1.0 - wgt);
             }
             ENDCG
         }
