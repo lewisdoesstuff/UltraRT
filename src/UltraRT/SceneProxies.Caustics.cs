@@ -8,9 +8,9 @@ namespace UltraRT
     /// <summary>Water caustics (docs/caustics.md, "Implementation").</summary>
     internal sealed class CausticSettings
     {
-        /// <summary>-ultrart-caustics X: strength of the game's caustic pattern in the traced modes (1 = the game's, 0 = off).
+        /// <summary>-ultrart-caustics X: strength of the game's caustic pattern in the traced modes (1 = the game's amount, default 2, 0 = off).
         /// Bench variant caustics.strength=0.</summary>
-        public float strength = 1f;
+        public float strength = 2f; // 2 since 2026-11-19: our walls are lit brighter than the game's, 1 read weak
         /// <summary>-ultrart-caustics-noshadow: camera hits trace one ray toward the dominant CausticVolume, so V1, enemies
         /// and rocks shadow the pattern (caustics.shadows=0: unshadowed, as the game draws it).</summary>
         public bool shadows = true;

@@ -15,7 +15,7 @@ namespace UltraRT
     ///   -ultrart-transparent-strength X   Fresnel weight multiplier (default 1)
     ///   -ultrart-water-waves X            ripple strength (default 1, 0 = flat mirror water)
     ///   -ultrart-water-refraction X       screen-space refraction strength (default 1, 0 = off)
-    ///   -ultrart-caustics X               the game's water caustics in the traced modes (default 1, 0 = off; docs/caustics.md)
+    ///   -ultrart-caustics X               the game's water caustics in the traced modes (default 2, 0 = off; docs/caustics.md)
     ///   -ultrart-caustics-noshadow        caustics without their shadow ray (as the game draws them)
     /// F4 (reflections) switches the pass too.
     /// </summary>

@@ -290,7 +290,7 @@ light the room, as in the game. Side effect: a caustic pixel counts as an emitte
 
 | Setting | Default | Where |
 |---|---|---|
-| Strength (`[Effects] Caustics`, `-ultrart-caustics X`, bench `caustics.strength=X`) | 1 (the game's), 0 = off | Advanced page, Effects |
+| Strength (`[Effects] Caustics`, `-ultrart-caustics X`, bench `caustics.strength=X`) | 2 since 2026-11-19 (1 = the game's amount; it read weak against our brighter walls), 0 = off | Advanced page, Effects |
 | Shadow ray (`[Effects] CausticShadows`, `-ultrart-caustics-noshadow`, bench `caustics.shadows=0`) | on | Advanced page, Effects |
 
 The log: `Caustics: N traced CAUSTICS material(s), M mode-2 renderer variant(s): ...` at the scene build, and
