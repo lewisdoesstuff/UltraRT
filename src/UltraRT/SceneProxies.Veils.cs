@@ -33,6 +33,9 @@ namespace UltraRT
         /// <summary>Also the game's fake light cones (LightPillar materials) behind portals (SceneProxies.BeamVeil).
         /// Read at the scene build.</summary>
         public bool beams = true;
+        /// <summary>Light cones take their vertex colours (the fade from lamp to floor) by the material's _VertexColors
+        /// toggle too, not only its keyword. Read at the scene build. 2026-11-19.</summary>
+        public bool beamVertexColours = true;
     }
 
     /// <summary>
@@ -158,9 +161,16 @@ namespace UltraRT
             if (BeamVeil(src) && !additive) c.a = Mathf.Min(1f, c.a / Mathf.Max(0.05f, Veils.cover));
             m.SetFloat("_Additive", additive ? 1f : 0f);
             m.SetColor("_Tint", c);
-            m.SetFloat("_VertexColors", src.IsKeywordEnabled("_VERTEXCOLORS_ON") || src.IsKeywordEnabled("VERTEX_COLORS") ? 1f : 0f);
+            // A light cone fades by its vertex colours (bright at the lamp, gone at the floor; LightShafts reads the same
+            // gradient). Its keyword list has _VERTEXCOLORS_ON, but IsKeywordEnabled returns false for it (Unity 2022
+            // checks the shader's declared keywords; ULTRAKILL/Master branches on the _VertexColors property). Without the
+            // fade, the cone behind 8-2's Reception portal was an even box several times the game's brightness
+            // (2026-11-19, docs/portals.md section 12). Cones take the property as well; other veils keep the keyword test.
+            bool vertexColours = src.IsKeywordEnabled("_VERTEXCOLORS_ON") || src.IsKeywordEnabled("VERTEX_COLORS")
+                                 || (BeamVeil(src) && Veils.beamVertexColours && src.HasProperty("_VertexColors") && src.GetFloat("_VertexColors") > 0.5f);
+            m.SetFloat("_VertexColors", vertexColours ? 1f : 0f);
             if (src.IsKeywordEnabled("SCROLLING") && src.HasProperty(IdScrollSpeed)) m.SetVector(IdScrollSpeed, src.GetVector(IdScrollSpeed));
-            if (_veilLog.Count < 24) _veilLog.Add("  material " + DescribeVeilMaterial(src));
+            if (_veilLog.Count < 24) _veilLog.Add($"  material {DescribeVeilMaterial(src)} [keywords: {string.Join(" ", src.shaderKeywords)}; vertex colours {(vertexColours ? "on" : "off")}]");
             return m;
         }
 

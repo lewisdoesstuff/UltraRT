@@ -512,6 +512,10 @@ traced image replaces the game's portal view, so there the veil was missing. Now
   Measured (`bench/suites/portal-pair.json`, pathtrace, the far wall's mean colour): through the portal / from
   inside was 0.89, now 1.02; 59 veil renderers in 8-2. The cone's lower edge is a little harder than in the game's
   own view (no `_FADING_ON` distance fade in the proxy).
+  *2026-11-19 (`t3/portal-atmosphere`):* the cones had no vertex fade either. `IsKeywordEnabled("_VERTEXCOLORS_ON")`
+  was false although the keyword is in their list (the same trap as `_ALPHABLEND_ON`), so the proxy drew them as an even
+  box, several times the game's (8-2 pose 4: the far wall inside the cone 167 against the game's 108). Cones now also
+  take the `_VertexColors` property (`Veils.beamVertexColours`, scene build): 114. docs/portals.md section 12.
   **Cost trap, fixed the same day**: with light cones as veils, levels without any portal have veil proxies too (6-2:
   20), and the pass ran there every frame for nothing (merge-regress: 6-2 start pathtrace 5.63 -> 6.99 ms, GPU +0.4 ms,
   one more DispatchRays on the render thread). The pass now needs a portal side in the RTAS. Measured after the fix

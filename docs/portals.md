@@ -329,3 +329,28 @@ Next step: `-ultrart-compdebug 5` on that pose (which hop each pixel ended at), 
 **Backdrop exclusion by player position** (scene build, `SceneProxies.IsBackdrop`: enclosures over 1 km that contain the
 player). Not changed: no level showed an enclosure around a portal's far side that blocks the sun there. Left as it is.
 
+## 12. Atmosphere behind portals (2026-11-19, `t3/portal-atmosphere`)
+
+**Haze past the portal plane: not built.** The volumetric march ends at the game's depth, the portal's plane, so no
+in-scattering is computed past a portal. The levels with portals have almost none to add: the medium in 8-1, 8-2,
+8-3 and 8-4 is at or near its floor, 0.002/m (at most 0.0046/m), in every bench log of the last two days. On 8-2 pose 4
+the whole volumetric pass (`vol.debugView=1`, in-scattering only) shows a glow around the far light panel and nothing
+else. Continuing the march through the portal (a second segment from the exit, lights of the far side) would add a
+fraction of that. Not worth a second march per portal pixel; left as a limit.
+
+**The lit box behind 8-2's Reception portal: fixed.** What did show was a lavender, hard-edged box under the far
+hallway's ceiling light, seen only through the portal (`bench/results/review/portal-light/box_split.png`,
+`veil_split.png`, `cone_fix.png`). Split by switches on 8-2 pose 4 (the far wall inside the box, mean RGB): game
+(108, 107, 125); pathtrace (167, 159, 204); without the game fog `vol.gameFog=0` (102, 96, 125), because without it the
+veil pass does not run here at all; veil fog only, `veil.gain=0+veil.cover=0`: (110, 96, 126) (8 % of the portal's pink
+fog, as the game's portal view has). So the box was the veil pass's layers: the game's additive light cone
+(`LightPillar 3C`) behind the portal, drawn without its vertex fade (scene-proxies.md, "Light cones"). Cones now take
+their vertex colours: (114, 100, 131), the cone a faint frustum like the game's (`cone_fix.png`, run
+`bench/results/20261119-010135_portal-atmosphere_alt`). Cost: none (a material setting at the scene build).
+
+Follow-up, not changed: `Plugin.Viewmodel.cs` and `LitParticles.cs` also test `IsKeywordEnabled("_VERTEXCOLORS_ON")`
+on ULTRAKILL/Master materials, which may be false the same way.
+
+**Not portal-aware, unchanged:** the sky (one global sky; no portal level here leads into another sky), hybrid's game
+cube term (eye position), particle lighting for the game's portal cameras (they get the game's look, section 9).
+
