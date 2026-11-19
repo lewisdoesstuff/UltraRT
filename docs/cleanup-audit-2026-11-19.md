@@ -30,6 +30,28 @@ reachable on purpose, and most diagnostics are documented and gated. The real we
 Total safely removable without a behaviour change: **about 6,700 lines** (6,400 of them suites, scripts and the probe).
 With the duplication, the settings registry and the owner-decision items: **about 8,000-8,500**.
 
+## Decisions (user, 2026-11-19)
+
+- **Dead code goes:** everything in section 1, B1, the P-items.
+- **Legacy options mostly go**, and **the MSAA probe goes** (O8). The constraint: users without an NVIDIA GPU must
+  keep a full-quality path, so UltraRT's own denoiser (`Denoiser`, Full preset), the temporal upsampler and the
+  remodulation path for pathtrace without RR all stay; only their old A/B variants go. Proposed split:
+
+  | Goes | Stays |
+  |---|---|
+  | ReSTIR experiment knobs (O1); denoiser presets `Static`, `Previous`, `Legacy` and the Ctrl+F3 cycle (O3; `Full` becomes the only preset, its individual fields stay as bench keys); the TAAU-off 2x2 composite, F2 and `-ultrart-notaau` (O4); `fx.flameDriven=0` (O5); the old-look and early-days flags (O6, O7, O9); `Plugin.MsaaProbe.cs` (O8); `Plugin.EnemySurvey.cs` if EnemyGlow does not read its output | `Reference` light sampling (ground truth for `-ultrart-accumulate`); RIS; the debug views; the documented diagnostics of section 8 |
+
+- **Hybrid mode: open.** What it alone keeps alive: ReSTIR as a sampler (`hybridMode` defaults to ReSTIR and its
+  composite uses the reuse passes, `LightSampling.cs:27, 104, 119`), the second denoiser instance (`_denoiserDirect`,
+  `Plugin.cs:841`), `UnpackHybrid.compute`, the `_gHybrid` G-buffer (allocated in every mode, `Plugin.cs:921`), the
+  game-colour copy and ratio composite (`Plugin.cs:1548-1567`, `Composite.shader`), `PackHybridW` and `_Mode == 3`
+  branches in `PathTrace.raytrace`, and per-feature hybrid weights (`-ultrart-emissive-hybrid`, normal strength
+  hybrid, viewmodel / particle / reflection hybrid paths). "hybrid" appears 136 times over ~25 C# files and in 15
+  shader files. Dropping it would take ReSTIR with it entirely (RIS + Reference remain), roughly 54 ReSTIR mentions in
+  `LightSampling.cs` and 53 in `UltraRTLights.hlsl`. Estimated ~600-900 lines with the ReSTIR removal; needs one
+  visual run of relight and pathtrace to confirm nothing shared changed. It does not affect non-NVIDIA users: relight
+  and pathtrace already run with UltraRT's own denoiser.
+
 ## Proposed PRs
 
 Ordered so that each one is reviewable on its own and the risky work comes last. Sizes are lines removed (net).
