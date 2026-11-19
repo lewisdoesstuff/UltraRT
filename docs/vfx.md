@@ -13,6 +13,7 @@ the composited image, the game's depth, the G-buffer and (bloom) the image befor
 | `LitParticle.shader`, `LitParticles.cs` | Soft particles: the depth fade, and the fire / explosion / smoke materials swapped for it |
 | `Proxy.shader` (`RainWetness`), `Plugin.Wet.cs` | Rain wetness, puddles, ripples |
 | `BloodWet.cs`, `unity/.../BloodWet.shader`, `PathTrace.raytrace` | Wet blood |
+| `Plugin.GlowSprites.cs` | Glow sprites: the game's point-filtered glow textures, filtered bilinear while frames are traced |
 | `bench/suites/vfx-*.json` | `vfx-report` (the strips below), `vfx-perf`, `vfx-perf2`, `vfx-soft`, `vfx-wet`, `vfx-blood`, `vfx-c`, `vfx-a`, `vfx-softdiag`, `vfx-survey` |
 
 ## Where each effect sits in the frame
@@ -114,6 +115,36 @@ While `UnderwaterController.inWater` (the camera is in a `Water` volume; the sur
 - **Caustics** on what is under water, fading with depth; less on surfaces that are already bright.
 
 The game's own underwater tint (`_UnderwaterOverlay`) still applies.
+
+### Glow sprites (2026-11-19, `t3/lamp-halo-blockiness-fix`)
+User report: a pixellated halo round 1-4's street lamps, "square blocks of glow" round the head and blocky bands
+below it, which follow the camera (also P-2 and other levels). It is **the game's own sprite, not the haze**:
+`Streetlight/Point Light/Square`, a `SpriteRenderer` (`Sprites/Default`, about 20 m across) with the texture `glow`,
+**16x16, point filtered** like every texture in the game. Its radial gradient is 16 flat cells across, about 35 px
+each at 1440p from 5 m, and they turn with the sprite as the camera moves. The game's frame (`off`) has the same grid;
+our in-scattering behind it makes it easier to see. Proof (`bench/suites/lamp-sprite-diag.json`, runs
+`20261119-141707_lamp-sprite-diag_alt` and `20261119-141953_lamp-sprite-diag_alt`): the cells are the same in `off`, `pathtrace`, `pathtrace+pl.enabled=0` (lit particles
+off) and `pathtrace+vol.enabled=0`, and absent from the raw traced image; `-ultrart-viewprobe` (which now lists
+sprites, particles, lines and trails too, with their texture size and filter) named the sprite.
+
+**Fix**: while frames are traced, every sprite texture whose name contains "glow" is filtered **bilinear**, and
+restored to the game's filter when tracing stops (`off` keeps the game's look). Sprites are found every 5 s and on a
+scene change (`FindObjectsByType<SpriteRenderer>`); the log line `Glow sprites (... ms scan): ...` lists the scene's
+sprite textures and which count as glows. Found: 1-4 `glow` 16x16 (the street lamps, the moon) and `glow 2` 32x32 (the
+moon); P-2 `glow` on its 22 street lamps and `glow 1 blue` 48x48 (a skull); 6-2 `glow 2` (grapple points) and `glow`
+(a candle). Flames (`fire1_16`, `fire1_32`), `muzzleflashwhite` and `moon` stay point filtered. The texture asset is
+shared, so anything else drawing it (none seen) is smoothed too.
+
+Results (`bench/suites/lamp-sprite-check.json`, `20261119-142129_lamp-sprite-check_alt`; sheets
+`bench/results/review/lamp-sprite/sheet.png` and `sheet_stretched_x4.png`): 1-4 lamp (5 m, and the door lamps at 6 m)
+and a 15 deg/s sweep past the lamp: the cells are gone, a smooth radial gradient, in the still frames and in the
+sweep's frames. P-2's street lamp: the same. 6-2's start view and 0-1's metal pose have no glow sprite in view (0-1: no sprite
+textures at all), so they were only checked for regressions (none). Mean luma beside the 1-4 lamp head unchanged (11.6 / 11.6): only the
+filter changes, not the brightness. Cost: none on the GPU (a sampler state); frame time before / after (same launch) 1-4 sweep
+4.98 / 4.72 ms, P-2 9.89 / 9.30 ms: noise, not a gain. The 5 s sprite scan is CPU only (its time is in the log line; not
+measured yet). Bilinear
+on 16 texels is still piecewise linear: stretched x10, faint 8-bit rings show, no cells. `-ultrart-glow-smooth off` /
+bench `plugin._smoothGlow=0` = before.
 
 ## C. Bloom (and glowing debris)
 
@@ -235,6 +266,7 @@ Bench variants: `vfx.<field>`, `wet.<field>`, `pl.soft`, `pl.softDistance`.
 | Explosion shockwaves / strength | `-ultrart-shockwaves on\|off`, `-ultrart-shockwave-strength F` | on / 1 | |
 | Glowing explosion debris | `-ultrart-debris-glow on\|off` | on | |
 | Underwater | `-ultrart-underwater on\|off` | on | |
+| Glow sprites bilinear | `-ultrart-glow-smooth on\|off` (bench `plugin._smoothGlow=0`) | on | the game's "glow" sprite textures filtered bilinear while traced ("Glow sprites") |
 | Rain wetness / wetness / puddles | `-ultrart-wet-rain on\|off`, `-ultrart-wet-rain-strength F`, `-ultrart-wet-puddles F` | on / 0.8 / 0.45 | |
 | Soft puddles | `-ultrart-wet-soft on\|off` (bench `wet.soft=0`) | on | soft edges, soaked margin, glossier wet floor ("Soft puddles") |
 | Wet blood / drying time | `-ultrart-wet-blood on\|off`, `-ultrart-wet-blood-dry S` | on / 40 s | |

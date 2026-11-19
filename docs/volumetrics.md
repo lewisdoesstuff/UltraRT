@@ -488,7 +488,7 @@ draws it, proven with variants at the lamps up close (`bench/suites/light-halo-d
 
 | Switch | The glow round the lamp head |
 |---|---|
-| the game's own frame (`off`) | none: the lamp prefab has no glow sprite or flare |
+| the game's own frame (`off`) | none: the lamp prefab has no glow sprite or flare (wrong: it has one, `Point Light/Square`, faint; its 16x16 point-filtered texture is the blocky cells round the lamp, docs/vfx.md "Glow sprites") |
 | `vfx.enabled=0` (bloom and the other screen effects off) | stays |
 | `vol.lights=0` | stays |
 | `vol.emissive=0` | gone |
@@ -513,6 +513,9 @@ head, 1-4's moonlit fog): the game 26.1; before (`vol.emitterMedium=0`) 43.9; no
 (`vol.emissive=0`) 32.1. The emitters' part of the halo went from +11.8 to +6.7, 1 m out from +8.5 to +4.0: about
 half. P-2's lamps flicker at random, so its frames do not compare by number; by eye the head's glow is softer and the
 red haze the street lamps put over the far arch is lower.
+
+The blocky cells in the halo the user saw after this fix are not this pass: they are the game's own glow sprite
+(16x16, point filtered), in the game's frame too; filtered bilinear since 2026-11-19 (docs/vfx.md, "Glow sprites").
 
 Options if the user wants the halo gone as well, not halved (not done):
 - `vol.emissive` lower for every emitter (0.5 now; 0.2 halves lava's rising glow too);

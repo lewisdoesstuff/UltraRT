@@ -104,6 +104,7 @@ namespace UltraRT
             bool rtTraced = _viewEnabled && _proxies?.Rtas != null && Time.frameCount - _rtTracedFrame < 30;
             _proxies?.SetOrbShells(rtTraced);
             _proxies?.SetFlatWaterFade(rtTraced && _flatWaterFade); // 1-1's fountain checkerboard (TransparentSurfaces.cs)
+            UpdateGlowSprites(rtTraced); // 1-4's lamp glow sprites, bilinear (Plugin.GlowSprites.cs)
             if (_litParticles == null) return;
 
             var (name, kind, _) = Modes[_mode];

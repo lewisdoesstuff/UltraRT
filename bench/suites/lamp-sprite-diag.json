@@ -1,0 +1,48 @@
+{
+ "Name": "lamp-sprite-diag",
+ "Note": "t3/lamp-halo-blockiness-fix: the blocky cells round 1-4's street lamps are the game's 'glow' sprite (point filtered). Game frame vs pathtrace with the sprite smoothed vs not.",
+ "Scenarios": [
+  {
+   "Name": "1-4 lamp close",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-1.json",
+    "LookAt": "mat:Light",
+    "LookIndex": 0,
+    "LookDistance": 5,
+    "Pitch": 5,
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._smoothGlow=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-4 door lamp close",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-4-drift-a.json",
+    "LookAt": "mat:Light",
+    "LookIndex": 0,
+    "LookDistance": 6,
+    "Pitch": 5,
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._smoothGlow=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}
