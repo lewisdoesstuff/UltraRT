@@ -121,6 +121,7 @@ namespace UltraRT
 
         private static readonly int IdUnlit = Shader.PropertyToID("_Unlit");
         private static readonly int IdLitOverride = Shader.PropertyToID("_LitOverride");
+        private static readonly int IdNoFog = Shader.PropertyToID("_NoFog");
 
         /// <summary>The enemy type of each ENEMY source material, from the first renderer that used it (null: none found).</summary>
         private readonly Dictionary<Material, string> _enemyTypeOf = new Dictionary<Material, string>();

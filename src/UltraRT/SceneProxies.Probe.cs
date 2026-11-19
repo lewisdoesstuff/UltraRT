@@ -32,7 +32,8 @@ namespace UltraRT
                 var b = r.bounds;
                 var c = b.ClosestPoint(pos);
                 float dist = (c - pos).magnitude;
-                if (dist > maxDist) continue;
+                // Far renderers only where the camera's centre ray passes through them (0-1's cog at 60 m, 2026-11-18).
+                if (dist > maxDist && (dist > 4f * maxDist || !b.IntersectRay(new Ray(pos, fwd)))) continue;
                 // In the cone: the bounds centre or the closest point, or the camera's forward ray passes through it.
                 var toC = b.center - pos;
                 bool inCone = dist < 0.01f || Vector3.Dot(toC.normalized, fwd) > cosCone || (dist > 0.01f && Vector3.Dot((c - pos) / dist, fwd) > cosCone)

@@ -87,6 +87,7 @@
   "added": [],
   "exposure": {
     "followGame": 0.75,
+    "waterWaves": 0.25,
     "note": "User, 2026-11-18: the night street (pose 2) is too bright, the day side about right. The street is lit by the sky alone (every level light off: the same picture), so the exposure follows the game there; 0.75 rather than 1 because it also pulls the offices down (pose 4: 75 -> 58 at 1, the game 54)."
   }
 }

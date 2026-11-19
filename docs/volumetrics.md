@@ -175,11 +175,23 @@ The game's fog still applies to transparents as the game draws them.
 | | `sun` | 1 | sun scattering multiplier (diagnostics: `vol.sun=0`) |
 | `-ultrart-vol-emissive F` | `emissive`, `emissiveSamples` | 0.5, 1 | 0 = no emissive surfaces |
 | | `maxSample` | 2 | firefly clamp |
-| `-ultrart-vol-nofog` | `gameFog` | true | the game's fog on RT pixels |
+| `-ultrart-vol-nofog` | `gameFog` | true | the game's fog on RT pixels (not on "NoFog" materials, below the table) |
 | | `alphaMin`, `maxHistory`, `clipSigma`, `spatialSigma`, `depthTolerance`, `spatialDepthSigma` | 0.03, 64, 3, 1.5, 0.1, 0.05 | temporal filter |
 | | `atrous`, `atrousLumSigma`, `atrousDepthSigma`, `prefilterSamples`, `momentsAlpha` | 3, 4, 0.1, 8, 0.1 | a-trous filter (0 passes = off) |
 | | `meterHaze` | 0 | > 0: auto exposure meters the haze with the image (last frame's in-scattering, as the composite adds it) |
 | | `debugView` | 0 | 1 = the exposed in-scattering alone, 2 = the same without the temporal filter |
+
+**The game's fog skips "NoFog" materials (2026-11-18, `t3/playtest-materials`).** The fog pass (VolumetricsComposite
+pass 0) fogged every traced pixel, but the game draws `_FOG_OFF` materials (named "... NoFog": 0-1's 445 m gears in the
+Curved Hallway, `Metal Decoration * NoFog`, 79 m away) without its distance fog. User, playtest of 2026-11-18 (0-1 pose
+2): the cogs "don't look properly lit": flat orange with every light off. The orange was the fog colour (0.52, 0.24,
+0.11) added after the trace: raw frame (8, 3, 1) in the cog's region, final (113, 51, 25), run
+`20261118-234907_playtest-materials_alt`. Now a proxy material carries `_NoFog` from its source's `_FOG_OFF`, the hit
+sets payload flag `ULTRART_FLAG_NOFOG` (0x40), PathTrace keeps it in `_Surface` as the sign bit of emission.b's half
+(emission is never negative; `SurfaceEmission` masks it, `SurfaceNoFog` reads it), and the fog pass leaves such pixels
+alone (`_UltraRTSurface`). Bench `plugin._noFogSkip=0` = before. **Not verified in game**: in the two verification
+loads the gears were not in the traced image at that pose (raw frame black there; the level's state differs between
+loads), so the before / after could not be shown.
 
 GPU timer slots `volumetrics` (after `upsample`: depth, trace, temporal, a-trous, the fog pass) and `vollate` (after the
 transparents: the target copy and the scatter pass; not inside `total`). The plugin logs the medium every 10 s

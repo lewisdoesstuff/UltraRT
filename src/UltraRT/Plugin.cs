@@ -696,6 +696,9 @@ namespace UltraRT
         /// <summary>White statue orbs' glow shell strength while traced (SceneProxies.OrbShells.cs; bench plugin._orbShellGain).</summary>
         private float _orbShellGain = SceneProxies.OrbShellGain;
         private int _rtTracedFrame = -100;
+        /// <summary>Limbo water is not faded around the player while traced (bench plugin._flatWaterFade=0: the game's fade
+        /// with its dither squares).</summary>
+        private bool _flatWaterFade = true;
         /// <summary>Diagnostic (bench plugin._readdDynamic=1): remove and re-add every active dynamic instance once.</summary>
         private bool _readdDynamic;
         private readonly bool[] _lightPlaced = new bool[MaxLights]; // packed light i is placed by a light override (offset / shape)
@@ -808,6 +811,11 @@ namespace UltraRT
         private static readonly int UltraRTFlipYId = Shader.PropertyToID("_UltraRTFlipY");
         private static readonly int UltraRTNormalDepthId = Shader.PropertyToID("_UltraRTNormalDepth");
         private static readonly int UltraRTInstanceIdId = Shader.PropertyToID("_UltraRTInstanceId");
+        private static readonly int UltraRTSurfaceId = Shader.PropertyToID("_UltraRTSurface");
+        private static readonly int UltraRTSurfaceOnId = Shader.PropertyToID("_UltraRTSurfaceOn");
+        /// <summary>The game's fog on traced pixels leaves "NoFog" (_FOG_OFF) materials alone, as the game does (bench
+        /// plugin._noFogSkip=0: fogged like everything else, before 2026-11-18).</summary>
+        private bool _noFogSkip = true;
         private static readonly int UltraRTGameColorId = Shader.PropertyToID("_UltraRTGameColor");
         private static readonly int UltraRTLightingId = Shader.PropertyToID("_UltraRTLighting");
         private static readonly int UltraRTHybridId = Shader.PropertyToID("_UltraRTHybrid");
@@ -1556,6 +1564,9 @@ namespace UltraRT
             _cmd.SetGlobalFloat(UltraRTModeId, ratio ? (_compositeDebug > 0 ? 1f + _compositeDebug : 1f) : 0f);
             _cmd.SetGlobalTexture(UltraRTNormalDepthId, pt ? (Texture)_gNormalDepth : Texture2D.whiteTexture);
             _cmd.SetGlobalTexture(UltraRTInstanceIdId, _gInstanceId); // portal pixels: distance to the portal (Composite.shader)
+            // The game's fog on traced pixels skips "NoFog" materials (SurfaceNoFog; VolumetricsComposite.shader, pass 0).
+            if (_gSurface != null) _cmd.SetGlobalTexture(UltraRTSurfaceId, _gSurface);
+            _cmd.SetGlobalFloat(UltraRTSurfaceOnId, _gSurface != null && _noFogSkip ? 1f : 0f);
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);

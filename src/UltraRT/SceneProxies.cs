@@ -1383,6 +1383,8 @@ namespace UltraRT
             // Enemies keep part of the RT lighting, so they still sit in the scene's shadows; "lit" rules set any material's
             // weight (SceneProxies.Unlit.cs).
             ApplyLitWeight(src, m);
+            // The game draws _FOG_OFF ("NoFog") materials without its distance fog: so does the fog pass (Proxy.shader _NoFog).
+            m.SetFloat(IdNoFog, src.IsKeywordEnabled("_FOG_OFF") ? 1f : 0f);
             // BLOOD_FILLER (7-3's tree): the noise for the fill edge; the fill itself comes from the renderer's property block.
             if (src.IsKeywordEnabled("BLOOD_FILLER") && src.HasProperty("_BloodNoiseTex") && Tex2D(src, "_BloodNoiseTex") is Texture noise)
                 m.SetTexture("_BloodNoiseTex", noise);

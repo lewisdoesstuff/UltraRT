@@ -101,7 +101,9 @@ namespace UltraRT
             }
             // White statue orbs: a glow shell while frames are traced, the game's material otherwise (SceneProxies.OrbShells.cs).
             SceneProxies.OrbShellGain = _orbShellGain;
-            _proxies?.SetOrbShells(_viewEnabled && _proxies.Rtas != null && Time.frameCount - _rtTracedFrame < 30);
+            bool rtTraced = _viewEnabled && _proxies?.Rtas != null && Time.frameCount - _rtTracedFrame < 30;
+            _proxies?.SetOrbShells(rtTraced);
+            _proxies?.SetFlatWaterFade(rtTraced && _flatWaterFade); // 1-1's fountain checkerboard (TransparentSurfaces.cs)
             if (_litParticles == null) return;
 
             var (name, kind, _) = Modes[_mode];

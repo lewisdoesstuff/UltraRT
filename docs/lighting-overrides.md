@@ -93,6 +93,8 @@ And `"followGameUp": F` (2026-11-18, `t3/level-look-3`): the exposure follows th
 "Playtest of 2026-11-18" below).
 And `"coneGain": F` (2026-11-18, `t3/playtest-lights`): the game's light cones (additive `LightPillar*` materials)
 x F while frames are traced (see "Playtest items, third part" below).
+And `"waterWaves": F` (2026-11-18, `t3/playtest-materials`): the traced water's ripples x F in the level (8-2: 0.25,
+docs/reflections.md, "8-2's pool").
 
 ## Classes and rules (2026-11-17)
 

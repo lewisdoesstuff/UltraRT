@@ -24,6 +24,8 @@ namespace UltraRT
         public static TransparentSettings Transparents = new TransparentSettings();
 
         private TransparentOverlays _overlays;
+        /// <summary>Limbo water is not faded around the player while traced (TransparentOverlays.SetFlatFade).</summary>
+        public void SetFlatWaterFade(bool on) => _overlays?.SetFlatFade(on);
         private readonly Dictionary<Material, Material> _transparentCache = new Dictionary<Material, Material>();
         private int _transparentWater, _transparentGlass, _transparentStatic, _transparentNoOverlay, _transparentBlood;
         private readonly HashSet<string> _bloodMaterials = new HashSet<string>();
