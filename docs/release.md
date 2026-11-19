@@ -197,8 +197,8 @@ bundle (the code path is the same notice), Steam's own launch options combined w
 
 ## Manual steps left before the first upload
 
-1. **Icon**: done 2026-11-19. `packaging/thunderstore/icon.png` (256x256: "URT", U white, RT the trailer red, a glowing
-   ray bouncing off the bottom and right edges), drawn by `tools/icon/make_icon.py` in VCR OSD Mono (free font). Build
+1. **Icon**: done 2026-11-19. `packaging/thunderstore/icon.png` (256x256: "ULTRA" white over "RT" the trailer red, inside a
+   diamond traced by a glowing ray bouncing off the frame edges), drawn by `tools/icon/make_icon.py` in VCR OSD Mono (free font). Build
    without `-SkipIconCheck` now.
 2. **Thunderstore team**: create it on thunderstore.io, then build the detail-map package with `-Team <team>` (its
    dependency string names the team).
