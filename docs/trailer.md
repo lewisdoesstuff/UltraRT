@@ -330,6 +330,25 @@ Frame check (`timing.txt`): every clip's frame-to-frame difference (holds and ju
 each clip mapped frame by frame back to its takes. No frame is dropped or repeated; every flag is an event in the take
 (the pillars, the red flip, lightning, gunfire, the hard switches, the P-2 hall's flickering lamps) or the cards' typing.
 
+Where the assembly time goes (2026-11-19, P-2 hall, a 7.5 s sweep, 12-thread CPU, RTX 5070 Ti, ffmpeg 9.0.2):
+
+| Stage | Time |
+|---|---|
+| Pass 1, picture to FFV1 | 102.9 s, of which PNG decoding is 1.4 s and the format conversions 1.0 s: the rest is the divider's per-pixel `blend` expression over the 1.5 s sweep (about 1.1 s a frame) |
+| Pass 2, overlays: filters alone | 5.0 s |
+| Pass 2 with libx264 `fast` CRF 8 (now) | 18.5 s, 114 MB, PSNR 51.4 dB / SSIM 0.99497 against lossless |
+| Pass 2 with `h264_nvenc` p5 constqp 10 | 5.5 s, 97 MB, 52.1 dB / 0.99499 |
+| Pass 2 with `hevc_nvenc` p5 constqp 12 | 5.3 s, 58 MB, 51.1 dB / 0.99396 |
+| Master, 30 s of it: libx264 `slow` CRF 13 (now) | 78.5 s, 168 MB, 49.6 dB / 0.99367 |
+| Master, 30 s: `h264_nvenc` p7 constqp 14 | 12.9 s, 211 MB, 49.9 dB / 0.99328 |
+| Master, 30 s: `hevc_nvenc` p7 constqp 16 | 18.6 s, 129 MB, 48.4 dB / 0.99103 |
+
+NVENC matches x264's quality here at 3 to 6 times the speed, but encoding is the smaller part: on v5b's 31 minutes it would
+save about 8 (about 4.5 on the master, 3 to 4 on the clips). The divider is the big one: the sweeps' pass 1 is about 20
+of the 31 minutes. A precomputed mask (the divider is a straight line moving on a known curve) and `maskedmerge` would
+replace the expression. Not changed yet. Scripts: the session's scratch `encbench.py` / `encq.py` (quality paired by
+frame index; scoring by timestamp misaligned the mp4 against the mkv and read about 35 dB for everything).
+
 Traps found:
 - **The overlay filter drops frames when an overlay ends.** In ffmpeg 9.0.2 `overlay` with `eof_action=pass` skipped
   about 6 frames of the main picture at the moment an overlay input (a caption's or level title's PNG sequence) ran
