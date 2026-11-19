@@ -269,6 +269,9 @@ with HDR off.
 - Overlays that hook `Present` (Steam, NVIDIA) draw into the HDR10 buffer themselves; not tested.
 - The DXGI factory hook is a vtable patch in `dxgi.dll`'s memory for the process: another tool that wraps the factory
   (a `dxgi.dll` proxy such as ReShade or Special K in the game folder) may keep it from seeing the swapchain.
+- Dither: the game's screen dither is off while traced and UltraRT's own +-0.5-step output dither applies in HDR too,
+  since the image under the gain is 8-bit (measured: 0.4-4.7 % banded tiles in HDR10 captures without any dither,
+  0.24-0.37 % with ours; [ultrakill-rendering.md](ultrakill-rendering.md), "Final post-process: dither").
 - DLSS RR is untouched (it runs on Unity's textures before all this). The offline cinematic renderer and screenshots
   capture the SDR image.
 - Lava and sky get their factor only with DLSS RR; with UltraRT's denoiser they stay at paper white, except where the

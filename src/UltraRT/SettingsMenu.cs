@@ -72,6 +72,7 @@ namespace UltraRT
                     ViewModeChoice.PtDn => "pt-dn (path traced)",
                     _ => modeOf.TryGetValue(v, out int i) ? Modes[i].name : v.ToString(),
                 }, "-ultrart-view").Legacy();
+            m.Bool("View", "GameDither", "The game's screen dither while ray traced", () => _gameDither, v => _gameDither = v, "-ultrart-game-dither");
 
             m.Group = "Quality and performance";
             m.Choice("Quality", "TraceScale", "Trace resolution",
