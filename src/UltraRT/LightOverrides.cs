@@ -40,8 +40,11 @@ namespace UltraRT
         [JsonProperty("shape", NullValueHandling = NullValueHandling.Ignore)] public string Shape;
         /// <summary>Full size in metres: sphere / disc diameter = size[0]; rect width, height.</summary>
         [JsonProperty("size", NullValueHandling = NullValueHandling.Ignore)] public float[] Size;
-        /// <summary>World-space emission direction of a rect / disc (default: a spot's forward, else straight down).</summary>
+        /// <summary>World-space emission direction of a rect / disc (default: a spot's forward, else straight down). On a
+        /// spot without a shape: where the spot points (6-2's window spots aimed along the beams, docs/materials.md).</summary>
         [JsonProperty("normal", NullValueHandling = NullValueHandling.Ignore)] public float[] Normal;
+        /// <summary>A spot's full cone angle in degrees (default: the game's spotAngle).</summary>
+        [JsonProperty("angle", NullValueHandling = NullValueHandling.Ignore)] public float? Angle;
         /// <summary>World-space direction of a rect's width (default: derived from the normal).</summary>
         [JsonProperty("tangent", NullValueHandling = NullValueHandling.Ignore)] public float[] Tangent;
         /// <summary>World-space move in metres.</summary>
@@ -59,7 +62,7 @@ namespace UltraRT
         /// <summary>Changes nothing (an entry the user reset, or one that only carries a note).</summary>
         [JsonIgnore] public bool IsIdentity =>
             (Intensity ?? 1f) == 1f && (Color == null || Color.All(c => c == 1f)) && (Range ?? 1f) == 1f && Shadows == null && Disabled != true &&
-            Reach == null && Surfaces == null && Medium == null && string.IsNullOrEmpty(Class) &&
+            Reach == null && Surfaces == null && Medium == null && string.IsNullOrEmpty(Class) && Normal == null && Angle == null &&
             (string.IsNullOrEmpty(Shape) || Shape == "point") && !HasOffset;
 
         [JsonIgnore] public bool HasOffset => Offset != null && Offset.Length >= 3 && (Offset[0] != 0f || Offset[1] != 0f || Offset[2] != 0f);
@@ -73,8 +76,10 @@ namespace UltraRT
     public sealed class LightAddEntry
     {
         [JsonProperty("id")] public string Id;
-        /// <summary>area (default). "skyportal" is reserved for window portals (not implemented: packed as a plain area light).</summary>
+        /// <summary>area (default); spot (a spot light: "normal" is where it points, "angle" its full cone in degrees, default
+        /// 30). "skyportal" is reserved for window portals (not implemented: packed as a plain area light).</summary>
         [JsonProperty("kind", NullValueHandling = NullValueHandling.Ignore)] public string Kind;
+        [JsonProperty("angle", NullValueHandling = NullValueHandling.Ignore)] public float? Angle;
         [JsonProperty("pos")] public float[] Pos;
         [JsonProperty("shape", NullValueHandling = NullValueHandling.Ignore)] public string Shape;
         [JsonProperty("size", NullValueHandling = NullValueHandling.Ignore)] public float[] Size;
@@ -392,7 +397,7 @@ namespace UltraRT
         {
             u.Intensity = null; u.Color = null; u.Range = null; u.Shadows = null; u.Disabled = null; u.Shape = null; u.Size = null;
             u.Reach = null; u.Surfaces = null; u.Medium = null;
-            u.Normal = null; u.Tangent = null; u.Offset = null; u.Class = null; u.Confidence = null; u.Note = "reset to the game's values";
+            u.Normal = null; u.Angle = null; u.Tangent = null; u.Offset = null; u.Class = null; u.Confidence = null; u.Note = "reset to the game's values";
             Rebuild();
         }
 

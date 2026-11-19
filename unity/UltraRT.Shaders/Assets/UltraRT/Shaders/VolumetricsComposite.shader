@@ -33,6 +33,11 @@ Shader "UltraRT/VolumetricsComposite"
             float4 _VolViewRay;                // x 1 / P00, y 1 / P11, z ray length used for the sky, w eye depth from which a pixel is sky
             float4 _VolFog;                    // x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
             float4 _VolFogColor;               // rgb the game's fog colour, w 1 = apply fog to RT pixels
+            // No-fog surfaces (_UltraRTSurfaceOn): _UltraRTSurface read at the trace texel of the 2x2 nearest the pixel whose
+            // depth matches the game's best (as Composite.shader picks it; the trace has a guard band).
+            Texture2D _UltraRTNormalDepth;
+            float4 _UltraRTDepthParams;        // x: guard x / P00, y: guard y / P11 (view ray from a trace uv)
+            float4 _UltraRTUVScale;            // xy: visible size / traced size (guard band)
             float4 _VolComposite;              // x in-scatter strength, y 1 = auto exposure, z fixed exposure, w debug (1 = S only)
             float  _VolMaxAdd;                 // the most the haze may add to a pixel (display units; soft); 0 = up to white
             float  _VolToe;                    // black-level toe (linear display units): s -> s * L / (L + toe); 0 = off
@@ -112,20 +117,36 @@ Shader "UltraRT/VolumetricsComposite"
                 return 0;
             }
 
+            bool NoFogSurface(float2 uv, float z)
+            {
+                float2 uvScale = _UltraRTUVScale.x > 0.0 ? _UltraRTUVScale.xy : float2(1.0, 1.0);
+                float2 traceUV = (uv - 0.5) * uvScale + 0.5;
+                uint tw, th;
+                _UltraRTNormalDepth.GetDimensions(tw, th);
+                float2 dim = float2(tw, th);
+                float2 base = floor(traceUV * dim - 0.5);
+                float bestErr = 1e30;
+                int2 best = int2(clamp(traceUV * dim, 0.0, dim - 1.0));
+                [unroll] for (int k = 0; k < 4; k++)
+                {
+                    float2 texel = clamp(base + float2(k & 1, k >> 1), 0.0, dim - 1.0);
+                    float t = _UltraRTNormalDepth.Load(int3(texel, 0)).w;
+                    if (t < 0.0) continue;
+                    float2 ndc = (texel + 0.5) / dim * 2.0 - 1.0;
+                    float err = abs(t / length(float3(ndc * _UltraRTDepthParams.xy, 1.0)) - z);
+                    if (err < bestErr) { bestErr = err; best = int2(texel); }
+                }
+                return (_UltraRTSurface.Load(int3(best, 0)).z & 0x8000u) != 0u; // SurfaceNoFog (UltraRTMaterial.hlsl)
+            }
+
             // Pass 0: Blend One SrcAlpha -> dst' = fog (1 - vis) + dst vis on our pixels, dst elsewhere.
             float4 fragFog(v2f i) : SV_Target
             {
                 if (_VolFogColor.w < 0.5 || _UltraRTUpsampled.Sample(my_point_clamp_sampler, i.uv).a <= 0.0) return float4(0, 0, 0, 1);
-                // "NoFog" materials (_FOG_OFF): the game leaves them unfogged (0-1's gears, 2026-11-18).
-                if (_UltraRTSurfaceOn > 0.5)
-                {
-                    uint sw, sh;
-                    _UltraRTSurface.GetDimensions(sw, sh);
-                    uint4 sf = _UltraRTSurface.Load(int3(min((uint2)(i.uv * float2(sw, sh)), uint2(sw - 1, sh - 1)), 0));
-                    if ((sf.z & 0x8000u) != 0u) return float4(0, 0, 0, 1);
-                }
                 float z, d;
                 PixelRay(i.uv, z, d);
+                // "NoFog" materials (_FOG_OFF): the game leaves them unfogged (0-1's gears, 1-4's stained glass; 2026-11-18).
+                if (_UltraRTSurfaceOn > 0.5 && NoFogSurface(i.uv, z)) return float4(0, 0, 0, 1);
                 float vis = FogVisibility(z);
                 return float4(_VolFogColor.rgb * (1.0 - vis), vis);
             }

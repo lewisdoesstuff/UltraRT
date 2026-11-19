@@ -146,6 +146,16 @@ namespace UltraRT
                 float sy = e.Size != null && e.Size.Length > 1 ? e.Size[1] : sx;
                 LightOverrides.PackArea(shape, n, t, 0.5f * sx, 0.5f * sy, l3.z, l3.w, out l2, out l3);
             }
+            else if (local && e != null && l.type == LightType.Spot)
+            {
+                // A spot re-aimed ("normal") or widened ("angle"): 6-2's window spots along the game's beam meshes.
+                if (e.Normal != null && e.Normal.Length >= 3)
+                {
+                    var n = LightOverrides.Vec(e.Normal, l.transform.forward).normalized;
+                    l2 = new Vector4(n.x, n.y, n.z, l2.w);
+                }
+                if (e.Angle.HasValue) SpotCone(e.Angle.Value, ref l3);
+            }
             _lightData[i] = l0;
             _lightData[i + 1] = c;
             _lightData[i + 2] = l2;
@@ -180,6 +190,15 @@ namespace UltraRT
             }
         }
 
+        /// <summary>A spot's cone in the packed light (Plugin.GatherLights): x cos(half angle), y 1 / (cos(quarter) - cos(half)).</summary>
+        private static void SpotCone(float angleDeg, ref Vector4 l3)
+        {
+            float a = Mathf.Clamp(angleDeg, 1f, 179f) * Mathf.Deg2Rad;
+            float cosHalf = Mathf.Cos(a * 0.5f), cosQuarter = Mathf.Cos(a * 0.25f);
+            l3.x = cosHalf;
+            l3.y = 1f / Mathf.Max(cosQuarter - cosHalf, 1e-4f);
+        }
+
         private void PackAdded(LightAddEntry a, int k)
         {
             int i = k * 4;
@@ -189,6 +208,16 @@ namespace UltraRT
             col *= a.Intensity ?? 1f;
             _lightData[i] = new Vector4(p.x, p.y, p.z, range);
             _lightData[i + 1] = new Vector4(col.x, col.y, col.z, 0f);
+            if (string.Equals(a.Kind, "spot", System.StringComparison.OrdinalIgnoreCase))
+            {
+                var d = LightOverrides.Vec(a.Normal, Vector3.down).normalized;
+                _lightData[i + 2] = new Vector4(d.x, d.y, d.z, 0f);
+                var s3 = new Vector4(0f, 0f, a.Shadows == false ? 0.75f : 0f, 0f);
+                SpotCone(a.Angle ?? 30f, ref s3);
+                _lightData[i + 3] = s3;
+            }
+            else
+            {
             int shape = Mathf.Max(LightOverrides.ShapeCode(a.Shape), 1);
             var n = LightOverrides.Vec(a.Normal, Vector3.down);
             var t = LightOverrides.Vec(a.Tangent, LightOverrides.DefaultTangent(n.normalized));
@@ -197,6 +226,7 @@ namespace UltraRT
             LightOverrides.PackArea(shape, n, t, 0.5f * sx, 0.5f * sy, a.Shadows == false ? 0.75f : 0f, 0f, out var l2, out var l3);
             _lightData[i + 2] = l2;
             _lightData[i + 3] = l3;
+            }
             uint mask = 0xFFFFFFFFu;
             if (!string.IsNullOrEmpty(a.Mask)) uint.TryParse(a.Mask, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out mask);
             _lightMasks[k] = mask;

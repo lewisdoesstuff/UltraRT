@@ -228,6 +228,7 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint
     ray.TMax = opaqueT > 0.0 ? opaqueT + 0.05 : 1.0e5;
     RayPayload p = (RayPayload)0;
     p.t = -1.0;
+    p.flags = ULTRART_PAYLOAD_TRANSPARENT; // transparent instances with the geometry bit (stained glass) answer only this ray
     TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_TRANSPARENT, 0, 1, 0, ray, p);
     if (p.t < 0.0) return float4(0, 0, 0, -1);
 

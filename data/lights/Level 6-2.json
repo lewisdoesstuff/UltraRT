@@ -2,6 +2,106 @@
   "version": 1,
   "scene": "Level 6-2",
   "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
-  "lights": [],
+  "lights": [
+    {
+      "path": "1 - Entryway/Grand Hall/Walls/Cube/Spot Light",
+      "pos": [
+        -32.0,
+        0.0,
+        317.5
+      ],
+      "type": "spot",
+      "range": 2.0,
+      "offset": [
+        2.0,
+        15.0,
+        0.0
+      ],
+      "normal": [
+        0.892,
+        -0.451,
+        0.0
+      ],
+      "angle": 24,
+      "note": "Window god rays (t3/stained-glass, 2026-11-19): the game's spot under each Grand Hall window points 35 deg down with range 30, so it lights the floor by the window wall, 36 m short of where the game's beam mesh (LightPillar HeresyWindows Big) lands. Moved to the window's top (offset), aimed along the beam the window-beam fit measured ((0.89, -0.45, 0), 54 m: docs/materials.md, 'Window beams in 6-2'), range x2."
+    },
+    {
+      "path": "1 - Entryway/Grand Hall/Walls/Cube (1)/Spot Light (1)",
+      "pos": [
+        -32.0,
+        0.0,
+        332.5
+      ],
+      "type": "spot",
+      "range": 2.0,
+      "offset": [
+        2.0,
+        15.0,
+        0.0
+      ],
+      "normal": [
+        0.892,
+        -0.451,
+        0.0
+      ],
+      "angle": 24,
+      "note": "as Cube/Spot Light"
+    },
+    {
+      "path": "1 - Entryway/Grand Hall/Walls/Cube (2)/Spot Light (2)",
+      "pos": [
+        -32.0,
+        0.0,
+        347.5
+      ],
+      "type": "spot",
+      "range": 2.0,
+      "offset": [
+        2.0,
+        15.0,
+        0.0
+      ],
+      "normal": [
+        0.892,
+        -0.451,
+        0.0
+      ],
+      "angle": 24,
+      "note": "as Cube/Spot Light"
+    },
+    {
+      "path": "1 - Entryway/Grand Hall/Walls/Cube (3)/Spot Light (3)",
+      "pos": [
+        -32.0,
+        0.0,
+        362.5
+      ],
+      "type": "spot",
+      "range": 2.0,
+      "offset": [
+        2.0,
+        15.0,
+        0.0
+      ],
+      "normal": [
+        0.892,
+        -0.451,
+        0.0
+      ],
+      "angle": 24,
+      "note": "as Cube/Spot Light"
+    },
+    {
+      "path": "1 - Entryway/Lighting/Point Light (3)",
+      "pos": [
+        15.0,
+        20.0,
+        434.5
+      ],
+      "type": "point",
+      "shadows": false,
+      "note": "6-2 pose 2's 'floating light aimed at the window' (playtest 2026-11-18): this fill, 8.5 m up in the Corner Room, cast a sharp-edged lit wedge on the wall above the left window that read as a beam. The game draws it unshadowed: so does RT now (t3/stained-glass)."
+    }
+  ],
   "added": []
 }

@@ -43,6 +43,13 @@ struct RayPayload
 // blend into the payload (albedo: sum of colour x alpha, normal.x: sum of alpha, alpha: transmittance) and ignore every
 // other ray.
 #define ULTRART_PAYLOAD_VEILS 0x02000000u
+// ray gen -> any-hit: a visibility (shadow) ray whose p.albedo is the transmittance so far, starting at 1. Stained glass
+// (_Transmit, docs/materials.md "Stained glass") multiplies its colour in and lets the ray through; its dark lead lines
+// block. Shadow rays without it (albedo 0) see stained glass as before: opaque, transparent glass not at all.
+#define ULTRART_PAYLOAD_SHADOW 0x01000000u
+// ray gen -> any-hit: the transparent pass's ray (PathTrace TraceTransparent). Transparent instances that also carry the
+// geometry bit (stained glass, for shadow rays) are ignored by every other ray.
+#define ULTRART_PAYLOAD_TRANSPARENT 0x00800000u
 #define ULTRART_FLAG_DETAIL 0x8u // ray gen -> hit: apply per-texel detail (primary rays only; reflection, bounce, cache and
                                  // volumetric rays skip it). Hit -> ray gen: p.normal carries a per-texel detail normal; on
                                  // primary rays (WANT_MOTION) the vertex normal is in p.primitive bits 0-23 (PackOct24)

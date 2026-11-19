@@ -147,7 +147,8 @@ in ULTRAKILL (not in the depth buffer): drawn over the glowing air they stood ou
 user). After the transparents, grates, water, glass and the game's own light-shaft meshes get the glow of the air
 behind them. The price of that order: an alpha-blended effect close to the camera (smoke, a sprite) gets the glow of
 the whole ray behind it rather than of the air in front of it (additive effects are unaffected: addition commutes).
-The game's fog still applies to transparents as the game draws them.
+The game's fog still applies to transparents as the game draws them. Stained glass tints the in-scatter of light that
+crosses it (`g_VolTint`, docs/materials.md "Stained glass").
 
 ## Settings
 
@@ -189,7 +190,9 @@ Curved Hallway, `Metal Decoration * NoFog`, 79 m away) without its distance fog.
 `20261118-234907_playtest-materials_alt`. Now a proxy material carries `_NoFog` from its source's `_FOG_OFF`, the hit
 sets payload flag `ULTRART_FLAG_NOFOG` (0x40), PathTrace keeps it in `_Surface` as the sign bit of emission.b's half
 (emission is never negative; `SurfaceEmission` masks it, `SurfaceNoFog` reads it), and the fog pass leaves such pixels
-alone (`_UltraRTSurface`). Bench `plugin._noFogSkip=0` = before. **Not verified in game**: in the two verification
+alone (`_UltraRTSurface`, at the depth-matched trace texel of the 2x2 through the guard band, as Composite.shader picks
+it; 2026-11-19, merged with `t3/stained-glass`, which had the same idea). Atlas slots get it through their variant
+(`AtlasVariant`): 1-4's stained-glass windows (docs/materials.md, "Stained glass"). Bench `plugin._noFogSkip=0` = before. **Not verified in game**: in the two verification
 loads the gears were not in the traced image at that pose (raw frame black there; the level's state differs between
 loads), so the before / after could not be shown.
 

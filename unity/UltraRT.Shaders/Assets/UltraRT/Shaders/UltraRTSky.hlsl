@@ -103,7 +103,7 @@ float3 SkyDirect(float3 p, float3 n, inout uint rng)
     float pc = dot(n, L) * (1.0 / kSkyPi);
     if (pc <= 0.0 || !(pdf > 0.0)) return 0;
     if (!Visible(p, n, L, 1.0e4)) return 0;
-    return SkyLightRadiance(L) * (pc / (pdf + pc));
+    return SkyLightRadiance(L) * g_ShadowTint * (pc / (pdf + pc));
 }
 
 // MIS weight of a cosine-sampled ray from a surface with normal n that escaped to the sky in direction d.
