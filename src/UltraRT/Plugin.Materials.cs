@@ -44,23 +44,24 @@ namespace UltraRT
             {
                 string Next() => i + 1 < args.Length ? args[++i] : "";
                 float F(float d) => float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : d;
+                bool On() { var v = Next().ToLowerInvariant(); return v != "off" && v != "0" && v != "false"; }
                 switch (args[i].ToLowerInvariant())
                 {
-                    case "-ultrart-materials": s.enabled = Next() != "off"; break;
+                    case "-ultrart-materials": s.enabled = On(); break;
                     case "-ultrart-materials-source": s.source = Next(); break;
                     case "-ultrart-materials-smooth": s.smooth = F(s.smooth); break;
                     case "-ultrart-materials-normal": s.normalStrength = F(s.normalStrength); break;
                     case "-ultrart-materials-hybrid-normal": s.hybridNormalStrength = F(s.hybridNormalStrength); break;
                     case "-ultrart-materials-roughness": s.roughness = F(s.roughness); break;
-                    case "-ultrart-materials-guided": s.guidedPick = Next() != "off"; break;
-                    case "-ultrart-materials-lod": s.lod = Next() != "off"; break;
+                    case "-ultrart-materials-guided": s.guidedPick = On(); break;
+                    case "-ultrart-materials-lod": s.lod = On(); break;
                     case "-ultrart-materials-lod-bias": s.lodBias = F(s.lodBias); break;
                     case "-ultrart-materials-toksvig": s.toksvig = F(s.toksvig); break;
-                    case "-ultrart-materials-albedo-lod": s.albedoLod = Next() != "off"; break;
+                    case "-ultrart-materials-albedo-lod": s.albedoLod = On(); break;
                     case "-ultrart-lit-unlit": u.fullbright = false; break; // relight unlit materials (the old look)
                     case "-ultrart-enemy-lit": u.enemy = F(u.enemy); break;
                     case "-ultrart-enemy-types": u.enemyTypes = Next(); break;
-                    case "-ultrart-lit-rules": u.rules = Next() != "off"; break;
+                    case "-ultrart-lit-rules": u.rules = On(); break;
                     case "-ultrart-glass-gain": SceneProxies.Glass.gain = F(SceneProxies.Glass.gain); break;
                     case "-ultrart-glass-extra":
                     {

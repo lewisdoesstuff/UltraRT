@@ -55,9 +55,6 @@ namespace UltraRT
         public float flameGain = 0.5f;
         /// <summary>The flicker range of a flame-driven light (flickerRange for the others).</summary>
         public float flameFlickerRange = 0.5f;
-        /// <summary>Test only (docs/emissive-lights.md, "Billboards in the emissive table"): the flame's light is off and
-        /// a camera-facing square at the flame is an emitter in the emissive triangle table instead. 2 = two-sided.</summary>
-        public int flameBillboards = 0;
     }
 
     /// <summary>
@@ -609,7 +606,6 @@ namespace UltraRT
             {
                 if (e.CoverLight == null || e.R == null || !e.Go.activeInHierarchy || !e.R.enabled || e.Strength <= 0f) continue;
                 bool drive = Settings.flameDriven && e.Flame;
-                bool quad = Settings.flameBillboards > 0 && e.Flame;
                 // Brightness x size (flames flicker by swapping sprites and by scaling), against its running mean over
                 // ~1 s at 60+ fps: the light keeps the game's intensity on average.
                 float b = e.Strength * e.Radius * e.Radius;
@@ -644,7 +640,6 @@ namespace UltraRT
                         c = new Vector4(c.x * fg, c.y * fg, c.z * fg, c.w);
                         DrivenLights++;
                     }
-                    if (quad && l3.x > -1.5f && l3.x < -0.5f) k = 0f; // the billboard carries it (Plugin.FlameQuads.cs)
                     data[i * 4 + 1] = new Vector4(c.x * k, c.y * k, c.z * k, c.w);
                     _logFlicker++;
                     _flickerMin = Mathf.Min(_flickerMin, k);

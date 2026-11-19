@@ -8,9 +8,6 @@
 // surface's tangent plane (world metres), animated with deep-water dispersion. Strength is a slope scale: 1 gives slopes
 // up to about 0.15. Ripples fade out with view distance, where they would only alias at the trace resolution.
 
-#define ULTRART_TRANSPARENT_GLASS 0.0
-#define ULTRART_TRANSPARENT_WATER 1.0
-
 // x ripple strength (0 = flat), y time (s, wrapped), z fade-out distance (m), w refraction strength (overlay only)
 float4 _UltraRTWater;
 

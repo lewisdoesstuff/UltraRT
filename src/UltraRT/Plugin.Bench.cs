@@ -994,7 +994,7 @@ namespace UltraRT
                         }
                         }
                         if (wantBurst && sr.Bursts.Count == 0) yield return RunBurst(sc, sr, outDir, path, pathT);
-                        if (sc.LightFit && !_benchNoShots) yield return RunLightFit(sc, outDir); // Plugin.LightFit.cs
+                        if (sc.LightFit && !_benchNoShots) yield return RunLightFit(sc); // Plugin.LightFit.cs
                         if (sc.Motion > 0) yield return RunMotionNoise(sc, sr, outDir, path, at); // every screenshot time
                         current = null; // force a fresh switch below
                     }

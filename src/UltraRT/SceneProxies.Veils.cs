@@ -102,12 +102,10 @@ namespace UltraRT
             AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: true);
             _veils.Add(new VeilEntry { Source = r, Proxy = _dynamic[_dynamic.Count - 1], Materials = ours });
             _veilProxySet.Add(_dynamic[_dynamic.Count - 1]);
-            _staticVeils++;
             if (_veilLog.Count < 24)
                 _veilLog.Add($"  static-batched '{GameControlPath(r.transform)}' mat '{first.name}' submesh {start} of {n} in '{mesh.name}' size {r.bounds.size:F0}");
             return true;
         }
-        private int _staticVeils;
 
         /// <summary>Registers the renderer's veil submeshes, if any. Returns true if a veil proxy was made.</summary>
         private bool TryAddVeil(MeshRenderer r, Mesh mesh)

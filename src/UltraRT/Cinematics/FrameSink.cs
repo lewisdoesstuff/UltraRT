@@ -36,7 +36,6 @@ namespace UltraRT.Cinematics
         private int _written, _pendingFrames;
         private long _encodeTicks;
         private Frame _current;
-        private readonly object _lock = new object();
 
         private sealed class Frame
         {

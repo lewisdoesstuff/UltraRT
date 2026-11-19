@@ -306,11 +306,11 @@ above the cup, the x2.5 burned 1-1's torch hall and 4-4's boss hall out in trail
 Not covered: a flame farther away than the tracked 48 keeps the game's light; candle piles are handed over to their
 texture (the handover rule), not driven.
 
-### Billboards in the emissive table (the literal version, tested 2026-11-18: no)
+### Billboards in the emissive table (the literal version, tested 2026-11-18: no; code removed 2026-11-19)
 
 `fx.flameBillboards=1` (one-sided) or `2` (two-sided), off by default: per flame on a game light, a camera-facing
 square of the flame's size joins the emissive triangle table with the light's output, and the light is off
-(`Plugin.FlameQuads.cs`). Run `20261118-153718_flame-quads` (1-1 stop 2, 4-3 stop 0; sheet `flame-quads.png`):
+(`Plugin.FlameQuads.cs`, removed 2026-11-19 with the `fx.flameBillboards` key; it is in git history before that). Run `20261118-153718_flame-quads` (1-1 stop 2, 4-3 stop 0; sheet `flame-quads.png`):
 
 | | hi% (game 2.7) | p95 | chroma | contrast | dark delta |
 |---|---|---|---|---|---|
@@ -442,7 +442,7 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | `-ultrart-effect-hybrid x` | `hybridWeight` | 1 | |
 | `-ultrart-effectsurvey` | | off | the survey; it costs milliseconds per frame, so never measure with it on |
 
-Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5, `flameBillboards` 0 (test). Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
+Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5. Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
 
 In the bench, `Scenario.Effects` (`bench/README.md`, `bench/suites/effects.json`) spawns revolver beams, explosions, projectiles or pooled fires in front of the camera, both periodically and right before each screenshot.
 

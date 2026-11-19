@@ -215,9 +215,5 @@ namespace UltraRT
                                $"last scan {_particleScanMs:F2} ms, mode {name}, strength {strength}");
             }
         }
-
-        /// <summary>For bench logs.</summary>
-        private string ParticlesSummary() => _litParticles == null ? "lit particles unavailable"
-            : $"lit particles {(_particleSettings.enabled ? "on" : "off")}, {(_litParticles.Active ? "active" : "inactive")}, {_litParticles.Count} materials";
     }
 }

@@ -248,7 +248,7 @@ namespace UltraRT
             if (_atlasVariants.Count > 0)
                 _log.LogInfo($"Reflection material variants: {_atlasVariants.Count} atlas variants; static records at level {level}: {records[level]} " +
                              $"(without variants {baseRecords[level]}; by level {string.Join("/", baseRecords)})");
-            foreach (var g in _groups.OrderByDescending(g => g.Slots.Where(l => l != null).Sum(l => l.Sum(s => s.IndexCount))).Take(DumpAtlasVertices ? 40 : 8))
+            foreach (var g in _groups.OrderByDescending(g => g.Slots.Where(l => l != null).Sum(l => l.Sum(s => s.IndexCount))).Take(8))
                 _log.LogInfo($"  group '{g.Combined.Name}' / '{g.Name}': {g.Slots.Where(l => l != null).Sum(l => l.Count)} submeshes, " +
                              $"{g.Slots.Where(l => l != null).Sum(l => l.Sum(s => s.IndexCount)) / 3:N0} tris, {g.Parts.Where(p => p != null).Sum(p => p.FullRecords)} records");
         }
@@ -305,14 +305,6 @@ namespace UltraRT
                 _log.LogInfo($"Vertex layout of '{combined.name}': " + string.Join(", ",
                     combined.GetVertexAttributes().Select(a => $"{a.attribute}:{a.format}x{a.dimension}@s{a.stream}")) +
                     $" | sources' shader: {sources[0].sharedMaterial?.shader?.name}");
-
-            if (DumpAtlasVertices && sources[0].sharedMaterial?.shader?.name.Contains("Stationary") == true && !_dumpedAtlasVerts)
-            {
-                _dumpedAtlasVerts = true;
-                DumpVertices(combined, 24);
-                var tex = sources[0].sharedMaterial.mainTexture;
-                if (tex != null) _log.LogInfo($"Atlas _MainTex '{tex.name}' {tex.width}x{tex.height} filter={tex.filterMode} wrap={tex.wrapMode} type={tex.GetType().Name}");
-            }
 
             // Unity rebuilds the shader table every dispatch, one record per enabled submesh. Combined meshes have
             // hundreds of submeshes sharing a handful of materials, so group meshes are merged by material

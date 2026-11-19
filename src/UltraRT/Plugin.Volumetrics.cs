@@ -261,13 +261,5 @@ namespace UltraRT
             _beamCamTargets[2] = pp.viewNormal;
             return pp.depthBuffer;
         }
-
-        /// <summary>For bench logs.</summary>
-        private string VolumetricsSummary()
-        {
-            if (_volumetrics == null) return "volumetrics unavailable";
-            var m = _volumetrics.Medium;
-            return FormattableString.Invariant($"volumetrics {(_volSettings.enabled ? "on" : "off")}: medium {m.x:F4}/m ({_volumetrics.MediumSource}), fog {(RenderSettings.fog ? "on" : "off")} {RenderSettings.fogColor}");
-        }
     }
 }

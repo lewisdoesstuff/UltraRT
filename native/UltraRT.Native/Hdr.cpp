@@ -69,12 +69,10 @@ namespace
         float pad0, pad1, pad2;
     };
 
-    // ---- log / status (any thread)
+    // ---- log (any thread)
     SRWLOCK s_LogLock = SRWLOCK_INIT;
     char s_Log[32768];
     int s_LogLen = 0;
-    char s_Status[512] = "not installed";
-    char s_StatusOut[512];
     wchar_t s_LogPath[MAX_PATH] = L"";
     volatile LONG s_State = 0;      // 0 not installed, 1 hooks installed, 2 HDR10 active, -1 installed but passing through
     volatile LONG64 s_Presents = 0;
@@ -99,8 +97,6 @@ namespace
             s_Log[s_LogLen++] = '\n';
             s_Log[s_LogLen] = 0;
         }
-        memcpy(s_Status, buf, n < (int)sizeof s_Status - 1 ? n + 1 : sizeof s_Status - 1);
-        s_Status[sizeof s_Status - 1] = 0;
         if (s_LogPath[0])
         {
             HANDLE h = CreateFileW(s_LogPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -1194,14 +1190,6 @@ ULTRART_API void UltraRT_Hdr_RequestCapture(const wchar_t* path)
     if (path) wcsncpy_s(s_CapturePath, path, _TRUNCATE); else s_CapturePath[0] = 0;
     s_CaptureWanted = true;
     ReleaseSRWLockExclusive(&s_Lock);
-}
-
-ULTRART_API const char* UltraRT_Hdr_GetStatus()
-{
-    AcquireSRWLockShared(&s_LogLock);
-    memcpy(s_StatusOut, s_Status, sizeof s_Status);
-    ReleaseSRWLockShared(&s_LogLock);
-    return s_StatusOut;
 }
 
 ULTRART_API int UltraRT_Hdr_TakeLog(char* out, int size)

@@ -46,7 +46,7 @@ namespace UltraRT
         public static int FitSettleFrames = 50, FitMeasureFrames = 16;
         public static float FitMin = 0.5f, FitMax = 2f, FitLambda = 0.03f, FitHue = 0.15f;
 
-        private IEnumerator RunLightFit(Scenario sc, string outDir)
+        private IEnumerator RunLightFit(Scenario sc)
         {
             string mode = sc.Modes.FirstOrDefault(m => m.Split('+')[0] == "relight") ?? "relight";
             ApplyBenchMode(mode);

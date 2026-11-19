@@ -1,6 +1,6 @@
 {
  "Name": "ledge-dashes",
- "Note": "t3/ledge-dashes: kept game pixels on 7-1's ledges and stairs (poses 3, 4). plugin._matchDebug=1 paints every pixel the game keeps (red: nearest trace sample behind, blue: in front, green: none); with and without the one-sided plane test (plugin._edgeMatch=0).",
+ "Note": "t3/ledge-dashes: kept game pixels on 7-1's ledges and stairs (poses 3, 4). plugin._matchDebug=1 paints every pixel the game keeps (red: nearest trace sample behind, blue: in front, green: none). The branch's plugin._edgeMatch (one-sided plane test) never reached master: its modes were dropped 2026-11-19.",
  "Scenarios": [
   {
    "Name": "7-1 pose 3",
@@ -13,8 +13,7 @@
    "Modes": [
     "off",
     "pathtrace",
-    "pathtrace+plugin._matchDebug=1",
-    "pathtrace+plugin._matchDebug=1+plugin._edgeMatch=0"
+    "pathtrace+plugin._matchDebug=1"
    ],
    "Screenshots": [
     1.5,
@@ -32,8 +31,7 @@
    "Modes": [
     "off",
     "pathtrace",
-    "pathtrace+plugin._matchDebug=1",
-    "pathtrace+plugin._matchDebug=1+plugin._edgeMatch=0"
+    "pathtrace+plugin._matchDebug=1"
    ],
    "Screenshots": [
     1.5,

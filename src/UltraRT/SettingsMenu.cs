@@ -200,11 +200,11 @@ namespace UltraRT
             m.Bool("Display", "HDR", "HDR output (applies after a restart)", () => _hdrRequested, v => _hdrRequested = v, "-ultrart-hdr").Legacy();
             m.Float("Display", "HDRPaperWhiteNits", "Paper white (nits; 0 = as Windows shows SDR)", 0f, 500f, 0, () => _hdrPaperWhite, v => _hdrPaperWhite = v, "-ultrart-hdr-paperwhite").Legacy();
             m.Float("Display", "HDRPeak", "Peak brightness (nits; 0 = the display's)", 0f, 4000f, 0, () => _hdrPeak, v => _hdrPeak = v, "-ultrart-hdr-peak").Legacy();
-            m.Float("Display", "HDREmissive", "Glowing surfaces (x their SDR brightness)", 1f, 3f, 2, () => _hdrEmissive, v => _hdrEmissive = v, "-ultrart-hdr-emissive").Legacy();
-            m.Float("Display", "HDRLava", "Lava and acid (x their SDR brightness)", 1f, 3f, 2, () => _hdrGameSurfaces, v => _hdrGameSurfaces = v, "-ultrart-hdr-lava").Legacy();
-            m.Float("Display", "HDRSky", "Sky (x its SDR brightness)", 1f, 3f, 2, () => _hdrSky, v => _hdrSky = v, "-ultrart-hdr-sky").Legacy();
+            m.Float("Display", "HDREmissive", "Glowing surfaces (x their SDR brightness)", 1f, 4f, 2, () => _hdrEmissive, v => _hdrEmissive = v, "-ultrart-hdr-emissive").Legacy();
+            m.Float("Display", "HDRLava", "Lava and acid (x their SDR brightness)", 1f, 4f, 2, () => _hdrGameSurfaces, v => _hdrGameSurfaces = v, "-ultrart-hdr-lava").Legacy();
+            m.Float("Display", "HDRSky", "Sky (x its SDR brightness)", 1f, 4f, 2, () => _hdrSky, v => _hdrSky = v, "-ultrart-hdr-sky").Legacy();
             m.Float("Display", "HDREffects", "Effects: fire, explosions, beams (x their SDR brightness)", 1f, 4f, 2, () => _hdrEffects, v => _hdrEffects = v, "-ultrart-hdr-effects").Legacy();
-            m.Float("Display", "HDRBloom", "Bloom above white (room, display units)", 0f, 3f, 2, () => _hdrBloom, v => _hdrBloom = v, "-ultrart-hdr-bloom").Legacy();
+            m.Float("Display", "HDRBloom", "Bloom above white (room, display units)", 0f, 4f, 2, () => _hdrBloom, v => _hdrBloom = v, "-ultrart-hdr-bloom").Legacy();
             m.Bool("Display", "HDRHighlights", "Ray-traced highlights above white", () => _hdrHighlights, v => _hdrHighlights = v, "-ultrart-hdr-highlights").Legacy();
 
             LightEditorSettings(m); // per-level light overrides and the light editor (Plugin.LightOverrides.cs)

@@ -81,7 +81,6 @@ namespace UltraRT
         private float _vmPrevStamp;
         private float _vmNextRefresh, _vmNextLog;
         private int _vmLogs, _vmGroundLayer = 24;
-        private Rect _vmLastRect;
         private const int SlotViewmodel = 11, SlotVmGBuffer = 12, SlotVmRays = 13, SlotVmFilter = 14, SlotVmComposite = 15;
 
         private struct VmDraw { public Renderer r; public int sub; public Material mat, src; public Transform t; public bool custom; public int baseVertex; }
@@ -121,7 +120,7 @@ namespace UltraRT
         private static readonly int
             VmStampId = Shader.PropertyToID("_VMStamp"), VmPrevDeltaId = Shader.PropertyToID("_VMPrevDelta"),
             VmGB0Id = Shader.PropertyToID("_VMGB0"), VmGB1Id = Shader.PropertyToID("_VMGB1"), VmGB2Id = Shader.PropertyToID("_VMGB2"),
-            VmGB3Id = Shader.PropertyToID("_VMGB3"), VmGB4Id = Shader.PropertyToID("_VMGB4"),
+            VmGB3Id = Shader.PropertyToID("_VMGB3"),
             VmLightId = Shader.PropertyToID("_VMLight"), VmDirectId = Shader.PropertyToID("_VMDirect"), VmReflId = Shader.PropertyToID("_VMRefl"),
             VmGeoId = Shader.PropertyToID("_VMGeo"), VmGameDepthId = Shader.PropertyToID("_VMGameDepth"),
             VmMaterialsId = Shader.PropertyToID("_VMMaterials"), VmModeId = Shader.PropertyToID("_VMMode"), VmDebugId = Shader.PropertyToID("_VMDebug"),
@@ -139,16 +138,17 @@ namespace UltraRT
             for (int i = 0; i < a.Length; i++)
             {
                 string Next() => i + 1 < a.Length ? a[++i] : "";
+                bool On() { var v = Next().ToLowerInvariant(); return v != "off" && v != "0" && v != "false"; }
                 switch (a[i].ToLowerInvariant())
                 {
-                    case "-ultrart-viewmodel": _vmEnabled = Next() != "off"; break;
-                    case "-ultrart-vm-hybrid": _vmHybrid = Next() != "off"; break;
+                    case "-ultrart-viewmodel": _vmEnabled = On(); break;
+                    case "-ultrart-vm-hybrid": _vmHybrid = On(); break;
                     case "-ultrart-vm-debug": int.TryParse(Next(), out _vmDebug); break;
                     case "-ultrart-vm-samples": int.TryParse(Next(), out _vmSamples); break;
                     case "-ultrart-vm-history": float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out _vmMaxHistory); break;
                     case "-ultrart-vm-lightmask": int.TryParse(Next(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _vmLightMask); break;
                     case "-ultrart-vm-fullscreen": _vmFullScreen = true; break;
-                    case "-ultrart-vm-skinned": _vmSkinnedMotion = Next() != "off"; break;
+                    case "-ultrart-vm-skinned": _vmSkinnedMotion = On(); break;
                 }
             }
             Logger.LogInfo($"Viewmodel RT: {(_vmEnabled ? "on" : "off")} (hybrid {(_vmHybrid ? "on" : "off")})");
@@ -365,7 +365,7 @@ namespace UltraRT
         }
 
         /// <summary>This frame's draws: active renderers, opaque submeshes, and each one's rigid motion since last frame.</summary>
-        private void CollectViewmodelDraws(Camera hud)
+        private void CollectViewmodelDraws()
         {
             _vmDraws.Clear();
             foreach (var r in _vmRenderers)
@@ -504,7 +504,7 @@ namespace UltraRT
                 _vmNextRefresh = Time.realtimeSinceStartup + 1f; // weapons are switched on and off, rarely created
                 RefreshViewmodelRenderers(hud);
             }
-            CollectViewmodelDraws(hud);
+            CollectViewmodelDraws();
             int drawKey = 17;
             foreach (var d in _vmDraws) drawKey = drawKey * 31 + (d.src != null ? d.src.GetInstanceID() : 0);
             if (drawKey != _vmDrawKey && _vmDrawLogs < 30)
@@ -520,7 +520,6 @@ namespace UltraRT
             int w = depth.width, h = depth.height, hw = (w + 1) / 2, hh = (h + 1) / 2;
             var rect = ViewmodelRect(hud, w, h);
             if (rect.width <= 0 || rect.height <= 0) { _vmHistValid = false; return; }
-            _vmLastRect = rect;
             int hx = (int)rect.x / 2, hy = (int)rect.y / 2;
             int hrw = Mathf.Min(hw - hx, Mathf.CeilToInt(rect.width / 2f) + 1), hrh = Mathf.Min(hh - hy, Mathf.CeilToInt(rect.height / 2f) + 1);
 

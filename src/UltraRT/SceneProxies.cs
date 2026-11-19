@@ -27,8 +27,6 @@ namespace UltraRT
         // Layers that are never ray traced: 13 = AlwaysOnTop (viewmodel/HUD, rasterised by the HUD camera), 30 = Portal.
         private const int ExcludedLayers = (1 << 13) | (1 << 30);
 
-        /// <summary>Set by -ultrart-dumpverts: log a decode of the StaticSceneOptimizer mesh's vertex data.</summary>
-        public static bool DumpAtlasVertices;
 
         /// <summary>Set by -ultrart-skinned-visible: let skinned proxies "render" (via the no-op pass) so Unity keeps skinning them.</summary>
         public static bool SkinnedProxiesVisible;
@@ -69,7 +67,6 @@ namespace UltraRT
         private readonly HashSet<string> _loggedLayouts = new HashSet<string>();
         private readonly List<GameObject> _proxyObjects = new List<GameObject>();
         private readonly List<DynamicProxy> _dynamic = new List<DynamicProxy>();
-        private bool _dumpedAtlasVerts;
 
         /// <summary>
         /// Lives on each dynamic proxy (a child of its source), so activation changes of the source hierarchy arrive as
@@ -283,25 +280,8 @@ namespace UltraRT
             // Include inactive objects: ULTRAKILL keeps most enemies and room contents disabled until triggered.
             ScanRenderers(batches, stats);
             foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None)) { AddLight(l); _buildLights.Add(l); }
-            // Debug (-ultrart-dumpverts): the largest renderers (sky boxes/domes show up here).
-            if (DumpAtlasVertices) foreach (var r in Object.FindObjectsOfType<Renderer>(true).Where(r => r is MeshRenderer || r is SkinnedMeshRenderer)
-                         .OrderByDescending(r => r.bounds.size.magnitude).Take(8))
-            {
-                var m = r.sharedMaterial;
-                _log.LogInfo($"  big renderer '{GameControlPath(r.transform)}' size={r.bounds.size.magnitude:F0} layer={r.gameObject.layer} active={r.gameObject.activeInHierarchy} " +
-                             $"static={r.isPartOfStaticBatch} shader='{m?.shader?.name}' mat='{m?.name}' queue={m?.renderQueue} kw=[{(m != null ? string.Join(" ", m.shaderKeywords) : "")}]");
-            }
 
             if (!SkipStaticBatches && batches.Count > 0) BuildStaticGroups(batches);
-
-            if (DumpAtlasVertices)
-            {
-                // Debug: every traced source material, to spot odd ones (sky screens, masks).
-                var lines = _materialCache.Keys.Where(m => m != null).Select(m =>
-                    $"{m.shader?.name}\t{m.name}\tqueue={m.renderQueue}\ttex={(m.mainTexture ? m.mainTexture.name : "-")}\tkw={string.Join(" ", m.shaderKeywords)}")
-                    .OrderBy(s => s).ToArray();
-                System.IO.File.WriteAllLines(System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "ultrart", $"materials-{UnityEngine.SceneManagement.SceneManager.GetActiveScene().name}.tsv"), lines);
-            }
 
             SyncDynamic(force: true);
             Rtas.Build();
@@ -1427,69 +1407,6 @@ namespace UltraRT
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
             if (SourceSkyWall(src)) { _skyWallProxies.Add(m); m.SetFloat("_SkyWall", 1f); }
             return m;
-        }
-
-        // ---------------------------------------------------------------- debug: vertex dump
-
-        /// <summary>Debug: decode a (possibly non-readable) mesh straight from its GPU vertex buffer.</summary>
-        private void DumpVertices(Mesh mesh, int count)
-        {
-            try
-            {
-                int stride = mesh.GetVertexBufferStride(0);
-                using (var vb = mesh.GetVertexBuffer(0))
-                {
-                    var all = new uint[mesh.vertexCount * stride / 4];
-                    vb.GetData(all, 0, 0, all.Length);
-                    var ab = new byte[all.Length * 4];
-                    Buffer.BlockCopy(all, 0, ab, 0, ab.Length);
-                    int o1 = mesh.GetVertexAttributeOffset(VertexAttribute.TexCoord1);
-                    int o2 = mesh.GetVertexAttributeOffset(VertexAttribute.TexCoord2);
-                    int o0 = mesh.GetVertexAttributeOffset(VertexAttribute.TexCoord0);
-                    int oc = mesh.GetVertexAttributeOffset(VertexAttribute.Color);
-                    var rects = new Dictionary<string, (int n, Vector2 min, Vector2 max, int blendNonZero)>();
-                    int colorNotWhite = 0;
-                    for (int v = 0; v < mesh.vertexCount; v++)
-                    {
-                        int b0 = v * stride;
-                        string key = string.Join(",", Enumerable.Range(0, 4).Select(d => Decode(ab, b0 + o1, VertexAttributeFormat.Float16, d).ToString("0.####")));
-                        var uv = new Vector2(Decode(ab, b0 + o0, VertexAttributeFormat.Float16, 0), Decode(ab, b0 + o0, VertexAttributeFormat.Float16, 1));
-                        bool blend = Enumerable.Range(0, 4).Any(d => Decode(ab, b0 + o2, VertexAttributeFormat.Float16, d) != 0);
-                        if (ab[b0 + oc] != 255 || ab[b0 + oc + 1] != 255 || ab[b0 + oc + 2] != 255 || ab[b0 + oc + 3] != 255) colorNotWhite++;
-                        rects[key] = rects.TryGetValue(key, out var r)
-                            ? (r.n + 1, Vector2.Min(r.min, uv), Vector2.Max(r.max, uv), r.blendNonZero + (blend ? 1 : 0))
-                            : (1, uv, uv, blend ? 1 : 0);
-                    }
-                    _log.LogInfo($"Atlas summary '{mesh.name}': {rects.Count} distinct TexCoord1 rects, {colorNotWhite} verts with non-white color");
-                    foreach (var kv in rects.OrderByDescending(k => k.Value.n).Take(25))
-                        _log.LogInfo($"  rect({kv.Key}) verts={kv.Value.n} uv0 min={kv.Value.min:F2} max={kv.Value.max:F2} blendRectNonZero={kv.Value.blendNonZero}");
-
-                    var attrs = mesh.GetVertexAttributes().Where(a => a.stream == 0).ToArray();
-                    for (int v = 0; v < Math.Min(count, mesh.vertexCount); v++)
-                    {
-                        var parts = attrs.Select(a =>
-                        {
-                            int off = v * stride + mesh.GetVertexAttributeOffset(a.attribute);
-                            var vals = Enumerable.Range(0, a.dimension).Select(d => Decode(ab, off, a.format, d));
-                            return $"{a.attribute}=({string.Join(",", vals.Select(x => x.ToString("0.####")))})";
-                        });
-                        _log.LogInfo($"  v{v}: {string.Join(" ", parts)}");
-                    }
-                }
-            }
-            catch (Exception e) { _log.LogWarning($"Vertex dump failed: {e.Message}"); }
-        }
-
-        private static float Decode(byte[] b, int off, VertexAttributeFormat f, int i)
-        {
-            switch (f)
-            {
-                case VertexAttributeFormat.Float32: return BitConverter.ToSingle(b, off + i * 4);
-                case VertexAttributeFormat.Float16: return Mathf.HalfToFloat(BitConverter.ToUInt16(b, off + i * 2));
-                case VertexAttributeFormat.UNorm8: return b[off + i] / 255f;
-                case VertexAttributeFormat.UNorm16: return BitConverter.ToUInt16(b, off + i * 2) / 65535f;
-                default: return float.NaN;
-            }
         }
 
         public void Dispose()

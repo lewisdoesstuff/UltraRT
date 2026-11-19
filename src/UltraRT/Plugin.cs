@@ -15,9 +15,7 @@ namespace UltraRT
 {
     /// <summary>
     /// UltraRT: hardware ray tracing for ULTRAKILL (DX12 only: launch with -force-d3d12).
-    ///   F7 toggle view   F8 next mode   F9 reload shader bundle (also automatic when the file changes)   F4 reflections
-    /// Unattended testing (see scripts/run-debugview.ps1):
-    ///   -ultrart-scene "Level 1-1"  -ultrart-view N  -ultrart-scale 0.5  -ultrart-capture  -ultrart-quit
+    ///   Keys, settings and flags: README.md "Controls" and docs/settings.md. Unattended runs: scripts/bench.ps1 (bench/README.md).
     /// </summary>
     [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
     [BepInDependency(PluginConfiguratorGuid, BepInDependency.DependencyFlags.SoftDependency)] // in-game settings menu (SettingsMenu.cs)
@@ -100,6 +98,13 @@ namespace UltraRT
         private bool _capture, _quit;
         private string _outDir;
 
+        /// <summary>[View] ConfigVersion: which one-time default migrations this config file has had (here: the default
+        /// mode; Plugin.Hdr.cs: the HDR defaults). Bound once in Awake.</summary>
+        private BepInEx.Configuration.ConfigEntry<int> _configVersion;
+        /// <summary>Launched by the bench (any -ultrart-bench* flag): migrations never run then, so a bench never changes
+        /// the user's settings.</summary>
+        private static bool BenchLaunch => Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
+
         private void Awake()
         {
             // The default mode is pathtrace where DLSS Ray Reconstruction can run (an NVIDIA GPU and nvngx_dlssd.dll beside the
@@ -115,17 +120,16 @@ namespace UltraRT
                 "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.");
             // BepInEx writes a default into the file, so a config made before 2026-11-17 still says relight although nobody
             // chose it. Once per config: such an entry moves to the new default. Picking relight again afterwards sticks.
-            var configVersion = Config.Bind("View", "ConfigVersion", 0, "Internal: which default migrations this file has had. Do not edit.");
+            _configVersion = Config.Bind("View", "ConfigVersion", 0, "Internal: which default migrations this file has had. Do not edit.");
             // Not in a bench launch: the user's own start of the game does it (a bench never changes their settings).
-            bool benchLaunch = Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
-            if (configVersion.Value < 1 && !benchLaunch)
+            if (_configVersion.Value < 1 && !BenchLaunch)
             {
                 if (rrPresent && defaultModeEntry.Value.Equals("relight", StringComparison.OrdinalIgnoreCase))
                 {
                     defaultModeEntry.Value = "pathtrace";
                     Logger.LogInfo("Config: [View] DefaultMode was the old default (relight): now pathtrace. Set it back in the settings menu to keep relight.");
                 }
-                configVersion.Value = 1;
+                _configVersion.Value = 1;
             }
             string defaultMode = defaultModeEntry.Value;
             int dm = Array.FindIndex(Modes, m => m.name.Equals(defaultMode, StringComparison.OrdinalIgnoreCase));
@@ -193,7 +197,7 @@ namespace UltraRT
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
-            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart, FlameQuads = FlameQuadList };
+            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -229,7 +233,6 @@ namespace UltraRT
                     case "-ultrart-capture": _capture = true; break;
                     case "-ultrart-quit": _quit = true; break;
                     case "-ultrart-off": _viewEnabled = false; break;
-                    case "-ultrart-dumpverts": SceneProxies.DumpAtlasVertices = true; break;
                     case "-ultrart-skinned-visible": SceneProxies.SkinnedProxiesVisible = true; break;
                     case "-ultrart-skinned-noupdate": SceneProxies.SkinnedTransformUpdates = false; break;
                     case "-ultrart-nodisplace": SceneProxies.DisplacementBuild = false; break; // VERTEX_DISPLACEMENT geometry keeps its rest pose
@@ -276,13 +279,17 @@ namespace UltraRT
                     case "-ultrart-player-noanimate": SceneProxies.PlayerAlwaysAnimate = false; break;
                     case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
-                        switch ((Next() ?? "").ToLowerInvariant())
+                    {
+                        string v = (Next() ?? "").ToLowerInvariant();
+                        switch (v)
                         {
                             case "ref": _lightSamplingSettings.mode = LightSamplingMode.Reference; break;
                             case "ris": _lightSamplingSettings.mode = LightSamplingMode.Ris; break;
-                            default: _lightSamplingSettings.mode = LightSamplingMode.ReSTIR; break;
+                            case "restir": _lightSamplingSettings.mode = LightSamplingMode.ReSTIR; break;
+                            default: Logger.LogWarning($"-ultrart-lights '{v}': expected ref | ris | restir; keeping {_lightSamplingSettings.mode}"); break;
                         }
                         break;
+                    }
                     case "-ultrart-ris-m": int.TryParse(Next(), out _lightSamplingSettings.candidates); break;
                     case "-ultrart-restir-spatial": int.TryParse(Next(), out _lightSamplingSettings.spatialSamples); break;
                     case "-ultrart-restir-spatial-hybrid": int.TryParse(Next(), out _lightSamplingSettings.spatialSamplesHybrid); break;
@@ -782,8 +789,6 @@ namespace UltraRT
                                $"mat {(m != null ? m.name + " / " + m.shader.name : "-")} queue {(m != null ? m.renderQueue : 0)}");
             }
         }
-
-        private static float AsFloat(int bits) => BitConverter.Int32BitsToSingle(bits);
 
         private void EnsureGBuffer(ref RenderTexture rt, int w, int h, RenderTextureFormat format, string name)
         {
@@ -1292,7 +1297,6 @@ namespace UltraRT
             UpdateMovers(); // moving occluders: fast-responding shadows of the player and enemies (Plugin.Noise.cs)
             UpdateEffectGeometry(pt); // glowing effects as billboards for reflection rays (Plugin.Effects.cs)
             long te = Perf.Now;
-            UpdateFlameQuads(_camera); // fx.flameBillboards (test)
             _emissive.ViewPoints = _portalViews; // portal-aware importance for glowing surfaces too
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
