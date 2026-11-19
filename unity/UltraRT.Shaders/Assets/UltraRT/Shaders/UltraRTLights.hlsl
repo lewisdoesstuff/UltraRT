@@ -188,6 +188,7 @@ bool VisibleRaw(float3 p, float3 n, float3 dir, float dist, uint mask)
     r.TMax = max(0.0, dist - 0.05);
     RayPayload sp = (RayPayload)0;
     sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
+    ULTRART_COUNT_RAY(ULTRART_RAY_SHADOW);
     TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, mask, 0, 1, 0, r, sp);
     return sp.t < 0.0;
 }
@@ -1229,6 +1230,7 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
                 pr.TMax = max(0.0, r.dist - 0.05);
                 RayPayload sp = (RayPayload)0;
                 sp.t = 1.0;
+                ULTRART_COUNT_RAY(ULTRART_RAY_PLAYER_SHADOW);
                 TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ULTRART_MASK_PLAYER, 0, 1, 0, pr, sp);
                 if (sp.t >= 0.0) g_PlayerBlocked = r.c * (W * DetailScale(n, r.L) * _LightScale);
             }

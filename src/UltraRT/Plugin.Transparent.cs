@@ -73,7 +73,13 @@ namespace UltraRT
         /// Before the main DispatchRays (PathTrace bind block): whether RayGen also traces water and glass into _Output
         /// (hybrid / denoised modes only, and only while a transparent instance is active).
         /// </summary>
-        private void BindTransparents(RayTracingShader shader, bool denoised)
+        /// <summary>Bench plugin._transRect=0: the transparent ray at every pixel again (no screen rectangle).</summary>
+        private bool _transRect = true;
+        private int _transRectLogs;
+        private bool _transRectLastInView = true;
+        private string _transRectWidestLogged = "";
+
+        private void BindTransparents(RayTracingShader shader, bool denoised, Matrix4x4 viewProj, int w, int h)
         {
             var s = TransparentCfg;
             if (_proxies != null && _proxies.ActiveTransparent != _lastActiveTransparent && _transLogs < 100)
@@ -89,6 +95,26 @@ namespace UltraRT
             // A level's own ripple factor ("exposure": { "waterWaves": F }: 8-2's still pool, docs/reflections.md).
             float levelWaves = _lightOverrides && _aeSettings.levelOverride && _lightOv != null ? _lightOv.LevelWaterWaves : 1f; // bench ae.levelOverride=0: without
             _transWater = new Vector4(s.waves * levelWaves, Time.timeSinceLevelLoad % 3600f, s.waveFade, s.refraction);
+            // Only where water, glass or blood can be on screen (docs/performance.md, "Ray counts": the transparent ray ran at
+            // every pixel whenever anything with the transparent mask was active, light cones included). Padded by 4 trace
+            // pixels; nothing in view skips the ray and the overlays this frame.
+            var rect = new Vector4(-2f, -2f, 2f, 2f);
+            if (_transActive && _transRect)
+            {
+                bool inView = _proxies.TransparentScreenRect(viewProj, out rect);
+                float px = 8f / Mathf.Max(w, 1), py = 8f / Mathf.Max(h, 1);
+                rect = new Vector4(rect.x - px, rect.y - py, rect.z + px, rect.w + py);
+                string widest = inView ? _proxies.TransparentRectWidestName : null;
+                if ((inView != _transRectLastInView || widest != _transRectWidestLogged) && _transRectLogs < 40)
+                {
+                    _transRectLogs++;
+                    Logger.LogInfo(inView ? $"Transparent ray: water/glass in view, NDC rect ({rect.x:F2}, {rect.y:F2})-({rect.z:F2}, {rect.w:F2}), widest {_proxies.TransparentRectWidest}" : "Transparent ray: no water/glass in view, skipped");
+                }
+                _transRectLastInView = inView;
+                _transRectWidestLogged = widest;
+                if (!inView) _transActive = false;
+            }
+            _cmd.SetRayTracingVectorParam(shader, "_TransRect", rect);
             _cmd.SetRayTracingVectorParam(shader, "_TransParams", new Vector4(s.cacheSpread, _transActive ? 1f : 0f, 0, 0));
             _cmd.SetRayTracingVectorParam(shader, "_UltraRTWater", _transWater);
         }

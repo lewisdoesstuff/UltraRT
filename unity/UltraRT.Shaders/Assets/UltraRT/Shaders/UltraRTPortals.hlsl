@@ -113,6 +113,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         p.t = -1.0;
         p.flags = inFlags | (i > 0u ? ULTRART_PORTAL_IN_RECURSION : 0u);
         if ((inFlags & ULTRART_PAYLOAD_CONE) != 0u) p.albedo = float3(g_Cone.x + g_Cone.y * path.travelled, g_Cone.y, 0.0);
+        ULTRART_COUNT_TRACE(i);
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
         if (p.t < 0.0) p.albedo = 0; // a miss leaves the cone input there
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
@@ -132,6 +133,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
             p.flags = inFlags | ULTRART_PORTAL_IN_RECURSION;
             mask &= ~ULTRART_MASK_PORTAL;
             if ((inFlags & ULTRART_PAYLOAD_CONE) != 0u) p.albedo = float3(g_Cone.x + g_Cone.y * path.travelled, g_Cone.y, 0.0);
+            ULTRART_COUNT_TRACE(1u);
             TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
             if (p.t < 0.0) p.albedo = 0;
             return;

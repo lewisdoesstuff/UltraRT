@@ -356,6 +356,69 @@ helps every dispatch at once.
   in it is ours: the feature inputs or the evaluate call), the UI canvas rebuild the game does more of with RT on.
 - Hitches are mostly not ours; the `lights` frame is.
 
+## Ray counts (2026-11-19, `t3/perf-dispatch-2`, plan 5.1 step 5)
+
+**The counter.** Bench `plugin._rayCounts=1` dispatches `PathTraceCount.raytrace` instead of `PathTrace.raytrace`: the
+same file included with `ULTRART_RAY_COUNTS`, so every `TraceRay` adds one to a per-thread count of its kind
+(`ULTRART_COUNT_RAY` / `ULTRART_COUNT_TRACE` in `UltraRTCommon.hlsl`, empty in every other shader). The ray generation
+then writes the eight counts over `_Output` and `_Radiance` (the main shader already binds Unity's maximum of eight
+UAVs, so there is no room for a counter buffer). Every 10th frame `Plugin.RayCounts.cs` reads both back; every 2 s the
+log gets `Ray counts (<mode>, <trace size>, <frames>): N rays per trace pixel = camera .. shadow .. V1 shadow ..
+bounce .. reflection .. transparent .. effects ..; portal segments ..`. Portal segments are also counted in their own
+kind. The image is garbage while it runs, so the counter is a diagnostic only: frame times of that mode mean nothing.
+Suite `bench/suites/ray-counts.json`.
+
+**Counts** (rays per trace pixel; relight traces 1382x720, pathtrace 922x480 at 1440p;
+`bench/results/20261119-011055_ray-counts_alt` and `20261119-012421_ray-counts_alt`):
+
+| Pose | Mode | camera | shadow | V1 shadow | bounce | reflection | transparent | effects | total |
+|---|---|---|---|---|---|---|---|---|---|
+| 0-1 metal | relight | 1.00 | 1.02-1.09 | 0.10 | 1.00 | 0.81 | 1.00 | 0.81 | 5.2 |
+| 0-1 metal | pathtrace | 1.00 | 1.13 | 0.11 | 1.10 | 0.86 | 1.00 | 0.86 | 6.1 |
+| 0-3 ghosts | relight | 1.00 | 1.04 | 0.00 | 1.00 | 0.69 | 1.00 | 0.00 | 4.75 |
+| 0-3 ghosts | pathtrace | 1.00 | 1.16 | 0.00 | 1.08 | 0.75 | 1.00 | 0.00 | 4.9 |
+| 0-5 lava | relight | 1.00 | 1.04 | 0.01 | 1.00 | 0.80 | 1.00 | 0.00 | 4.85 |
+| 0-5 lava | pathtrace | 1.00 | 1.17 | 0.01 | 1.06 | 0.84 | 1.00 | 0.00 | 5.1 |
+| 8-3 b | relight | 1.30 | 1.62 | 0.01 | 1.24 | 0.01 | 1.00 | 0.01 | 5.2 |
+| 8-3 b | pathtrace | 1.24-1.35 | 1.68-1.70 | 0.01 | 1.23-1.33 | 0.01 | 1.00 | 0.01 | 5.2-5.3 |
+
+What they say:
+- **The transparent ray ran at every pixel**: one ray per pixel, a fifth of all rays, wherever anything with the
+  transparent mask was in the RTAS, also with no water or glass on screen. Light cones count: they are veil proxies
+  with that mask (scene-proxies.md, "Blended veils"), and most levels have some. Fixed below.
+- Shadow rays are ~1.05-1.17 per pixel (one per hit plus the bounce's), 1.6-1.7 in 8-3 (its portal segments are hits too).
+- The effects ray follows the reflection ray one for one where effects are in the level (0-1: 0.81-0.86).
+- 8-3 b: 0.44-0.65 extra portal segments per pixel; camera rays 1.24-1.35.
+- For R2 (half-rate secondary rays): bounce + reflection + effects + their shadow rays are about 3 of 5 rays per pixel.
+
+**Transparent ray only where water, glass or blood can be** (`plugin._transRect`, default on). Each traced frame
+`SceneProxies.TransparentScreenRect` projects every active water / glass / blood instance (veil proxies left out: a
+camera ray never hits them) with the trace's projection: dynamic proxies by their renderer's bounds, static groups per
+slot by the bounds of the slot's own vertices (`StaticGroups.SlotBounds`, computed once when the combined mesh is read;
+the combined mesh's own bounds span a level, and 8-2's and 8-3's glass covered every view with them). Boxes crossing
+the camera plane are clipped at it. `PathTrace.raytrace` traces the transparent ray only inside that rectangle (padded
+by 4 trace pixels); with nothing in view the transparent pass is off for the frame (no ray, no overlays). The log names
+the instance with the widest rectangle when it changes (`Transparent ray: ...`).
+
+| Pose | Mode | transparent rays per pixel before / after | total before / after |
+|---|---|---|---|
+| 0-1 metal | pathtrace | 1.00 / 0.05 | 6.06 / 5.11 |
+| 0-3 ghosts | relight | 1.00 / 0.17 | 4.75 / 3.91 |
+| 0-5 lava | relight | 1.00 / 0.00 | 4.85 / 3.85 |
+| 0-5 lava | pathtrace | 1.00 / 0.00 | 5.08 / 4.08 |
+| 8-3 b | pathtrace | 1.00 / 0.00 | 5.2-5.3 / 4.2-4.4 |
+
+(`20261119-012421_ray-counts_alt`, `20261119-013429_trans-rect_alt`.) Water in view is unchanged: 1-1 pose 2 (the
+fountain) and 8-2 pose 1 (the pool), `pathtrace` against `pathtrace+plugin._transRect=0`, differ by the frame-to-frame
+noise only (mean |diff| 2.9 and 2.1 of 255, as two runs of the same build; sheet
+`bench/results/review/portal-light/transrect_check.png`). **Not timed**: the night's runs were visual only (the
+trailer agent had the GPU, and a stray `find.exe` over the whole disk ran all night), so the ms are open; a
+transparent-mask ray that misses costs less than a scene ray, so expect a fraction of 1/5 of the dispatch.
+
+**Pass scheduler (E1): not built.** Its first user, the cache update on alternate frames (C1, "Pass schedule" above),
+measured 0.1 ms; a general scheduler has nothing else to schedule yet (the particle volume cannot be, volumetrics are
+in screen space). C4 (fewer shader-table records in 8-x) stays the open render-thread item; it needs exclusive perf runs.
+
 ## How these were measured (and traps)
 
 - Suites: `perf-1440p` (seven poses, relight + pathtrace interleaved, 8-2/8-3 with `off`), `perf-1440p-short`,

@@ -1,6 +1,29 @@
 #ifndef ULTRART_COMMON_INCLUDED
 #define ULTRART_COMMON_INCLUDED
 
+// Ray counters (docs/performance.md, "Ray counts"). Only PathTraceCount.raytrace defines ULTRART_RAY_COUNTS: there every
+// TraceRay adds one to its kind's per-thread count, written over _Output / _Radiance at the end of the ray generation
+// (the main shader has no free UAV). Everywhere else the macros are empty.
+#define ULTRART_RAY_CAMERA 0u        // camera rays (portal segments included)
+#define ULTRART_RAY_SHADOW 1u        // light visibility (LightVisible)
+#define ULTRART_RAY_PLAYER_SHADOW 2u // V1-only shadow rays (player shadow split)
+#define ULTRART_RAY_BOUNCE 3u        // diffuse bounces (hybrid bounce, pathtrace's cosine segments)
+#define ULTRART_RAY_REFLECTION 4u    // reflection and specular-lobe segments
+#define ULTRART_RAY_TRANSPARENT 5u   // water and glass along the camera ray
+#define ULTRART_RAY_EFFECTS 6u       // glowing effects along a specular ray
+#define ULTRART_RAY_PORTAL_HOP 7u    // extra segments after a portal (also counted in their own kind)
+#ifdef ULTRART_RAY_COUNTS
+static uint g_RayCount[8];
+static uint g_RayKind;
+#define ULTRART_COUNT_RAY(k) g_RayCount[(k)]++
+#define ULTRART_SET_RAY_KIND(k) g_RayKind = (k)
+#define ULTRART_COUNT_TRACE(hop) { g_RayCount[g_RayKind]++; if ((hop) > 0u) g_RayCount[ULTRART_RAY_PORTAL_HOP]++; }
+#else
+#define ULTRART_COUNT_RAY(k)
+#define ULTRART_SET_RAY_KIND(k)
+#define ULTRART_COUNT_TRACE(hop)
+#endif
+
 // Shared between the ray generation shaders and the proxy material's hit shaders. Every hit/miss shader of a dispatch
 // must use the same payload size, so it is kept at 64 bytes (16 dwords). Layout:
 //   albedo, alpha, normal, t, instance  as named

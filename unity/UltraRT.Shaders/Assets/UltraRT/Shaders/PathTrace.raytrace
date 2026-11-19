@@ -180,6 +180,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
     float travelled;
     // V1's third-person model shows in reflections (camera rays never see it). No per-texel detail at reflection hits
     // (docs/materials.md): measured +0.2 ms in metal rooms, invisible after the filter.
+    ULTRART_SET_RAY_KIND(ULTRART_RAY_REFLECTION);
     TraceSceneCone(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_REFLECTION), cone, r, h, travelled); // r: the last segment after portals
     float3 c;
     if (h.t < 0.0)
@@ -221,6 +222,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
 // x: lobe spread used for the reflection hit's cache footprint test (large = always shade from the radiance cache:
 // smooth, no shadow-ray noise; there is no temporal filter on this pass). y: 1 = trace transparents into _Output.
 float4 _TransParams;
+float4 _TransRect; // NDC rectangle that holds every water / glass / blood instance (Plugin.Transparent.cs); outside: no transparent ray
 
 float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint rng)
 {
@@ -228,6 +230,7 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint
     ray.TMax = opaqueT > 0.0 ? opaqueT + 0.05 : 1.0e5;
     RayPayload p = (RayPayload)0;
     p.t = -1.0;
+    ULTRART_COUNT_RAY(ULTRART_RAY_TRANSPARENT);
     TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_TRANSPARENT, 0, 1, 0, ray, p);
     if (p.t < 0.0) return float4(0, 0, 0, -1);
 
@@ -306,6 +309,7 @@ void RayGenBody(bool full)
     float3 camDir = ray.Direction;
     RayDesc camRay = ray;
     PortalPath path;
+    ULTRART_SET_RAY_KIND(ULTRART_RAY_CAMERA);
     TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_CAMERA), inFlags, ray, p, path);
 
     float3 c, lighting, albedo, emission;
@@ -408,6 +412,7 @@ void RayGenBody(bool full)
             b.TMax = 1.0e4;
             RayPayload h;
             float travelled;
+            ULTRART_SET_RAY_KIND(ULTRART_RAY_BOUNCE);
             TraceSceneCone(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_BOUNCE),
                            DiffuseCone(hitCone), b, h, travelled); // b: the last segment after portals
             if (h.t < 0.0)
@@ -542,16 +547,37 @@ void RayGenBody(bool full)
     // shows through a portal).
     // An if, not ?: (HLSL 2018 evaluates both sides: the transparent ray and its reflection were traced in every mode).
     float4 outC = float4(c, 1.0);
-    [branch] if (_TransParams.y > 0.5) outC = TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, pixelAngle, rng);
+    [branch] if (_TransParams.y > 0.5 && all(ndc >= _TransRect.xy) && all(ndc <= _TransRect.zw))
+        outC = TraceTransparent(camRay, path.firstT >= 0.0 ? path.firstT : p.t, pixelAngle, rng);
     _Output[id] = outC;
 }
 
+#ifdef ULTRART_RAY_COUNTS
+// PathTraceCount.raytrace (docs/performance.md, "Ray counts"): the same ray generation, then this pixel's ray counts by
+// kind over its outputs (0-3 in _Output, 4-7 in _Radiance; the plugin reads them back). The image is not usable.
+void RayCountsBegin()
+{
+    [unroll] for (uint k = 0u; k < 8u; k++) g_RayCount[k] = 0u;
+    g_RayKind = ULTRART_RAY_CAMERA;
+}
+void RayCountsWrite()
+{
+    uint2 id = DispatchRaysIndex().xy;
+    _Output[id] = float4(g_RayCount[0], g_RayCount[1], g_RayCount[2], g_RayCount[3]);
+    _Radiance[id] = float4(g_RayCount[4], g_RayCount[5], g_RayCount[6], g_RayCount[7]);
+}
+[shader("raygeneration")]
+void RayGen() { RayCountsBegin(); RayGenBody(false); RayCountsWrite(); }
+[shader("raygeneration")]
+void RayGenPT() { RayCountsBegin(); RayGenBody(true); RayCountsWrite(); }
+#else
 [shader("raygeneration")]
 void RayGen() { RayGenBody(false); }
 
 // The pathtrace mode (docs/path-tracing.md). Same bindings, same outputs.
 [shader("raygeneration")]
 void RayGenPT() { RayGenBody(true); }
+#endif
 
 [shader("miss")]
 void Miss(inout RayPayload p : SV_RayPayload)

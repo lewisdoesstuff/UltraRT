@@ -1,0 +1,6 @@
+// PathTrace with ray counters (docs/performance.md, "Ray counts"; bench plugin._rayCounts=1). Same bindings as
+// PathTrace.raytrace; every TraceRay adds to a per-thread count by kind, and the ray generation writes the counts over
+// _Output and _Radiance. A diagnostic: the image is not usable while it runs.
+#pragma max_recursion_depth 1
+#define ULTRART_RAY_COUNTS
+#include "PathTrace.raytrace"

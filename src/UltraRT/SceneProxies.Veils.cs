@@ -101,6 +101,7 @@ namespace UltraRT
             var proxy = CreateMeshProxy($"{r.name} (static veil) [UltraRT]", StaticBatchRoot?.GetValue(r) as Transform, mesh, proxyMats);
             AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: true);
             _veils.Add(new VeilEntry { Source = r, Proxy = _dynamic[_dynamic.Count - 1], Materials = ours });
+            _veilProxySet.Add(_dynamic[_dynamic.Count - 1]);
             _staticVeils++;
             if (_veilLog.Count < 24)
                 _veilLog.Add($"  static-batched '{GameControlPath(r.transform)}' mat '{first.name}' submesh {start} of {n} in '{mesh.name}' size {r.bounds.size:F0}");
@@ -132,6 +133,7 @@ namespace UltraRT
             var proxy = CreateMeshProxy($"{r.name} (veil) [UltraRT]", r.transform, mesh, proxyMats);
             AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: true);
             _veils.Add(new VeilEntry { Source = r, Proxy = _dynamic[_dynamic.Count - 1], Materials = ours });
+            _veilProxySet.Add(_dynamic[_dynamic.Count - 1]);
             if (_veilLog.Count < 24)
             {
                 var src = mats.First(PortalVeil);
@@ -245,6 +247,7 @@ namespace UltraRT
                 foreach (var m in e.Materials)
                     if (m != null) Object.Destroy(m);
             _veils.Clear();
+            _veilProxySet.Clear();
             VeilsVisible = 0;
         }
     }
