@@ -126,14 +126,8 @@ namespace UltraRT
             var l2 = _lightData[i + 2];
             var l3 = _lightData[i + 3];
             float s = r.Intensity * r.Toggle;
-            bool local = l0.w != 0f;
-            // A handed-over lamp still glints as a point at its own strength (l3.w; Plugin.Glints.cs).
-            if (local && r.GlintIntensity >= 0f)
-            {
-                float gs = r.GlintIntensity * r.Toggle;
-                l3.w = GlintColorCode(new Vector3(c.x * r.Color.x * gs, c.y * r.Color.y * gs, c.z * r.Color.z * gs));
-            }
             c.x *= r.Color.x * s; c.y *= r.Color.y * s; c.z *= r.Color.z * s;
+            bool local = l0.w != 0f;
             if (local && r.Range != 1f) l0.w = Mathf.Max(l0.w * r.Range, 1e-4f);
             // Reach, in quarters, in the colour's w above the player-light flag (UltraRTLights.hlsl, LightReach):
             // w = flag + 2 x (4 - reach x 4).

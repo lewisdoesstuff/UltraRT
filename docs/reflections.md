@@ -365,11 +365,12 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 
 1. **Classification** (`TransparentSurfaces.cs`, `TransparentClassifier.Of`): Master + `TRANSPARENCY` + `_BlendMode` 2, not DISTANCE_FADE/LIMBO_WALLS/ENEMY, not excluded names; water = `Water`/`Sea` name with SurfaceType Wet (or plain `Water`), glass = `*Glass*` or `Ice*`. `Traceable` now rejects these, so they never enter the opaque scene.
 2. **Proxies** (`SceneProxies.Transparent.cs`): a second dynamic proxy per renderer with only its water/glass submeshes, instance mask `TransparentMask` 0x10, material class Wet (water) or Glass, roughness 0. Static-batched ones are slots of the static groups instead (see "Static-batched water and glass" below). Every other ray now uses `ULTRART_MASK_SCENE` (0xEF, now 0x6F: section 13), so water and glass still neither block light nor appear in the G-buffer. Emissive-light collection skips them.
-3. **Trace** (`PathTrace.raytrace`, `TraceTransparent`, at the end of `RayGen`): in hybrid and denoised modes, only while a transparent instance is active (`_TransParams.y`), the primary pixel also traces a ray with mask 0x10 and `TMax` = the opaque hit. At the water/glass hit it traces one mirror reflection ray (`TraceReflection`, the reflection ray's mask) about the rippled normal, shaded from the radiance cache (`cacheSpread` forces the cache path: no shadow-ray noise, since there is no temporal filter here). It writes `_Output` = (radiance, distance to the surface; < 0 none) instead of the composited colour, which those modes never read. So there is no new UAV, no new binding and no second `DispatchRays`. A first version used a second ray generation shader; its dispatch rebuilt the shader table and cost +0.2–0.3 ms of frame time beyond the GPU-timed work. Nothing is traced while the camera is inside a water renderer's bounds (see the overlay).
+3. **Trace** (`PathTrace.raytrace`, `TraceTransparent`, at the end of `RayGen`): in hybrid and denoised modes, only while a transparent instance is active (`_TransParams.y`), the primary pixel also traces a ray with mask 0x10 and `TMax` = the opaque hit. At the water/glass hit it traces one mirror reflection ray (`TraceReflection`, the reflection ray's mask) about the rippled normal, shaded from the radiance cache (`cacheSpread` forces the cache path: no shadow-ray noise). Since 2026-11-19 a temporal filter runs on the result before the overlay reads it ("Displaced water and the temporal filter" below). It writes `_Output` = (radiance, distance to the surface; < 0 none) instead of the composited colour, which those modes never read. So there is no new UAV, no new binding and no second `DispatchRays`. A first version used a second ray generation shader; its dispatch rebuilt the shader table and cost +0.2–0.3 ms of frame time beyond the GPU-timed work. Nothing is traced while the camera is inside a water renderer's bounds (see the overlay).
 4. **Ripples** (`UltraRTWater.hlsl`): four directional sines in the surface plane, deep-water dispersion (slowed), slope scale `-ultrart-water-waves`, fading out by 60 m. The same function runs in the ray generation shader and in the overlay, so reflection direction and Fresnel agree.
 5. **Overlay** (`TransparentOverlay.shader`, `TransparentOverlays`): appended as an extra material to each water/glass renderer (Unity draws the last submesh again with it), with the source material's render queue, so it draws right after the game's surface and before any particle in front of it. This is why it is not a camera command buffer: at `AfterForwardAlpha` everything transparent is already drawn (and PostProcessV2_Handler strips that event's buffers on reinit). Three passes, `ZTest LEqual`, no depth writes:
    - `RefractAdd`/`RefractSub` (water): screen-space refraction. The game produced `W a + B (1 - a)`; the overlay adds `(1 - a)(B(uv') - B(uv))` (signed, hence two blended passes), where `B` = `_UltraRTPreAlpha` (a copy of the colour target taken right after the RT composite, before transparents) and `uv'` follows the rippled refraction offset scaled by the depth below the surface (`_UltraRTGameDepth`). Offsets that land on something in front of the water are rejected. `a` is estimated from the source's texture alpha × `_Color.a` × `_Opacity`.
    - `Reflect`: `dst (1 - w) + w R` with `w` = Schlick Fresnel (f0 0.12 water, 0.08 glass, see below) at the rippled normal × strength, fog visibility, capped at 0.85. `R` is bilinear over the 2×2 trace texels whose transparent hit matches this fragment's distance, tone mapped like relight's composite when relight is on.
+   - On water the game moves with `VERTEX_DISPLACEMENT` (6-2's blood pools, 3-1, 2-1's `Water 3 Calm`), the overlay's vertex shader displaces like the game since 2026-11-19 (below).
    - Water seen from below (camera inside a water renderer's bounds, or under a horizontal surface) is left to the game's own underwater look: a mirror there would need total internal reflection.
    Original material lists are restored when the RT scene is disposed. Nothing is drawn (all passes discard) unless the plugin traced this frame for this camera (`_UltraRTTransOn`, camera position match), so F7, debug modes and other cameras are unaffected.
 
@@ -382,7 +383,8 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 | `-ultrart-transparent-strength X` (Fresnel weight multiplier) | 1 |
 | `-ultrart-water-waves X` (ripple slope scale, 0 = flat mirror) | 1 |
 | `-ultrart-water-refraction X` (0 = off, skips the colour copy) | 1 |
-| `-ultrart-glints X` / `-ultrart-noglints` (the lights' highlights on water and wet surfaces, "Glints" below) | 1 |
+| bench `trans.temporal` (the reflection's temporal filter), `trans.temporalAlpha`, `trans.temporalClip` | on, 0.2, 1.5 |
+| bench `trans.overlayDisplace` (the overlay follows the game's vertex displacement) | on |
 
 F0 is 0.12 (water) and 0.08 (glass), above the physical 0.02/0.04: the game's water and glass textures are bright and fairly opaque, and at physical strength the reflection only showed at grazing angles. GPU timer slot `prealpha`: the colour copy. The trace itself is part of `dispatch`.
 
@@ -523,7 +525,7 @@ sheets `bench/results/review/caustics-rt/sheet_1-4.png`, `crop_1-4_water.png`, `
 - **Tried**: `trans.strength=3` and `trans.waterF0=0.3` only make the strips darker and more navy (more of the dark sky).
   A stronger Fresnel is not the lever in a night level.
 - **What would make it read ray traced**, with trade-offs:
-  1. (Done since 2026-11-19: "Glints" below.) Bright things to reflect: the bridge lamps and the moon. A glint on rippled water needs the reflection to hit them;
+  1. (Built and removed on 2026-11-19: "Glints" below.) Bright things to reflect: the bridge lamps and the moon. A glint on rippled water needs the reflection to hit them;
      today the reflection hit is shaded from the radiance cache and the lamp fixtures are small. Specular highlights of
      the lights on the water (an NEE term in the overlay's reflection, GGX at the ripple normal) would put moving lamp
      and moon streaks on the water: the most "RT" cue at night, about one more shadow ray per water pixel.
@@ -535,108 +537,86 @@ sheets `bench/results/review/caustics-rt/sheet_1-4.png`, `crop_1-4_water.png`, `
   4. Rougher, wider reflection lobe: softer, more visible sheen under the sky gradient; costs sharpness and is noisier
      (one ray, no temporal filter on this pass).
 
-### Glints: the lights' highlights on water and wet surfaces (2026-11-19, `t3/water-wet-specular-glints`)
+### Glints (added and removed 2026-11-19)
 
-A reflection ray only sees what it hits. ULTRAKILL's lights are points (the sun and moon are directions), which no ray
-hits, so night water reflected the dark room and none of its lamps, and wet floors had no lamp streaks: opaque surfaces
-got the lights' diffuse term only, and their specular lobe came from the reflection ray alone. Glints add the missing
-term, next-event estimation on a sharp GGX lobe (`PathTrace.raytrace`, `GlintLight` / `GlintTerm`).
+Option 1 above was built on `t3/water-wet-specular-glints` (merged 2026-11-19): next-event estimated GGX highlights of
+the lights on water, glass, liquid blood and wet opaque surfaces, `Plugin.Glints.cs`, `[Effects] Glints`,
+`-ultrart-glints` / `-ultrart-noglints`, bench `glint.*`. The user's playtest the same evening: "far too obvious,
+let's drop them entirely". It was removed on `t3/remove-glints-blood-arena-fix`, code, settings, flags, bench keys and
+the `glints*` suites (the code is in commit `1c90777` if it is ever wanted again). An old `[Effects] Glints` line in a
+config file is left alone as an orphaned entry: BepInEx keeps unknown keys and nothing reads it. A bench variant
+`glint.*` now only logs `Burst: unknown variant`.
 
-- **The term.** Per light: its colour from the light model (`LightEvalRaw`: falloff, spot cone, N.L) x GGX D x the
-  height-correlated Smith visibility, Fresnel apart. Emissive surfaces are left out: the reflection ray sees them. The
-  lobe widens by half the light's angular radius (its soft-shadow sphere, an area light's half size, the sun disk), by
-  at most `lightSize` (0.1 GGX alpha): a broad lobe is a sheen over the floor, not a streak.
-- **Which lights.** Per frame the plugin lists the lights whose reach (twice the range: every falloff ends there) meets
-  the view frustum, or every light while a portal is in view (`Plugin.Glints.cs`, `GlintList`; log `Glints: N of M
-  lights reach the view`). Each entry carries a record (position, reach), so the shader rejects a light that is out of
-  reach or outside the lobe (D under about 1/300 of its peak) without a dependent load, four at a time. The player's
-  own lights (at the eye, the held torch; flag in `_Lights[i*4+1].w`) never glint: their highlight lit the floor around
-  the camera.
-- **Handed-over lamps.** A lamp whose glowing part carries its light (docs/lighting-overrides.md, "Handover") keeps a
-  zero or cut colour, so it had no glint: P-2's and 1-4's street lamps. `ApplyResolved` stores the light's own colour x
-  intensity in the unused `_Lights[i*4+3].w` (`GlintColorCode`: 8-bit sqrt(c / 16) per channel as an exact integer,
-  plus 1), and `GlintTerm` uses it in place of the packed colour. The reflection ray still sees the glowing part itself,
-  so a mirror-sharp puddle shows the bulb plus the glint around it.
-- **Water, glass, liquid blood** (`TraceTransparent`). The lobe sits at the rippled normal. Its alpha is `waterAlpha`
-  (0.05), widened by the ripples this trace texel cannot resolve (`UltraRTWater.hlsl`, `WaterUnresolvedVariance`: the
-  slope variance of the waves `WaterNormalBand` fades out by distance or footprint; alpha^2 += it). So far water, a calm
-  mirror for the reflection ray, still spreads a lamp into a long path. Fresnel is applied here (Schlick at V.H, the
-  surface's f0). This pass has no temporal filter, so it is deterministic: every listed light is weighed, the light
-  with the brightest highlight gets the one shadow ray (aimed at its centre: no soft-shadow jitter), and its visibility
-  stands for all of them. Nothing is traced where the glint would add under about 1/255 once displayed. The result
-  (display units, clamped to luminance `maxLuminance` 4) goes to `_LitWeight.xy` as halves (xyz were unused: no new
-  UAV). The overlay's Reflect pass adds it on top of the Fresnel blend, past its weight cap and tone curve, times
-  exposure, fog visibility, the limbo fade and the material's weight (frosted 0.25, blood 0.4).
-- **Wet surfaces** (opaque: the rain film or a puddle, flagged `ULTRART_FLAG_WET` 0x80 by `Proxy.shader`; the Wet
-  class; fresh blood under `BloodWet`). They already traced a reflection ray but had no highlight from any light (not
-  a weak one), so no wet roughness or weight was retuned. The glint joins the reflected radiance (`lr`, Fresnel-free;
-  added in lighting space, converted back to display), so the composite's Fresnel and specular weight, the reflection
-  filter and DLSS RR's specular guides treat both alike. Its lobe is at least `wetAlpha` (0.06): a puddle is roughness
-  0.03 (alpha 0.001) for the reflection ray, which would make a lamp a dot. One light is picked in proportion to its
-  highlight (unbiased; the filters clean it up), with the ordinary soft-shadow ray. Where the highlight outweighs the
-  reflection, the reflection's hit distance becomes the light's, so the filter and RR reproject the streak from its
-  virtual image.
-- **Sun and moon.** Directional lights glint like the others (a disk of the sun's angular radius). The sky's own
-  picture (1-4's moon in the sky texture) is seen by the mirror ray only; it is not sampled for glints, which would
-  count the sky twice. 1-4's three moonlight directions do not line up with the drawn moon, so there is no moon path
-  under it (`1-4 strip moon`).
+**Overlay gamma fix (kept).** The same branch fixed a separate bug that stays fixed: since the sky/GI merge
+(2026-11-14) the overlay converted the traced water reflection to display units a second time under linear transport
+(`^(1/2.2)` of a value `TraceReflection` had already converted), so a night sky at 0.05 showed as 0.26 and dark water
+reflections read hazy. That conversion is gone (the `trans.legacyGamma` A/B toggle went with the glints). Water
+reflections in relight and pathtrace are darker and clearer than before 2026-11-19 (8-2's pool, 1-4's strips).
 
-| Setting | Default | Where |
+### Displaced water and the temporal filter (2026-11-19, `t3/remove-glints-blood-arena-fix`)
+
+The user's playtest: 6-2's blood "flickers" with pathtrace on, visible in the trailer's 6-2 entry shot. The blood is
+6-2's two Grand Hall pools beside the entryway (`1 - Entryway/Grand Hall/Water/Cube` and `Cube (5)`, `Water 5`: colour
+(1, 0, 0), SCROLLING, `VERTEX_DISPLACEMENT` mode 0 with amplitude 1, so up to 0.5 m along the flow direction), water
+kind, not `TransparentKind.Blood`.
+
+Measured on the trailer's take itself (`bench/suites/blood-cine.json`: `bench/cinematics/final-6-2-entry.json` live at
+60 fps, one take per variant; metric: the second temporal difference, `|f(k) - (f(k-1) + f(k+1)) / 2|`, which cancels the
+slow dolly, over the pools: per pixel, and of the region's mean for whole-patch "pops"). The trailer's frames
+(`trailer-final-final-3`, 2560x1440) showed the pools popping 4-7 times as much as the game's own image, the walls not
+at all. Two causes, both in the overlay's reflection (`trans.strength=0` brings the pools back to the game's level):
+
+1. **The overlay sat at the rest pose.** The game displaces `Water 5`'s vertices in its vertex shader and writes depth;
+   our traced copy is displaced too (docs/scene-proxies.md, "Vertex displacement"), but the overlay, drawn on the same
+   renderer with its own vertex shader, was not. So it was depth-tested (`ZTest LEqual`) against the game's wavy
+   surface and failed wherever a wave stood above the rest plane, and its distance no longer matched the traced hit.
+   Whole triangles of the water mesh dropped in and out of the reflection as the camera moved. The worse the trace
+   resolution, the worse it got: pathtrace's 1/3 scale more than relight's 1/2, RR at scale 1 least. **Fix**: the
+   game's displacement function moved into `UltraRTDisplace.hlsl`, shared by `Displace.compute` and the overlay's
+   vertex shader; `TransparentOverlays.CopyDisplacement` copies the water material's values onto the overlay under the
+   game's property names (so a renderer's property block reaches them too), and the overlay displaces with Unity's
+   `_Time`, as the game does. Bench `trans.overlayDisplace=0`: the old rest pose.
+2. **No history.** The reflection is one ray per trace texel on the jittered trace grid, over rippled water, so each
+   frame showed a different sample of the ripples: fine shimmer. **Fix**: `TransparentTemporal` (`Reflections.compute`,
+   driven by `ReflectionFilter.ExecuteTransparent` right before the overlay is bound): the transparent hit is
+   reprojected into last frame's trace (same-surface test on the distance, 5 % + 0.2 m), the history is clipped to the
+   current 3x3 neighbourhood (mean +- 1.5 sigma, same-surface texels only) and blended with 0.2 of the new sample. No
+   history across a frame without the pass, a portal crossing, or the reflection filter's resets. Bench
+   `trans.temporal=0`: the raw signal.
+
+Pool regions of the trailer take (`20261119-232748_blood-cine`, 1280x720, pathtrace with RR at its default 1/3
+scale; left / right pool; game frames are `off`):
+
+| Take | pop p95 | per-pixel 2nd difference |
 |---|---|---|
-| Strength (`[Effects] Glints`, `-ultrart-glints X`, `-ultrart-noglints`, bench `glint.strength=X`) | 1, 0 = off | Advanced page, Effects |
-| `glint.water`, `glint.wet` | on, on | bench |
-| `glint.waterAlpha`, `glint.wetAlpha`, `glint.lightSize` | 0.05, 0.06, 0.1 | bench |
-| `glint.maxLuminance` (firefly clamp, display units) | 4 | bench |
-| `glint.playerLights`, `glint.cull`, `glint.noShadow` (cost split only) | off, on, off | bench |
-| `trans.legacyGamma` | off | bench: the overlay's old double gamma conversion (below) |
+| game (`off`) | 0.37 / 0.21 | 0.80 / 0.41 |
+| before (rest-pose overlay, no filter) | 3.26 / 0.58 | 1.74 / 1.19 |
+| displaced overlay only (`trans.temporal=0`) | 0.33 / 0.17 | 1.30 / 1.15 |
+| both (shipped) | 0.34 / 0.17 | 1.00 / 0.86 |
+| overlay reflection off (`trans.strength=0`) | 0.32 / 0.16 | 0.86 / 0.72 |
+| relight before -> after | 1.66 / 0.67 -> 0.35 / 0.18 | 1.52 / 1.23 -> 1.10 / 0.94 |
 
-**Overlay gamma fix.** Since the sky/GI merge (2026-11-14) the overlay converted the traced water reflection to display
-units a second time under linear transport (`^(1/2.2)` of a value `TraceReflection` had already converted): a night sky
-at 0.05 showed as 0.26, so dark water reflections read hazy and washed out. That conversion is gone;
-`trans.legacyGamma=1` restores it for A/B. Water reflections are darker and clearer now (8-2's pool, 1-4's strips).
+A repeat in the final build (`20261119-233340_blood-cine_alt`): pathtrace before 1.75 / 0.43 pops and 1.48 / 1.19 per
+pixel, after 0.33 / 0.19 and 1.00 / 0.85; relight before 3.12 / 0.24 and 1.67 / 1.15, after 0.34 / 0.19 and
+1.09 / 0.92 (the size of the "before" pops varies with where the camera crosses the facets). Bursts at the user's
+pose 1 (`20261119-233340_blood-arena_alt`, region over the blood floor, unmasked sigma, pathtrace): static 1.62 ->
+1.11, slow sweep 2.46 -> 1.35.
 
-Validation (alt, 2560x1440, trace scale 0.5; suites `bench/suites/glints-final.json` (the look), `glints3.json` (pool
-burst, motion with flat water), `glints-perf.json` and `glints-perf3.json` (cost, perf hold); final run
-`20261119-205424_glints-final_alt`; sheets, gitignored, in `bench/results/review/glints/`):
+The pools now carry an even reflection over the whole surface instead of a patchwork of triangles (they read a little
+darker and glossier: the reflection is there everywhere). The glints, removed the same day, were not the cause: the
+take still popped on the glint-free build before these fixes (`20261119-231443_blood-cine_alt`: left pool pop 3.35 in
+pathtrace, 2.51 in relight), and static and slow-sweep bursts at the user's 6-2 pose 1 (`bench/suites/blood-arena.json`)
+read the same with and without them (pathtrace masked sigma 0.53 / 0.53 static, 0.71 / 0.73 sweep). Cost: one 8x8 compute pass at trace resolution over the
+transparent texels, only while the transparent pass runs.
 
-- **1-4's water strip toward the bridge lamps** (`1-4 strip lamps`): a bright rippled streak runs across the water toward
-  the end lamp (a handed-over lamp) in relight and pathtrace, and V1's reflection shows dark against it. Before, the
-  strip mirrored the night sky only (`f14.png`).
-- **2-1's channel**: the lamps along the channel become long broken streaks on the far water. A level light above the
-  near water makes a large soft highlight there (not the player's light: it stays with `glint.playerLights=0`).
-- **8-2's pool (pose 1)**: little change in the look (few lamps fall in its lobe at that pose). Noise over the pool,
-  16-frame burst sigma, glints on / off: relight 1.66 / 1.77, pathtrace 1.74 / 1.76. Two earlier versions turned the
-  pool into grain (sigma 3.2): first a random pick between overlapping lamps, then the soft-shadow jitter of the one
-  ray. Both are why the water path is deterministic.
-- **P-2's streets**: the level's own lighting changes by up to 2 EV between shots (red flashes; the `game match` lines
-  range from -2.7 to -5.9), so with/without pairs differ more by the moment than by the glints. At matching moments the
-  wet street gains faint highlights from the red lights, and no artefacts. Its white street lamps glint as handed-over
-  lamps, but no streak under them showed at the bench poses.
-- **Motion** (`2-1 channel sweep`, 12 deg/s, motion noise over 64 frames): with flat water (`trans.waves=0`) glints
-  change nothing (relight 0.90 -> 0.85, pathtrace 1.17 -> 1.23). With ripples the metric reads 1.58 -> 1.93, but the
-  replays don't rewind the ripples' clock (`Time.timeSinceLevelLoad`), so each pass sees different wave phases, which
-  the glints make visible: animation, not noise.
-
-Cost (perf hold, `glints-perf.json`, run `20261119-205101_glints-perf`, dispatch ms, glints on vs off). A video encode
-ran on the same GPU during these runs, so absolute times may be high; on and off alternate within each launch.
-
-| Pose | relight | pathtrace |
-|---|---|---|
-| 8-2's pool seen straight down (water fills the screen: the worst case) | 5.14 vs 4.16 (+0.99) | 3.00 vs 2.43 (+0.58) |
-| 8-2 pose 1 (pool in the lower third) | 2.71 vs 2.69 (+0.02) | 1.64 vs 1.62 (+0.02) |
-| 1-4's water strip | 1.43 vs 1.35 (+0.08) | 1.01 vs 0.97 (+0.04) |
-| P-2's street (wet floors fill the view) | 3.83 vs 3.59 (+0.24) | 3.01 vs 2.72 (+0.30) |
-
-The worst case, split (`glints-perf3.json`): the shadow ray is about 0.2 ms of it, and the frustum list changes nothing
-there (most of 8-2's lights reach the view: 86 of 121 at pose 1); the rest is the per-pixel light loop. Earlier versions: +2.1 ms
-(no range cull, lobe cut at 1/4000), +1.25 ms (with both), +1.1 ms (before the records, four per step). Not done: a
-per-water-plane mirror-image cull (a light glints on a horizontal surface only if its mirror image is in view), which
-would cut the straight-down case to the few lamps overhead.
+Not covered: the overlay copies the water material's displacement values once, when the overlay material is made; a
+level that animates them on the material (not through a property block) would drift. Static-batched water keeps the
+rest pose in the trace (scene-proxies.md) and is not displaced by the game either.
 
 ### Limits
 
 - **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF then, 0x6F now: `ULTRART_MASK_SCENE`) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.
-- **No temporal filter**: one ray per trace texel. Reflection hits are shaded from the radiance cache, so they are smooth. Where a cache cell is missing, the hit falls back to `DirectOne` and shows speckle; ripples hide most of it.
+- **One ray per trace texel**, filtered over time since 2026-11-19 (below), not in space. Reflection hits are shaded from the radiance cache, so they are smooth. Where a cache cell is missing, the hit falls back to `DirectOne` and shows speckle; ripples hide most of it.
 - **Game geometry vs. RT mesh**: SCROLLING UVs are not reproduced on water/glass (LIMBO_WATER_FADE is, see above), so the alpha estimate ignores scrolling; opaque scrolling surfaces (5-2's sea) do scroll since 2026-11-15 (docs/scene-proxies.md, "Scrolling textures"). VERTEX_DISPLACEMENT waves are, since 2026-11-15, except on static-batched water (docs/scene-proxies.md, "Vertex displacement"). The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
 - **The game's own cubemap stays** on REFLECTION water (`Water 10A-D`, `1C`, `6 Still/Reflection`, `Limbo Water ... V2Arena`), on top of ours. For opaque materials it is removed (section 7), but here it is baked into the game's transparent draw.
 - **Renderers whose last material slot is not water/glass** get no overlay (logged as `without overlay`). Unity repeats only the last submesh for an extra material.
@@ -758,4 +738,4 @@ All of it is in the dispatch: the BLAS was already built every frame (V1 was in 
 - **hybrid**: V1 shows in the mirror, because hybrid keeps the game's portal view at portal pixels.
 - **relight / pt-dn**: by default every mode keeps the game's own mirror view (docs/portals.md, "Mirrors keep the game's view"), so V1 shows as the game draws it. With `-ultrart-rtmirrors` (bench `plugin._rtMirrors=1`) camera rays reflect off the mirror and add 0x80 after the hop (bit 8), so the traced reflection shows V1, lit by the RT lights (often darker than the game's view). The afternoon of 2026-11-14 "RT misses portal quads" was not the resolution: portal quads added to the RTAS in the frame they were made were never hit until re-added, and `self-reflection-8-3.json` runs `_portals=0` last (docs/portals.md, "Portal quads added too early"; fixed).
 
-**Liquid blood** (added 2026-11-14): transparent blood liquids (0-2's blood river `Mulch`, other alpha-blended `Blood*` Master materials) are a third kind, `TransparentKind.Blood`. It is traced like water/glass but reads as thick and opaque: the reflection ray treats it as flat (Glass class, no ripples), the overlay skips refraction (`_Kind` 2) and uses F0 0.06 with the reflection weight capped at 0.7 (`TransparentSettings.bloodF0`, `bloodWeight`). 6-2's blood is drawn with a water material and stays water. Opaque `BloodPool` and particle/decal blood are unaffected.
+**Liquid blood** (added 2026-11-14): transparent blood liquids (0-2's blood river `Mulch`, other alpha-blended `Blood*` Master materials) are a third kind, `TransparentKind.Blood`. It is traced like water/glass but reads as thick and opaque: the reflection ray treats it as flat (Glass class, no ripples), the overlay skips refraction (`_Kind` 2) and uses F0 0.06 with the reflection weight capped at 0.7 (`TransparentSettings.bloodF0`, `bloodWeight`). 6-2's blood is drawn with a water material (`Water 5`, red, with `VERTEX_DISPLACEMENT`) and stays water: its flicker in pathtrace (2026-11-19) is in section 12, "Displaced water and the temporal filter". Opaque `BloodPool` and particle/decal blood are unaffected.

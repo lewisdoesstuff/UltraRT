@@ -4,6 +4,20 @@
   "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply. Handover: its lamps and orbs at three times the global gain.",
   "rules": [
     {
+      "name": "arena street lamps",
+      "path": "V2 - Arena/.*Streetlight(?!Fraud)[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^(Light|LightPillar 5C)$",
+        "gain": 2,
+        "keep": 0.15
+      },
+      "note": "1-4's Arena (V2's room, tour stop 'Arena'; user 2026-11-19: 'way too bright'). Its four lamps stand against the walls, where the lamp garden's settings (gain 4, keep 0.35) floodlit walls and floor: pathtrace at fixed-equivalent exposure (auto exposure held x1.0) read mean 48 against the game's 25, p95 172 against 110, pixels under 16 11 % against 66 %. Gain 2 (the global rule's) and 15 % kept: mean 35.7, p95 109, under 16 19 %; the second view 28.0 -> 20.6 (game 10.8). Run 20261119-233149_arena-diag_alt. Must stay above 'street lamp bulbs' (first match wins)."
+    },
+    {
       "name": "street lamp bulbs",
       "path": "Streetlight(?!Fraud)[^/]*(/[^/]*){0,2}$",
       "signals": [

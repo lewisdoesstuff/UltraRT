@@ -47,9 +47,16 @@ namespace UltraRT
         /// <summary>-ultrart-nofrosted / bench variant trans.frosted=0: frosted transparents leave the scene (they stay a
         /// transparent surface). Runtime switch, like LavaSettings.active.</summary>
         public bool frosted = true;
-        /// <summary>Bench trans.legacyGamma=1: the overlay converts the traced reflection to display units a second time
-        /// under linear transport, as it did until 2026-11-19 (it lifted dark reflections: 0.05 showed as 0.26).</summary>
-        public bool legacyGamma = false;
+        /// <summary>Temporal filter of the traced reflection (Reflections.compute, TransparentTemporal; docs/reflections.md,
+        /// "Displaced water and the temporal filter"). Bench trans.temporal=0: the raw one-ray-per-texel reflection, as before
+        /// 2026-11-19 (6-2's blood pools flickered with it, worst at pathtrace's 1/3 trace scale).</summary>
+        public bool temporal = true;
+        /// <summary>Blend factor of the new sample (smaller = calmer, slower to follow the ripples), and the neighbourhood
+        /// clip half-size in standard deviations.</summary>
+        public float temporalAlpha = 0.2f, temporalClip = 1.5f;
+        /// <summary>The overlay displaces its vertices like the game's VERTEX_DISPLACEMENT water (6-2's blood pools). Bench
+        /// trans.overlayDisplace=0: the rest pose, as before 2026-11-19.</summary>
+        public bool overlayDisplace = true;
     }
 
     /// <summary>
@@ -125,6 +132,27 @@ namespace UltraRT
     /// </summary>
     internal sealed class TransparentOverlays : IDisposable
     {
+        private static readonly string[] DisplaceFloats =
+        {
+            "_VertexMode", "_ReverseFlow", "_VertexNoiseScale", "_VColStrength", "_VertexNoiseSpeed", "_VertexNoiseAmplitude",
+            "_LocalOffset", "_RecalculateNormals", "_NormalOffsetScale", "_PreventClipping",
+        };
+        private static readonly string[] DisplaceVectors = { "_FlowDirection", "_UVNoiseScale", "_UVNoiseSpeed" };
+
+        /// <summary>The game's VERTEX_DISPLACEMENT values onto the overlay (TransparentOverlay.shader displaces like the game,
+        /// under the bench switch trans.overlayDisplace). Values set later by a property block on the renderer reach the
+        /// overlay too (same names); changes to the water material itself after this are not followed.</summary>
+        private static void CopyDisplacement(Material src, Material overlay)
+        {
+            bool vd = SceneProxies.HasDisplacement(src);
+            overlay.SetFloat("_UltraRTDisplace", vd ? 1f : 0f);
+            if (!vd) return;
+            foreach (var n in DisplaceFloats) if (src.HasProperty(n)) overlay.SetFloat(n, src.GetFloat(n));
+            foreach (var n in DisplaceVectors) if (src.HasProperty(n)) overlay.SetVector(n, src.GetVector(n));
+            var tex = src.HasProperty("_VertexNoiseTex") ? src.GetTexture("_VertexNoiseTex") : null;
+            if (tex != null && tex.dimension == UnityEngine.Rendering.TextureDimension.Tex2D) overlay.SetTexture("_VertexNoiseTex", tex);
+        }
+
         private readonly Shader _shader;
         private readonly TransparentSettings _settings;
         private readonly Dictionary<Material, Material> _materials = new Dictionary<Material, Material>();
@@ -242,6 +270,7 @@ namespace UltraRT
                 overlay.SetFloat("_Weight", kind == TransparentKind.Blood ? _settings.bloodWeight : TransparentClassifier.Frosted(src) ? _settings.frostedWeight : 1f);
                 overlay.SetFloat("_CullMode", src.HasProperty("_CullMode") ? src.GetFloat("_CullMode") : 2f);
                 overlay.SetFloat("_Absorb", kind == TransparentKind.Blood ? _settings.bloodAbsorb : 0f);
+                CopyDisplacement(src, overlay);
                 if (src.IsKeywordEnabled("LIMBO_WATER_FADE"))
                 {
                     // The game hides this water around the player and enemies (1-3's floor puddles): follow its fade.

@@ -64,7 +64,6 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("shaft", _shaftSettings); // lamp cones, e.g. shaft.keepFakes=1
             yield return new KeyValuePair<string, object>("trans", SceneProxies.Transparents); // water/glass, e.g. trans.frosted=0
             yield return new KeyValuePair<string, object>("caustics", SceneProxies.Caustics); // water caustics, e.g. caustics.strength=0 (docs/caustics.md)
-            yield return new KeyValuePair<string, object>("glint", _glintSettings); // lights' highlights on water and wet surfaces, e.g. glint.strength=0 (docs/reflections.md)
             yield return new KeyValuePair<string, object>("wet", _wetSettings); // wet surfaces, e.g. wet.rain=0 (docs/vfx.md)
             yield return new KeyValuePair<string, object>("vfx", _vfxSettings); // screen effects, e.g. vfx.bloom=0 (docs/vfx.md)
             yield return new KeyValuePair<string, object>("ptx", _ptSettings); // the pathtrace mode, e.g. ptx.bounces=3

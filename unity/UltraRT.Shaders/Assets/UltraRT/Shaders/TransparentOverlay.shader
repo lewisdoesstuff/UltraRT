@@ -10,8 +10,7 @@
 //       blood (the floor, relit and much brighter than the game's own) is absorbed toward the blood's colour, so a river
 //       of blood reads as thick liquid. Multiplicative, so it is safe on 8-bit targets.
 //   4   Reflect: dst * (1 - w) + w * R, with R the ray-traced reflection (PathTrace.raytrace, TransparentGen) at trace
-//       resolution and w = Fresnel(ripple normal) x weight, faded by fog; plus the lights' glints (PathTrace.raytrace,
-//       GlintLight: Fresnel applied, display units, in _LitWeight.xy), added on top.
+//       resolution and w = Fresnel(ripple normal) x weight, faded by fog.
 // Everything is skipped unless the plugin traced this camera's frame (_UltraRTTransOn, camera position match).
 Shader "UltraRT/TransparentOverlay"
 {
@@ -31,6 +30,23 @@ Shader "UltraRT/TransparentOverlay"
         _NearClip ("Fade start", Float) = 0
         _FarClip ("Fade end", Float) = 1
         _FadeDither ("Fade dither", 2D) = "gray" {}
+        // The game's VERTEX_DISPLACEMENT values, copied from the water material under the game's names (so a renderer's
+        // property block reaches them too). _UltraRTDisplace 1: displace like the game (UltraRTDisplace.hlsl).
+        _UltraRTDisplace ("Displace like the game", Float) = 0
+        _VertexNoiseTex ("Vertex noise", 2D) = "gray" {}
+        _FlowDirection ("Flow direction", Vector) = (1, 1, 1, 1)
+        _VertexMode ("Vertex mode", Float) = 0
+        _ReverseFlow ("Reverse flow", Float) = 0
+        _VertexNoiseScale ("Noise scale", Float) = 1
+        _VColStrength ("Vertex colour strength", Float) = 0
+        _UVNoiseScale ("UV noise scale", Vector) = (1, 1, 0, 0)
+        _UVNoiseSpeed ("UV noise speed", Vector) = (1, 1, 0, 0)
+        _VertexNoiseSpeed ("Noise speed", Float) = 0
+        _VertexNoiseAmplitude ("Amplitude", Float) = 0
+        _LocalOffset ("Local offset", Float) = 0
+        _RecalculateNormals ("Recalculate normals", Float) = 0
+        _NormalOffsetScale ("Normal offset", Float) = 1
+        _PreventClipping ("Prevent clipping", Float) = 0
     }
 
     SubShader
@@ -47,6 +63,7 @@ Shader "UltraRT/TransparentOverlay"
         #include "UnityCG.cginc"
         #include "UltraRTWater.hlsl"
         #include "UltraRTToneCurve.hlsl"
+        #include "UltraRTDisplace.hlsl"
 
         sampler2D _MainTex;
         float4 _MainTex_ST;
@@ -65,12 +82,8 @@ Shader "UltraRT/TransparentOverlay"
         float4 _UltraRTTransCam;         // xyz camera position of that trace, w = refraction inputs bound
         float4x4 _UltraRTTransVP;        // the trace's view-projection (GL convention, not flipped)
         Texture2D _UltraRTTransRefl;     // rgb reflected radiance, a = distance to the transparent hit (< 0 none)
-        Texture2D<uint4> _UltraRTTransGlint; // PathTrace's _LitWeight: xy the glints (halves, display units, Fresnel applied)
-        // x global strength, y max weight, z tone map white point (0 = off), w 1 = the old double gamma conversion of the
-        // reflection under linear transport (bench trans.legacyGamma=1; docs/reflections.md "Glints")
-        float4 _UltraRTTransParams;
+        float4 _UltraRTTransParams;      // x global strength, y max weight, z tone map white point (0 = off)
         StructuredBuffer<float4> _UltraRTExposureGlobal; // relight auto exposure ([0].x), bound globally when in use
-        float _UltraRTLinear;            // global, relight: 1 = RT lighting is linear (docs/relight.md "Sky and GI")
         float _UltraRTAutoExposure;      // 1: apply _UltraRTExposureGlobal (as the denoiser's composite does for the lit part)
         float4 _UltraRTTonemapParams;    // global: relight tone curve parameters (UltraRTToneCurve.hlsl)
         float4 _UltraRTFog;              // x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
@@ -80,11 +93,20 @@ Shader "UltraRT/TransparentOverlay"
         SamplerState my_point_clamp_sampler;
         SamplerState my_linear_clamp_sampler;
 
+        float _UltraRTDisplace;          // material: the water material has VERTEX_DISPLACEMENT
+        float _UltraRTOverlayDisplace;   // global (Plugin.Transparent.cs): 1 = follow it (bench trans.overlayDisplace)
+        Texture2D<float4> _VertexNoiseTex;
+        SamplerState sampler_VertexNoiseTex;
+        float4 _FlowDirection, _UVNoiseScale, _UVNoiseSpeed;
+        float _VertexMode, _ReverseFlow, _VertexNoiseScale, _VColStrength, _VertexNoiseSpeed, _VertexNoiseAmplitude;
+        float _LocalOffset, _RecalculateNormals, _NormalOffsetScale, _PreventClipping;
+
         struct appdata
         {
             float4 vertex : POSITION;
             float3 normal : NORMAL;
             float2 uv : TEXCOORD0;
+            float4 color : COLOR;
         };
 
         struct v2f
@@ -99,9 +121,27 @@ Shader "UltraRT/TransparentOverlay"
         v2f vert(appdata v)
         {
             v2f o;
-            o.pos = UnityObjectToClipPos(v.vertex);
-            o.wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
-            o.wn = UnityObjectToWorldNormal(v.normal);
+            float3 wpos = mul(unity_ObjectToWorld, v.vertex).xyz;
+            float3 wn = UnityObjectToWorldNormal(v.normal);
+            // The game moves this surface's vertices (VERTEX_DISPLACEMENT waves): so must the overlay, or it sits at the
+            // rest pose, fails the depth test where a wave rises above it and its distance no longer matches the traced
+            // (displaced) copy: whole triangles of 6-2's blood pools flickered in and out of the reflection.
+            [branch] if (_UltraRTDisplace > 0.5 && _UltraRTOverlayDisplace > 0.5)
+            {
+                DispMat m;
+                m.flow = _FlowDirection.xyz; m.mode = _VertexMode; m.reverse = _ReverseFlow; m.noiseScale = _VertexNoiseScale;
+                m.vcolStrength = _VColStrength; m.uvNoiseScale = _UVNoiseScale.xy; m.uvNoiseSpeed = _UVNoiseSpeed.xy;
+                m.noiseSpeed = _VertexNoiseSpeed; m.amplitude = _VertexNoiseAmplitude; m.localOffset = _LocalOffset;
+                m.recalc = _RecalculateNormals; m.normalOffset = _NormalOffsetScale; m.preventClip = _PreventClipping;
+                float3 origin = _LocalOffset != 0.0 ? unity_ObjectToWorld._m03_m13_m23 : 0.0;
+                float3 q, nq;
+                DisplaceVertex(m, wpos, normalize(wn), v.color, v.uv, origin, _Time, _WorldSpaceCameraPos, _VertexNoiseTex, sampler_VertexNoiseTex, q, nq);
+                wpos = q;
+                wn = nq;
+            }
+            o.pos = mul(UNITY_MATRIX_VP, float4(wpos, 1.0));
+            o.wpos = wpos;
+            o.wn = wn;
             o.uv = TRANSFORM_TEX(v.uv, _MainTex);
             o.eye = -UnityObjectToViewPos(v.vertex.xyz).z;
             return o;
@@ -263,7 +303,7 @@ Shader "UltraRT/TransparentOverlay"
                 float2 f = tuv * float2(w, h) - 0.5;
                 int2 b = (int2)floor(f);
                 float2 fr = f - b;
-                float3 sum = 0, gsum = 0;
+                float3 sum = 0;
                 float ws = 0;
                 [unroll] for (int k = 0; k < 4; k++)
                 {
@@ -271,31 +311,20 @@ Shader "UltraRT/TransparentOverlay"
                     int2 tx = clamp(b + o, int2(0, 0), int2(w - 1, h - 1));
                     float4 r = _UltraRTTransRefl.Load(int3(tx, 0));
                     float wb = (o.x ? fr.x : 1.0 - fr.x) * (o.y ? fr.y : 1.0 - fr.y);
-                    if (r.a > 0.0 && abs(r.a - dist) < dist * 0.03 + 0.1)
-                    {
-                        uint4 g = _UltraRTTransGlint.Load(int3(tx, 0));
-                        sum += r.rgb * wb;
-                        gsum += float3(f16tof32(g.x), f16tof32(g.x >> 16), f16tof32(g.y)) * wb;
-                        ws += wb;
-                    }
+                    if (r.a > 0.0 && abs(r.a - dist) < dist * 0.03 + 0.1) { sum += r.rgb * wb; ws += wb; }
                 }
                 if (ws < 1e-4) discard;
                 float3 refl = sum / ws;
-                float3 glint = max(gsum / ws, 0.0);
                 // The trace already returns display (gamma) units: TraceReflection converts each sample's lighting. Until
                 // 2026-11-19 this pass converted it a second time under linear transport (^(1/2.2) again), which lifted
-                // a dark reflection (a night sky at 0.05 showed at 0.26); _UltraRTTransParams.w = 1 keeps that for A/B.
-                if (_UltraRTLinear > 0.5 && _UltraRTTransParams.w > 0.5) refl = pow(max(refl, 0.0), 1.0 / 2.2);
-                // Exposure, as the denoiser's composite does (UltraRTExposure.hlsl).
-                if (_UltraRTAutoExposure > 0.5) { refl *= _UltraRTExposureGlobal[0].x; glint *= _UltraRTExposureGlobal[0].x; }
+                // a dark reflection (a night sky at 0.05 showed at 0.26). Exposure, as the denoiser's composite does
+                // (UltraRTExposure.hlsl).
+                if (_UltraRTAutoExposure > 0.5) refl *= _UltraRTExposureGlobal[0].x;
                 refl = Tonemap(refl);
 
                 float fres = SchlickFresnel(_F0, dot(n, v));
                 float wgt = min(saturate(fres * _Weight * _UltraRTTransParams.x) * FogVisibility(dist), _UltraRTTransParams.y) * LimboCoverage(i);
-                // Glints (the lights' highlights, Fresnel already applied by the trace) add on top, past the weight cap
-                // and the tone curve's white: a lamp's streak on night water is the brightest thing on it.
-                float gw = _Weight * FogVisibility(dist) * LimboCoverage(i);
-                return float4(refl * wgt + glint * gw, 1.0 - wgt);
+                return float4(refl * wgt, 1.0 - wgt);
             }
             ENDCG
         }
