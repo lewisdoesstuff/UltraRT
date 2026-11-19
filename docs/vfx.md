@@ -3,7 +3,7 @@
 Effects that sit on top of the ray-traced image: bloom, heat haze, shockwave distortion, soft particles, glowing
 explosion debris, the underwater look, and two kinds of wetness (rain, fresh blood) that change a surface's material
 before it is traced. They add punch and readability; none of them blurs or recolours the pixel art. Everything works in
-every lit mode (`pathtrace` with DLSS RR, `relight`, `pt-dn`, `hybrid`), because it reads only what all of them share:
+every lit mode (`pathtrace` with DLSS RR, `relight`, `pt-dn`; also `hybrid` until its removal on 2026-11-19), because it reads only what all of them share:
 the composited image, the game's depth, the G-buffer and (bloom) the image before the tone curve.
 
 | File | Role |
@@ -164,7 +164,7 @@ From linear light, before the tone curve, output SDR. Three sources, added in th
    when it ran this frame: the in-scattering is no transparent, and blooming it veiled 3-2's eye cave (2026-11-15,
    docs/volumetrics.md "Dark rooms").
 
-Without an HDR source (hybrid) the brightest part of the displayed RT image stands in for 1 and 2.
+Without an HDR source (the hybrid mode, removed on 2026-11-19) the brightest part of the displayed RT image stands in for 1 and 2.
 
 **HDR displays** (docs/hdr.md, "Effects and bloom"): with HDR output on, the final pass is pass 4, the same code plus a
 UAV write of the HDR late gain map: effects the transparents made bright get `HDREffects`, and glow the shoulder above

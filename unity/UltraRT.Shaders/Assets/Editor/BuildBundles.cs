@@ -56,7 +56,6 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/SkyConvert.shader",
                     "Assets/UltraRT/Shaders/Reflections.compute",
                     "Assets/UltraRT/Shaders/TransparentOverlay.shader",
-                    "Assets/UltraRT/Shaders/UnpackHybrid.compute",
                     "Assets/UltraRT/Shaders/Upsample.compute",
                     "Assets/UltraRT/Shaders/VeilComposite.shader",
                     "Assets/UltraRT/Shaders/VeilProxy.shader",

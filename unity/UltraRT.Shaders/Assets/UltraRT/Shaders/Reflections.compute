@@ -260,16 +260,14 @@ void Spatial(uint3 id : SV_DispatchThreadID)
 // ---------------------------------------------------------------- resolve
 
 Texture2D<float4>   _Filtered;    // filtered reflection (or the raw one when filtering is off); a < 0 = not traced
-RWTexture2D<float4> _AlbedoOut;   // ARGB32: the denoiser's and hybrid composite's albedo
+RWTexture2D<float4> _AlbedoOut;   // ARGB32: the denoiser's albedo
 RWTexture2D<float4> _EmissionOut; // ARGBHalf
 RWTexture2D<float4> _SpecularOut; // ARGBHalf: rgb specW * reflection, a keep
 RWTexture2D<float4> _DebugOut;    // ARGB32, written when _DebugView != 0
 
 int    _Enabled;
-int    _Hybrid;
 int    _DebugView;   // 1 raw reflection, 2 filtered reflection, 3 specular contribution, 4 history length
 float4 _ReflParams;  // as PathTrace: y global specular weight, z global reflection strength
-float  _MaxCubeKeep; // hybrid game cubemap removal: cap on keep / k (k: what the game left of the lit colour)
 
 float3 Heat(float x)
 {
@@ -289,18 +287,13 @@ void Resolve(uint3 id : SV_DispatchThreadID)
     float4 spec = float4(0, 0, 0, 1);
     float4 nd = _NormalDepth[id.xy];
     float4 refl = _Filtered[id.xy];
-    // Hybrid, game cubemap removed (PathTrace sets the bit only then): the composite's base is the game colour minus the
-    // cube term C, which still carries the game's (1 - m RS) on the lit colour, so the keep factor is divided by it. This
-    // also applies where no ray was traced (specular weight below the threshold): the stock cube is gone there too.
-    bool gameCube = _Hybrid != 0 && SurfaceHasGameCube(sf);
-    if (_Enabled != 0 && nd.w >= 0.0 && (refl.a >= 0.0 || gameCube))
+    if (_Enabled != 0 && nd.w >= 0.0 && refl.a >= 0.0)
     {
         float NdotV = saturate(dot(normalize(nd.xyz), -PrimaryDir(id.xy)));
         float3 specW;
         float keep;
-        SpecularTerms(SurfaceMat(sf), albedo, NdotV, _ReflParams.yz, _Hybrid != 0, specW, keep);
-        if (gameCube) keep = min(keep / max(SurfaceGameCubeKeep(sf), 1.0 / 255.0), _MaxCubeKeep);
-        spec = float4(refl.a >= 0.0 ? specW * refl.rgb : 0.0, keep);
+        SpecularTerms(SurfaceMat(sf), albedo, NdotV, _ReflParams.yz, specW, keep);
+        spec = float4(specW * refl.rgb, keep);
     }
     _SpecularOut[id.xy] = spec;
 

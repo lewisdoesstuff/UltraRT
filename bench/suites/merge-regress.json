@@ -1,4 +1,4 @@
-﻿{
+{
     "Scenarios":  [
                       {
                           "Name":  "0-1 metal",
@@ -10,7 +10,6 @@
                                    },
                           "Modes":  [
                                         "off",
-                                        "hybrid",
                                         "relight",
                                         "pt-dn",
                                         "pathtrace"
@@ -64,7 +63,6 @@
                           "Modes":  [
                                         "off",
                                         "relight",
-                                        "hybrid",
                                         "pathtrace"
                                     ],
                           "Screenshots":  [
@@ -81,8 +79,7 @@
                                    },
                           "Modes":  [
                                         "off",
-                                        "relight",
-                                        "hybrid"
+                                        "relight"
                                     ],
                           "Screenshots":  [
                                               4

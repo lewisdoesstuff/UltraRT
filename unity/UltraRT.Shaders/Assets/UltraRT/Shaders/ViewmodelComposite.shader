@@ -8,8 +8,7 @@
 // gun samples are used).
 //   relight / pt-dn: (albedo * lighting * keep + specW * reflection) * exposure + emission, then relight's tone curve,
 //                    the same as the denoiser's composite for world pixels.
-//   hybrid:          game colour * shadow ratio + GI * albedo * bounce, then reflections, as Composite.shader.
-//   pass 2:          pass 0, plus the HDR display's late gain map (docs/hdr.md, "Viewmodel"): the gun's glowing parts get
+//   pass 1:          pass 0, plus the HDR display's late gain map (docs/hdr.md, "Viewmodel"): the gun's glowing parts get
 //                    HDREmissive, as glowing surfaces in the world do. Through a UAV, so pass 0 is unchanged.
 Shader "UltraRT/ViewmodelComposite"
 {
@@ -26,7 +25,7 @@ Shader "UltraRT/ViewmodelComposite"
             #include "UltraRTToneCurve.hlsl"
 
             Texture2D<float4> _VMGB0, _VMGB1, _VMGB2, _VMGB3; // albedo/lit, normal/material, position-camera/stamp, emission
-            Texture2D<float4> _VMLight, _VMDirect, _VMRefl;   // filtered, half resolution
+            Texture2D<float4> _VMLight, _VMRefl;              // filtered, half resolution
             Texture2D<float4> _VMGeo;                         // raw geo (Viewmodel.raytrace): rel xyz, w = 1 + pick
             Texture2D<float>  _VMGameDepth;                   // the game's depth buffer itself (raw; bound as a texture, the composite has no depth target)
             StructuredBuffer<float4> _VMMaterials;
@@ -35,13 +34,12 @@ Shader "UltraRT/ViewmodelComposite"
             float4 _UltraRTTonemapParams;
 
             float  _VMStamp;
-            int    _VMMode;       // 0 replace (relight, pt-dn), 3 hybrid
             int    _VMDebug;      // 0 off; 1 coverage, 2 lighting, 3 albedo, 4 reflection, 5 history length
             float4 _VMCamFwd;     // xyz camera forward
-            float4 _VMParams;     // x shadow bias (hybrid), y GI strength (hybrid), z depth tolerance (fraction), w blend (0..1)
+            float4 _VMParams;     // z depth tolerance (fraction), w blend (0..1); xy unused
             float4 _VMRefl2;      // xy SpecularTerms params (global spec weight, refl strength), z reflections on
 
-            RWTexture2D<float4> _VMHdrGain : register(u1); // pass 2: the late gain map (rgb gain, a = the colour packed)
+            RWTexture2D<float4> _VMHdrGain : register(u1); // pass 1: the late gain map (rgb gain, a = the colour packed)
             float4 _VMHdrEm;      // x HDREmissive - 1, y / z where the emission's brightest channel starts / fully counts
             float4 _VMHdrTop;     // x display peak over paper white (display units), y largest gain
 
@@ -81,7 +79,7 @@ Shader "UltraRT/ViewmodelComposite"
                 float2 f = ((float2)q + 0.5) * 0.5 - 0.5;
                 int2 b = (int2)floor(f);
                 float2 fr = f - (float2)b;
-                float4 sL = 0, sD = 0, sR = 0;
+                float4 sL = 0, sR = 0;
                 float ws = 0, wsR = 0, best = 0;
                 int2 bestP = int2(-1, -1);
                 [unroll] for (int y = -1; y <= 2; y++)
@@ -100,7 +98,7 @@ Shader "UltraRT/ViewmodelComposite"
                     if (!inner) continue;
                     float bw = (x == 1 ? fr.x : 1.0 - fr.x) * (y == 1 ? fr.y : 1.0 - fr.y);
                     float wt = bw * geoW;
-                    sL += _VMLight[p] * wt; sD += _VMDirect[p] * wt; ws += wt;
+                    sL += _VMLight[p] * wt; ws += wt;
                     float4 r = _VMRefl[p];
                     if (r.a > 0.0) { sR += r * wt; wsR += wt; }
                 }
@@ -108,12 +106,11 @@ Shader "UltraRT/ViewmodelComposite"
                 {
                     // Thin parts: the most similar sample within 2 half-res pixels, or leave the game's pixel.
                     if (bestP.x < 0 || best < 1e-3) { if (_VMDebug > 1) return float4(1, 0, 1, 0); discard; } // debug: magenta = no lighting sample
-                    sL = _VMLight[bestP]; sD = _VMDirect[bestP]; ws = 1.0;
+                    sL = _VMLight[bestP]; ws = 1.0;
                     float4 r = _VMRefl[bestP];
                     if (r.a > 0.0) { sR = r; wsR = 1.0; }
                 }
                 float3 lighting = sL.rgb / ws;
-                float2 direct = sD.xy / ws;
                 float3 refl = wsR > 0.0 ? sR.rgb / wsR : 0.0;
                 bool hasRefl = wsR > 0.0 && _VMRefl2.z > 0.5;
 
@@ -125,7 +122,7 @@ Shader "UltraRT/ViewmodelComposite"
                 float3 v = -normalize(g2.xyz);
                 float3 specW = 0;
                 float keep = 1.0;
-                if (hasRefl) SpecularTerms(mat, albedo, saturate(dot(n, v)), _VMRefl2.xy, _VMMode == 3, specW, keep);
+                if (hasRefl) SpecularTerms(mat, albedo, saturate(dot(n, v)), _VMRefl2.xy, specW, keep);
 
                 if (_VMDebug == 2) return float4((_UltraRTLinear > 0.5 ? pow(max(lighting, 0.0), 1.0 / 2.2) : lighting) * 0.5, 0.0);
                 if (_VMDebug == 3) return float4(albedo, 0.0);
@@ -133,34 +130,23 @@ Shader "UltraRT/ViewmodelComposite"
                 if (_VMDebug == 5) return float4(saturate(sL.a / ws / 32.0).xxx, 0.0);
 
                 float3 emission = _VMGB3[q].rgb;
-                float3 c = 0;
-                if (_VMMode == 3)
+                float3 l = _UltraRTLinear > 0.5 ? pow(max(lighting, 0.0), 1.0 / 2.2) : lighting; // UltraRTDisplayLighting
+                l = lerp(1.0, l, lit);
+                // Exposure only: the world's area colour match gain (_UltraRTExposure[3]) is left out on purpose. It
+                // corrects the tint of the area's surfaces, and the gun is lit by other light (7-3's red room gave
+                // (0.89, 1.24, 1.12), which turned the flashlit gun cyan; docs/viewmodel.md).
+                float e = 1.0;
+                if (_UltraRTAutoExposure > 0.0)
                 {
-                    // Blended (Blend One SrcAlpha): game * (ratio * keep) + (bounce + reflection), as Composite.shader. The
-                    // shadow ratio is a luminance ratio, so the multiplier is a scalar and no copy of the game's colour is needed.
-                    float shadow = saturate((direct.x + _VMParams.x) / (direct.y + _VMParams.x));
-                    return float4(_VMParams.y * albedo * lighting * lit * keep + specW * refl, lerp(1.0, shadow, lit) * keep);
+                    float x = _UltraRTExposureGlobal[0].x;
+                    if (x > 0.0 && !isinf(x)) e = lerp(1.0, x, lit);
                 }
-                else
-                {
-                    float3 l = _UltraRTLinear > 0.5 ? pow(max(lighting, 0.0), 1.0 / 2.2) : lighting; // UltraRTDisplayLighting
-                    l = lerp(1.0, l, lit);
-                    // Exposure only: the world's area colour match gain (_UltraRTExposure[3]) is left out on purpose. It
-                    // corrects the tint of the area's surfaces, and the gun is lit by other light (7-3's red room gave
-                    // (0.89, 1.24, 1.12), which turned the flashlit gun cyan; docs/viewmodel.md).
-                    float e = 1.0;
-                    if (_UltraRTAutoExposure > 0.0)
-                    {
-                        float x = _UltraRTExposureGlobal[0].x;
-                        if (x > 0.0 && !isinf(x)) e = lerp(1.0, x, lit);
-                    }
-                    c = (albedo * l * keep + specW * refl) * e + emission;
-                    c = UltraRTToneCurve(c, _UltraRTTonemapWhite, _UltraRTTonemapParams);
-                }
+                float3 c = (albedo * l * keep + specW * refl) * e + emission;
+                c = UltraRTToneCurve(c, _UltraRTTonemapWhite, _UltraRTTonemapParams);
                 return float4(saturate(c), 0.0);
             }
 
-            // Pass 2: frag (unchanged, so pass 0 compiles as before), then the gain of the gun's glowing parts.
+            // Pass 1: frag (unchanged, so pass 0 compiles as before), then the gain of the gun's glowing parts.
             float4 fragHdr(v2f i) : SV_Target
             {
                 float4 r = frag(i);
@@ -183,16 +169,7 @@ Shader "UltraRT/ViewmodelComposite"
             #pragma target 4.5
             ENDHLSL
         }
-        Pass // 1: hybrid, game colour * a + rgb
-        {
-            Blend One SrcAlpha
-            HLSLPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
-            #pragma target 4.5
-            ENDHLSL
-        }
-        Pass // 2: replace + HDR late gain map (UAV u1)
+        Pass // 1: replace + HDR late gain map (UAV u1)
         {
             HLSLPROGRAM
             #pragma vertex vert

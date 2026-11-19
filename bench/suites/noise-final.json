@@ -20,9 +20,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -44,9 +42,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -68,9 +64,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -92,9 +86,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -116,9 +108,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -140,9 +130,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -164,9 +152,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -188,9 +174,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -212,9 +196,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -236,9 +218,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -260,9 +240,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -284,9 +262,7 @@
       "BurstModes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ]
     },
     {
@@ -311,8 +287,6 @@
         "off",
         "relight+preset=previous",
         "relight",
-        "hybrid+preset=previous",
-        "hybrid",
         "dn-lighting+relight+preset=previous",
         "dn-lighting+relight"
       ]
@@ -329,9 +303,7 @@
       "Modes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         20,

@@ -37,7 +37,7 @@ The game's options that drive it (stored in `<game>\Preferences\Prefs.json`, not
   `_ColorPrecision`. A custom colour palette forces 2048. Independent of the dither, which does not scale with it. The
   user runs 0 (2048, a no-op on 8 bits), so in their game the dither is purely a look.
 
-**UltraRT turns it off while frames are traced** (`Plugin.GameDither.cs`, since 2026-11-19): in relight, hybrid,
+**UltraRT turns it off while frames are traced** (`Plugin.GameDither.cs`, since 2026-11-19): in relight,
 pathtrace and the debug views, `_DitherStrength` holds a marker value (1e-20, effectively 0); when tracing stops (F7,
 `-ultrart-off`, a failed trace, ~30 frames later) or the plugin is destroyed, the game's value is put back. Only the
 shader global changes, never the prefs. A value the game writes while the marker is in place (the slider, a level's

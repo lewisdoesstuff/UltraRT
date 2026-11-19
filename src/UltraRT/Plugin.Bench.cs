@@ -461,7 +461,6 @@ namespace UltraRT
         {
             _accumFrames = 0;
             _denoiser?.Reset();
-            _denoiserDirect?.Reset();
             _lightSampling?.Reset();
             _reflFilter?.Reset();
             _radianceCache?.Reset();
@@ -994,7 +993,7 @@ namespace UltraRT
                         }
                         }
                         if (wantBurst && sr.Bursts.Count == 0) yield return RunBurst(sc, sr, outDir, path, pathT);
-                        if (sc.LightFit && !_benchNoShots) yield return RunLightFit(sc, outDir); // Plugin.LightFit.cs
+                        if (sc.LightFit && !_benchNoShots) yield return RunLightFit(sc); // Plugin.LightFit.cs
                         if (sc.Motion > 0) yield return RunMotionNoise(sc, sr, outDir, path, at); // every screenshot time
                         current = null; // force a fresh switch below
                     }
@@ -1141,7 +1140,7 @@ namespace UltraRT
                 mode = ApplyBenchVariant(mode);
             }
             if (mode == "off") { _viewEnabled = false; return; }
-            int i = Array.FindIndex(Modes, m => m.name == mode);
+            int i = ModeIndex(mode); // "hybrid" (removed) falls back to relight with a warning
             if (i < 0) throw new ArgumentException($"unknown mode '{mode}'");
             _mode = i;
             _viewEnabled = true;

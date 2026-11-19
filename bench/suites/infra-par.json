@@ -5,7 +5,7 @@
       "Name": "1-1 doors run x4",
       "Scene": "Level 1-1",
       "Path": { "Type": "recording", "File": "../recordings/1-1-doors.json" },
-      "Modes": ["off", "hybrid", "pt-dn"],
+      "Modes": ["off", "pt-dn"],
       "Rounds": 4
     }
   ]

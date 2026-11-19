@@ -103,15 +103,13 @@ namespace UltraRT
                 "Needs screen effects on.");
             // Once per config (not in bench launches, which never change the user's settings): entries that still hold the
             // first prototype's defaults move to the 2026-11-18 ones (docs/hdr.md, "Defaults"). A value set afterwards sticks.
-            var configVersion = Config.Bind("View", "ConfigVersion", 0, "Internal: which default migrations this file has had. Do not edit.");
-            bool benchLaunch = Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
-            if (configVersion.Value < 2 && !benchLaunch)
+            if (_configVersion.Value < 2 && !BenchLaunch) // _configVersion: bound in Awake (Plugin.cs), before this
             {
                 if (emissiveEntry.Value == 1.5f) emissiveEntry.Value = _hdrEmissive;
                 if (lavaEntry.Value == 1.5f) lavaEntry.Value = _hdrGameSurfaces;
                 if (effectsEntry.Value == 2f) effectsEntry.Value = _hdrEffects; // written by bench runs of t3/hdr-more before its default moved
                 Logger.LogInfo($"Config: HDR defaults of 2026-11-18 (HDREmissive {emissiveEntry.Value}, HDRLava {lavaEntry.Value}, HDREffects {effectsEntry.Value})");
-                configVersion.Value = 2;
+                _configVersion.Value = 2;
             }
             _hdrEmissive = emissiveEntry.Value;
             _hdrGameSurfaces = lavaEntry.Value;

@@ -1,1 +1,0 @@
-{ "Name": "debug-teardown-off", "Scenarios": [ { "Name": "8-3 spawn", "Scene": "Level 8-3", "Path": { "Type": "spawn", "Duration": 4 }, "Modes": ["off"] }, { "Name": "1-1 spawn", "Scene": "Level 1-1", "Path": { "Type": "spawn", "Duration": 3 }, "Modes": ["off"] } ] }

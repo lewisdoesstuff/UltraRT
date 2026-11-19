@@ -83,7 +83,7 @@ namespace UltraRT
 
     /// <summary>
     /// The game's own cubemap reflection (ULTRAKILL/Master, REFLECTION keyword), copied to the proxy so the hit shader can
-    /// reconstruct it and the hybrid composite can replace it with ours (docs/reflections.md). From the shader's DXBC:
+    /// reconstruct it for pattern cubes (_GameCubeLit; the hybrid composite that replaced it went on 2026-11-19). From the shader's DXBC:
     /// <c>C = cube(per-vertex reflect) * lerp(1, _Color, _ColorContribution) * lerp(1, vertex lighting, _LightingContribution)</c>,
     /// masked by <c>_ReflectionMask.r</c> and applied after emission and fog: blend (<c>_CubeMode</c> 0)
     /// <c>lit * (1 - m RS) + m^2 RS C</c>, additive <c>lit + m RS^2 C</c>, saturated.

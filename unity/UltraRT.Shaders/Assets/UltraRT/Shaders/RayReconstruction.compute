@@ -91,7 +91,7 @@ float3 SpecWeight(int2 s, float4 nd, float3 dir, float3 albedo, float4 sp)
     float NdotV = saturate(dot(normalize(nd.xyz), -dir));
     float3 specW;
     float keep;
-    SpecularTerms(SurfaceMat(_Surface[s]), albedo, NdotV, _ReflParams.yz, false, specW, keep);
+    SpecularTerms(SurfaceMat(_Surface[s]), albedo, NdotV, _ReflParams.yz, specW, keep);
     return specW;
 }
 

@@ -20,10 +20,7 @@
    "Burst": 64,
    "BurstModes": [
     "off",
-    "relight+ls.occludedRetest=0",
     "relight",
-    "relight+ls.retestUmbra=0",
-    "relight+ls.occludedRetest=0",
     "relight"
    ]
   },
@@ -46,10 +43,7 @@
    "Burst": 64,
    "BurstModes": [
     "off",
-    "relight+ls.occludedRetest=0",
     "relight",
-    "relight+ls.retestUmbra=0",
-    "relight+ls.occludedRetest=0",
     "relight"
    ]
   },
@@ -71,10 +65,7 @@
    "Burst": 64,
    "BurstModes": [
     "off",
-    "relight+ls.occludedRetest=0",
     "relight",
-    "relight+ls.retestUmbra=0",
-    "relight+ls.occludedRetest=0",
     "relight"
    ]
   },
@@ -88,8 +79,7 @@
    },
    "Modes": [
     "off",
-    "relight",
-    "hybrid"
+    "relight"
    ],
    "Screenshots": [
     4
@@ -97,13 +87,8 @@
    "Burst": 64,
    "BurstModes": [
     "off",
-    "relight+ls.occludedRetest=0",
     "relight",
-    "relight+ls.retestUmbra=0",
-    "relight+ls.occludedRetest=0",
-    "relight",
-    "hybrid+ls.occludedRetest=0",
-    "hybrid"
+    "relight"
    ]
   },
   {
@@ -116,8 +101,7 @@
    },
    "Modes": [
     "off",
-    "relight",
-    "hybrid"
+    "relight"
    ],
    "Screenshots": [
     2
@@ -125,12 +109,8 @@
    "Burst": 64,
    "BurstModes": [
     "off",
-    "relight+ls.occludedRetest=0",
     "relight",
-    "relight+ls.occludedRetest=0",
-    "relight",
-    "hybrid+ls.occludedRetest=0",
-    "hybrid"
+    "relight"
    ]
   }
  ]

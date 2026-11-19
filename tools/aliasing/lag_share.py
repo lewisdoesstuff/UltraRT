@@ -28,7 +28,7 @@ def main():
     poses = sorted({re.match(r"cine_(.+)_inst$", os.path.basename(p)).group(1)
                     for p in glob.glob(os.path.join(a.run, "cine_*_inst"))})
     for pose in poses:
-        for m in ("off", "relight", "hybrid", "pathtrace"):
+        for m in ("off", "relight", "pathtrace"):
             pre = os.path.join(a.run, f"cine_{pose}_{m}")
             lf, rf = sorted(glob.glob(pre + "/frame_*.png")), sorted(glob.glob(pre + "-ref/frame_*.png"))
             if len(rf) < 2 or len(lf) < HOLD + len(rf):

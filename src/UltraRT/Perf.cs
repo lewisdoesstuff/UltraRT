@@ -21,7 +21,7 @@ namespace UltraRT
             Motion,       // motion-vector bookkeeping (slots, uploads, pose copies)
             Emissive,     // emissive triangle lights
             Lights,       // light gathering and packing
-            LightSampling,// light alias tables / ReSTIR bindings
+            LightSampling,// light alias tables
             // Main-thread time to record a pass's commands (its GPU and render-thread time are the timer slot of the same name):
             Cache,        // radiance cache update
             Particles,    // lit particles' lighting volume

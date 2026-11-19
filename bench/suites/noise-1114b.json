@@ -11,8 +11,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         2
@@ -25,8 +24,7 @@
         "relight+plugin._relightLinear=false",
         "relight+plugin._skySampling=false",
         "relight+taau=0",
-        "relight+vol=0+plugin._relightLinear=false",
-        "hybrid"
+        "relight+vol=0+plugin._relightLinear=false"
       ]
     },
     {
@@ -39,8 +37,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         2
@@ -53,8 +50,7 @@
         "relight+plugin._relightLinear=false",
         "relight+plugin._skySampling=false",
         "relight+taau=0",
-        "relight+vol=0+plugin._relightLinear=false",
-        "hybrid"
+        "relight+vol=0+plugin._relightLinear=false"
       ]
     },
     {
@@ -67,8 +63,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         2
@@ -81,8 +76,7 @@
         "relight+plugin._relightLinear=false",
         "relight+plugin._skySampling=false",
         "relight+taau=0",
-        "relight+vol=0+plugin._relightLinear=false",
-        "hybrid"
+        "relight+vol=0+plugin._relightLinear=false"
       ]
     },
     {
@@ -95,8 +89,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         2
@@ -109,8 +102,7 @@
         "relight+plugin._relightLinear=false",
         "relight+plugin._skySampling=false",
         "relight+taau=0",
-        "relight+vol=0+plugin._relightLinear=false",
-        "hybrid"
+        "relight+vol=0+plugin._relightLinear=false"
       ]
     },
     {
@@ -123,8 +115,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         2
@@ -137,8 +128,7 @@
         "relight+plugin._relightLinear=false",
         "relight+plugin._skySampling=false",
         "relight+taau=0",
-        "relight+vol=0+plugin._relightLinear=false",
-        "hybrid"
+        "relight+vol=0+plugin._relightLinear=false"
       ]
     },
     {
@@ -151,8 +141,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         2
@@ -165,8 +154,7 @@
         "relight+plugin._relightLinear=false",
         "relight+plugin._skySampling=false",
         "relight+taau=0",
-        "relight+vol=0+plugin._relightLinear=false",
-        "hybrid"
+        "relight+vol=0+plugin._relightLinear=false"
       ]
     }
   ]

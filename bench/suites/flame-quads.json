@@ -17,9 +17,7 @@
       },
       "Modes": [
         "off",
-        "pathtrace",
-        "pathtrace+fx.flameBillboards=1",
-        "pathtrace+fx.flameBillboards=2"
+        "pathtrace"
       ],
       "ShotSettle": 0.8
     },
@@ -38,9 +36,7 @@
       },
       "Modes": [
         "off",
-        "pathtrace",
-        "pathtrace+fx.flameBillboards=1",
-        "pathtrace+fx.flameBillboards=2"
+        "pathtrace"
       ],
       "ShotSettle": 0.8
     }

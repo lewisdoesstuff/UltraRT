@@ -105,7 +105,7 @@ Shader "UltraRT/Vfx"
                 }
                 else
                 {
-                    // No HDR source (hybrid): the brightest part of the displayed RT image stands in.
+                    // No HDR source (DLSS RR): the brightest part of the displayed RT image stands in.
                     hdr = ToLinear(pre) * smoothstep(0.8, 1.0, MaxC(pre)) * 0.5;
                 }
                 float3 c = delta + hdr;

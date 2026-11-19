@@ -1,6 +1,6 @@
 // Radiance cache update: sparse multi-bounce paths that write into the world-space hash grid (UltraRTCache.hlsl),
 // plus a debug view of the cache. A separate .raytrace so PathTrace keeps its 8-UAV budget.
-// UAVs: _CacheKeys, _CacheAccum, _CacheDebugOut (+ _ReservoirCur, declared by UltraRTLights.hlsl but never used here).
+// UAVs: _CacheKeys, _CacheAccum, _CacheDebugOut.
 // See docs/radiance-cache.md.
 #pragma max_recursion_depth 1
 

@@ -7,7 +7,7 @@
             "Path": { "Type": "recording", "File": "../recordings/0-2-run.json" },
             "Enemies": "active",
             "ReplayArenas": true,
-            "Modes": ["off", "hybrid", "pt-dn"],
+            "Modes": ["off", "pt-dn"],
             "Screenshots": [12, 20, 28, 40, 52, 65]
         }
     ]

@@ -58,7 +58,7 @@ function Write-JsonFile([string] $path, $obj) {
     Move-Item $tmp $path -Force
 }
 
-# Copy the staged build (UltraRT.dll, UltraRT.Probe.dll, UltraRT.Native.dll, ultrart.shaders, ultrart-materials.json)
+# Copy the staged build (UltraRT.dll, UltraRT.Native.dll, ultrart.shaders, ultrart-materials.json)
 # into <GameDir>\BepInEx\plugins\UltraRT, only the files that differ. A changed shader bundle gets a fresh timestamp,
 # so a running game hot-reloads it. Returns the names it copied.
 function Sync-Stage {

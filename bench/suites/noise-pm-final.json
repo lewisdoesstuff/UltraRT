@@ -64,7 +64,6 @@
         "relight+plugin._eyeLightsUnshadowed=0",
         "relight",
         "relight+plugin._eyeLightsUnshadowed=0",
-        "relight+ls.occludedHistory=2",
         "relight+plugin._vmHistorySearch=0+plugin._vmFastSigma=0+plugin._vmCandidates=0",
         "relight+lights=ref"
       ]
@@ -88,9 +87,7 @@
       "BurstModes": [
         "off",
         "relight",
-        "relight+ls.occludedHistory=2",
         "relight",
-        "relight+ls.occludedHistory=2",
         "relight+plugin._eyeLightsUnshadowed=0"
       ]
     },

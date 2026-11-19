@@ -86,8 +86,7 @@
         "off",
         "relight",
         "relight+ae.colorMatch=0",
-        "relight+plugin._lowSideLightDeg=0",
-        "hybrid"
+        "relight+plugin._lowSideLightDeg=0"
       ],
       "Screenshots": [
         2

@@ -54,8 +54,8 @@ the door are drawn again), mean luma 64 -> 72 because the clipped light is now s
 did not clip is unchanged. K 0.9 keeps a little more colour and clips more (0-3: 26.4%). The 0-3 corridor is still very
 hot; that is its light level, not the curve.
 Bench: `pathtrace+plugin._tonemapCurve=0` is the old curve, `plugin._tonemapSat=K` moves the rolloff.
-The statue orb lights are scaled x0.5 on top (docs/scene-proxies.md, "Statue orbs"). Not done yet: emissive exposure, a
-hybrid variant. Per-area colour: see "Area colour".
+The statue orb lights are scaled x0.5 on top (docs/scene-proxies.md, "Statue orbs"). Not done yet: emissive exposure (a
+hybrid variant was on this list until the hybrid mode went on 2026-11-19). Per-area colour: see "Area colour".
 
 ## Auto exposure
 Physical falloff plus a sun makes outdoor areas several times brighter than torch-lit rooms (mean scene luminance about
@@ -64,7 +64,7 @@ rooms. Relight therefore adapts the exposure to what's on screen, like an eye or
 
 1. `Exposure.compute` `Histogram`, after the denoiser: a 64-bin log2-luminance histogram (2^-12 to 16) of the part of
    the image that is exposed, `albedo * filtered lighting * keep + specular`, on every second pixel in x and y. Sky
-   pixels, fullbright surfaces (lit weight < 0.5, from PathTrace's `_HybridLight.w`) and emission are left out, because
+   pixels, fullbright surfaces (lit weight < 0.5, from PathTrace's `_LitWeight.w`, named `_HybridLight` before 2026-11-19) and emission are left out, because
    they aren't exposed. The game's UI and viewmodel are drawn later by the game, so they never get in.
 2. `Adapt` (one 64-thread group): the mean log2 luminance of the pixels between the 40th and 95th percentile (bright
    specks and black corners don't move it), smoothed over time (the *meter*, 4/s). The target:
@@ -165,7 +165,7 @@ poses is 0.10 to 0.31, under the SDR key, so the key was not darkening them to b
 does pass the key (bright outdoor views) is not measured yet.
 
 #### Follow the game (2026-11-17)
-User report: "still too bright compared to the base game". Most of the mean excess was exposure policy, not lights (docs/plan-look-and-perf.md, workstream A): the dark lift raised near-black scenes half way to the dark key, and the game match removed only 40 % of an excess, and only beyond 0.35 EV. Now:
+User report: "still too bright compared to the base game". Most of the mean excess was exposure policy, not lights (docs/archive/plan-look-and-perf.md, workstream A): the dark lift raised near-black scenes half way to the dark key, and the game match removed only 40 % of an excess, and only beyond 0.35 EV. Now:
 
 - the dark lift (`up`) is 0: a dark place is as dark as its lights make it;
 - the game match's down side is 0.9 beyond 0.1 EV (`gameMatchDown`, `gameMatchBandDown`). The up side is unchanged. **Reverted 2026-11-18** to 0.4 beyond 0.35 EV: see "Punch" below;
@@ -251,8 +251,8 @@ model, and the game-unlit or emissive Master materials in view with their fog an
 4. *Low side lights.* A directional light less than 10 degrees above the horizon that isn't the level's main sun (the
    brightest directional from above) is unshadowed and kept by the fill cut (flag 0.75, as with `_sunsUnshadowed`), and
    volumetrics don't take it as their sun. 1-1's directionals (a sun at 50 degrees, two fills from below) and the indoor
-   regress poses have none. Bench `plugin._lowSideLightDeg=0` gives the old model. This applies to hybrid too: 8-2 hybrid
-   now colours both facades as well.
+   regress poses have none. Bench `plugin._lowSideLightDeg=0` gives the old model. This applied to hybrid too (removed
+   2026-11-19): 8-2 hybrid coloured both facades as well.
 
 **Results.** Mean screen colour without the HUD and viewmodel: game / master relight / branch relight. Sources:
 `colour-diag`, `colour-test` and `colour-regress`, plus merge-regress 20261114-200713 for master's regress poses.
@@ -473,7 +473,7 @@ shadows altogether.
 flicker in RT). The lamp (`ApartmentLamp/Point Light`, range 25, inside the shade of a 4 m `StandingLamp`) is part of a
 static batch, so it can't carry the fixture mask and is too tall for the fixture test; the shade shadows its own light,
 which escapes through the top and bottom openings as cones. With the global soft-shadow radius (0.15 m) the openings
-cast wide penumbrae, and their ReSTIR noise boiled slowly under the denoiser: a burst at the user's pose measured masked
+cast wide penumbrae, and their ReSTIR noise (the default sampler then) boiled slowly under the denoiser: a burst at the user's pose measured masked
 sigma 1.88, block sigma 1.68 and drift 2.86 (the same with effect-light flicker off; auto exposure stayed at 0 EV;
 volumetrics off: 1.24; radiance cache off: 1.79; a 0.02 m radius everywhere: 0.65). `SceneProxies.StaticEnclosed` now
 records point/spot lights inside a static-batched renderer of at most 6 m with a footprint of at most 2 m, and

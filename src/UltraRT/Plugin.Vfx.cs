@@ -95,11 +95,11 @@ namespace UltraRT
         }
 
         /// <summary>Which modes get the pass: every mode that shows a lit image (not the debug views).</summary>
-        private bool VfxFor(Kind kind) => _vfx != null && _vfxSettings.enabled && (kind == Kind.Denoised || kind == Kind.Hybrid) && Modes[_mode].mode == (int)DenoiserDebugView.Final;
+        private bool VfxFor(Kind kind) => _vfx != null && _vfxSettings.enabled && kind == Kind.Denoised && Modes[_mode].mode == (int)DenoiserDebugView.Final;
 
         /// <summary>
         /// Before the denoiser runs: hands its Composite the HDR bloom source to fill (relight and pt-dn: the composite
-        /// has the image before the tone curve). Other paths (hybrid, DLSS RR) leave it out and bloom falls back to the
+        /// has the image before the tone curve). DLSS RR leaves it out and bloom falls back to the
         /// displayed image.
         /// </summary>
         private void VfxBloomSource(Kind kind, int w, int h, bool rr, RenderTexture screenDepth)

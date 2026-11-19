@@ -10,11 +10,8 @@
     "Duration": 12
    },
    "Modes": [
-    "relight+lights=restir+ls.visibilityReuse=1",
     "relight",
-    "relight+ls.risCandidates=32",
-    "relight+lights=restir",
-    "relight+ls.visibilityMemory=1"
+    "relight+ls.risCandidates=32"
    ],
    "Segment": 0.75,
    "SwitchSkipFrames": 20,
@@ -29,11 +26,8 @@
     "Duration": 12
    },
    "Modes": [
-    "relight+lights=restir+ls.visibilityReuse=1",
     "relight",
-    "relight+ls.risCandidates=32",
-    "relight+lights=restir",
-    "relight+ls.visibilityMemory=1"
+    "relight+ls.risCandidates=32"
    ],
    "Segment": 0.75,
    "SwitchSkipFrames": 20,
@@ -49,11 +43,8 @@
     "Areas": "../recordings/late-8-2-building-boil-areas.json"
    },
    "Modes": [
-    "relight+lights=restir+ls.visibilityReuse=1",
     "relight",
-    "relight+ls.risCandidates=32",
-    "relight+lights=restir",
-    "relight+ls.visibilityMemory=1"
+    "relight+ls.risCandidates=32"
    ],
    "Segment": 0.75,
    "SwitchSkipFrames": 20,

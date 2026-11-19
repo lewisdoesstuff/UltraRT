@@ -1,6 +1,6 @@
 {
   "Name": "plan-perf",
-  "Note": "docs/plan-look-and-perf.md baseline (run with -Perf, exclusive lock): off / relight / pathtrace interleaved, plus relight at trace scale 0.2 as the CPU-bound floor (every pass still dispatches, with almost no GPU work), static poses and two runs with enemies.",
+  "Note": "docs/archive/plan-look-and-perf.md baseline (run with -Perf, exclusive lock): off / relight / pathtrace interleaved, plus relight at trace scale 0.2 as the CPU-bound floor (every pass still dispatches, with almost no GPU work), static poses and two runs with enemies.",
   "Scenarios": [
     {
       "Name": "warm-up",

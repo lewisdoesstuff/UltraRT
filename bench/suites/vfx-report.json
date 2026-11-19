@@ -26,8 +26,7 @@
                 "off",
                 "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
                 "relight",
-                "pathtrace",
-                "hybrid"
+                "pathtrace"
             ],
             "Screenshots": [
                 3
@@ -45,8 +44,7 @@
                 "off",
                 "relight+vfx.enabled=0+wet.rain=0+wet.blood=0+pl.soft=0",
                 "relight",
-                "pathtrace",
-                "hybrid"
+                "pathtrace"
             ],
             "Screenshots": [
                 3

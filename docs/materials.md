@@ -9,8 +9,9 @@ and kept outside the repo.
 Code: `tools/materials/` (offline pipeline, [README](../tools/materials/README.md)), `src/UltraRT/MaterialMaps.cs`
 (cache, detail textures, atlas composition), `src/UltraRT/Plugin.Materials.cs` (settings, Ctrl+F1), the
 `AddAtlasCells` part of `StaticGroups.cs`, `Proxy.shader` (`DetailSample`, `DetailNormal`), `PathTrace.raytrace` and
-`UltraRTLights.hlsl` (vertex vs detail normal, hybrid ratio), `Composite.shader` (albedo-guided pick). Bench suites
-`materials` (looks and GPU cost, detail on/off within one run), `materials-tune` (strengths, guided pick) and
+`UltraRTLights.hlsl` (detail normal). Until 2026-11-19 also the hybrid ratio and `Composite.shader`'s albedo-guided
+pick, which went with the hybrid mode. Bench suites
+`materials` (looks and GPU cost, detail on/off within one run), `materials-tune` (strengths) and
 `materials-cost` (what the cost is made of).
 
 ## 1. Offline pipeline
@@ -124,7 +125,8 @@ detail:
 - **Payload**: still 64 bytes. `p.normal` carries the detail normal and flag bit 3 says so. On primary rays the
   interpolated vertex normal is also returned, octahedral in 24 bits of `primitive` (debug-only before). That needed
   the game-cubemap reconstruction to move: C and k are now 4 x unorm8 in `uvHalf` (C was stored as unorm8 in
-  `_HybridLight` anyway), the lighting contribution stays in `primitive` bits 24-31.
+  `_HybridLight` anyway), the lighting contribution stays in `primitive` bits 24-31. (Since 2026-11-19 only pattern
+  cubes use C; hybrid's cube removal went with the mode.)
 
 **Ray generation** (`PathTrace.raytrace`):
 - Relight, pt-dn, pt: light is evaluated at the detail normal (direct, sky, bounce lobe), so the per-texel shading is
@@ -132,7 +134,7 @@ detail:
   normal tilted below the surface is mirrored back above it. The radiance-cache lookup uses the vertex normal.
 - G-buffer: `_NormalDepth` gets the detail normal, so the denoiser's normal edge-stopping keeps texels apart instead of
   averaging their shading away.
-- **Hybrid**: the game's colour is already lit with the vertex normal, and the composite scales it by RT shadowed /
+- **Hybrid** (removed 2026-11-19; kept as history): the game's colour is already lit with the vertex normal, and the composite scales it by RT shadowed /
   unshadowed light. So `DirectLighting` samples and stores reservoirs with the vertex normal, the unshadowed
   denominator stays at the vertex normal (what the game used), and only the shadowed numerator is re-shaded with the
   detail normal (`c x max(0, n_d.L) / n_v.L`). That ratio would also scale the game's ambient, which doesn't depend on
@@ -140,7 +142,7 @@ detail:
   detail is applied as `direct_vertex x clamp((lum(direct_detail) + ambient) / (lum(direct_vertex) + ambient), 0.3,
   1.5)`. The clamp is for night scenes: next to a lamp, a texel tilted towards it saw several times the vertex
   normal's light and glowed (1-4).
-- Hybrid's composite picks one of the 2x2 nearest trace texels per screen pixel by depth. Per-texel shading made that
+- (Removed 2026-11-19 with hybrid.) Hybrid's composite picked one of the 2x2 nearest trace texels per screen pixel by depth. Per-texel shading made that
   visible as staircase edges along texel boundaries (the trace runs at half resolution). With detail on, the pick also
   compares albedo chromaticity with the game's pixel and prefers the trace texel of the same texture texel
   (`-ultrart-materials-guided`, Composite.shader). Relight goes through the temporal upsampler and doesn't need it.
@@ -172,14 +174,12 @@ secondary set alone.
 | `-ultrart-materials-source ai\|proc`, `[Materials] Source` | ai | which cache folder; read at scene build |
 | `-ultrart-materials-smooth F`, `[Materials] NormalSmoothing` | 1 | 0-1: each texel's normal pulled to its 3x3 neighbourhood average at load (section 9); read at scene build. 0 = the maps as generated. Default 1 since 2026-11-17 (the user on the sheet: "looks reasonably good too"); the config key was `NormalSmooth` for the few hours it defaulted to 0 and was renamed with the default, so a config that already held the old 0 does not keep it; screenshots and measurements dated before that were taken at 0 |
 | `-ultrart-materials-normal F`, `[Materials] NormalStrength` | 1 | global multiplier on the class normal strength (relight, pt-dn, pt). Was 2 until 2026-11-17 (section 8: the bumpiness under RR is mostly the strength); measurements below dated before that were taken at 2. An existing config keeps the value written into it |
-| `-ultrart-materials-hybrid-normal F`, `[Materials] HybridNormalStrength` | 1 | the same in hybrid |
 | `-ultrart-materials-roughness F`, `[Materials] Roughness` | 1 | global multiplier on the roughness variation (menu: Enabled, both strengths and this one, [settings.md](settings.md); the LOD entries are config / flags only) |
-| `-ultrart-materials-guided on\|off` | on | hybrid composite: albedo-guided trace texel pick |
 | `-ultrart-materials-lod on\|off`, `[Materials] TextureLod` | on | ray-cone texture LOD for the detail maps (section 8), shader-side |
 | `-ultrart-materials-lod-bias F`, `[Materials] LodBias` | 0 | mips added to the cone's LOD (0 = a traced pixel's footprint) |
 | `-ultrart-materials-toksvig F` | 1 | share of the filtered-away slope variance that becomes roughness (0 = off) |
 | `-ultrart-materials-albedo-lod on\|off` | off | albedo/emission at the cone's mip on secondary hits (the game's textures mostly have no mips) |
-| bench variants `mat.enabled=0`, `mat.normalStrength=2`, `mat.hybridNormalStrength=1`, `mat.roughness=0`, `mat.guidedPick=0`, `mat.lod=0`, `mat.lodBias=-1.58`, `mat.lodAniso=1`, `mat.toksvig=0`, `mat.albedoLod=1`, `mat.lodDiffuse=0.3` | | e.g. `"relight+mat.enabled=0"` |
+| bench variants (`mat.hybridNormalStrength`, `mat.guidedPick`, `-ultrart-materials-hybrid-normal`, `-ultrart-materials-guided` and `[Materials] HybridNormalStrength` went with hybrid on 2026-11-19) `mat.enabled=0`, `mat.normalStrength=2`, `mat.roughness=0`, `mat.lod=0`, `mat.lodBias=-1.58`, `mat.lodAniso=1`, `mat.toksvig=0`, `mat.albedoLod=1`, `mat.lodDiffuse=0.3` | | e.g. `"relight+mat.enabled=0"` |
 
 Log lines: `Material maps: N textures in ...`, per atlas `Material maps: atlas '' WxH: cells with detail ...`,
 `Material maps: atlas slots mapped per original submesh ..., by dominant material ..., skipped ...`, and after the
@@ -217,7 +217,8 @@ every 1.25 s so on/off are timed in the same pass), `materials-tune` (strength 1
 
 ### GPU cost
 
-Final build at the defaults (detail on primary rays only; relight normal strength 2, hybrid 1), GPU total ms, detail
+Final build at the defaults of then (detail on primary rays only; relight normal strength 2, hybrid 1; the relight
+default is 1 since 2026-11-17), GPU total ms, detail
 off -> on in the same pass (`bench/results/20261114-134928_materials`):
 
 | Pose | hybrid | relight |
@@ -305,7 +306,7 @@ The term, decoded from the two shaders' DXBC (identical in both; they differ onl
 `SceneProxies.Rain.cs` mirrors each source's rain state and properties (`_Rain`, the textures, colours and floats) onto
 its proxy material and atlas variants, re-checked at 4 Hz (rooms with a roof switch it off). `Proxy.shader` `RainAlbedo`
 applies the term at every hit with the game's unflipped vertex normal and `_UltraRTRainTime` (Time.timeSinceLevelLoad).
-Primary, bounce and reflection rays all see it; hybrid keeps the game's own colour, so only its bounce albedo changes.
+Primary, bounce and reflection rays all see it (hybrid, until its removal on 2026-11-19, kept the game's own colour, so only its bounce albedo changed).
 P-2 at the vent pose: 1,245 of 1,427 rain-capable proxy sources raining. `-ultrart-norain` (bench `plugin._rainOn=0`)
 turns it off. Screenshots `bench/results/20261114-185737_lights-pm-check2_alt/P-2_rain_floor_*` (relight with and
 without: the darkened floor and the animated drop texels, as in hybrid's game colour). Cost: two point texture reads per

@@ -132,8 +132,8 @@ lighting is irradiance / pi, since displayed = albedo x lighting; the medium's r
 
 1. **Fog** (pass 0), right after the RT composite, before the game's transparents: on pixels the temporal upsampler
    marks as ray traced (`_UltraRTUpsampled.a > 0`), the game's fog, exactly its formula and colour (display space, eye
-   depth), as a blend (`Blend One SrcAlpha`: fog x (1 - vis) + dst x vis), no copy. Sky, the game's own pixels (glow
-   quads, decals) and hybrid already have it.
+   depth), as a blend (`Blend One SrcAlpha`: fog x (1 - vis) + dst x vis), no copy. Sky and the game's own pixels (glow
+   quads, decals) already have it.
 2. **Scatter** (pass 1), in a second command buffer at `CameraEvent.AfterForwardAlpha`, after the game's transparents,
    from a copy of the target: `out = (in^2.2 + exposure x strength x S)^(1/2.2)`, then a soft shoulder on what was added
    (`c + h (1 - exp(-delta / h))`, h the room above c), so bright shafts over a bright sky saturate smoothly. The
@@ -156,7 +156,7 @@ crosses it (`g_VolTint`, docs/materials.md "Stained glass").
 |---|---|---|---|
 | `-ultrart-volumetrics on\|off`, config `[Volumetrics] Enabled`, **Ctrl+F6** | `enabled` (`vol=0\|1`) | on | relight, pathtrace and pt-dn |
 | | `shadowPass` | true | the hit pass traces with `Proxy.shader`'s slim `UltraRTShadow` pass (docs/performance.md) |
-| `-ultrart-vol-hybrid` | `ptDn`, `hybrid` | true, false | hybrid gets the in-scattering only (its colour already has the game's fog) |
+| | `ptDn` | true | also in pt-dn (`-ultrart-vol-hybrid` and the `hybrid` field went with the hybrid mode on 2026-11-19) |
 | `-ultrart-vol-block N` | `block` | 4 | screen px per low-res px |
 | `-ultrart-vol-steps N` | `steps` | 8 | sun shadow rays per low-res px |
 | `-ultrart-vol-distance M` | `maxDistance` | 100 | |
@@ -438,7 +438,7 @@ Per light the volumetric pass gets two more float4 (`_VolLightCone`, `Volumetric
 `ScatterWeight`): the fitted cone replaces the light's own shape for the medium only (`ClipSpot` clips the ray segment to
 it, the in-scattering gets a soft edge over the outer 25% of the half angle), and the light's scattering weight becomes
 `shaft.strength` (3) in place of the haze range weight. Surfaces keep the game's point light. While the volumetric pass
-runs (relight; pt-dn / hybrid when volumetrics are on there), the fake meshes are disabled (`renderer.enabled`), and
+runs (relight; pt-dn when volumetrics are on there), the fake meshes are disabled (`renderer.enabled`), and
 re-enabled whenever it doesn't (any other mode, F7, Ctrl+F6, scene change). A light that moves away from its mesh keeps
 its fake.
 
@@ -525,8 +525,6 @@ Options if the user wants the halo gone as well, not halved (not done):
   that should not.
 
 ### Not done / limits
-- Hybrid is off by default (`-ultrart-vol-hybrid`): its colour already has the game's fog; only the in-scattering
-  would be added.
 - The game's fake light-shaft meshes that hang from a light are replaced by that light's volumetric cone (see "Lamp
   cones"); shafts with no light at their apex (sun shafts through windows, `Godrays`) and mist particles are left as
   they are, on top.

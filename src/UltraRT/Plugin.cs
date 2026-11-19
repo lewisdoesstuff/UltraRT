@@ -15,20 +15,17 @@ namespace UltraRT
 {
     /// <summary>
     /// UltraRT: hardware ray tracing for ULTRAKILL (DX12 only: launch with -force-d3d12).
-    ///   F7 toggle view   F8 next mode   F9 reload shader bundle (also automatic when the file changes)   F4 reflections
-    /// Unattended testing (see scripts/run-debugview.ps1):
-    ///   -ultrart-scene "Level 1-1"  -ultrart-view N  -ultrart-scale 0.5  -ultrart-capture  -ultrart-quit
+    ///   Keys, settings and flags: README.md "Controls" and docs/settings.md. Unattended runs: scripts/bench.ps1 (bench/README.md).
     /// </summary>
     [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
     [BepInDependency(PluginConfiguratorGuid, BepInDependency.DependencyFlags.SoftDependency)] // in-game settings menu (SettingsMenu.cs)
     public partial class Plugin : BaseUnityPlugin
     {
-        private enum Kind { Debug, PathTrace, Denoised, Hybrid, Reflection }
+        private enum Kind { Debug, PathTrace, Denoised, Reflection }
 
         // For Denoised, `mode` is a DenoiserDebugView; the trace itself runs PathTrace mode 0.
         private static readonly (string name, Kind kind, int mode)[] Modes =
         {
-            ("hybrid", Kind.Hybrid, (int)DenoiserDebugView.Final),
             ("pt-dn", Kind.Denoised, (int)DenoiserDebugView.Final),
             ("relight", Kind.Denoised, (int)DenoiserDebugView.Final), // full RT with physical falloff (docs/relight.md)
             ("pathtrace", Kind.Denoised, (int)DenoiserDebugView.Final), // multi-bounce path tracing, relight's light model (docs/path-tracing.md)
@@ -58,6 +55,18 @@ namespace UltraRT
             ("dn-boost", Kind.Denoised, (int)DenoiserDebugView.SpatialBoost), // denoiser stability features (docs/denoiser.md)
             ("motion", Kind.Denoised, (int)DenoiserDebugView.Motion),        // motion vectors (docs/denoiser.md)
         };
+
+        /// <summary>Index of a view mode by name (case-insensitive), -1 if there is none. "hybrid" (removed on 2026-11-19)
+        /// falls back to relight with a warning, so an old config, flag or bench suite keeps working.</summary>
+        private int ModeIndex(string name)
+        {
+            if (string.Equals(name, "hybrid", StringComparison.OrdinalIgnoreCase))
+            {
+                Logger.LogWarning("View mode 'hybrid' was removed on 2026-11-19 (README.md, \"View modes\"); using relight");
+                name = "relight";
+            }
+            return Array.FindIndex(Modes, m => m.name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        }
 
         private const int MaxLights = 256;
         private float _primaryAmbient = 0.5f;
@@ -100,6 +109,13 @@ namespace UltraRT
         private bool _capture, _quit;
         private string _outDir;
 
+        /// <summary>[View] ConfigVersion: which one-time default migrations this config file has had (here: the default
+        /// mode; Plugin.Hdr.cs: the HDR defaults). Bound once in Awake.</summary>
+        private BepInEx.Configuration.ConfigEntry<int> _configVersion;
+        /// <summary>Launched by the bench (any -ultrart-bench* flag): migrations never run then, so a bench never changes
+        /// the user's settings.</summary>
+        private static bool BenchLaunch => Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
+
         private void Awake()
         {
             // The default mode is pathtrace where DLSS Ray Reconstruction can run (an NVIDIA GPU and nvngx_dlssd.dll beside the
@@ -115,20 +131,19 @@ namespace UltraRT
                 "View mode at startup: " + string.Join(", ", Modes.Select(m => m.name)) + ". Cycle in game with Page Up / Page Down.");
             // BepInEx writes a default into the file, so a config made before 2026-11-17 still says relight although nobody
             // chose it. Once per config: such an entry moves to the new default. Picking relight again afterwards sticks.
-            var configVersion = Config.Bind("View", "ConfigVersion", 0, "Internal: which default migrations this file has had. Do not edit.");
+            _configVersion = Config.Bind("View", "ConfigVersion", 0, "Internal: which default migrations this file has had. Do not edit.");
             // Not in a bench launch: the user's own start of the game does it (a bench never changes their settings).
-            bool benchLaunch = Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
-            if (configVersion.Value < 1 && !benchLaunch)
+            if (_configVersion.Value < 1 && !BenchLaunch)
             {
                 if (rrPresent && defaultModeEntry.Value.Equals("relight", StringComparison.OrdinalIgnoreCase))
                 {
                     defaultModeEntry.Value = "pathtrace";
                     Logger.LogInfo("Config: [View] DefaultMode was the old default (relight): now pathtrace. Set it back in the settings menu to keep relight.");
                 }
-                configVersion.Value = 1;
+                _configVersion.Value = 1;
             }
             string defaultMode = defaultModeEntry.Value;
-            int dm = Array.FindIndex(Modes, m => m.name.Equals(defaultMode, StringComparison.OrdinalIgnoreCase));
+            int dm = ModeIndex(defaultMode);
             if (dm >= 0) _mode = dm;
             ParseArgs();
             ParseCacheArgs();
@@ -193,7 +208,7 @@ namespace UltraRT
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
-            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart, FlameQuads = FlameQuadList };
+            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -223,13 +238,12 @@ namespace UltraRT
                 switch (a[i].ToLowerInvariant())
                 {
                     case "-ultrart-scene": _autoScene = Next(); break;
-                    case "-ultrart-view": int.TryParse(Next(), out _mode); break;
+                    case "-ultrart-view": { var v = Next(); if (!int.TryParse(v, out _mode)) { int vi = ModeIndex(v); _mode = vi >= 0 ? vi : _mode; } break; } // index or name
                     case "-ultrart-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _scale); break;
                     case "-ultrart-accumulate": _accumulate = true; break;
                     case "-ultrart-capture": _capture = true; break;
                     case "-ultrart-quit": _quit = true; break;
                     case "-ultrart-off": _viewEnabled = false; break;
-                    case "-ultrart-dumpverts": SceneProxies.DumpAtlasVertices = true; break;
                     case "-ultrart-skinned-visible": SceneProxies.SkinnedProxiesVisible = true; break;
                     case "-ultrart-skinned-noupdate": SceneProxies.SkinnedTransformUpdates = false; break;
                     case "-ultrart-nodisplace": SceneProxies.DisplacementBuild = false; break; // VERTEX_DISPLACEMENT geometry keeps its rest pose
@@ -274,29 +288,24 @@ namespace UltraRT
                     case "-ultrart-notexscroll": _texScroll = false; break;
                     case "-ultrart-notexscroll-motion": _texScrollMotion = false; break;
                     case "-ultrart-player-noanimate": SceneProxies.PlayerAlwaysAnimate = false; break;
-                    case "-ultrart-compdebug": int.TryParse(Next(), out _compositeDebug); break;
                     case "-ultrart-lights":
-                        switch ((Next() ?? "").ToLowerInvariant())
+                    {
+                        string v = (Next() ?? "").ToLowerInvariant();
+                        switch (v)
                         {
                             case "ref": _lightSamplingSettings.mode = LightSamplingMode.Reference; break;
                             case "ris": _lightSamplingSettings.mode = LightSamplingMode.Ris; break;
-                            default: _lightSamplingSettings.mode = LightSamplingMode.ReSTIR; break;
+                            case "restir": Logger.LogWarning("-ultrart-lights restir: ReSTIR was removed on 2026-11-19 (docs/light-sampling.md); using ris"); _lightSamplingSettings.mode = LightSamplingMode.Ris; break;
+                            default: Logger.LogWarning($"-ultrart-lights '{v}': expected ref | ris; keeping {_lightSamplingSettings.mode}"); break;
                         }
                         break;
+                    }
                     case "-ultrart-ris-m": int.TryParse(Next(), out _lightSamplingSettings.candidates); break;
-                    case "-ultrart-restir-spatial": int.TryParse(Next(), out _lightSamplingSettings.spatialSamples); break;
-                    case "-ultrart-restir-spatial-hybrid": int.TryParse(Next(), out _lightSamplingSettings.spatialSamplesHybrid); break;
-                    case "-ultrart-restir-fresh": int.TryParse(Next(), out _lightSamplingSettings.freshCandidates); break; // extra candidates without history
-                    case "-ultrart-restir-retest": _lightSamplingSettings.occludedRetest = true; break; // re-test occluded history, full M in umbrae (docs/light-sampling.md, "Occluded history")
-                    case "-ultrart-restir-pixel-change": _lightSamplingSettings.perPixelLightChange = true; break; // per-pixel light-change history (docs/light-sampling.md)
                     case "-ultrart-noemissive": _emissiveSettings.enabled = false; break;
                     case "-ultrart-emissive-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.lightScale); break;
-                    case "-ultrart-emissive-hybrid": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.hybridAdd); break;
                     case "-ultrart-static-always": SceneProxies.StaticActivation = false; break;
                     case "-ultrart-static-level": { if (int.TryParse(Next(), out var lv)) SceneProxies.ForceGroupLevel = lv; break; }
                     case "-ultrart-static-budget": { if (int.TryParse(Next(), out var bg)) SceneProxies.StaticRecordBudget = bg; break; }
-                    case "-ultrart-shadowbias": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _shadowBias); break;
-                    case "-ultrart-gi": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _giStrength); break;
                     case "-ultrart-nohook": _noHook = true; break;
                     case "-ultrart-pose": _capturePose = Next(); break;
                     case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) { InjectEvent = ev; _injectForced = true; } break;
@@ -306,7 +315,6 @@ namespace UltraRT
                     case "-ultrart-refl-strength": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _reflSettings.reflStrength); break;
                     case "-ultrart-spec-weight": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _reflSettings.specWeight); break;
                     case "-ultrart-refl-cache": { var v = Next(); _reflSettings.cacheShading = v == "off" ? 0 : v == "always" ? 2 : 1; break; }
-                    case "-ultrart-refl-keepcube": _reflSettings.replaceGameCube = false; break;
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
                     case "-ultrart-viewprobe": SceneProxies.ViewProbe = true; break;
                     case "-ultrart-glow-smooth": _smoothGlow = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
@@ -364,10 +372,6 @@ namespace UltraRT
             var settings = _denoiser?.Settings;
             _denoiser?.Dispose();
             _denoiser = new Denoiser(denoise);
-            _denoiserDirect?.Dispose();
-            _denoiserDirect = new Denoiser(denoise);
-            _unpackHybrid = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "UnpackHybrid");
-            if (_unpackHybrid == null) Logger.LogWarning("UnpackHybrid compute shader missing from bundle");
             var upsample = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Upsample");
             var upSettings = _upsampler?.Settings;
             _upsampler?.Dispose();
@@ -429,15 +433,15 @@ namespace UltraRT
             MsaaProbeUpdate(); // measurement probe, bench plugin._msaaProbe only (Plugin.MsaaProbe.cs)
             try
             {
-                if (Input.GetKeyDown(KeyCode.F7) && !CtrlHeld() && !ShiftHeld()) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F7) && !CtrlHeld() && !ShiftHeld()) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
                 ExposureHotkeys(); // Ctrl+F4
                 if (Input.GetKeyDown(KeyCode.F4) && !CtrlHeld()) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
                 SkyHotkeys(); // Ctrl+F5
-                if (Input.GetKeyDown(KeyCode.F5) && !CtrlHeld()) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
+                if (Input.GetKeyDown(KeyCode.F5) && !CtrlHeld()) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
                 VolumetricsHotkeys(); // Ctrl+F6
                 ViewmodelHotkeys(); // Ctrl+F7
                 VfxHotkeys(); // Ctrl+F2, Shift+F2
-                if (Input.GetKeyDown(KeyCode.F6) && !CtrlHeld()) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 3); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
+                if (Input.GetKeyDown(KeyCode.F6) && !CtrlHeld()) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 2); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
                 // Page Up / Page Down cycle view modes (F8 opens ULTRAKILL's console).
                 if (Input.GetKeyDown(KeyCode.PageDown)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
                 if (Input.GetKeyDown(KeyCode.PageUp)) { _mode = (_mode + Modes.Length - 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
@@ -489,7 +493,7 @@ namespace UltraRT
             _spawnSeen.Clear();
             _accumFrames = 0;
             _denoiser?.Reset();
-            _denoiserDirect?.Reset();
+           
             _lightSampling?.Reset();
             _reflFilter?.Reset();
             _emissive?.Clear();
@@ -645,7 +649,7 @@ namespace UltraRT
                 case LightType.Point:
                     l0 = new Vector4(pos.x, pos.y, pos.z, Mathf.Max(l.range, 1e-4f));
                     // A point light at the eye (the game's player light) shadows nothing the camera sees: evaluate it
-                    // with no ray, outside ReSTIR's competition (Plugin.Noise.cs, EyeLight).
+                    // with no ray, outside RIS's competition (Plugin.Noise.cs, EyeLight).
                     l3 = new Vector4(-1f, 1f, EyeLight(pos) ? 0.75f : 0f, 0);
                     break;
                 case LightType.Spot:
@@ -783,8 +787,6 @@ namespace UltraRT
             }
         }
 
-        private static float AsFloat(int bits) => BitConverter.Int32BitsToSingle(bits);
-
         private void EnsureGBuffer(ref RenderTexture rt, int w, int h, RenderTextureFormat format, string name)
         {
             if (rt != null && rt.width == w && rt.height == h) return;
@@ -823,33 +825,20 @@ namespace UltraRT
         /// <summary>The game's fog on traced pixels leaves "NoFog" (_FOG_OFF) materials alone, as the game does (bench
         /// plugin._noFogSkip=0: fogged like everything else, before 2026-11-18).</summary>
         private bool _noFogSkip = true;
-        private static readonly int UltraRTGameColorId = Shader.PropertyToID("_UltraRTGameColor");
-        private static readonly int UltraRTLightingId = Shader.PropertyToID("_UltraRTLighting");
-        private static readonly int UltraRTHybridId = Shader.PropertyToID("_UltraRTHybrid");
-        private static readonly int UltraRTDirectId = Shader.PropertyToID("_UltraRTDirect");
 
         private static readonly int UltraRTAlbedoId = Shader.PropertyToID("_UltraRTAlbedo");
         private static readonly int UltraRTSpecularId = Shader.PropertyToID("_UltraRTSpecular");
-        private static readonly int UltraRTShadowBiasId = Shader.PropertyToID("_UltraRTShadowBias");
-        private static readonly int UltraRTGIStrengthId = Shader.PropertyToID("_UltraRTGIStrength");
-        private static readonly int UltraRTModeId = Shader.PropertyToID("_UltraRTMode");
         private LightSampling _lightSampling;
         private EmissiveLights _emissive;
         private readonly EmissiveLightSettings _emissiveSettings = new EmissiveLightSettings();
         private readonly Light[] _packedLights = new Light[MaxLights];
         private readonly LightSamplingSettings _lightSamplingSettings = new LightSamplingSettings();
-        private Denoiser _denoiserDirect;          // hybrid: filters ReSTIR's (noisy) shadowed direct light
-        private ComputeShader _unpackHybrid;
         private ComputeShader _motionCopy; // MotionCopy.compute: previous skinned poses for motion vectors
         private ComputeShader _displaceCs; // Displace.compute: the game's VERTEX_DISPLACEMENT for the RT scene (SceneProxies.Displaced.cs)
         /// <summary>Runtime switch for vertex displacement in the RT scene (bench variant plugin._displace=0: rest pose, as before).</summary>
         private bool _displace = true;
         private float _displaceRange = 40f; // bench variant plugin._displaceRange: copies beyond this (m) freeze (SceneProxies.DisplacementRange)
         private bool _displaceMotion = true; // bench variant plugin._displaceMotion=0: displaced proxies without per-vertex motion vectors
-        private RenderTexture _gShadowed, _denoisedDirectOut;
-        private float _shadowBias = 0.1f; // -ultrart-shadowbias: how much of our light a surface needs before RT shadows apply fully
-        private float _giStrength = 0.35f;
-        private int _compositeDebug; // -ultrart-compdebug 1..6: shadow ratio / unshadowed direct / shadowed direct / bounce / portal depth / game-albedo overlay
         private bool _portals = true; // -ultrart-noportals (bench variant: plugin._portals=0): rays ignore portals (docs/portals.md)
         private int _portalHops = 3;  // -ultrart-portal-hops N (bench variant: plugin._portalHops=N): teleports per ray
         private bool _rtMirrors;      // -ultrart-rtmirrors (bench: plugin._rtMirrors=1): camera rays reflect off portal mirrors instead of keeping the game's mirror view
@@ -918,7 +907,8 @@ namespace UltraRT
             EnsureGBuffer(ref _gNormalDepth, w, h, RenderTextureFormat.ARGBHalf, "UltraRT NormalDepth");
             // x instance index, y packed world-space motion (docs/denoiser.md, "Motion vectors").
             EnsureGBuffer(ref _gInstanceId, w, h, RenderTextureFormat.RGInt, "UltraRT InstanceId");
-            EnsureGBuffer(ref _gHybrid, w, h, RenderTextureFormat.ARGBInt, "UltraRT HybridLight");
+            // w & 0xFF: the lit weight (0 = fullbright) for auto exposure and DLSS RR; xyz unused since the hybrid mode went.
+            EnsureGBuffer(ref _gLitWeight, w, h, RenderTextureFormat.ARGBInt, "UltraRT LitWeight");
             // PathTrace writes albedo + emission + material packed into _gSurface (Unity's 8-UAV limit), and the reflection
             // into _gReflection. ReflectionFilter's resolve unpacks _gAlbedo / _gEmission and writes _gSpecular.
             EnsureGBuffer(ref _gSurface, w, h, RenderTextureFormat.ARGBInt, "UltraRT Surface");
@@ -927,7 +917,7 @@ namespace UltraRT
             EnsureGBuffer(ref _gReflDebug, w, h, RenderTextureFormat.ARGB32, "UltraRT Reflection Debug");
         }
 
-        private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId, _gHybrid, _gameCopy;
+        private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId, _gLitWeight;
         private RenderTexture _gSurface, _gReflection, _gSpecular, _gReflDebug;
         private string _capturePose;
         private float _lightRadius = 0.15f;   // -ultrart-light-radius (m)
@@ -1181,7 +1171,7 @@ namespace UltraRT
 
         /// <summary>The trace size of a frame: <paramref name="visW"/> x <paramref name="visH"/> visible at <paramref name="scale"/>,
         /// plus the guard band (docs/denoiser.md: a slightly wider view than the screen, so surfaces entering the screen while
-        /// turning already have denoiser/ReSTIR history and warm cache cells; the visible part keeps its pixel grid), resized
+        /// turning already have denoiser history and warm cache cells; the visible part keeps its pixel grid), resized
         /// for RR's exact grid. No side effects (Plugin.Dlss.cs sizes RR's feature with it before the frame).</summary>
         private void TraceDims(bool pt, float scale, int grid, RenderTexture depthBuf, out int w, out int h, out int gxPx, out int gyPx,
                                out Vector2 guardScale, out int visW, out int visH)
@@ -1199,13 +1189,13 @@ namespace UltraRT
         private void Trace()
         {
             var (_, kind, mode) = Modes[_mode];
-            bool denoised = kind == Kind.Denoised || kind == Kind.Hybrid;
+            bool denoised = kind == Kind.Denoised;
             SetPlayerSplit(kind == Kind.Denoised); // Plugin.Noise.cs
             bool pt = kind != Kind.Debug;
             bool resolve = denoised || kind == Kind.Reflection; // modes that read the unpacked surface / filtered reflection
-            if (denoised && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid) { _denoiser.Reset(); _denoiserDirect?.Reset(); } // history is stale after other modes
+            if (denoised && _lastKind != Kind.Denoised) _denoiser.Reset(); // history is stale after other modes
             if (pt && _lastKind == Kind.Debug) _lightSampling.Reset();
-            if (resolve && _lastKind != Kind.Denoised && _lastKind != Kind.Hybrid && _lastKind != Kind.Reflection) _reflFilter.Reset();
+            if (resolve && _lastKind != Kind.Denoised && _lastKind != Kind.Reflection) _reflFilter.Reset();
             _lastKind = kind;
             if (resolve) _accumulate = false; // the denoiser and the reflection filter need unjittered primary rays
             // Temporal upsampling (pt-dn, relight, pathtrace, dn-*): jitter the trace grid over the screen pixels;
@@ -1292,7 +1282,6 @@ namespace UltraRT
             UpdateMovers(); // moving occluders: fast-responding shadows of the player and enemies (Plugin.Noise.cs)
             UpdateEffectGeometry(pt); // glowing effects as billboards for reflection rays (Plugin.Effects.cs)
             long te = Perf.Now;
-            UpdateFlameQuads(_camera); // fx.flameBillboards (test)
             _emissive.ViewPoints = _portalViews; // portal-aware importance for glowing surfaces too
             _emissive.Update(_proxies, _camera.transform.position);
             UpdateRain(); // the game's rain on surfaces (Plugin.PlayerLights.cs; SceneProxies.Rain.cs)
@@ -1366,8 +1355,7 @@ namespace UltraRT
             _cmd.SetRayTracingTextureParam(shader, "_Output", _output);
             _cmd.SetRayTracingMatrixParam(shader, "_InvViewProj", invViewProj);
             _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
-            _cmd.SetRayTracingIntParam(shader, "_Mode", kind == Kind.Hybrid ? 3 : resolve || mode >= CacheDebugModeBase ? 0 : mode);
-            _cmd.SetRayTracingFloatParam(shader, "_GIStrength", _giStrength);
+            _cmd.SetRayTracingIntParam(shader, "_Mode", resolve || mode >= CacheDebugModeBase ? 0 : mode);
             _cmd.SetRayTracingFloatParam(shader, "_LightRadius", _lightRadius);
             _relightActive = RelightLook(Modes[_mode].name) || _relightForce;
             _cmd.SetRayTracingVectorParam(shader, "_Relight", RelightParams);
@@ -1389,7 +1377,7 @@ namespace UltraRT
                 PathTraceLightsBegin(full, rr); // RR may want another light sampling mode (restored below)
                 _lightSampling.ViewPoints.Clear();
                 _lightSampling.ViewPoints.AddRange(_portalViews); // portal-aware importance
-                _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _surfLightCount, _emissive.SetChanged, kind == Kind.Hybrid);
+                _lightSampling.Bind(_cmd, shader, _camera.transform.position, _packedLights, _lightData, _surfLightCount);
                 Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSampling.ActiveMode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
@@ -1410,13 +1398,13 @@ namespace UltraRT
                 _cmd.SetRayTracingVectorParam(shader, "_ReflCache", _reflSettings.CacheParams);
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
-                _cmd.SetRayTracingTextureParam(shader, "_HybridLight", _gHybrid);
+                _cmd.SetRayTracingTextureParam(shader, "_LitWeight", _gLitWeight);
                 long tc = Perf.Now;
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 Perf.Add(Perf.Sec.Cache, tc);
                 BindTransparents(shader, denoised, viewProj, w, h); // water and glass (Plugin.Transparent.cs)
                 BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
-                BindStains(shader, kind == Kind.Denoised || kind == Kind.Hybrid || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
+                BindStains(shader, kind == Kind.Denoised || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
                 BindPathTrace(shader, full, rr);
                 PathTraceLightsEnd();
             }
@@ -1460,7 +1448,7 @@ namespace UltraRT
                     albedo = _gAlbedo, emission = _gEmission, specular = _gSpecular, debug = _gReflDebug,
                 };
                 _cmd.BeginSample(SampleReflections);
-                _reflFilter.Execute(_cmd, reflInputs, _reflSettings, kind == Kind.Hybrid, kind == Kind.Reflection ? mode : 0);
+                _reflFilter.Execute(_cmd, reflInputs, _reflSettings, kind == Kind.Reflection ? mode : 0);
                 _cmd.EndSample(SampleReflections);
                 if (kind == Kind.Reflection) _displayed = _gReflDebug;
             }
@@ -1493,23 +1481,6 @@ namespace UltraRT
                 if (!rr) _denoiser.Execute(_cmd, inputs, _denoised);
                 if (!rr) HdrSubmitDenoiser();
                 if (!rr) RunExposure(w, h); // relight auto exposure: measured after the denoiser, applied from the next frame
-                if (kind == Kind.Hybrid && _unpackHybrid != null)
-                {
-                    // ReSTIR's shadowed direct light is a 1-shadow-ray estimate: unpack it and filter it separately.
-                    EnsureGBuffer(ref _gShadowed, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Shadowed");
-                    EnsureGBuffer(ref _denoisedDirectOut, w, h, RenderTextureFormat.ARGB32, "UltraRT DenoisedDirect");
-                    int k = _unpackHybrid.FindKernel("Unpack");
-                    _cmd.SetComputeTextureParam(_unpackHybrid, k, "_Packed", _gHybrid);
-                    _cmd.SetComputeTextureParam(_unpackHybrid, k, "_Shadowed", _gShadowed);
-                    _cmd.SetComputeIntParams(_unpackHybrid, "_Dim", w, h);
-                    _cmd.DispatchCompute(_unpackHybrid, k, Mathf.CeilToInt(w / 8f), Mathf.CeilToInt(h / 8f), 1);
-                    var directInputs = inputs;
-                    directInputs.radiance = _gShadowed;
-                    directInputs.specular = null;
-                    _denoiserDirect.Settings.debugView = DenoiserDebugView.Final;
-                    _denoiserDirect.FrameTime = Time.unscaledDeltaTime;
-                    _denoiserDirect.Execute(_cmd, directInputs, _denoisedDirectOut);
-                }
                 _gpu?.End(_cmd, SlotDenoise);
                 _cmd.EndSample(SampleDenoise);
                 _displayed = _denoised;
@@ -1545,33 +1516,6 @@ namespace UltraRT
             _gpu?.Begin(_cmd, SlotBlit);
             _cmd.SetGlobalTexture(UltraRTImageId, _displayed);
             _cmd.SetGlobalVector(UltraRTUVScaleId, new Vector4(1f / _guardScale.x, 1f / _guardScale.y, upsampled ? 1f : 0f, 0f));
-            // Hybrid: keep the game's shaded colour and apply the RT/game lighting ratio. Needs a copy of the game's
-            // colour target as it is right now (opaques + sky drawn), since the composite draws into it.
-            var gameTex = kind == Kind.Hybrid ? MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex : null;
-            bool ratio = gameTex != null && _denoiser.FilteredLighting != null;
-            if (ratio)
-            {
-                if (_gameCopy == null || _gameCopy.width != gameTex.width || _gameCopy.height != gameTex.height || _gameCopy.format != gameTex.format)
-                {
-                    if (_gameCopy != null) _gameCopy.Release();
-                    var desc = gameTex.descriptor;
-                    desc.depthBufferBits = 0;
-                    desc.msaaSamples = 1;
-                    desc.enableRandomWrite = false;
-                    _gameCopy = new RenderTexture(desc) { name = "UltraRT GameColor", filterMode = FilterMode.Point };
-                    _gameCopy.Create();
-                }
-                _cmd.CopyTexture(gameTex, _gameCopy);
-                _cmd.SetGlobalTexture(UltraRTGameColorId, _gameCopy);
-                _cmd.SetGlobalTexture(UltraRTLightingId, _denoiser.FilteredLighting);
-                _cmd.SetGlobalTexture(UltraRTHybridId, _gHybrid);
-                _cmd.SetGlobalTexture(UltraRTDirectId, _denoiserDirect?.FilteredLighting != null ? (Texture)_denoiserDirect.FilteredLighting : _gShadowed);
-                _cmd.SetGlobalTexture(UltraRTAlbedoId, _gAlbedo);
-                _cmd.SetGlobalTexture(UltraRTSpecularId, _gSpecular);
-                _cmd.SetGlobalFloat(UltraRTShadowBiasId, _shadowBias);
-                _cmd.SetGlobalFloat(UltraRTGIStrengthId, _giStrength);
-            }
-            _cmd.SetGlobalFloat(UltraRTModeId, ratio ? (_compositeDebug > 0 ? 1f + _compositeDebug : 1f) : 0f);
             _cmd.SetGlobalTexture(UltraRTNormalDepthId, pt ? (Texture)_gNormalDepth : Texture2D.whiteTexture);
             _cmd.SetGlobalTexture(UltraRTInstanceIdId, _gInstanceId); // portal pixels: distance to the portal (Composite.shader)
             // The game's fog on traced pixels skips "NoFog" materials (SurfaceNoFog; VolumetricsComposite.shader, pass 0).

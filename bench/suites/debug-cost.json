@@ -1,1 +1,0 @@
-{ "Name": "debug-cost", "Scenarios": [ { "Name": "1-1 start", "Scene": "Level 1-1", "Path": { "Type": "spawn", "Duration": 5 }, "Modes": ["off", "hybrid"] } ] }

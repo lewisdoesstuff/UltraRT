@@ -3,7 +3,7 @@
 NVIDIA DLSS Ray Reconstruction (RR, NGX feature "DLSS-D") can replace UltraRT's denoiser ([denoiser.md](denoiser.md)) and
 temporal upsampler in `relight` and `pt-dn`, and it is the default denoiser of the path tracing mode
 ([path-tracing.md](path-tracing.md)). We call the NGX SDK directly from our native plugin. The Unity DLSS package
-is HDRP-only and has no RR. Hybrid keeps our own path.
+is HDRP-only and has no RR. (The hybrid mode kept our own path until it was removed on 2026-11-19.)
 
 The first half of this document is the prototype on relight's signal (2026-11-14, where RR lost to our denoiser); the
 section "RR for path tracing" is what changed for the `pathtrace` mode, where it wins.
@@ -108,7 +108,7 @@ ignores exposure parameters).
 ## RR for path tracing
 
 Four changes made RR the better denoiser for the `pathtrace` mode. The measurements behind them are in
-[pt-plan.md](pt-plan.md), section 6.1, and in [path-tracing.md](path-tracing.md).
+[pt-plan.md](archive/pt-plan.md), section 6.1, and in [path-tracing.md](path-tracing.md).
 
 ### Independent samples
 
@@ -347,7 +347,7 @@ samples, remodulation and the exact grid, `pathtrace` under RR at 1/3 scale is q
 and costs the same GPU time. RR in relight stays an option, off by default.
 
 Problems and limits:
-- Hybrid is untouched: RR would need the game's colour as input. Not attempted.
+- Hybrid was never wired to RR (it would have needed the game's colour as input); the mode went on 2026-11-19.
 - NGX's start-up (3 s) and each feature's creation run on a worker thread ("Warm-up"); before that, the first RR
   frame of a session froze the game for seconds.
 - Unity-list mode needs `ModifiesCommandBuffersState`. It worked here, but given the GPU timer's history with that flag

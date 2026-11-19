@@ -1,12 +1,12 @@
 # Emissive surfaces as direct light sources
 
-Emissive triangles are sampled by the same RIS / ReSTIR direct lighting as point, spot and directional lights. They cast soft shadows and light rooms, and the cost per pixel stays roughly constant.
+Emissive triangles are sampled by the same RIS direct lighting (ReSTIR too until it was removed on 2026-11-19) as point, spot and directional lights. They cast soft shadows and light rooms, and the cost per pixel stays roughly constant.
 
 Files:
 - `src/UltraRT/EmissiveLights.cs`: the triangle list, radiance estimates, per-frame visibility, transforms, the alias table, GPU buffers and `Bind`.
 - `src/UltraRT/SceneProxies.Emitters.cs`: read-only hooks into `SceneProxies` and `StaticGroups`. It enumerates the traced submeshes with their proxy material, space, visibility and the CPU copy of the combined mesh. It's a new partial-class file, so `SceneProxies.cs` and `StaticGroups.cs` are unchanged.
 - `unity/.../UltraRTLights.hlsl`: emitter evaluation, the mixed candidate stream, and the new reservoir encoding.
-- `unity/.../PathTrace.raytrace`: two lines, the bounce-emission weight and the hybrid additive term.
+- `unity/.../PathTrace.raytrace`: two lines, the bounce-emission weight and the hybrid additive term (gone with hybrid on 2026-11-19).
 - `src/UltraRT/LightSampling.cs`: the M cap is now 4000 (12-bit M), plus an optional `emissiveSetChanged` argument to `Bind`.
 
 ## Why
@@ -88,7 +88,9 @@ An 11-bit octahedral normal has about 0.1° steps, far below the 0.9-cosine (abo
 
 At scale 1, `c` is physically consistent with the path tracer's own bounce, where a hit on an emitter contributes `Le` with a cosine pdf (`∫ Le cos dω / π`). ULTRAKILL's lights are much brighter than that convention. A typical point light (intensity 1–2, range 10–20) gives `c ≈ I / (1 + 25d²/r²) ≈ 0.5–1` on a wall 2 m away. A typical light strip (Le ≈ 1–2, 0.25 m × 2 m = 0.5 m²) gives `Le·A/(π d²) ≈ 0.06` at the same distance, more than 10× dimmer. Large emitters (lava in 0-5, big screens) have 10–100× the area, though, and would blow out at ×10. The default of 4 is a compromise: a strip lights a nearby wall at a third to a half of a point light's brightness, and lava stays in range. **This is an estimate, not a measurement.** Calibrate it in 4-1 with `pt-direct` and the build log line, which prints the median and maximum Le luminance and the total emitter area.
 
-## Hybrid composite
+## Hybrid composite (removed 2026-11-19)
+
+History: the hybrid mode, its additive term and `EmissiveHybridAdd` (`hybridAdd`, `-ultrart-emissive-hybrid`) went on 2026-11-19.
 
 The hybrid's shadow ratio is shadowed / unshadowed of our own direct light (`g_DirectUnshadowed`). Emitter samples are in both sums the same way: unshadowed `c·W`, and shadowed only if the ray is clear. Emitters therefore add shadows in hybrid mode, through the same denoised ratio.
 
@@ -107,7 +109,7 @@ Brute force over every emissive triangle is not feasible. In Reference mode, eac
 
 ## Risks and limitations
 
-- **EmissiveLightScale and EmissiveHybridAdd were untested in the game when this was written.** See above. ("Emissive brightness" is in the settings menu since: [settings.md](settings.md).)
+- **EmissiveLightScale (and EmissiveHybridAdd, removed 2026-11-19) were untested in the game when this was written.** See above. ("Emissive brightness" is in the settings menu since: [settings.md](settings.md).)
 - **Statue orbs** are emitters too: orb fixtures get `EmitterMask`, and the orb's light lights its holders at x0.5 ([scene-proxies.md](scene-proxies.md), "Statue orbs"; [lighting-overrides.md](lighting-overrides.md)).
 - **Large emitters near receivers** (lava floors, wall-sized screens) are noisy, because uniform area sampling of a big triangle gives high variance close to it. The `minDistance` clamp (0.25 m) removes the worst fireflies at the cost of a little bias. Solid-angle sampling of the triangle would be the real fix. Lava emitters are split into pieces of at most 1 m2 (docs/lava.md).
 - **Runtime material changes** (swaps, property blocks) are followed by the hit shader and re-registered here (docs/scene-proxies.md, "Runtime material changes"); emission changes from property blocks at most once a second per proxy (the hit shader follows them every frame).
@@ -120,7 +122,7 @@ Brute force over every emissive triangle is not feasible. In Reference mode, eac
 
 ## Settings (`EmissiveLightSettings`)
 
-`enabled` (true), `lightScale` (4, EmissiveLightScale), `hybridAdd` (0.25, EmissiveHybridAdd), `share` (0.5), `referenceSamples` (4), `maxTriangles` (65535), `minRadiance` (0.02), `minDistance` (0.25 m), `importance` (true), `importanceRadius` (8 m), `uniformMix` (0.2), `rebuildDistance` (2 m), `bounceHitEmission` (false), `readbacksPerFrame` (2). All of them are read every frame. If `enabled` is switched on after a scene was built with it off, the next `Update` builds the list.
+`enabled` (true), `lightScale` (4, EmissiveLightScale), `share` (0.5), `referenceSamples` (4), `maxTriangles` (65535), `minRadiance` (0.02), `minDistance` (0.25 m), `importance` (true), `importanceRadius` (8 m), `uniformMix` (0.2), `rebuildDistance` (2 m), `bounceHitEmission` (false), `readbacksPerFrame` (2). All of them are read every frame. If `enabled` is switched on after a scene was built with it off, the next `Update` builds the list.
 
 ## Integration (Plugin.cs)
 
@@ -152,12 +154,11 @@ Brute force over every emissive triangle is not feasible. In Reference mode, eac
    _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount, _emissive.SetChanged);
    _emissive.Bind(_cmd, shader, _lightSamplingSettings.mode);
    ```
-   (Historical wiring recipe. Today `Plugin.cs` passes `_lightSampling.ActiveMode` to `_emissive.Bind`, because hybrid has its own mode, and `kind == Kind.Hybrid` to `_lightSampling.Bind`.)
+   (Historical wiring recipe. Today `Plugin.cs` passes `_lightSampling.ActiveMode` to `_emissive.Bind` (pathtrace under RR overrides the mode); the hybrid argument went with the mode on 2026-11-19.)
 7. Optional: arguments in `ParseArgs()`:
    ```csharp
    case "-ultrart-noemissive": _emissiveSettings.enabled = false; break;
    case "-ultrart-emissive-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.lightScale); break;
-   case "-ultrart-emissive-hybrid": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _emissiveSettings.hybridAdd); break;
    ```
    Also a hotkey in `OnUpdate()` (F5 was free then; plain F5 now toggles emissive lights, as built here) for A/B tests:
    ```csharp
@@ -263,7 +264,7 @@ The light's colour is that product, normalised so its brightest channel is 1.
 
 Candidates are scored by strength x size / (1 + d²/25), with a 1.5x bonus for last frame's picks. The best 16 are packed after the scene and spawned lights, with `packed[i] = null` and `ids[i] = renderer.GetInstanceID()` (through `LightSampling.VirtualIds`). Inactive emitters are checked only every 16th frame.
 
-**Hybrid.** `_Lights[i*4+3].w`, unused before, is now the hybrid weight: 0 for game lights and `hybridWeight` (1) for virtual ones. When ReSTIR's chosen visible sample is a weighted light, `g_DirectAdditive` gets its shadowed contribution x weight. PathTrace mode 3 adds that to the bounce channel exactly like `g_DirectEmissive`: the game draws no light for these effects, so hybrid adds it on top of the game's image. Like emitters, virtual lights also count in the shadow ratio.
+**Hybrid** (removed 2026-11-19; `_Lights[i*4+3].w` is 0 again, `hybridWeight` and `-ultrart-effect-hybrid` are gone). `_Lights[i*4+3].w`, unused before, was the hybrid weight: 0 for game lights and `hybridWeight` (1) for virtual ones. When ReSTIR's chosen visible sample is a weighted light, `g_DirectAdditive` gets its shadowed contribution x weight. PathTrace mode 3 adds that to the bounce channel exactly like `g_DirectEmissive`: the game draws no light for these effects, so hybrid adds it on top of the game's image. Like emitters, virtual lights also count in the shadow ratio.
 
 ## 3. Flame flicker
 
@@ -306,11 +307,11 @@ above the cup, the x2.5 burned 1-1's torch hall and 4-4's boss hall out in trail
 Not covered: a flame farther away than the tracked 48 keeps the game's light; candle piles are handed over to their
 texture (the handover rule), not driven.
 
-### Billboards in the emissive table (the literal version, tested 2026-11-18: no)
+### Billboards in the emissive table (the literal version, tested 2026-11-18: no; code removed 2026-11-19)
 
 `fx.flameBillboards=1` (one-sided) or `2` (two-sided), off by default: per flame on a game light, a camera-facing
 square of the flame's size joins the emissive triangle table with the light's output, and the light is off
-(`Plugin.FlameQuads.cs`). Run `20261118-153718_flame-quads` (1-1 stop 2, 4-3 stop 0; sheet `flame-quads.png`):
+(`Plugin.FlameQuads.cs`, removed 2026-11-19 with the `fx.flameBillboards` key; it is in git history before that). Run `20261118-153718_flame-quads` (1-1 stop 2, 4-3 stop 0; sheet `flame-quads.png`):
 
 | | hi% (game 2.7) | p95 | chroma | contrast | dark delta |
 |---|---|---|---|---|---|
@@ -439,10 +440,9 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | `-ultrart-noflicker` | `flicker` | on | |
 | `-ultrart-effect-scale x` | `intensityScale` | 4 | |
 | `-ultrart-effect-max n` | `maxVirtual` | 16 | |
-| `-ultrart-effect-hybrid x` | `hybridWeight` | 1 | |
 | `-ultrart-effectsurvey` | | off | the survey; it costs milliseconds per frame, so never measure with it on |
 
-Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5, `flameBillboards` 0 (test). Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
+Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5. Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
 
 In the bench, `Scenario.Effects` (`bench/README.md`, `bench/suites/effects.json`) spawns revolver beams, explosions, projectiles or pooled fires in front of the camera, both periodically and right before each screenshot.
 

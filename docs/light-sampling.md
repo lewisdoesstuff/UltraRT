@@ -1,10 +1,10 @@
-# Light sampling (RIS + temporal ReSTIR DI)
+# Light sampling (RIS; temporal ReSTIR DI until 2026-11-19)
 
 Direct lighting with a fixed number of shadow rays per pixel, independent of the light count.
 
 Files:
-- `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/UltraRTLights.hlsl`: the light model (moved out of `PathTrace.raytrace`), the reference `DirectAll`, RIS, reservoirs and temporal reuse. Included by `PathTrace.raytrace`.
-- `src/UltraRT/LightSampling.cs`: settings, the per-frame alias table and fill-light list, the light index remap between frames, and the ping-ponged reservoir buffers.
+- `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/UltraRTLights.hlsl`: the light model (moved out of `PathTrace.raytrace`), the reference `DirectAll` and RIS (the reservoirs and temporal reuse went with ReSTIR on 2026-11-19). Included by `PathTrace.raytrace`.
+- `src/UltraRT/LightSampling.cs`: settings, the per-frame alias table and fill-light list, and light-set change detection (until 2026-11-19 also the light index remap between frames and the ping-ponged reservoir buffers).
 
 ## Why
 
@@ -16,14 +16,20 @@ Files:
 |---|---|---|---|
 | `Reference` (0) | `DirectAll`: every light, one ray each | one uniformly picked light, ×N | lights in range + 1 |
 | `Ris` (1, default since 2026-11-15) | RIS over `risCandidates` (16), 1 ray | RIS over `bounceCandidates`, 1 ray | 1 + 1 |
-| `ReSTIR` (2) | RIS over `candidates` (8), then merged with the previous frame's reservoir, 1 ray | as `Ris` | 1 + 1 |
+| ~~`ReSTIR` (2)~~ | removed 2026-11-19; was RIS over `candidates` (8), then merged with the previous frame's reservoir, 1 ray | as `Ris` | 1 + 1 |
 
-Hybrid has its own `hybridMode` (ReSTIR, with the old visibility reuse and spatial reuse: its composite takes the
-shadowed / unshadowed ratio, docs/denoiser.md "Static noise"). `mode` (F6, the settings menu, `-ultrart-lights`, bench
-`lights=`) is every other view. Why RIS is the default: [Bias and noise](#bias-and-noise-2026-11-15).
+`mode` is set by F6 (cycles Reference / RIS), the settings menu, `-ultrart-lights ref|ris` and bench `lights=`. Why RIS is the default: [Bias and noise](#bias-and-noise-2026-11-15).
 The menu's config key is `Quality.LightSampler` (renamed from `LightSampling`, which pinned ReSTIR in existing configs).
+`candidates` (8) is still the count for the radiance cache's update and the other shaders bound through `BindTables`.
 
-`Reference` is the old code path: the same math and the same random sequence. Use it for A/B comparisons and as ground truth with `-ultrart-accumulate`. ReSTIR's temporal reuse is correlated across frames, so accumulating it converges to a slightly different (biased) image.
+### Removed: ReSTIR and the hybrid mode's sampler (2026-11-19)
+ReSTIR (`mode` 2) and the hybrid mode, whose own `hybridMode` used ReSTIR with the old visibility reuse and spatial reuse, were removed on 2026-11-19 ([cleanup-audit-2026-11-19.md](cleanup-audit-2026-11-19.md)). RIS had been the default since 2026-11-15 and measured unbiased and quieter (below). What went: the reservoir buffers (`_ReservoirPrev` / `_ReservoirCur`, so PathTrace has a free UAV slot), temporal and spatial reuse, visibility reuse and visibility memory, the light-change list and index remap, the occluded-history cap and re-test, fresh-pixel candidates, and the flags and bench keys for them (`-ultrart-restir-*`, `ls.historyLimit`, `ls.spatialSamples`, `ls.visibilityReuse`, `ls.visibilityMemory`, `ls.occludedHistory`, `ls.occludedRetest`, `ls.freshCandidates`, `ls.perPixelLightChange`, `ls.lightChangeKept`, ...). RIS output is unchanged by the removal (the same random sequence).
+
+Fallbacks: `-ultrart-lights restir` and bench `lights=restir` log a warning and use RIS; a config file holding `LightSampler = ReSTIR` is reset to the default (RIS) by BepInEx, because the default is the first acceptable value. Unknown `ls.<field>` bench keys only log a warning, as before.
+
+The sections from "Temporal reuse" to "Visibility memory" below describe ReSTIR and stay as its history.
+
+`Reference` is the old code path: the same math and the same random sequence. Use it for A/B comparisons and as ground truth with `-ultrart-accumulate`. (ReSTIR's temporal reuse was correlated across frames, so accumulating it converged to a slightly different, biased image.)
 
 ## Light model
 
@@ -49,7 +55,7 @@ Each pixel draws `candidates` (M, default 8) lights. Each candidate gets weight 
 Since 2026-11-18 (`t3/door-brightness`) the images come from one shared list (`Plugin.PortalViews()`): up to 3 portals
 deep, the 16 nearest, and the emissive triangles' importance uses them as well (docs/portals.md, section 9).
 
-## Temporal reuse
+## Temporal reuse (ReSTIR; removed 2026-11-19, history)
 
 **Reservoir buffer.** `ComputeBuffer` of `uint4` per pixel at trace resolution, ping-ponged: `_ReservoirPrev` is read as an SRV and `_ReservoirCur` is written as a UAV.
 
@@ -218,8 +224,8 @@ columns ran with the visibility memory on, which measured neutral at rest):
 **Default: RIS, 16 candidates.** Unbiased, quieter than either ReSTIR at every held pose (at the reference's level on
 0-1 metal and 1-4's penumbrae), the same in motion within the metric's spread. ReSTIR's samples persist for up to 20
 frames, which relight's temporal filter can't average away (slow boiling: high block sigma); RIS samples are
-independent from frame to frame and the filter averages them (docs/pt-plan.md 6.1 found the same for DLSS RR). 32
-candidates helped 8-2 a little and nothing else. ReSTIR stays available (F6, the menu, `lights=restir`) and may still
+independent from frame to frame and the filter averages them (docs/archive/pt-plan.md 6.1 found the same for DLSS RR). 32
+candidates helped 8-2 a little and nothing else. ReSTIR stayed available (F6, the menu, `lights=restir`) until its removal on 2026-11-19 and might still
 win where many lights compete per pixel (8-3's 100+ lights were not re-measured here).
 
 **8-2's umbra boil** ("8-2 building boil", the skylight room) is fixed by the same change, without the old trade-off:
@@ -242,7 +248,7 @@ disocclusions); in RIS mode the reservoir buffers (2 x 14.7 MB at 1280x720) are 
 `pathtrace`: under DLSS RR it already used RIS (`ptx.lightsRR`), unchanged. With its UltraRT-denoiser fallback it
 follows `mode`, so it gets RIS 16 too (unbiased instead of the old ReSTIR's bias).
 
-### Visibility memory (opt-in, `visibilityMemory`)
+### Visibility memory (opt-in, `visibilityMemory`; removed 2026-11-19)
 An attempt at a visibility-aware target for umbrae: per pixel, up to 3 lights with counts of their shadow-ray outcomes
 (4-bit visible / tested, halved at 16; Vbar = (visible + 1) / (tests + 2)), stored next to the reservoir (element 2i + 1
 of the reservoir buffers, still one UAV), reprojected and validated like a reservoir, light indices remapped. RIS and
@@ -258,7 +264,7 @@ by blocked lights. Off by default (in RIS mode it costs a reservoir buffer pair 
 
 ## Cost (estimated, not measured)
 
-Per pixel in `ReSTIR` mode:
+Since 2026-11-19 only RIS and Reference remain: RIS is as below without the reservoir read and write (measured cost of RIS against ReSTIR: [Bias and noise](#bias-and-noise-2026-11-15)). The original estimate, per pixel in `ReSTIR` mode:
 - 4 rays: primary, 1 shadow, bounce, 1 bounce shadow. The reference uses `2 + lights in range`.
 - `candidates + bounceCandidates + 1` light evaluations: 12 × (1 alias read + mask + up to 4 float4 reads).
 - 16-byte reservoir read and write, plus `fillCount` × 2 unshadowed evaluations.
@@ -290,7 +296,7 @@ Per pixel in `ReSTIR` mode:
    ```csharp
    _lightSampling.Bind(_cmd, shader, w, h, viewProj, _camera.transform.position, _packedLights, _lightData, _lightCount);
    ```
-   (Historical wiring recipe. The current call in `Plugin.cs` also passes `_emissive.SetChanged` and `kind == Kind.Hybrid`.)
+   (Historical wiring recipe. Since 2026-11-19 the call is `_lightSampling.Bind(_cmd, shader, camPos, _packedLights, _lightData, _lightCount)`: no reservoirs, so no size, matrices or mode flags.)
    `viewProj` is the existing local, `_camera.projectionMatrix * _camera.worldToCameraMatrix`, whose inverse is `_InvViewProj`. `w` and `h` are the dispatch size. `LightSampling` remembers its own previous `viewProj`, so there is nothing else to pass.
 5. Resets: call `_lightSampling?.Reset();` wherever `_denoiser?.Reset()` / `_denoiser.Reset()` is called:
    - `ResetScene()`, which also covers shader reload
@@ -301,7 +307,7 @@ Per pixel in `ReSTIR` mode:
    Resolution changes and mode switches are handled internally.
 6. Optional, for the bench and A/B: arguments in `ParseArgs()`:
    ```csharp
-   case "-ultrart-lights": // ref | ris | restir
+   case "-ultrart-lights": // ref | ris | restir (since 2026-11-19: ref | ris; restir warns and uses ris)
        switch ((Next() ?? "").ToLowerInvariant())
        {
            case "ref": case "reference": _lightSamplingSettings.mode = LightSamplingMode.Reference; break;
@@ -317,7 +323,7 @@ Per pixel in `ReSTIR` mode:
    if (Input.GetKeyDown(KeyCode.F6))
    {
        var s = _lightSampling.Settings;
-       s.mode = (LightSamplingMode)(((int)s.mode + 1) % 3);
+       s.mode = (LightSamplingMode)(((int)s.mode + 1) % 3); // % 2 since ReSTIR went (2026-11-19)
        _accumFrames = 0; _denoiser?.Reset();
        Logger.LogInfo($"Light sampling: {s.mode}");
    }
@@ -326,16 +332,17 @@ Per pixel in `ReSTIR` mode:
 7. Teardown, if the plugin ever disposes its buffers: `_lightSampling.Dispose();`.
 
 ### UAV budget
+Since 2026-11-19 light sampling adds no UAV (`_ReservoirCur` went with ReSTIR) and PathTrace binds 7. The rest of this subsection is the ReSTIR-era budget.
+
 Unity's RayTracingShader appears to allow at most 8 UAVs per `.raytrace`. A 9th makes `DispatchRays` fail. Light sampling adds exactly **one** UAV, `_ReservoirCur` (`RWStructuredBuffer<uint4>`). Everything else it binds is a read-only SRV: `_ReservoirPrev`, `_LightAlias`, `_FillLights` and `_LightRemap`. The ping-pong swaps which `ComputeBuffer` goes into each slot every frame. Keep the PathTrace total at 8 or fewer: with the main agent's 7 RW outputs plus `_ReservoirCur`, it is exactly 8. (Reflections kept it at 8 by packing albedo and emission into `_Surface` to make room for `_Reflection`; see docs/reflections.md.)
 
 ### Assumptions
-- `Bind` is called once per traced PathTrace frame, after `GatherLights()`, and the recorded commands run exactly once, in order. The reservoir ping-pong and the light-index history advance at record time.
+- `Bind` is called once per traced PathTrace frame, after `GatherLights()`, and the recorded commands run exactly once, in order. (The ReSTIR-era reservoir ping-pong and light-index history advanced at record time.)
 - `_packedLights[i]` is the `Light` whose data is at `_lightData[i*4 .. i*4+3]` for `i < _lightCount`. Entries past `_lightCount` are ignored.
 - The primary rays are the same as the denoiser's: through pixel centres via `_InvViewProj` (jittered only while accumulating).
 - `MaxLights` ≤ 65535, since light indices are 16 bits in the reservoir and the alias table.
 
 ## Known limitations / next steps
-- No true spatial pass. Doing one needs RayGen split into two dispatches, with the reservoirs and G-buffer written by the first.
 - The bounce uses plain RIS with no reuse. A light-tile or world-space grid of reservoirs would help when dim rooms are mostly bounce-lit.
 - The importance heuristic ignores the spot cone and frustum visibility. Culling each light's 2·range sphere against the frustum (for primary hits) would sharpen the source pdf in 8-3.
-- The biased 1/M combine. Pairwise MIS would remove the remaining edge bias at the cost of one extra target evaluation per reused reservoir, plus storing the history position.
+- Sample reuse (ReSTIR) was removed on 2026-11-19. If it comes back, it needs a visibility-correct scheme (see "Bias and noise"), pairwise MIS for the 1/M combine's edge bias, and ideally a true spatial pass (RayGen split into two dispatches).

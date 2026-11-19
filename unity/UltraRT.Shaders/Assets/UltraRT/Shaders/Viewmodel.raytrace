@@ -8,8 +8,7 @@
 //   specular  one reflection ray on glossy / metal materials (MaterialClasses), shaded like PathTrace's reflections
 // The viewmodel itself is not in the RTAS, so it never shadows the world or itself, and V1's third-person model (0x80)
 // is left out of every ray: it sits exactly where the first-person gun is.
-// Separate .raytrace: PathTrace is at Unity's 8-UAV limit. UAVs here: the four outputs below (_ReservoirCur in
-// UltraRTLights.hlsl is never referenced, so the compiler drops it).
+// Separate .raytrace (PathTrace's UAVs are nearly all taken). UAVs here: the four outputs below.
 #pragma max_recursion_depth 1
 
 #include "UltraRTCommon.hlsl"
@@ -19,8 +18,8 @@ RaytracingAccelerationStructure _Scene;
 #include "UltraRTPortals.hlsl" // TraceScene: bounce and reflection rays follow portals
 
 // Outputs, at half the G-buffer's resolution (full-screen sized; only the dispatched rectangle is written).
-RWTexture2D<float4> _VMLightOut;  // rgb lighting (lighting space; hybrid: the bounce channel), a = 1 traced this frame
-RWTexture2D<float4> _VMDirectOut; // hybrid: x shadowed, y unshadowed direct luminance (the shadow ratio); a = 1 valid
+RWTexture2D<float4> _VMLightOut;  // rgb lighting (lighting space), a = 1 traced this frame
+RWTexture2D<float4> _VMDirectOut; // x shadowed, y unshadowed direct luminance; a = 1 valid (the filter keeps luma moments in zw)
 RWTexture2D<float4> _VMReflOut;   // rgb reflected radiance (display units), a = 1 traced, 0 not reflective, -1 skipped (checkerboard)
 RWTexture2D<float4> _VMGeoOut;    // xyz world position - camera, w = 1 + index of the full-res pixel used (0 = none)
 
@@ -34,7 +33,6 @@ float4 _VMCamPos;      // xyz world position of the viewmodel camera
 float4 _CamPos;        // the main camera (radiance cache LOD, UltraRTCache.hlsl)
 float4 _VMRect;        // xy first half-res pixel of the dispatch, zw full-res G-buffer size
 float  _VMStamp;       // this frame's stamp in _VMGB2.w
-int    _VMMode;        // 0 full lighting (relight, pt-dn), 3 hybrid (bounce channel + shadow ratio)
 uint   _VMLightMask;   // lights reaching the viewmodel: union of these layers' culling-mask bits
 int    _VMDirectSamples; // RIS samples (one shadow ray each) per pixel
 int    _VMCheckerboard;  // 1: trace half the pixels per frame (alternating checkerboard); the filter fills the others
@@ -47,7 +45,6 @@ float  _PrimaryAmbient;
 float  _BounceAmbient;
 float  _LightScale;
 float  _EmissionScale;
-float  _GIStrength;
 float4 _ReflParams;      // as PathTrace: x enabled, y global specular weight, z global reflection strength, w min weight
 float  _ReflMaxRadiance;
 float4 _ReflCache;
@@ -139,16 +136,15 @@ float3 ReflectionHitLight(float3 hp, RayPayload h, float footprint, bool shadows
     float3 total = 0, indirect = 0;
     bool cached = false;
     if (_ReflCache.x > 0.5) cached = CacheLookup(hp, h.normal, total, indirect); // not && (no short-circuit in HLSL 2018)
-    float giW = _VMMode == 3 ? _GIStrength : 1.0;
     float3 light;
     if (cached && (_ReflCache.x > 1.5 || footprint >= CacheCellSize(CacheLevel(hp)) * _ReflCache.y))
-        light = total - indirect * (1.0 - giW);
+        light = total;
     else
     {
         [branch] if (shadows) light = DirectOne(hp, h.normal, PayloadLayer(h), rng);
         else if (cached) light = total - indirect;
         else light = FillLighting(hp, h.normal, PayloadLayer(h)) * _LightScale;
-        light += cached ? indirect * giW : 0.0;
+        light += cached ? indirect : 0.0;
     }
     return light + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
 }
@@ -243,7 +239,7 @@ void RayGen()
     {
         float3 specW;
         float keep;
-        SpecularTerms(mat, albedo, saturate(dot(n, -viewDir)), _ReflParams.yz, _VMMode == 3, specW, keep);
+        SpecularTerms(mat, albedo, saturate(dot(n, -viewDir)), _ReflParams.yz, specW, keep);
         reflective = dot(specW, float3(0.2126, 0.7152, 0.0722)) >= _ReflParams.w;
     }
 
@@ -262,10 +258,10 @@ void RayGen()
         return;
     }
 
-    // Direct light: fill lights plus RIS samples, each with one shadow ray. Unshadowed sum for the hybrid shadow ratio.
+    // Direct light: fill lights plus RIS samples, each with one shadow ray.
     g_VMNdlPow = max(_VMNdlPow, 1.0);
     float3 fill = FillLighting(pos, n, layer);
-    float3 sh = fill, un = fill, additive = 0;
+    float3 sh = fill, un = fill;
     int samples = clamp(_VMDirectSamples, 1, 4);
     for (int s = 0; s < samples; s++)
     {
@@ -277,11 +273,9 @@ void RayGen()
         {
             r.c *= g_ShadowTint;
             sh += r.c * W;
-            if ((r.light & ULTRART_EMISSIVE) != 0u) additive += r.c * (W * _EmissiveHybridAdd);
-            else additive += r.c * (W * LightHybridWeight(r.light));
         }
     }
-    sh *= _LightScale; un *= _LightScale; additive *= _LightScale;
+    sh *= _LightScale; un *= _LightScale;
     g_VMNdlPow = 1.0; // secondary hits: the world's light model
 
     // One cosine bounce, its hit lit from the radiance cache (all further bounces).
@@ -308,7 +302,7 @@ void RayGen()
     }
 
     float3 ambient = ToLight(_Ambient.rgb) * _PrimaryAmbient * RelightAmbientScale();
-    float3 lighting = _VMMode == 3 ? indirect + additive / max(_GIStrength, 1e-3) : sh + indirect + ambient;
+    float3 lighting = sh + indirect + ambient;
     lighting = max(lighting, 0.0); // also drops NaN
 
     float4 refl = float4(0, 0, 0, split ? -1.0 : 0.0);

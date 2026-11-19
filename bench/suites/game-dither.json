@@ -59,8 +59,6 @@
    },
    "Modes": [
     "off",
-    "hybrid",
-    "hybrid+plugin._outputDither=0",
     "pathtrace",
     "pathtrace+plugin._gameDither=1"
    ],

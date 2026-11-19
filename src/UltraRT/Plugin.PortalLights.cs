@@ -20,7 +20,7 @@ namespace UltraRT
         private bool _portalLights = false;
         private const int MaxPortalLightImages = 8;
         private readonly List<SceneProxies.PortalImage> _portalImages = new List<SceneProxies.PortalImage>();
-        private int _portalLightImages, _portalLightLogs, _portalLightLogged = -1;
+        private int _portalLightLogs, _portalLightLogged = -1;
 
         /// <summary>GatherLights, after the effect lights and before the air-only lights: the images of the player's lights.</summary>
         private void AppendPortalLightImages()
@@ -55,7 +55,6 @@ namespace UltraRT
                     }
                 }
             }
-            _portalLightImages = added;
             if (added != _portalLightLogged && _portalLightLogs < 40)
             {
                 _portalLightLogs++;

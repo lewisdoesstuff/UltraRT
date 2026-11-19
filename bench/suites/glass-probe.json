@@ -1,8 +1,0 @@
-{
- "Name": "glass-probe",
- "Note": "Branch t3/stained-glass: what the windows are (light census with directions, view probe, lit probe).",
- "Scenarios": [
-  { "Name": "1-4 pose 4", "Scene": "Level 1-4", "Path": { "Type": "static", "Approach": "../recordings/u1118-1-4-4.json", "Duration": 3, "Load": "checkpoint" }, "Modes": [ "off", "pathtrace" ], "Screenshots": [ 2 ] },
-  { "Name": "6-2 pose 2", "Scene": "Level 6-2", "Path": { "Type": "static", "Approach": "../recordings/u1118-6-2-2.json", "Duration": 3 }, "Modes": [ "off", "pathtrace", "pathtrace+shaft.beams=0" ], "Screenshots": [ 2 ] }
- ]
-}

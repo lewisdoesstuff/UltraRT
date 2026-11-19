@@ -29,7 +29,6 @@
       },
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [
@@ -81,7 +80,6 @@
       },
       "Modes": [
         "off",
-        "hybrid",
         "relight",
         "relight+refl=0"
       ],
@@ -100,7 +98,6 @@
       },
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [

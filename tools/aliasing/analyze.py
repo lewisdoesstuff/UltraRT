@@ -42,7 +42,7 @@ import numpy as np
 from PIL import Image
 
 HOLD, SLOW, FAST = 8, 12, 12
-MODES = ("off", "relight", "hybrid", "pathtrace")
+MODES = ("off", "relight", "pathtrace")
 LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
 
 

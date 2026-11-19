@@ -42,7 +42,7 @@ namespace UltraRT
         /// <summary>
         /// Eye lights (docs/light-sampling.md, "Eye lights"): a point light within 0.5 m of the camera (the game's player
         /// light, range 15, at the eye) can't cast a shadow on anything the camera sees, so it is evaluated like a fill light
-        /// (every hit, no shadow ray, not cut by relight's fill cut) instead of competing for ReSTIR's single sample. In dark
+        /// (every hit, no shadow ray, not cut by relight's fill cut) instead of competing for RIS's single sample. In dark
         /// areas near the player it took a large share of the samples; 3-1's walkway, lit through rib gaps by a far spot
         /// light, boiled. Bench: plugin._eyeLightsUnshadowed=0.
         /// </summary>

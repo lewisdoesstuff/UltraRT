@@ -60,7 +60,7 @@ A command buffer on the HUD camera at **AfterForwardOpaque**: after the game dre
    - **Materials:** emission as in `SceneProxies.Proxy`, sampled at the main texture's uv (`uv0 × _MainTex_ST`, as the game's Master shader does; it used `_EmissiveTex_ST` on top until 2026-11-15). `ULTRAKILL/Master` without `VERTEX_LIGHTING` is fullbright (lit weight 0). Reflection parameters come from `MaterialClassifier` and go into a small buffer (`_VMMaterials`, 2 float4 per material).
 2. **Rays (half resolution, `Viewmodel.raytrace`).** Each half-res pixel takes the first covered pixel of its 2×2 block and lights the world point where the gun really is: camera position + the stored offset. Lighting is computed like a PathTrace primary hit:
    - **Lights.** The lights that light the viewmodel are those whose culling mask includes layer 13 or the layer under the player. That layer comes from a 6 m physics raycast down; baked 6/7 map to 24/8. So the sun reaches the gun outdoors, and the RT shadow keeps it out indoors. `-ultrart-vm-lightmask HEX` overrides this.
-   - **Direct light:** fill lights plus `_VMDirectSamples` (1) RIS samples over the light and emissive tables (`RisCandidates`), each with one shadow ray. The unshadowed sum is kept for the hybrid ratio.
+   - **Direct light:** fill lights plus `_VMDirectSamples` (1) RIS samples over the light and emissive tables (`RisCandidates`), each with one shadow ray. The unshadowed sum (`_VMDirectOut`) feeds the filter's luma moments (it was also hybrid's ratio until 2026-11-19).
    - **Bounce:** one cosine ray, its hit lit from the radiance cache. A sky miss counts the full sky (`ULTRART_SKY_NO_NEE`: no separate sky sample).
    - **Reflection:** one ray on materials whose specular weight is worth it, using the same `SpecularTerms` and threshold as the world. By default it goes along the mirror direction (`_vmStableRefl`), with no GGX sample: stable, and the filter's blur stands in for roughness. The hit is shaded like PathTrace's reflections (cache by footprint, emission, sky).
    - **Masks:** the viewmodel is not in the RTAS. It never shadows the world or itself, and no ray sees V1's third-person model (0x80), which sits exactly where the first-person gun is.
@@ -78,7 +78,8 @@ A command buffer on the HUD camera at **AfterForwardOpaque**: after the game dre
    - **Bounds.** A small kernel measures the bounding rectangle of this frame's viewmodel pixels for the next frames (below).
 4. **Composite (`ViewmodelComposite.shader`, full resolution, scissored).** A pixel is replaced only where this frame's G-buffer covers it and the game's depth matches ours. The game's depth buffer is read directly; the composite binds only the colour target, so no copy is needed. Anything the game drew in front of the gun keeps the game's colour. Lighting is upsampled from the 4×4 half-res neighbourhood with bilinear × depth × normal weights, using viewmodel samples only (no halo from the world behind). Thin parts with no bilinear sample take the most similar neighbour.
    - **relight / pathtrace / pt-dn** (pass 0): `(albedo × lerp(1, lighting, lit) × keep + specW × refl) × exposure + emission`, then relight's tone curve. These are the same formulas, globals and auto-exposure buffer as the denoiser's Composite and RR's `Prepare`/`Finish`, so the gun sits in the world's exposure. The world's area colour match gain (docs/relight.md, "Area colour") is deliberately not applied: it corrects the tint of the area's surfaces, but the gun is lit by other light. In 7-3's red flashlight room the gain was (0.89, 1.24, 1.12), and applying it turned the flashlit gun cyan.
-   - **hybrid** (pass 1, `Blend One SrcAlpha`): `game colour × lerp(1, shadow ratio, lit) × keep + GI × albedo × bounce × lit × keep + specW × refl`, as `Composite.shader` does for world pixels. The shadow ratio is a luminance ratio, so the multiplier is a scalar alpha, and no copy of the game's colour is needed. `-ultrart-vm-hybrid off` / `[Viewmodel] Hybrid` leaves hybrid's viewmodel to the game.
+   - **HDR** (pass 1): pass 0 plus the late gain map write ("HDR displays" below; pass 2 until 2026-11-19).
+   - **hybrid** (removed 2026-11-19; was pass 1, `Blend One SrcAlpha`): `game colour × lerp(1, shadow ratio, lit) × keep + GI × albedo × bounce × lit × keep + specW × refl`, as `Composite.shader` does for world pixels. The shadow ratio is a luminance ratio, so the multiplier is a scalar alpha, and no copy of the game's colour is needed. `-ultrart-vm-hybrid off` / `[Viewmodel] Hybrid` leaves hybrid's viewmodel to the game.
 
 **Screen rectangle.** Renderer bounds alone are useless here: skinned arm bounds contain the camera, so the projected box is the whole screen. The CPU rectangle from bounds (corners behind the near plane are pulled onto it) is therefore intersected with the GPU-measured bounds of the last frames (async readback, typically 1–3 frames late), padded by 64 px. When the viewmodel touched the edge of the rectangle it was measured in, the CPU rectangle is used instead, so a punch or weapon switch that leaves the rectangle is caught the next frame. A typical revolver pose is 16 % of the screen.
 
@@ -87,7 +88,6 @@ A command buffer on the HUD camera at **AfterForwardOpaque**: after the game dre
 | Field | Default | Meaning |
 |---|---|---|
 | `_vmEnabled` | true | the pass; config `[Viewmodel] Enabled`, `-ultrart-viewmodel on\|off`, Ctrl+F7 |
-| `_vmHybrid` | true | also in hybrid; config `[Viewmodel] Hybrid`, `-ultrart-vm-hybrid` |
 | `_vmDebug` | 0 | 1 coverage (green = replaced, red = depth mismatch), 2 lighting, 3 albedo, 4 reflection, 5 history length; magenta = no lighting sample; `-ultrart-vm-debug N` |
 | `_vmSamples` | 1 | direct-light samples (shadow rays) per pixel; `-ultrart-vm-samples` |
 | `_vmCheckerboard` | true | split glossy pixels between diffuse and reflection rays; no shadow rays at secondary hits |
@@ -289,10 +289,10 @@ G-buffer after RR. Gun luma, pathtrace against relight with RR on: 1-1 start 93 
 was no seam or exposure jump between the gun and the RR world, so nothing needed changing. Cost is the same as in relight.
 
 ### HDR displays (2026-11-18)
-With HDR output on and a late gain map this frame (docs/hdr.md, "Effects and bloom"), the composite draws with pass 2:
+With HDR output on and a late gain map this frame (docs/hdr.md, "Effects and bloom"), the composite draws with pass 1 (pass 2 before hybrid's pass went on 2026-11-19):
 pass 0 unchanged, plus a UAV write of the gain of the gun's glowing parts (`HDREmissive`, `UltraRTHdrEmissive`) and the
 gun's own colour into the late map, so the charge pips go above paper white and the world's gain behind the gun can't
-leak onto it. Not in hybrid. The game's transparents on the gun (muzzle flash, charge sprites) stay at paper white.
+leak onto it. The game's transparents on the gun (muzzle flash, charge sprites) stay at paper white.
 
 ### Cost (`viewmodel-cost2`, `-Perf`, exclusive)
 

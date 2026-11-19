@@ -8,7 +8,7 @@ namespace UltraRT
     /// Effect lights wiring (EffectLights.cs, docs/emissive-lights.md "Effect lights"); kept out of Plugin.cs, which only
     /// calls <see cref="UpdateEffects"/> from OnUpdate and <see cref="AppendEffectLights"/> at the end of GatherLights.
     /// Flags: -ultrart-noeffectlights, -ultrart-nospawnedlights, -ultrart-novirtuallights, -ultrart-effect-scale x,
-    /// -ultrart-noflicker, -ultrart-effect-max n, -ultrart-effect-hybrid x, -ultrart-effectsurvey (diagnostic; costs ms).
+    /// -ultrart-noflicker, -ultrart-effect-max n, -ultrart-effectsurvey (diagnostic; costs ms).
     /// </summary>
     public partial class Plugin
     {
@@ -40,12 +40,11 @@ namespace UltraRT
                     case "-ultrart-noflicker": _effectSettings.flicker = false; break;
                     case "-ultrart-effect-scale": _effectSettings.intensityScale = F(_effectSettings.intensityScale); break;
                     case "-ultrart-effect-max": _effectSettings.maxVirtual = (int)F(_effectSettings.maxVirtual); break;
-                    case "-ultrart-effect-hybrid": _effectSettings.hybridWeight = F(_effectSettings.hybridWeight); break;
                 }
             }
             if (!_effectLightsEnabled) { _effectSettings.spawnedLights = false; _effectSettings.virtualLights = false; _effectSettings.flicker = false; }
             Logger.LogInfo($"Effect lights: spawned {(_effectSettings.spawnedLights ? "on" : "off")}, virtual {(_effectSettings.virtualLights ? "on" : "off")}, flicker {(_effectSettings.flicker ? "on" : "off")} " +
-                           $"(max {_effectSettings.maxVirtual}, scale {_effectSettings.intensityScale}, hybrid {_effectSettings.hybridWeight}){(_effectSurveyEnabled ? ", survey on" : "")}");
+                           $"(max {_effectSettings.maxVirtual}, scale {_effectSettings.intensityScale}){(_effectSurveyEnabled ? ", survey on" : "")}");
         }
 
         /// <summary>Every frame, from OnUpdate: drains the spawn queue (and runs the survey, if enabled).</summary>

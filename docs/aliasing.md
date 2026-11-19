@@ -39,11 +39,11 @@ Recommendation (non-temporal, as the user wants; details and costs in "What woul
 | Mode | Where a pixel's colour comes from | Temporal parts |
 |---|---|---|
 | `off` | The game's forward raster: one sample per pixel, point-filtered textures (mostly without mips), no MSAA, no AA pass | none |
-| `hybrid` | The game's raster, multiplied by a ray-traced lighting ratio (trace at 0.5, depth-matched 2x2 upsample) | denoiser on the ratio |
+| `hybrid` (removed 2026-11-19; measured below as history) | The game's raster, multiplied by a ray-traced lighting ratio (trace at 0.5, depth-matched 2x2 upsample) | denoiser on the ratio |
 | `relight` | Our own trace: primary hits at trace scale 0.5 on a 2x2 jitter cycle, rebuilt at screen resolution by the TAAU pass ([denoiser.md](denoiser.md), "Temporal upsampling"); textures from the exact hits | denoiser, TAAU (exact pixel-centre jitter, so it reconstructs pixel centres: no supersampling) |
 | `pathtrace` | Our own trace at 1/3 on the exact 3x3 jitter grid, denoised and upscaled by DLSS Ray Reconstruction; texels remodulated from exact hits ([dlss.md](dlss.md), "Exact jitter grid") | DLSS RR (its own history) |
 
-The game's raster is only the final image in `off` and `hybrid`. In `relight` and `pathtrace` the colour is traced, so
+The game's raster is only the final image in `off` (and was in `hybrid`). In `relight` and `pathtrace` the colour is traced, so
 whatever anti-aliases the game's raster (MSAA, a post AA run before our composite) never reaches those pixels: AA for
 them has to happen in our trace or after our composite.
 
@@ -59,7 +59,7 @@ own view mode (bench mode string, variants allowed), render mode, AA, samples an
 60 fps. The fast segment is still slower than a lot of play; it is where reprojection and history show.
 
 **Takes per pose:**
-- *Live*: `off`, `relight`, `hybrid`, `pathtrace` exactly as played (`Mode: live`: trace scale, denoiser, TAAU, DLSS RR
+- *Live*: `off`, `relight`, `pathtrace` (and `hybrid` until its removal on 2026-11-19; `tools/aliasing/make_suite.py` no longer writes it) exactly as played (`Mode: live`: trace scale, denoiser, TAAU, DLSS RR
   and their histories, after a 90-frame warm-up at the first pose), the whole path.
 - *AA reference*: each mode accumulated at full resolution (the offline renderer, [cinematics.md](cinematics.md)), 8
   Halton sub-pixel jitter positions x 16 frames = 128 samples per pixel (a box-filtered pixel); the game's own image
@@ -231,7 +231,7 @@ temporal reconstructions (TAAU in relight, RR in pathtrace); that is where their
 motion numbers above are what is left when history fails. The options below add anti-aliasing that holds in the first
 frame of a motion.
 
-### MSAA on the game's raster (helps `off` and `hybrid` only)
+### MSAA on the game's raster (helps `off` only since hybrid went on 2026-11-19)
 
 Feasibility, from the decompiled `PostProcessV2_Handler.SetupRTs` and the probe:
 - The game renders its world camera into an MRT it creates itself: `mainTex` (ARGB32), `reusableBufferA` (RG16, the
@@ -307,7 +307,7 @@ with the most effect on thin geometry is RR's trace scale, which is a cost quest
 ## Traps
 
 - **The offline renderer drops the game's fog in relight / pathtrace accumulations**: `TraceVolumetrics` applies it
-  only on the upsampled path (`applyGameFog = upsampled && kind != Kind.Hybrid`, `Plugin.Volumetrics.cs`), and an
+  only on the upsampled path (`applyGameFog = upsampled`, `Plugin.Volumetrics.cs`; it also excluded hybrid until 2026-11-19), and an
   accumulating render turns the upsampler off. Live takes have the fog. Every traced take of the aliasing suite runs
   with `vol.enabled=0` so that live and reference match. Cinematic renders of foggy levels (7-1) in `pathtrace` /
   `relight` accumulation lack the fog today; `live` renders (what the trailer uses) are fine.

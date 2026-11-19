@@ -31,7 +31,6 @@
     "relight+vol=0+ae.enabled=0+preset=static",
     "relight+vol=0+ae.enabled=0",
     "relight+vol=0+ae.enabled=0+dn.cacheSeed=1",
-    "relight+vol=0+ae.enabled=0+ls.freshCandidates=0",
     "relight+vol=0+ae.enabled=0+dn.freshSpread=1",
     "relight+vol=0+ae.enabled=0+preset=static"
    ]

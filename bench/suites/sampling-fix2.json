@@ -13,7 +13,6 @@
    "Modes": [
     "off",
     "relight+lights=ris",
-    "relight+lights=ris+ls.visibilityMemory=0",
     "relight",
     "relight+lights=ref"
    ],
@@ -26,9 +25,7 @@
    "BurstModes": [
     "off",
     "relight+vol=0+lights=ris",
-    "relight+vol=0+lights=ris+ls.visibilityMemory=0",
     "relight+vol=0+lights=ris",
-    "relight+vol=0+lights=ris+ls.visibilityMemory=0",
     "relight+vol=0",
     "relight+vol=0+lights=ris+ls.risCandidates=32"
    ]
@@ -44,7 +41,6 @@
    "Modes": [
     "off",
     "relight+lights=ris",
-    "relight+lights=ris+ls.visibilityMemory=0",
     "relight",
     "relight+lights=ref"
    ],
@@ -57,9 +53,7 @@
    "BurstModes": [
     "off",
     "relight+vol=0+lights=ris",
-    "relight+vol=0+lights=ris+ls.visibilityMemory=0",
     "relight+vol=0+lights=ris",
-    "relight+vol=0+lights=ris+ls.visibilityMemory=0",
     "relight+vol=0",
     "relight+vol=0+lights=ris+ls.risCandidates=32"
    ]
@@ -76,7 +70,6 @@
    "Modes": [
     "off",
     "relight+lights=ris",
-    "relight+lights=ris+ls.visibilityMemory=0",
     "relight",
     "relight+lights=ref"
    ],
@@ -89,9 +82,7 @@
    "BurstModes": [
     "off",
     "relight+vol=0+lights=ris",
-    "relight+vol=0+lights=ris+ls.visibilityMemory=0",
     "relight+vol=0+lights=ris",
-    "relight+vol=0+lights=ris+ls.visibilityMemory=0",
     "relight+vol=0",
     "relight+vol=0+lights=ris+ls.risCandidates=32"
    ]

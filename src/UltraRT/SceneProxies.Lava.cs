@@ -29,7 +29,7 @@ namespace UltraRT
         public int maxTrianglesPerSurface = 6000;
         /// <summary>-ultrart-lava-camera: in the replace modes (relight, pt-dn, pt) camera rays stop at the lava and see this
         /// fraction of its emission instead of the RT-lit floor under it; the game's additive lava is drawn on top. 0 = they
-        /// pass through (always so in hybrid, where the game's floor colour is kept).</summary>
+        /// pass through.</summary>
         public float cameraGlow = 0.8f;
     }
 

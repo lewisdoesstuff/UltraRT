@@ -8,7 +8,7 @@ namespace UltraRT
     /// Per-texel material detail wiring (docs/materials.md, MaterialMaps.cs). Plugin.cs only has one-line hooks:
     /// ParseMaterialArgs (Awake) and MaterialsUpdate (OnUpdate).
     ///   -ultrart-materials on|off (config [Materials] Enabled), -ultrart-materials-source ai|proc (config [Materials] Source),
-    ///   -ultrart-materials-normal F, -ultrart-materials-hybrid-normal F, -ultrart-materials-roughness F, -ultrart-materials-guided on|off,
+    ///   -ultrart-materials-normal F, -ultrart-materials-roughness F,
     ///   -ultrart-materials-lod on|off (config [Materials] TextureLod), -ultrart-materials-lod-bias F (config [Materials] LodBias),
     ///   -ultrart-materials-toksvig F, -ultrart-materials-albedo-lod on|off. Ctrl+F1 toggles in game.
     /// </summary>
@@ -23,7 +23,6 @@ namespace UltraRT
             s.source = Config.Bind("Materials", "Source", "ai",
                 "Which generated set to use: ai (PBRify Remix) or proc (procedural). Overridden by -ultrart-materials-source.").Value;
             s.normalStrength = Config.Bind("Materials", "NormalStrength", 1f, "Multiplier on the per-class normal strength (relight, pt-dn, pt). Default 1 since 2026-11-17 (was 2: too bumpy under DLSS RR).").Value;
-            s.hybridNormalStrength = Config.Bind("Materials", "HybridNormalStrength", 1f, "Multiplier on the per-class normal strength in hybrid.").Value;
             s.smooth = Config.Bind("Materials", "NormalSmoothing", 1f, "0-1 (default 1 since 2026-11-17; 0 = the maps as generated): pulls each texel's normal towards the average of its 3x3 neighbourhood when the maps are loaded, against fragments inside bricks (docs/materials.md, \"Matrix\"). Read when a level loads. Overridden by -ultrart-materials-smooth.").Value;
             s.roughness = Config.Bind("Materials", "Roughness", 1f, "Multiplier on the per-class roughness variation.").Value;
             s.lod = Config.Bind("Materials", "TextureLod", true,
@@ -44,23 +43,22 @@ namespace UltraRT
             {
                 string Next() => i + 1 < args.Length ? args[++i] : "";
                 float F(float d) => float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : d;
+                bool On() { var v = Next().ToLowerInvariant(); return v != "off" && v != "0" && v != "false"; }
                 switch (args[i].ToLowerInvariant())
                 {
-                    case "-ultrart-materials": s.enabled = Next() != "off"; break;
+                    case "-ultrart-materials": s.enabled = On(); break;
                     case "-ultrart-materials-source": s.source = Next(); break;
                     case "-ultrart-materials-smooth": s.smooth = F(s.smooth); break;
                     case "-ultrart-materials-normal": s.normalStrength = F(s.normalStrength); break;
-                    case "-ultrart-materials-hybrid-normal": s.hybridNormalStrength = F(s.hybridNormalStrength); break;
                     case "-ultrart-materials-roughness": s.roughness = F(s.roughness); break;
-                    case "-ultrart-materials-guided": s.guidedPick = Next() != "off"; break;
-                    case "-ultrart-materials-lod": s.lod = Next() != "off"; break;
+                    case "-ultrart-materials-lod": s.lod = On(); break;
                     case "-ultrart-materials-lod-bias": s.lodBias = F(s.lodBias); break;
                     case "-ultrart-materials-toksvig": s.toksvig = F(s.toksvig); break;
-                    case "-ultrart-materials-albedo-lod": s.albedoLod = Next() != "off"; break;
+                    case "-ultrart-materials-albedo-lod": s.albedoLod = On(); break;
                     case "-ultrart-lit-unlit": u.fullbright = false; break; // relight unlit materials (the old look)
                     case "-ultrart-enemy-lit": u.enemy = F(u.enemy); break;
                     case "-ultrart-enemy-types": u.enemyTypes = Next(); break;
-                    case "-ultrart-lit-rules": u.rules = Next() != "off"; break;
+                    case "-ultrart-lit-rules": u.rules = On(); break;
                     case "-ultrart-glass-gain": SceneProxies.Glass.gain = F(SceneProxies.Glass.gain); break;
                     case "-ultrart-glass-extra":
                     {
@@ -100,8 +98,7 @@ namespace UltraRT
                 }
             }
             catch (InvalidOperationException) { /* legacy input disabled */ }
-            float normal = Modes[_mode].kind == Kind.Hybrid ? s.hybridNormalStrength : s.normalStrength;
-            Shader.SetGlobalVector(MaterialMaps.GlobalId, new Vector4(s.enabled ? 1f : 0f, normal, s.roughness, s.enabled && s.guidedPick ? 1f : 0f));
+            Shader.SetGlobalVector(MaterialMaps.GlobalId, new Vector4(s.enabled ? 1f : 0f, s.normalStrength, s.roughness, 0f));
             // Texture LOD (Proxy.shader, PathTrace.raytrace; docs/materials.md "Texture LOD"): x detail LOD on, y bias
             // (mips), z grazing-angle stretch exponent, w secondary-hit albedo LOD on; _UltraRTTexLod2.x the slope variance
             // that becomes roughness (0 with LOD off), y the cone spread a diffuse bounce adds.

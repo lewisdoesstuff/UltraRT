@@ -101,31 +101,6 @@
       "Seconds": 0.001
      },
      {
-      "Name": "hybrid",
-      "Mode": "live",
-      "View": "hybrid+vol.enabled=0",
-      "Start": 0,
-      "Seconds": 0.5333333333333333
-     },
-     {
-      "Name": "hybrid-ref",
-      "Mode": "current",
-      "View": "hybrid+vol.enabled=0",
-      "Aa": 8,
-      "Samples": 16,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.4
-     },
-     {
-      "Name": "hybrid-ref1",
-      "Mode": "current",
-      "View": "hybrid+vol.enabled=0",
-      "Aa": 1,
-      "Samples": 128,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.001
-     },
-     {
       "Name": "pathtrace",
       "Mode": "live",
       "View": "pathtrace+vol.enabled=0",
@@ -247,31 +222,6 @@
       "Name": "relight-ref1",
       "Mode": "current",
       "View": "relight+vol.enabled=0",
-      "Aa": 1,
-      "Samples": 128,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.001
-     },
-     {
-      "Name": "hybrid",
-      "Mode": "live",
-      "View": "hybrid+vol.enabled=0",
-      "Start": 0,
-      "Seconds": 0.5333333333333333
-     },
-     {
-      "Name": "hybrid-ref",
-      "Mode": "current",
-      "View": "hybrid+vol.enabled=0",
-      "Aa": 8,
-      "Samples": 16,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.4
-     },
-     {
-      "Name": "hybrid-ref1",
-      "Mode": "current",
-      "View": "hybrid+vol.enabled=0",
       "Aa": 1,
       "Samples": 128,
       "Start": 0.13333333333333333,
@@ -416,31 +366,6 @@
       "View": "relight+vol.enabled=0+mat.toksvig=3",
       "Start": 0,
       "Seconds": 0.5333333333333333
-     },
-     {
-      "Name": "hybrid",
-      "Mode": "live",
-      "View": "hybrid+vol.enabled=0",
-      "Start": 0,
-      "Seconds": 0.5333333333333333
-     },
-     {
-      "Name": "hybrid-ref",
-      "Mode": "current",
-      "View": "hybrid+vol.enabled=0",
-      "Aa": 8,
-      "Samples": 16,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.4
-     },
-     {
-      "Name": "hybrid-ref1",
-      "Mode": "current",
-      "View": "hybrid+vol.enabled=0",
-      "Aa": 1,
-      "Samples": 128,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.001
      },
      {
       "Name": "pathtrace",
@@ -595,31 +520,6 @@
       "View": "relight+vol.enabled=0+mat.toksvig=3",
       "Start": 0,
       "Seconds": 0.5333333333333333
-     },
-     {
-      "Name": "hybrid",
-      "Mode": "live",
-      "View": "hybrid+vol.enabled=0",
-      "Start": 0,
-      "Seconds": 0.5333333333333333
-     },
-     {
-      "Name": "hybrid-ref",
-      "Mode": "current",
-      "View": "hybrid+vol.enabled=0",
-      "Aa": 8,
-      "Samples": 16,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.4
-     },
-     {
-      "Name": "hybrid-ref1",
-      "Mode": "current",
-      "View": "hybrid+vol.enabled=0",
-      "Aa": 1,
-      "Samples": 128,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.001
      },
      {
       "Name": "pathtrace",

@@ -7,7 +7,7 @@
 #define ULTRART_RAY_CAMERA 0u        // camera rays (portal segments included)
 #define ULTRART_RAY_SHADOW 1u        // light visibility (LightVisible)
 #define ULTRART_RAY_PLAYER_SHADOW 2u // V1-only shadow rays (player shadow split)
-#define ULTRART_RAY_BOUNCE 3u        // diffuse bounces (hybrid bounce, pathtrace's cosine segments)
+#define ULTRART_RAY_BOUNCE 3u        // diffuse bounces (relight's bounce, pathtrace's cosine segments)
 #define ULTRART_RAY_REFLECTION 4u    // reflection and specular-lobe segments
 #define ULTRART_RAY_TRANSPARENT 5u   // water and glass along the camera ray
 #define ULTRART_RAY_EFFECTS 6u       // glowing effects along a specular ray
@@ -30,16 +30,14 @@ static uint g_RayKind;
 //   emissionHalf  emission rgb as 3 halves (PayloadEmission; every consumer stores it as half anyway)
 //   motion     packed world-space motion of the hit (PackMotion) when the caller set ULTRART_PAYLOAD_WANT_MOTION, else 0
 //   material   packed roughness / metalness / f0 / specular weight (UltraRTMaterial.hlsl, PackMaterialWord)
-//   uvHalf     half(uv.x) | half(uv.y) << 16: debug views only (was float2 uv). Hybrid primary hits with the game's
-//              cubemap: its term C (rgb unorm8) | keep factor k << 24 (UltraRTMaterial.hlsl).
+//   uvHalf     half(uv.x) | half(uv.y) << 16: debug views only (was float2 uv).
 //   primitive  PrimitiveIndex(): debug views only. Primary hits (ULTRART_PAYLOAD_WANT_MOTION) with a per-texel detail
-//              normal (ULTRART_FLAG_DETAIL): bits 0-23 the interpolated vertex normal (PackOct24); bits 24-31 the game
-//              cubemap's lighting contribution (with ULTRART_FLAG_GAMECUBE).
+//              normal (ULTRART_FLAG_DETAIL): bits 0-23 the interpolated vertex normal (PackOct24).
 //   flags      bit 0: vertex normals missing (geometric normal used); bits 1-2: reflection mode; bit 3: `normal` is a
 //              per-texel detail normal (docs/materials.md); bits 8-15: original layer; bits 16-23: reflection strength
 //              (unorm8); bits 24-28: material class (see UltraRTMaterial.hlsl); bits 4-5: transparent surface kind (water / glass
 //              / blood proxies under mask 0x10: 1 glass, 2 water, 3 blood; ULTRART_FLAG_TRANSPARENT_*).
-//              In (ray gen -> hit): bit 30 = ULTRART_PAYLOAD_WANT_MOTION, bit 31 = ULTRART_FLAG_GAMECUBE (UltraRTMaterial.hlsl)
+//              In (ray gen -> hit): bit 30 = ULTRART_PAYLOAD_WANT_MOTION (bit 31 was the hybrid mode's game-cubemap request)
 struct RayPayload
 {
     float3 albedo;

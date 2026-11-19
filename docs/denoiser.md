@@ -62,9 +62,11 @@ ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has 
 
   | Mode | Denoiser input | Seed |
   |---|---|---|
-  | hybrid, main | bounce only (PathTrace `_Mode` 3) | cache `indirect` + 0.5 · ambient |
-  | pt-dn, relight, dn-* | full lighting (`_Mode` 0) | cache `total` + primary ambient + 0.5 · ambient |
-  | hybrid, direct | shadowed/unshadowed luminance pair | none |
+  | pt-dn, relight, dn-*, pathtrace without RR | full lighting (`_Mode` 0) | cache `total` + primary ambient + 0.5 · ambient |
+
+  Until 2026-11-19 the hybrid mode had two more rows: its main instance denoised the bounce only (PathTrace `_Mode` 3,
+  seeded from the cache's `indirect`), and a second instance denoised its shadowed/unshadowed luminance pair (no seed).
+  Both went with the hybrid mode; there is one denoiser instance since.
 
   "ambient" is PathTrace's `_Ambient · RelightAmbientScale()`. The 0.5 · ambient term stands in for the bounce-hit ambient (`albedo · ambient`), which the cache leaves out, using a typical albedo of 0.5. The seed is off when the cache is off or its mode is `Off`.
 
@@ -77,6 +79,10 @@ ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has 
 **Debug view `dn-boost`** (`DenoiserDebugView.SpatialBoost`, near the end of the Page Up/Page Down list, before `motion`), drawn over a dim grey image: **red** is pre-blur strength, **green** the cache seed weight, **blue** history recovered by the 3x3 search, and **white** a firefly clamped by more than 10%. While sliding, expect a red band along the leading edge that fades within 8 frames, green over most of it (indirect light near the camera), and blue specks along silhouettes. `dn-history` still shows the history length.
 
 ## Static noise
+
+*History (2026-11-14/15): the hybrid rows and the ReSTIR features below (hybrid spatial reuse, fresh-pixel candidates,
+per-pixel light-change history) went with the hybrid mode and ReSTIR on 2026-11-19; RIS has been the default sampler
+since 2026-11-15 ([light-sampling.md](light-sampling.md)). The denoiser features are current.*
 
 A still image in relight (and less so in hybrid) used to boil: the lighting kept changing on surfaces that should have converged. Measured with bench noise bursts (bench/README.md, "Temporal noise bursts"): the per-pixel σ of screen luma (0–255) over 64 frames, over the pixels the game itself keeps still, plus the σ of 8-frame means ("block"), which is what still shows at 360 Hz.
 
@@ -194,14 +200,14 @@ V1's third-person model casts shadows (docs/reflections.md, section 13), but whi
 
 Tried first and not kept: a targeted anti-lag (`moverAntilag`, the anti-lag test with its own parameters within 2 px of a pixel whose light sample crossed a moving object's box). The cut pixels went back to the fresh-pixel path (pre-blur, wider à-trous, and the cache seed, which never holds the player's shadow), so the shadow got weaker still (shadow contrast in the strip 0.11 against 1.0 without it). It stays available, off (`dn.moverAntilag`).
 
-**What changed: the player's shadow is kept out of the denoised signal** (relight, pt-dn and the dn-* views; hybrid and the raw pt modes keep the old path):
-1. PathTrace's final direct-light shadow ray ignores V1 (`_UltraRTPlayerSplit`), so the denoised lighting and ReSTIR's reuse never see V1's shadow: no lag, no trail.
+**What changed: the player's shadow is kept out of the denoised signal** (relight, pt-dn and the dn-* views; the raw pt modes keep the old path, as hybrid did until 2026-11-19):
+1. PathTrace's final direct-light shadow ray ignores V1 (`_UltraRTPlayerSplit`), so the denoised lighting (and, until 2026-11-19, ReSTIR's reuse) never sees V1's shadow: no lag, no trail.
 2. Where the sample's segment crosses V1's bounds (`_UltraRTPlayerModelMin/Max`), the light is visible and it is not the player's own (the player-light flag, or the player box for emitters; docs/reflections.md, "Level lights near the head, and the shadow split"), one more ray against V1 alone (mask 0x80, accept-first-hit) tells whether V1 blocks it. The light it blocks becomes a factor, `1 - blocked / lighting`, written to `_Radiance.a` (nothing else read it).
 3. Temporal filters that factor separately: a 5x5 same-surface mean (inner 3x3 weight 1, outer ring 0.5), blended 0.5 with its own history on the same reprojection footprint (`_playerF[2]`, RHalf), so it follows within a frame or two. Composite multiplies it into the filtered lighting. Where V1 is not involved the factor is 1 and the image is unchanged.
 
 The extra ray is only traced for pixels whose light sample passes V1's box (the area its shadow can fall on). Bounce rays still see V1 (its occlusion of bounce light is small and stays in the filtered signal). Enemies and other moving objects are not split (they have no mask bit of their own); for them only the ReSTIR part applies: occluded history whose sample crosses a moving object's box is dropped (docs/light-sampling.md, "Moving occluders").
 
-Settings: `plugin._playerSplit` (true; 0 = the old path), `dn.playerShadowBlend` (0.5; 0 = ignore the factor), `plugin._movers` (moving-object boxes for ReSTIR), `dn.moverAntilag` (0).
+Settings: `plugin._playerSplit` (true; 0 = the old path), `dn.playerShadowBlend` (0.5; 0 = ignore the factor), `plugin._movers` (moving-object boxes; ReSTIR used them until 2026-11-19), `dn.moverAntilag` (0).
 
 **Results** ("0-2 v1 shadow walk", the user's recording of walking left and right at about 12 m/s with a light behind; motion replay, 96 frames at 360 Hz after 120 settle frames, `bench/suites/noise-pm-check.json` and `noise-pm-final.json`). Strip frames `0-2_v1_shadow_walk_motion_2.0s_<mode>_f88..f95.jpg` in the run folders:
 - Before: the denoised image shows at most a faint blob where the shadow was; the raw direct light (`pt-direct+relight`) has a crisp shadow in the same frames. A held screenshot (the bench holds the pose) shows the full shadow, which is why the problem never showed in bench screenshots.
@@ -221,13 +227,13 @@ The 0-2 run pays most (+0.28 ms): the player is in view of lit floors all the ti
 
 ## Presets and Ctrl+F3
 
-Ctrl+F3 cycles `DenoiserPreset` on both denoiser instances (`Plugin.ApplyStabilityPreset`, also used by the bench's `preset=` variant):
+Ctrl+F3 cycles `DenoiserPreset` on the denoiser (two instances until hybrid's went on 2026-11-19; `Plugin.ApplyDenoiserPreset`, also used by the bench's `preset=` variant):
 - **Full**: everything above and [Motion noise](#motion-noise).
-- **Static**: the build before the motion-noise work: cache seed 1, the normal à-trous footprint for young pixels, no extra ReSTIR candidates for fresh pixels (and the optional anti-lag and per-pixel light-change history off).
-- **Previous**: the build before the static-noise work. alphaMin 0.1 per frame, 32 frames, no variance floor, no stabilisation, no guard band, no hybrid spatial reuse; the four stability features stay on (motion features off, as in Static).
+- **Static**: the build before the motion-noise work: cache seed 1, the normal à-trous footprint for young pixels, no extra ReSTIR candidates for fresh pixels (and the optional anti-lag and per-pixel light-change history off; the ReSTIR parts are moot since ReSTIR went on 2026-11-19, so Static and Full now differ in denoiser fields only).
+- **Previous**: the build before the static-noise work. alphaMin 0.1 per frame, 32 frames, no variance floor, no stabilisation, no guard band, no hybrid spatial reuse (gone with hybrid); the four stability features stay on (motion features off, as in Static).
 - **Legacy**: Previous without the stability features, i.e. plain SVGF.
 
-`-ultrart-dn-static`, `-ultrart-dn-previous` and `-ultrart-dn-legacy` start in those presets (denoiser fields only). Individual flags: `-ultrart-dn-alpha A`, `-ultrart-dn-spatialvar K`, `-ultrart-dn-nostabilize`, `-ultrart-dn-stabilize-alpha A`, `-ultrart-dn-stabilize-sigma K`, `-ultrart-guard X [Y]`, `-ultrart-restir-spatial N`, `-ultrart-restir-spatial-hybrid N`.
+`-ultrart-dn-static`, `-ultrart-dn-previous` and `-ultrart-dn-legacy` start in those presets (denoiser fields only). Individual flags: `-ultrart-dn-alpha A`, `-ultrart-dn-spatialvar K`, `-ultrart-dn-nostabilize`, `-ultrart-dn-stabilize-alpha A`, `-ultrart-dn-stabilize-sigma K`, `-ultrart-guard X [Y]` (`-ultrart-restir-spatial N` and `-ultrart-restir-spatial-hybrid N` went with ReSTIR on 2026-11-19).
 
 **Not the denoiser**: in 1-1's start area, the tree canopies and grass are the game's own animated foliage, drawn over the RT image. The thin wires against the sky used to flicker because of the half-resolution depth-guided upsample; the [temporal upsampler](#temporal-upsampling) fixes that in the replace modes.
 
@@ -268,7 +274,7 @@ Identical modes vary by about ±0.1 σ between bursts (butterflies, birds), so e
 
 ## Motion vectors
 
-Every temporal consumer reprojects a moving surface point from where it was last frame: this denoiser (both instances), ReSTIR's temporal reuse (`UltraRTLights.hlsl`, `g_PrimaryMotion`) and the reflection history (`Reflections.compute`, surface and virtual point). The disocclusion tests (plane, normal, instance) compare the history against `p + motion`, so an enemy keeps its history while it walks and the wall it uncovers is rejected.
+Every temporal consumer reprojects a moving surface point from where it was last frame: this denoiser, ReSTIR's temporal reuse until 2026-11-19 (`UltraRTLights.hlsl`, `g_PrimaryMotion`) and the reflection history (`Reflections.compute`, surface and virtual point). The disocclusion tests (plane, normal, instance) compare the history against `p + motion`, so an enemy keeps its history while it walks and the wall it uncovers is rejected.
 
 **What is stored.** PathTrace's primary ray asks the hit shader for motion (payload `flags` bit 30 in, packed motion out in the payload's `motion` dword; other rays and DebugView get 0). To make room within the 64-byte payload, emission travels as 3 halves (`emissionHalf`, `PayloadEmission()`), the precision every consumer stores it at anyway; `uvHalf` / `primitive` stay free for reflections' game-cubemap term on hybrid primary rays. The hit shader returns `prevWorld − curWorld` of the hit point, packed into one 32-bit word with a shared exponent (`PackMotion`: 3 × sign + 8-bit magnitude, 5-bit exponent; error ≤ max|d|/255, 0 = static). PathTrace writes it to `_InstanceId.y`: the instance texture is now `RGInt` (x unchanged). No 9th UAV, the payload stays 64 bytes, and readers that declare `Texture2D<int>` still see the instance in x.
 
@@ -334,7 +340,7 @@ All of these are enableRandomWrite and point filtered. At 1280x720 they total ab
 | freshSpread / freshSpreadFrames | 2 / 8 | À-trous step multiplier for pixels with no history, fading out at this history length. 1 = off. `-ultrart-dn-fresh-spread K` ([Motion noise](#motion-noise)) |
 | antilag / antilagTolerance / antilagMinLength | 0 / 0.15 / 8 | Anti-lag for changing lights: history shortened where the 5x5 input mean leaves the history by more than this many standard errors plus the relative tolerance, never below the minimum length. 0 = off. `-ultrart-dn-antilag K` |
 
-Other flags: `-ultrart-dn-noclamp` (clampHistory = false), `-ultrart-dn-iterations N`. Flags apply to both instances (main and hybrid's direct). They are read when a `Denoiser` is constructed; Plugin keeps the main instance's settings across F9 reloads.
+Other flags: `-ultrart-dn-noclamp` (clampHistory = false), `-ultrart-dn-iterations N`. Flags apply to the denoiser (to both instances, main and hybrid's direct, until 2026-11-19). They are read when a `Denoiser` is constructed; Plugin keeps the main instance's settings across F9 reloads.
 
 ## Cost (estimated, before the static-noise work; measured totals are in [Static noise](#static-noise))
 
@@ -397,6 +403,5 @@ There is no need to call it for camera motion or resolution changes. The denoise
 - The history clip uses a 1 spp neighbourhood, so it is loose by design. Fast lighting changes, such as muzzle flashes or toggled lights, take a few frames to settle (about `1/alphaMin` frames at worst; the optional anti-lag cuts that to about 8 at the price of more noise, see [Motion noise](#motion-noise)). An A-SVGF gradient pass would fix this properly.
 - Reprojection is bilinear, so the history is resampled slightly every frame while the camera moves. Lighting is smooth enough that this is hard to see, but it does slightly soften shadow edges in motion.
 - Screen-edge disocclusions beyond the [guard band](#guard-band) (fast vertical turns, or turns faster than the band covers) have no history at all. They start from the pre-blur (4 px radius at trace resolution), the cache seed (4 virtual samples), 32 ReSTIR candidates and a doubled à-trous footprint ([Motion noise](#motion-noise)), so they are softer than converged regions for the first few frames and still about twice as noisy. Raise `boostRadius` only together with the tile apron (`APRON` in Denoise.compute; groupshared cost grows quadratically).
-- Hybrid's disocclusions barely improved with the motion work: its fresh-pixel noise is the one-ray visibility of the shadowed/unshadowed ratio, which more candidates and the bounce channel's cache seed don't touch.
 - The cache seed is biased wherever the cache and the input disagree by less than the consistency tolerance: at most about `cacheSeedTolerance` (50%) of the value, only for the first frames, and fading as `boost` does. The channel/offset table above is an approximation of what PathTrace adds; check `dn-boost`'s green against `-ultrart-dn-cache 0` in rooms with strong ambient.
 - Instance ids are compared modulo 128, and the normal is quantised to 12-bit octahedral components.

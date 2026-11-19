@@ -51,9 +51,7 @@
     "relight+vol=0+lights=ref",
     "relight+vol=0",
     "relight+vol=0+cache=off",
-    "relight+vol=0+ls.occludedHistory=0",
     "relight+vol=0+ls.candidates=32",
-    "relight+vol=0+ls.historyLimit=4",
     "relight+vol=0+lights=ris"
    ]
   },

@@ -63,7 +63,7 @@ if (-not $SkipPlugins) {
     $props = @()
     if ($explicitGameDir) { $props += "/p:GameDir=$GameDir" }
     if ($NoDeploy) { $props += '/p:Deploy=false' }
-    foreach ($proj in 'src\UltraRT.Probe\UltraRT.Probe.csproj', 'src\UltraRT.Preload\UltraRT.Preload.csproj', 'src\UltraRT\UltraRT.csproj') {
+    foreach ($proj in 'src\UltraRT.Preload\UltraRT.Preload.csproj', 'src\UltraRT\UltraRT.csproj') {
         & $dotnet build (Join-Path $root $proj) -c Release -v q -nologo @props 2>&1 | Select-String ' error |Deployed' | ForEach-Object Line | Select-Object -Unique
         if ($LASTEXITCODE -ne 0) { throw "Build failed: $proj" }
     }
@@ -83,7 +83,6 @@ if (-not $SkipNative) {
 if ($NoDeploy) {
     $files = @(
         (Join-Path $root 'src\UltraRT\bin\Release\netstandard2.1\UltraRT.dll'),
-        (Join-Path $root 'src\UltraRT.Probe\bin\Release\netstandard2.1\UltraRT.Probe.dll'),
         (Join-Path $root 'src\UltraRT\ultrart-materials.json'),
         $bundle, $nativeDll,
         # DLSS Ray Reconstruction runtime (scripts\fetch-dlss.ps1; NVIDIA's file, never committed; docs/dlss.md)

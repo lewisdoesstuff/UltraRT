@@ -145,7 +145,7 @@ take seconds per frame: give long ones `-TimeoutSec`. Suites: `cine-test.json` (
      "Enemies": "active", "Modes": ["off", "pt-dn"], "Screenshots": [5, 15] }
    ```
 
-`"KillEnemies": true` kills enemies as they spawn while the recording plays, as the approach replay does. Arenas then finish, and the doors and rooms they open load on time. With that, a pose's approach route (F11) can be replayed as a real-time run: `bench/suites/perf-8-3.json` walks the user's 8-3 route that way, with one mode per pass, so the cost of rooms loading, clones and spawns is measured as it happens in play. `perf-8-3-route-hybrid.json` is the hybrid pass only, about 2 minutes; `perf-regress.json` covers 1-1 and 0-2.
+`"KillEnemies": true` kills enemies as they spawn while the recording plays, as the approach replay does. Arenas then finish, and the doors and rooms they open load on time. With that, a pose's approach route (F11) can be replayed as a real-time run: `bench/suites/perf-8-3.json` walks the user's 8-3 route that way, with one mode per pass, so the cost of rooms loading, clones and spawns is measured as it happens in play. (`perf-8-3-route-hybrid.json`, its hybrid pass only, went with the hybrid mode on 2026-11-19); `perf-regress.json` covers 1-1 and 0-2.
 
 A recording stores the player's position and look angles at 60 Hz, plus every arena (`ActivateArena`) that triggered and when. On replay the camera follows the path exactly and the same arenas trigger at the same times, so fights happen in the same places.
 
@@ -198,7 +198,7 @@ Copy the approach file into `bench/recordings/` and use it:
 ```json
 { "Name": "4-1 indoor A", "Scene": "Level 4-1",
   "Path": { "Type": "static", "Approach": "../recordings/4-1-approach-a.json", "Duration": 8 },
-  "Modes": ["off", "hybrid", "pt-dn"], "Screenshots": [4] }
+  "Modes": ["off", "relight", "pathtrace"], "Screenshots": [4] }
 ```
 Without `Position`, the pose is the route's last sample.
 
@@ -235,7 +235,7 @@ A scenario with `"Burst": N` measures how much a held image changes from frame t
 
 Moving paths (`sweep`, `recording`) advance a fixed 1/360 s per frame during a burst, and the denoiser blends as at 360 Hz (`Denoiser.FrameTimeOverride`), so every run sees the same per-frame motion however slow the capture is. Each mode saves `<scenario>_burst_<mode>_sigma.png` (block sigma x16 as a heat map) and `_frame.png` (the last frame).
 
-A burst mode may add runtime variants after the view mode, separated by `+`: `relight+lights=ref+cache=off`. Keys: `lights=ref|ris|restir`, `cache=off|bounce|primary`, `refl=0|1`, `emissive=0|1`, `relight=1` (the relight light model in any mode, e.g. `pt-direct+relight`), `preset=full|static|previous|legacy` (Ctrl+F3's denoiser presets), `taau=0|1` (the temporal upsampler, F2), and `<object>.<field>=value` for any public field of `ls` (LightSamplingSettings), `cache` (RadianceCacheSettings), `refl` (ReflectionSettings), `em` (EmissiveLightSettings), `ae` (AutoExposureSettings), `dn` (DenoiserSettings, both instances), `up` (UpsamplerSettings) or `plugin` (any Plugin field, e.g. `plugin._guardX=0`), `ptx` (PathTraceSettings, e.g. `ptx.bounces=3`; docs/path-tracing.md); also `vol`, `mat`, `lava`, `fx` (EffectLightSettings, e.g. `fx.flicker=0`), `pl` (ParticleLightSettings, e.g. `pl.additiveMax=0`) and `shaft` (LightShaftSettings, e.g. `shaft.keepFakes=1`) and `trans` (TransparentSettings, e.g. `trans.frosted=0`), `vfx` (VfxSettings: the screen effects, e.g. `vfx.enabled=0`, `vfx.bloom=0`, `vfx.debugView=1`) and `wet` (WetSettings, e.g. `wet.rain=0`, `wet.blood=0`); `pl.soft=0` turns soft particles off (docs/vfx.md). Light classes have their own keys: `lc.class.NAME=0|F`, `lc.solo=NAME`, `lc.light.TEXT=0|F`, `lc.emit.TEXT=F`, `lc.glow.TEXT=G[,T]`, `lc.set.CLASS.FIELD=VALUE`, `lc.layer=NAME` (docs/lighting-overrides.md, "Review" and "Emissive fixtures"). Histories (including auto exposure, which snaps to the variant and settles) are reset and everything is restored after each mode, and after a scenario that fails mid-variant. Keep variant strings short: screenshot names include them, and paths over 260 characters fail the scenario. For relight burst modes the log also gets a per-frame auto exposure trace (`Burst AE ...`: EV, target, band mean, meter; docs/relight.md, "Flicker"); auto exposure adapts on the burst's 1/360 s clock like the denoiser. Every RT screenshot also logs radiance statistics (mean lighting by surface orientation; docs/relight.md, "Radiance statistics"), and `"ShotSettle": seconds` holds each mode longer before its screenshot. `bench/suites/noise-diag.json` and `noise-r2.json` are the suites behind docs/denoiser.md's "Static noise"; `relight-polish.json` is behind docs/relight.md's "Light reference distance" and "Flicker" (game / gamma relight via Ctrl+F5's switches / the 1666d51 settings / current, plus bursts); `upsample.json` is behind "Temporal upsampling" (it also times trace scale 0.67 via `plugin._scale=0.67`).
+A burst mode may add runtime variants after the view mode, separated by `+`: `relight+lights=ref+cache=off`. Keys: `lights=ref|ris` (`restir`, removed on 2026-11-19, runs ris with a warning), `cache=off|bounce|primary`, `refl=0|1`, `emissive=0|1`, `relight=1` (the relight light model in any mode, e.g. `pt-direct+relight`), `preset=full|static|previous|legacy` (Ctrl+F3's denoiser presets), `taau=0|1` (the temporal upsampler, F2), and `<object>.<field>=value` for any public field of `ls` (LightSamplingSettings), `cache` (RadianceCacheSettings), `refl` (ReflectionSettings), `em` (EmissiveLightSettings), `ae` (AutoExposureSettings), `dn` (DenoiserSettings), `up` (UpsamplerSettings) or `plugin` (any Plugin field, e.g. `plugin._guardX=0`), `ptx` (PathTraceSettings, e.g. `ptx.bounces=3`; docs/path-tracing.md); also `vol`, `mat`, `lava`, `fx` (EffectLightSettings, e.g. `fx.flicker=0`), `pl` (ParticleLightSettings, e.g. `pl.additiveMax=0`) and `shaft` (LightShaftSettings, e.g. `shaft.keepFakes=1`) and `trans` (TransparentSettings, e.g. `trans.frosted=0`), `vfx` (VfxSettings: the screen effects, e.g. `vfx.enabled=0`, `vfx.bloom=0`, `vfx.debugView=1`) and `wet` (WetSettings, e.g. `wet.rain=0`, `wet.blood=0`); `pl.soft=0` turns soft particles off (docs/vfx.md). Light classes have their own keys: `lc.class.NAME=0|F`, `lc.solo=NAME`, `lc.light.TEXT=0|F`, `lc.emit.TEXT=F`, `lc.glow.TEXT=G[,T]`, `lc.set.CLASS.FIELD=VALUE`, `lc.layer=NAME` (docs/lighting-overrides.md, "Review" and "Emissive fixtures"). Histories (including auto exposure, which snaps to the variant and settles) are reset and everything is restored after each mode, and after a scenario that fails mid-variant. Keep variant strings short: screenshot names include them, and paths over 260 characters fail the scenario. For relight burst modes the log also gets a per-frame auto exposure trace (`Burst AE ...`: EV, target, band mean, meter; docs/relight.md, "Flicker"); auto exposure adapts on the burst's 1/360 s clock like the denoiser. Every RT screenshot also logs radiance statistics (mean lighting by surface orientation; docs/relight.md, "Radiance statistics"), and `"ShotSettle": seconds` holds each mode longer before its screenshot. `bench/suites/noise-diag.json` and `noise-r2.json` are the suites behind docs/denoiser.md's "Static noise"; `relight-polish.json` is behind docs/relight.md's "Light reference distance" and "Flicker" (game / gamma relight via Ctrl+F5's switches / the 1666d51 settings / current, plus bursts); `upsample.json` is behind "Temporal upsampling" (it also times trace scale 0.67 via `plugin._scale=0.67`).
 
 ## bench.ps1 options
 | Switch | What it does |
@@ -300,3 +300,35 @@ A burst measures a held pose. In motion a pixel's history keeps moving and being
 **Viewmodel** (`"MotionViewmodel": true`, docs/viewmodel.md "Motion"): the same measure over the pixels the viewmodel pass covers this frame (read back from its G-buffer), which `MotionExclude` keeps out of the main statistics: `viewmodel sigma ... block4 ...` in the log line and a "Viewmodel motion noise" table in `summary.md`. Each pass then starts the gun from the same state: the animators under the main camera go back to their state at the start of the first pass (state, time, parameters), the FOV kick is undone and `Random` is reseeded (a revolver shot picks its animation at random). `"GunBob": 1` moves the gun as `WalkingBob` does when walking at full speed (the bench takes the player over, so the game never bobs it), as a function of path time; with `revolver` effects every 0.25 s the window also has recoil (bone animation). `bench/suites/viewmodel-motion.json`.
 
 `plugin._motionJitterRotate=1` starts each pass at a different TAAU jitter phase, so jitter-dependent flicker (thin geometry alternating between surfaces) counts too. Effect kinds `flash` (a revolver-like muzzle light, 20 / range 5, fading over 0.2 s) and `blast` (an explosion-like light, 60 / range 10) spawn a light only, so the game's random particles don't differ between passes. `bench/suites/motion-noise.json`, `motion-noise-r3.json`, `motion-final.json`, `motion-cost.json` and `motion-blast.json` are behind docs/denoiser.md's "Motion noise". Volumetric haze adds its own noise (docs/volumetrics.md): those suites measure with `vol=0`.
+
+## Methods and traps
+
+Collected from the look-and-perf handoff of 2026-11-18 (`docs/archive/handoff-2026-11-18.md`).
+
+- **`-Extra`**: one comma-separated string (`-Extra "-ultrart-viewprobe,-ultrart-light-census"`); the wrapper
+  re-quotes each part. An array does not survive the nested PowerShell call.
+- **Sheets**: `python tools/bench/sheet.py <run> <scenario prefix> <out.png> [columns]` labels each mode and prints
+  the frame's mean luma. A prefix that is the start of another scenario's name ("0-S spawn" / "0-S spawn skull")
+  matches both.
+- **Light work goes through the proposal layer**: put the level file or rules in `data/lights/proposed/`, compare
+  `pathtrace` against `pathtrace+lc.layer=proposed` in one launch, then move the file and empty the layer. The
+  build copies `data/lights` into `stage`, so rebuild after editing them.
+- **What lights what**: `lc.solo=none` (every level light off: what is left is sky, emitters and unlit materials),
+  `lc.class.NAME=F`, `lc.set.CLASS.FIELD=V` (a kind with a dot: `prefab.shop`), `lc.light.TEXT=0`, `vol.strength=0`,
+  `vol.emissive=0`, `vfx.enabled=0`, `ae.levelOverride=0`. `-ultrart-light-census` writes `lights_<scene>.json` per
+  layer into the run folder: path, class, rule, policy of every light.
+- **A variant can only set what the plugin does not overwrite every frame**: `ae.levelFollowGame` and `plugin._skyScale`
+  do nothing as variants (set from the level file; taken back by auto exposure). Use the proposal layer. A variant
+  naming a field that does not exist only logs `Burst: no Plugin field` / `no field`: check the log.
+- **Modes run one after the other on the same loaded pose**, so time passes: a cutscene pose (6-2 pose 4) drifts
+  into the fight by the third mode. Short duration, early shot, few modes.
+- **Random level state**: 7-1's dummies take a new pose per load; do not compare shapes across launches.
+- **Game-drawn transparents** (queue 3000: grates, light cones, water) are drawn by the game after the traced
+  composite with the game's own lighting. They are absent from `_raw.png` and cannot be relit without a proxy or a
+  material swap. `_raw.png` against the final shot tells haze and screen effects from the traced image.
+- **All water in the game is `VERTEX_LIGHTING`** (the proxy log prints it): "water too bright" is the room being
+  too dark, not the water.
+- **HDR capture**: a bench with `-Extra "-ultrart-hdr,on,-ultrart-hdr-capture,raw"` logs
+  `HDR display: available=False active=False` when the slot's display is not in HDR; check that line before reading
+  anything into an "HDR" run.
+- **Unity's log**: `Debug.Log` from the plugin does not reach `game.log`; use the BepInEx logger.

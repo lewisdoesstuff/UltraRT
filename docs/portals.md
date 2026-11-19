@@ -7,7 +7,7 @@ Files:
 - `unity/.../Portal.shader`: the portal quads' hit shader.
 - `unity/.../UltraRTPortals.hlsl`: `TraceScene`, the portal-following `TraceRay` used by every camera, bounce, reflection and cache ray.
 - `unity/.../PathTrace.raytrace`, `CacheUpdate.raytrace`, `DebugView.raytrace`: use `TraceScene`.
-- `unity/.../UltraRTLights.hlsl`: ReSTIR reprojects through portals.
+- `unity/.../UltraRTLights.hlsl`: portal-aware light importance (ReSTIR also reprojected through portals until it was removed on 2026-11-19).
 - `unity/.../Composite.shader`: the depth test at portal pixels.
 - `unity/.../Upsample.compute`: the temporal upsampler of the replace modes, same depth rule, reprojects through portals.
 - `src/UltraRT/SceneProxies.cs`: layer-30 renderers get their own instance mask.
@@ -95,13 +95,15 @@ Where it is used:
 | Flag / variant | Effect |
 |---|---|
 | `-ultrart-noportals`, bench `plugin._portals=0` | no portal quads: rays go straight through, as before (A/B) |
-| `-ultrart-compdebug 5` | portal depth diagnostic (hybrid) |
 | `-ultrart-portal-hops N`, bench `plugin._portalHops=N` | teleports per ray (3); past it rays ignore portals |
 | `-ultrart-noportallayer` | don't trace layer-30 renderers |
 | `-ultrart-rtmirrors`, bench `plugin._rtMirrors=1` | camera rays reflect off portal mirrors instead of keeping the game's mirror view (settings menu: "Ray-traced mirrors", [settings.md](settings.md)) |
 | `SceneProxies.PortalAddDelay` | 2 frames before a new portal quad goes into the RTAS |
-| `-ultrart-compdebug 6` | game / RT albedo alignment overlay (hybrid) |
 | `SceneProxies.MaxPortalSides` | 1024 |
+
+`-ultrart-compdebug 5` (portal depth diagnostic) and `6` (game / RT albedo alignment overlay) were views of the hybrid
+mode's ratio composite and went with it on 2026-11-19, as did `portals-align.json` and `perf-8-3-portals.json` (whose
+scenarios were hybrid-only). The measurements below that used them stay as history.
 
 Logs: `Portal side N: '<path>' enter|exit|mirror WxH at <pos> fwd <dir>, render <flags>, recursions R, disableRange D` the first time each side appears (first 64), and `Portals: N portal sides in the RTAS (M known)` when the set changes (first 40).
 
@@ -147,7 +149,7 @@ The far side is now as calm as the near side. "Side 2" has a flickering lamp in 
 - **Lights through portals**: a light in room A does not light room B through a portal between them, and shadow rays ignore portals. The game fakes this for `PortalAwareLight`s (up to 16 transformed copies, clipped by the far plane). Doing it in RT means virtual lights (a light's image through each nearby portal, sampled with a plane clip and a shadow ray that is teleported back) in the light list.
 - **Per-portal overrides** the game applies to a portal view are not applied to rays: `overrideSkyboxEnter/Exit`, `canSeeItself`, per-portal `maxRecursions` (one global limit of 3 instead), the fog-end distance cull, and `supportInfiniteRecursion`'s fake textures. `appearsInRecursions` and `canSeePortalLayer` are honoured. Fog overrides (and the level's fog behind a portal) are applied by the veil pass since 2026-11-18, for the first portal on a camera ray (docs/scene-proxies.md, "Blended veils").
 - **Moving portals and crossing a portal** had no temporal handling until 2026-11-18: see section 8.
-- **The game's own cubemap reflection** reconstructed for hybrid (`GameCubeTerm`) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
+- **The game's own cubemap reflection** (`GameCubeTerm`; for pattern cubes since hybrid went on 2026-11-19) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
 - **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere.
 - **Portal clones**: `PortalAwareRenderer` copies objects whose bounds cross a portal (V1 jumping into 8-2's pool, enemies in doorways) with `new GameObject` + `AddComponent`, which the Instantiate hooks never saw (only the 120 s rescan did). A Harmony postfix on its private `CreateClone` now registers the copy's hierarchy like a spawn (`Patches.PortalClonePostfix`; logged as `Portal clone hook installed` and counted in the `Material sync` line). Copies of V1 keep layer 30, so rays see them only after a portal hop, as the game's views do.
 - **8-2's starting pool** is a floor portal (15 x 60 m, `Opening Hallway/1 Nonstuff/Portal`) into a copy of the street 300 m away, not a mirror. The game shows V1 in it only while V1's bounds cross the pool plane (the clones above); standing at the edge or above it, the game's own view (RT off) shows no V1 either (`bench/suites/materials-pm.json`, "8-2 pool"). The clone path is not verified in game (a bench pose can't put V1 through the plane).
@@ -255,7 +257,7 @@ not explained yet (open).
 
 **Not portal-aware yet** (from the audit, by value): volumetrics (the froxel march and its composite stop at the
 portal plane), the sky (one global sky; a portal into another sky shows the camera's), hybrid's game cube term (eye
-position), the player light and muzzle flash (not imaged through portals; built off by default in section 11), the backdrop exclusion by player position
+position; moot since hybrid went on 2026-11-19), the player light and muzzle flash (not imaged through portals; built off by default in section 11), the backdrop exclusion by player position
 at scene build.
 
 ## 10. Edges of a moving portal (2026-11-18, `t3/door-brightness`)
@@ -323,7 +325,7 @@ What the shots show: the line moves with the view through the Shifting Hallway's
 x -61/-71, -91/-101, -121/-131, exits sliding in z), and it is always about 60 px (at 1440p) inside the slab from the
 slab's edge where the next segment's view begins. That fits a portal quad's edge seen through the moving portal (the
 next segment's side, seen at hop 2 or 3, slightly off from the geometry around it) more than anything in the slab.
-Next step: `-ultrart-compdebug 5` on that pose (which hop each pixel ended at), and the hop limit (past
+Next step: a hop diagnostic on that pose (which hop each pixel ended at; `-ultrart-compdebug 5`, which did that in hybrid, went on 2026-11-19), and the hop limit (past
 `_UltraRTPortalHops` a ray goes on without portals and sees the level behind, a pale room). Open.
 
 **Backdrop exclusion by player position** (scene build, `SceneProxies.IsBackdrop`: enclosures over 1 km that contain the
@@ -352,5 +354,5 @@ Follow-up, not changed: `Plugin.Viewmodel.cs` and `LitParticles.cs` also test `I
 on ULTRAKILL/Master materials, which may be false the same way.
 
 **Not portal-aware, unchanged:** the sky (one global sky; no portal level here leads into another sky), hybrid's game
-cube term (eye position), particle lighting for the game's portal cameras (they get the game's look, section 9).
+cube term (eye position; gone with hybrid on 2026-11-19), particle lighting for the game's portal cameras (they get the game's look, section 9).
 

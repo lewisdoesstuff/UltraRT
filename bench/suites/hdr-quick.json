@@ -25,7 +25,6 @@
    },
    "Modes": [
     "off",
-    "hybrid",
     "relight",
     "pathtrace",
     "pathtrace+ptx.denoiser=UltraRT"

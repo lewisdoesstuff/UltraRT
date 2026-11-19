@@ -128,7 +128,7 @@ namespace UltraRT
     /// "Emissive over lights" for a fixture (docs/lighting-overrides.md, "Handover"): the lights a rule matches hand
     /// their output to the glowing part of their fixture. The part's emissive triangles are scaled so that together
     /// they emit what the light did (its colour, strength with the class policy, range), and the light itself is
-    /// dropped or, for a hooded fixture whose part cannot light the ground, kept at a fraction ("keep": the hybrid).
+    /// dropped or, for a hooded fixture whose part cannot light the ground, kept at a fraction ("keep": a partial handover).
     /// A light whose fixture has no such part stays as it is.
     /// </summary>
     public sealed class LightHandover
@@ -141,9 +141,9 @@ namespace UltraRT
         [JsonProperty("threshold", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Threshold;
         /// <summary>Multiplier on the handed-over output (on top of LightClasses.HandoverGain).</summary>
         [JsonProperty("gain", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Gain = 1f;
-        /// <summary>Hybrid: the light stays at this fraction of its strength (a factor like "intensity"). 0 = off.</summary>
+        /// <summary>Partial handover (not the removed hybrid view mode): the light stays at this fraction of its strength (a factor like "intensity"). 0 = off.</summary>
         [JsonProperty("keep", DefaultValueHandling = DefaultValueHandling.Ignore)] public float Keep;
-        /// <summary>Hybrid: the kept light's share in the air ("medium"); absent = the class's.</summary>
+        /// <summary>Partial handover: the kept light's share in the air ("medium"); absent = the class's.</summary>
         [JsonProperty("keepMedium", NullValueHandling = NullValueHandling.Ignore)] public float? KeepMedium;
 
         [JsonIgnore] private Regex _part;

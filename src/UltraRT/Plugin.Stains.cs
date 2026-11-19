@@ -177,11 +177,5 @@ namespace UltraRT
                 });
             });
         }
-
-        private void ReleaseStains()
-        {
-            _stainGrid?.Release(); _stainRecords?.Release(); _stainDummyGrid?.Release(); _stainDummyRecords?.Release(); _stainDummyBirth?.Release();
-            _stainGrid = _stainRecords = _stainDummyGrid = _stainDummyRecords = _stainDummyBirth = null;
-        }
     }
 }

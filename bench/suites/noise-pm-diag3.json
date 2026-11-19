@@ -222,8 +222,7 @@
         "relight",
         "relight+plugin._bakedLightMasks=0",
         "pt-dn",
-        "pt-dn+plugin._bakedLightMasks=0",
-        "hybrid"
+        "pt-dn+plugin._bakedLightMasks=0"
       ],
       "Screenshots": [
         2

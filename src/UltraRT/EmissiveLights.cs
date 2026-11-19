@@ -20,8 +20,6 @@ namespace UltraRT
         /// (Le cos cos / (pi d^2)); ULTRAKILL's point lights are far brighter than that convention. See docs/emissive-lights.md.
         /// </summary>
         public float lightScale = 4f;
-        /// <summary>EmissiveHybridAdd: hybrid mode adds this much of the shadowed emissive direct light on top of the game's colour.</summary>
-        public float hybridAdd = 0.25f;
         /// <summary>Probability that a RIS candidate is an emissive triangle (when there are both lights and emitters).</summary>
         public float share = 0.5f;
         /// <summary>Reference light mode: emitter samples (shadow rays) per primary hit; the bounce takes at most one.</summary>
@@ -60,8 +58,7 @@ namespace UltraRT
     ///    downsample of the emissive (or albedo) texture.
     ///  - Per frame: owner transforms (so moving emitters stay exact), which emitters are in the RTAS (a bit per
     ///    triangle), and an alias table over the active triangles weighted by luminance x area x camera falloff.
-    ///  - The triangle list is append-only between compactions, so indices stay stable for ReSTIR history; a compaction
-    ///    bumps the generation and the shader drops emissive history for one frame.
+    ///  - The triangle list is append-only between compactions (a compaction bumps the generation).
     /// Skinned emitters are not handled (TODO): they still light through bounce hits only if bounceHitEmission is on.
     /// </summary>
     internal sealed partial class EmissiveLights : IDisposable
@@ -93,14 +90,6 @@ namespace UltraRT
         /// mark it emissive (a fullbright bulb): its albedo stands in for the emission, the target sets the amount, and
         /// triangles of it that belong to no part are left out again. Nothing changes for the camera.</summary>
         public Func<Material, bool> IsPowerPart;
-
-        /// <summary>The literal "flames as emitting surfaces" test (fx.flameBillboards, docs/emissive-lights.md): a square
-        /// in <see cref="Space"/>'s XY plane, half-size <see cref="Half"/>, with a total output of <see cref="Power"/>.
-        /// The plugin turns Space to the camera each frame.</summary>
-        public struct FlameQuad { public Transform Space; public float Half; public Vector3 Power; public bool TwoSided; }
-        public Func<List<FlameQuad>> FlameQuads;
-        public int FlameTriangles { get; private set; }
-        private readonly HashSet<Transform> _liveSpaces = new HashSet<Transform>();
 
         /// <summary>What a submesh emits, summed, in the mesh's own space: for a skinned mesh that cannot be in the table
         /// (Plugin.EnemyGlow.cs). Power = sum of Le x area; centre and normal are weighted by luminance x area; radius is
@@ -135,26 +124,6 @@ namespace UltraRT
             return true;
         }
 
-        private void AddFlameQuads(List<Candidate> cands)
-        {
-            FlameTriangles = 0;
-            _liveSpaces.Clear();
-            List<FlameQuad> quads = null;
-            try { quads = FlameQuads?.Invoke(); } catch { }
-            if (quads == null) return;
-            foreach (var q in quads)
-            {
-                var sp = q.Space;
-                if (sp == null || !(q.Half > 0f)) continue;
-                float h = q.Half, area = 4f * h * h;
-                var le = new Color(q.Power.x / area, q.Power.y / area, q.Power.z / area);
-                var src = new SceneProxies.TracedSubmesh { Space = sp, Source = sp, Owner = sp, TwoSided = q.TwoSided, Visible = () => sp != null && sp.gameObject.activeInHierarchy };
-                _liveSpaces.Add(sp);
-                cands.Add(new Candidate { Src = src, P0 = new Vector3(-h, -h, 0f), E1 = new Vector3(2f * h, 0f, 0f), E2 = new Vector3(0f, 2f * h, 0f), Le = le, Area = area * 0.5f, Lum = Lum(le) });
-                cands.Add(new Candidate { Src = src, P0 = new Vector3(h, h, 0f), E1 = new Vector3(-2f * h, 0f, 0f), E2 = new Vector3(0f, -2f * h, 0f), Le = le, Area = area * 0.5f, Lum = Lum(le) });
-                FlameTriangles += 2;
-            }
-        }
         /// <summary>Triangles and targets the last builds applied PowerOf to.</summary>
         public int PowerTriangles { get; private set; }
         public int PowerGroups { get; private set; }
@@ -299,8 +268,6 @@ namespace UltraRT
             public float AreaScale = 1f;
             /// <summary>Space is one of our proxy transforms, so its hasChanged flag is ours to consume.</summary>
             public bool OwnTransform;
-            /// <summary>A flame quad's helper transform: it turns every frame.</summary>
-            public bool Live;
         }
 
         private readonly List<Emitter> _emitters = new List<Emitter>();
@@ -331,7 +298,7 @@ namespace UltraRT
         private int[] _aliasTri = new int[0], _small = new int[0], _large = new int[0], _aliasIdx = new int[0];
 
         private bool _activeDirty, _ownersDirty;
-        private int _generation, _boundGeneration = -1;
+        private int _generation;
         private Vector3 _aliasCam = new Vector3(float.MaxValue, 0, 0);
         private int _aliasFrame;
 
@@ -343,10 +310,8 @@ namespace UltraRT
             IdCount = Shader.PropertyToID("_EmissiveCount"),
             IdTriCount = Shader.PropertyToID("_EmissiveTriCount"),
             IdRefSamples = Shader.PropertyToID("_EmissiveRefSamples"),
-            IdHistoryValid = Shader.PropertyToID("_EmissiveHistoryValid"),
             IdParams = Shader.PropertyToID("_EmissiveParams"),
-            IdBounceWeight = Shader.PropertyToID("_EmissiveBounceWeight"),
-            IdHybridAdd = Shader.PropertyToID("_EmissiveHybridAdd");
+            IdBounceWeight = Shader.PropertyToID("_EmissiveBounceWeight");
 
         public EmissiveLights(ManualLogSource log)
         {
@@ -392,7 +357,6 @@ namespace UltraRT
             }
             PowerTriangles = PowerGroups = 0;
             ApplyPower(cands); // handover targets (before the cap: it keeps the brightest)
-            AddFlameQuads(cands);
             int cap = Mathf.Clamp(Settings.maxTriangles, 1, 0xFFFF);
             int dropped = 0;
             if (cands.Count > cap)
@@ -472,7 +436,7 @@ namespace UltraRT
                     if (!ow.Space.hasChanged) continue;
                     ow.Space.hasChanged = false;
                 }
-                else if (!ow.Live && (o & 15) != _ownerPhase) continue;
+                else if ((o & 15) != _ownerPhase) continue;
                 var m = ow.Space.localToWorldMatrix;
                 if (m == ow.Matrix) continue;
                 ow.Matrix = m;
@@ -548,12 +512,9 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(shader, IdCount, count);
             cmd.SetRayTracingIntParam(shader, IdTriCount, s.enabled ? _triCount : 0);
             cmd.SetRayTracingIntParam(shader, IdRefSamples, Mathf.Clamp(s.referenceSamples, 0, 16));
-            cmd.SetRayTracingIntParam(shader, IdHistoryValid, _generation == _boundGeneration ? 1 : 0);
-            _boundGeneration = _generation;
             float dmin = Mathf.Max(1e-3f, s.minDistance);
             cmd.SetRayTracingVectorParam(shader, IdParams, new Vector4(Mathf.Clamp(s.share, 0.01f, 0.99f), Mathf.Max(0f, s.lightScale) / Mathf.PI, dmin * dmin, 0));
             cmd.SetRayTracingFloatParam(shader, IdBounceWeight, sampled && !s.bounceHitEmission ? 0f : 1f);
-            cmd.SetRayTracingFloatParam(shader, IdHybridAdd, sampled ? Mathf.Max(0f, s.hybridAdd) : 0f);
         }
 
         /// <summary>Scene change / shader reload: forget everything (caches included: meshes and textures belong to the scene).</summary>
@@ -697,8 +658,6 @@ namespace UltraRT
             if (_ownerByKey.TryGetValue(key, out int o)) return o;
             if (_owners.Count >= MaxOwners) return -1;
             var ow = new OwnerEntry { Space = s.Space, World = s.Space == null, OwnTransform = s.Space != null && SceneProxies.IsProxyObject(s.Space.gameObject) };
-            ow.Live = s.Space != null && _liveSpaces.Contains(s.Space);
-            if (ow.Live) ow.OwnTransform = false;
             ow.Matrix = ow.World ? Matrix4x4.identity : s.Space.localToWorldMatrix;
             ow.AreaScale = AreaScale(ow.Matrix);
             o = _owners.Count;

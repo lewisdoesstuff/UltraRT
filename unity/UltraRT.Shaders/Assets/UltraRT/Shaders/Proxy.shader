@@ -65,15 +65,14 @@ Shader "UltraRT/Proxy"
         _SpecWeight2 ("Specular weight 2", Float) = 0
         _ReflMode2 ("Reflection mode 2", Float) = 0
         _MatClass2 ("Material class 2", Float) = 21
-        // The game's own REFLECTION cubemap (ULTRAKILL/Master; GameReflection in MaterialClasses.cs), reconstructed for the
-        // hybrid composite so it can be replaced. x: 0 none, 1 blend, 2 additive; y _ReflectionStrength;
+        // The game's own REFLECTION cubemap (ULTRAKILL/Master; GameReflection in MaterialClasses.cs); only pattern cubes
+        // (_GameCubeLit) use it since the hybrid mode went (2026-11-19). x: 0 none, 1 blend, 2 additive; y _ReflectionStrength;
         // z _LightingContribution; w _ColorContribution. Atlas proxies keep 0 (the baked shader has no cubemap).
         _GameRefl ("Game reflection", Vector) = (0,0,0,0)
         _GameCube ("Game cubemap", Cube) = "" {}
         _GameReflMask ("Game reflection mask", 2D) = "white" {}
         // 1: the game's cube is a pattern (DiamondCubemap on 3-2's big eye, Gabriel's SwordCubemap), not an environment
-        // capture: no RT reflection replaces it; every ray but hybrid primaries (whose game colour already has it) adds the
-        // game's own cube term, lit by RT lighting with _LightingContribution and as emission otherwise (MaterialClasses.cs).
+        // capture: no RT reflection replaces it; every ray adds the game's own cube term, lit by RT lighting with _LightingContribution and as emission otherwise (MaterialClasses.cs).
         _GameCubeLit ("Keep the game's pattern cube", Float) = 0
         // Per-texel material detail (MaterialMaps.cs, docs/materials.md): rg tangent-space normal xy (0.5 + 0.5 x; x = +u,
         // y = +v), b roughness minus the texture's mean (0.5 + 0.5 d), a 1 = texel has detail. Same layout and uv as
@@ -581,7 +580,6 @@ Shader "UltraRT/Proxy"
             [shader("closesthit")]
             void ClosestHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
             {
-                bool wantGameCube = (p.flags & ULTRART_FLAG_GAMECUBE) != 0u; // request from the ray gen (hybrid primary rays)
                 bool wantDetail = (p.flags & ULTRART_FLAG_DETAIL) != 0u;     // primary rays only
                 bool wantCone = (p.flags & ULTRART_PAYLOAD_CONE) != 0u;      // p.albedo.xy: the ray cone (texture LOD)
                 float2 cone = p.albedo.xy;
@@ -649,7 +647,7 @@ Shader "UltraRT/Proxy"
                 }
 
                 // Per-texel detail: perturbed shading normal and roughness. Primary rays also return the vertex normal
-                // (packed in `primitive`) for the hybrid shadow ratio's denominator (the game lights with it).
+                // (packed in `primitive`) for ray offsets and the hemisphere test.
                 float4 detail;
                 detail = 0;
                 float detailVar = 0.0;
@@ -691,7 +689,7 @@ Shader "UltraRT/Proxy"
                 if (_HotDebris > 0.5) emission += _UltraRTDebrisGlow.rgb * (0.4 + 1.2 * dot(albedo.rgb, float3(0.2126, 0.7152, 0.0722)));
                 // Pattern cubes (_GameCubeLit): the game's cube term C on top of the surface, game = lit k + C with C lit by
                 // lerp(1, lighting, _LightingContribution) -> albedo k + C lc (lit by RT) and C (1 - lc) as emission.
-                if (_GameCubeLit > 0.5 && _GameRefl.x > 0.5 && !wantGameCube)
+                if (_GameCubeLit > 0.5 && _GameRefl.x > 0.5)
                 {
                     float cm = _GameReflMask.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0).r;
                     float ck;
@@ -761,17 +759,6 @@ Shader "UltraRT/Proxy"
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls)
                         | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT) | (_NoFog > 0.5 ? ULTRART_FLAG_NOFOG : 0u);
-
-                // Hybrid primary hits: the game's cubemap term for the composite to remove. uvHalf / primitive are debug-only
-                // otherwise; PathTrace's primary rays never read them.
-                if (wantGameCube && _GameRefl.x > 0.5)
-                {
-                    float k;
-                    float3 c = GameCubeTerm(tri, b, p0, p1, p2, (flags & 1u) != 0u, nVertex, mask, k);
-                    p.uvHalf = Unorm8(c.r) | (Unorm8(c.g) << 8) | (Unorm8(c.b) << 16) | (Unorm8(k) << 24);
-                    p.primitive = (p.primitive & 0xFFFFFFu) | (Unorm8(_GameRefl.z) << 24);
-                    p.flags |= ULTRART_FLAG_GAMECUBE;
-                }
             }
             ENDHLSL
         }

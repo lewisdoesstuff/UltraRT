@@ -25,8 +25,8 @@
 // w Russian roulette: paths whose throughput falls below this survive in proportion (0 = off)
 float4 _PtParams;
 // x firefly clamp on one path's radiance (luminance, lighting units; 0 = off), y specular lobes at path vertices (0/1),
-// z sky samples at path vertices (0/1; the primary hit always takes one), w light samples at the primary hit (1-4; only
-// without reservoirs, _LightSampling 1)
+// z sky samples at path vertices (0/1; the primary hit always takes one), w light samples at the primary hit (1-4; RIS
+// only, _LightSampling 1)
 float4 _PtParams2;
 // x water / glass / blood in the path (0/1): path rays see the transparent proxies (mask 0x10) and reflect off them by
 // Fresnel or pass through tinted, y how much of the surface colour tints what passes through (0-1), z footprint termination:
@@ -122,7 +122,7 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
         float3 specW = 0;
         float keep = 1.0;
         if (specLobes && !last && mat.mode != ULTRART_REFL_NONE)
-            SpecularTerms(mat, albedo, saturate(dot(hn, -r.Direction)), _ReflParams.yz, false, specW, keep);
+            SpecularTerms(mat, albedo, saturate(dot(hn, -r.Direction)), _ReflParams.yz, specW, keep);
         float3 diffuse = ToLight(albedo * keep);
         float lit = h.alpha; // 0 = fullbright: shows its albedo whatever the light, and reflects none
 
@@ -174,24 +174,22 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
     return max(L, 0.0); // also drops NaN
 }
 
-// More light samples at the primary hit, averaged into `direct` and the globals DirectLighting leaves behind. Only with
-// plain RIS (_LightSampling 1): ReSTIR's reservoir holds one sample per pixel. DLSS RR gets its direct light this way:
-// uncorrelated from frame to frame, with the noise bought down by samples instead of by reuse (docs/dlss.md).
-void PtMoreDirect(inout float3 direct, uint2 id, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
+// More light samples at the primary hit, averaged into `direct` and g_PlayerBlocked. Only with RIS (_LightSampling 1;
+// reference already takes every light). DLSS RR gets its direct light this way: uncorrelated from frame to frame, with
+// the noise bought down by samples instead of by reuse (docs/dlss.md).
+void PtMoreDirect(inout float3 direct, float3 pos, float3 n, uint layer, inout uint rng)
 {
     int count = _LightSampling == 1 ? clamp((int)_PtParams2.w, 1, 4) : 1;
     if (count <= 1) return;
-    float3 sum = direct, unshadowed = g_DirectUnshadowed, blocked = g_PlayerBlocked;
+    float3 sum = direct, blocked = g_PlayerBlocked;
     [loop] for (int k = 1; k < count; k++)
     {
         g_PlayerBlocked = 0;
-        sum += DirectLighting(id, dim, pos, n, t, layer, rng);
-        unshadowed += g_DirectUnshadowed;
+        sum += DirectLighting(pos, n, layer, rng);
         blocked += g_PlayerBlocked;
     }
     float inv = 1.0 / (float)count;
     direct = sum * inv;
-    g_DirectUnshadowed = unshadowed * inv;
     g_PlayerBlocked = blocked * inv;
 }
 

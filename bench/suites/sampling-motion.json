@@ -19,7 +19,6 @@
    "Motion": 96,
    "MotionModes": [
     "off",
-    "relight+vol=0+ls.visibilityReuse=1+ls.visibilityMemory=0",
     "relight+vol=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.risCandidates=32"
@@ -44,7 +43,6 @@
    "Motion": 96,
    "MotionModes": [
     "off",
-    "relight+vol=0+ls.visibilityReuse=1+ls.visibilityMemory=0",
     "relight+vol=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.risCandidates=32"
@@ -71,7 +69,6 @@
    "MotionStrip": 0,
    "MotionModes": [
     "off",
-    "relight+vol=0+ls.visibilityReuse=1+ls.visibilityMemory=0",
     "relight+vol=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.risCandidates=32"

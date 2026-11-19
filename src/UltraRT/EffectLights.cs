@@ -29,8 +29,6 @@ namespace UltraRT
         public float minStrength = 0.1f;
         /// <summary>An emitter within this distance of an active game light (plus its own size) is already lit by the game.</summary>
         public float coverDistance = 1f;
-        /// <summary>Hybrid: how much of a virtual light's (shadowed) light is added on top of the game's image.</summary>
-        public float hybridWeight = 1f;
         /// <summary>Flicker: the light's intensity follows flame brightness / its running mean, clamped to [1 - x, 1 + x].</summary>
         public float flickerRange = 0.35f;
         /// <summary>
@@ -55,9 +53,6 @@ namespace UltraRT
         public float flameGain = 0.5f;
         /// <summary>The flicker range of a flame-driven light (flickerRange for the others).</summary>
         public float flameFlickerRange = 0.5f;
-        /// <summary>Test only (docs/emissive-lights.md, "Billboards in the emissive table"): the flame's light is off and
-        /// a camera-facing square at the flame is an emitter in the emissive triangle table instead. 2 = two-sided.</summary>
-        public int flameBillboards = 0;
     }
 
     /// <summary>
@@ -69,7 +64,7 @@ namespace UltraRT
     ///     the current scan doesn't have them.
     ///  2. Virtual lights. Glowing effects with no Light (FireSimple flames, additive particles and trails) get a point
     ///     light at their bounds centre, coloured by what they draw (tint x sprite/texture average x vertex colour) and
-    ///     sized by their bounds. Their id is the renderer's instance id, so ReSTIR's light remap keeps their reservoirs.
+    ///     sized by their bounds. Their id is the renderer's instance id (LightSampling.VirtualIds: light-set changes).
     ///  3. Flicker. A glowing effect sitting on a game light (torch flame sprites on their "Fire" light) drives that light's
     ///     intensity with its own frame-to-frame brightness: in the game the light is constant and only the sprite flickers.
     /// No per-frame allocations and no per-frame FindObjectsOfType: scene emitters are collected once per RT scene build,
@@ -589,9 +584,9 @@ namespace UltraRT
                 int j = count * 4;
                 data[j] = new Vector4(e.Pos.x, e.Pos.y, e.Pos.z, range);
                 data[j + 1] = new Vector4(c.r, c.g, c.b, 0);
-                // Soft shadows from the effect's size; w of [3] > 0 marks it as not in the game's image (hybrid adds it).
+                // Soft shadows from the effect's size.
                 data[j + 2] = new Vector4(0, -1, 0, Mathf.Clamp(e.Radius * 0.4f, 0.05f, 0.5f));
-                data[j + 3] = new Vector4(-1f, 1f, 0f, Mathf.Max(1e-4f, s.hybridWeight));
+                data[j + 3] = new Vector4(-1f, 1f, 0f, 0f);
                 masks[count] = ~0u;
                 packed[count] = null;
                 ids[count] = e.Id;
@@ -609,7 +604,6 @@ namespace UltraRT
             {
                 if (e.CoverLight == null || e.R == null || !e.Go.activeInHierarchy || !e.R.enabled || e.Strength <= 0f) continue;
                 bool drive = Settings.flameDriven && e.Flame;
-                bool quad = Settings.flameBillboards > 0 && e.Flame;
                 // Brightness x size (flames flicker by swapping sprites and by scaling), against its running mean over
                 // ~1 s at 60+ fps: the light keeps the game's intensity on average.
                 float b = e.Strength * e.Radius * e.Radius;
@@ -644,7 +638,6 @@ namespace UltraRT
                         c = new Vector4(c.x * fg, c.y * fg, c.z * fg, c.w);
                         DrivenLights++;
                     }
-                    if (quad && l3.x > -1.5f && l3.x < -0.5f) k = 0f; // the billboard carries it (Plugin.FlameQuads.cs)
                     data[i * 4 + 1] = new Vector4(c.x * k, c.y * k, c.z * k, c.w);
                     _logFlicker++;
                     _flickerMin = Mathf.Min(_flickerMin, k);

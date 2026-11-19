@@ -30,6 +30,52 @@ reachable on purpose, and most diagnostics are documented and gated. The real we
 Total safely removable without a behaviour change: **about 6,700 lines** (6,400 of them suites, scripts and the probe).
 With the duplication, the settings registry and the owner-decision items: **about 8,000-8,500**.
 
+## Decisions (user, 2026-11-19)
+
+- **Dead code goes:** everything in section 1, B1, the P-items.
+- **Legacy options mostly go**, and **the MSAA probe goes** (O8). The constraint: users without an NVIDIA GPU must
+  keep a full-quality path, so UltraRT's own denoiser (`Denoiser`, Full preset), the temporal upsampler and the
+  remodulation path for pathtrace without RR all stay; only their old A/B variants go. Proposed split:
+
+  | Goes | Stays |
+  |---|---|
+  | ReSTIR experiment knobs (O1); denoiser presets `Static`, `Previous`, `Legacy` and the Ctrl+F3 cycle (O3; `Full` becomes the only preset, its individual fields stay as bench keys); the TAAU-off 2x2 composite, F2 and `-ultrart-notaau` (O4); `fx.flameDriven=0` (O5); the old-look and early-days flags (O6, O7, O9); `Plugin.MsaaProbe.cs` (O8); `Plugin.EnemySurvey.cs` if EnemyGlow does not read its output | `Reference` light sampling (ground truth for `-ultrart-accumulate`); RIS; the debug views; the documented diagnostics of section 8 |
+
+- **Hybrid mode: dropped, with ReSTIR** (decided later the same day; RIS and Reference stay). What it alone kept alive: ReSTIR as a sampler (`hybridMode` defaults to ReSTIR and its
+  composite uses the reuse passes, `LightSampling.cs:27, 104, 119`), the second denoiser instance (`_denoiserDirect`,
+  `Plugin.cs:841`), `UnpackHybrid.compute`, the `_gHybrid` G-buffer (allocated in every mode, `Plugin.cs:921`), the
+  game-colour copy and ratio composite (`Plugin.cs:1548-1567`, `Composite.shader`), `PackHybridW` and `_Mode == 3`
+  branches in `PathTrace.raytrace`, and per-feature hybrid weights (`-ultrart-emissive-hybrid`, normal strength
+  hybrid, viewmodel / particle / reflection hybrid paths). "hybrid" appears 136 times over ~25 C# files and in 15
+  shader files. Dropping it would take ReSTIR with it entirely (RIS + Reference remain), roughly 54 ReSTIR mentions in
+  `LightSampling.cs` and 53 in `UltraRTLights.hlsl`. Estimated ~600-900 lines with the ReSTIR removal; needs one
+  visual run of relight and pathtrace to confirm nothing shared changed. It does not affect non-NVIDIA users: relight
+  and pathtrace already run with UltraRT's own denoiser.
+
+## Implementation status (2026-11-19, branch `t3/codebase-cleanup-audit`)
+
+- **PR 1 (dead code and one-line defects): done**, commit `8a3145e`, build-only check. Section 1 as listed, except:
+  **C3 kept** (`_readdDynamic` is used by the `chairs-diag` / `chairs-repeat` suites; the "used by no suite" below was
+  wrong) and **C9 kept** (`_cutoutFlip` and `_portalJumpDiag` are documented diagnostics, docs/path-tracing.md and
+  docs/portals.md). `UltraRT.Probe` is out of the build and deploy scripts, but the installed
+  `BepInEx\plugins\UltraRT\UltraRT.Probe.dll` is still in **both game installs** (main, Steam; alt,
+  `D:\UltraRT-Bench\ULTRAKILL`). Deleting it is left to the lead; nothing builds or deploys it any more.
+- **PR 2 (bench suites, docs): done**, commits `e8365a4` (102 unreferenced suites deleted, the five added on 11-19 kept)
+  and `70a5e1f` (dated docs to `docs/archive/`, handoff traps into bench/README.md, stale docs fixed).
+- **Hybrid mode and ReSTIR: removed**, a separate commit after PR 2. One denoiser instance; no `UnpackHybrid.compute`,
+  ratio composite, game-colour copy, reservoir buffers, `_Mode` 3, game-cube removal or per-feature hybrid weights.
+  `_HybridLight` is now `_LitWeight` (its lit weight in `w` is read by auto exposure and RR in every mode), so
+  PathTrace binds 7 UAVs. Fallbacks: `hybrid` as a view mode (config, `-ultrart-view`, bench) gives relight, and
+  `-ultrart-lights restir` / bench `lights=restir` give RIS, each with a warning; a config `LightSampler = ReSTIR` is
+  reset to the default. Bench suites lost their hybrid and ReSTIR-key modes (three hybrid-only suites deleted:
+  `perf-8-3-portals`, `perf-8-3-route-hybrid`, `portals-align`). Docs got dated removal notes; measured history
+  stays. Checked with an A/B on alt (relight / pathtrace / pathtrace with UltraRT's denoiser at 4 poses, before vs
+  after build) plus `poses-quick`; the numbers are in the commit message.
+- **Not started:** PR 3 (duplication), PR 4 (legacy options, including the MSAA probe O8), PR 5+.
+- **Follow-ups found on the way:** `_LitWeight` could shrink to one channel (only `w` is used now); the proxies still
+  get `_GameRefl` / `_CubeTex` for every REFLECTION material although only pattern cubes read them now;
+  `ViewmodelComposite`'s `_VMDirect` stays (the filter's luma moments use it).
+
 ## Proposed PRs
 
 Ordered so that each one is reviewable on its own and the risky work comes last. Sizes are lines removed (net).
@@ -67,7 +113,7 @@ All verified by the analyzer build plus grep; "refs" counts are over `src/`.
 | N1 | `native/UltraRT.Native/Hdr.cpp:1199` | `UltraRT_Hdr_GetStatus` export: no caller in C#, the preloader or `HdrTest.cpp` | safe, native build | ~5 |
 | X1 | `src/UltraRT.Probe/` (416 + 37 lines), `scripts/build.ps1:66, 86`, `scripts/lib/slots.ps1:61`, `scripts/run-probe.ps1` (26) | The day-1 feasibility probe (`ooo.lew.ultrart.probe`). Inactive without `-ultrart-probe`, which only `run-probe.ps1` passes; not in any doc. Still compiled, staged and **deployed into both installs, where BepInEx loads it on every launch**. `run-probe.ps1` has no lock or user-playing check and no `-force-gfx-jobs legacy` | safe for the code; the stale `BepInEx\plugins\UltraRT\UltraRT.Probe.dll` in main and alt must be deleted by hand under a lock (`Sync-Stage` copies, it does not prune) | ~480 |
 | X2 | `scripts/run-debugview.ps1` (28), `Plugin.cs:16-20` header | Superseded by `bench.ps1` captures; no lock check. The `Plugin.cs` header still documents it and says "F8 next mode" (Page Up / Page Down since; F8 is the game's console) | safe; AGENTS.md line on the old launchers changes | ~32 |
-| X3 | `tools/bench/run-bench.ps1` (35) | Re-implements acquire / deploy / bench / release; hard-codes the main checkout path; only documented in `docs/handoff-2026-11-18.md` | safe (or document it in bench/README if the lead uses it) | 35 |
+| X3 | `tools/bench/run-bench.ps1` (35) | Re-implements acquire / deploy / bench / release; hard-codes the main checkout path; only documented in `docs/archive/handoff-2026-11-18.md` | safe (or document it in bench/README if the lead uses it) | 35 |
 | X4 | `bench/suites/lights-classify.json:3` | **Broken JSON**: the `Note` contains `BepInEx\ultrart\...` (`\u` + non-hex), which Newtonsoft and Python reject, so the suite cannot load. Fix the escape (`\\`) or delete with B1 | safe | 1 |
 
 ## 2. Bench suites (PR 2)
@@ -116,10 +162,10 @@ defaults, every `-ultrart-*` flag mentioned in a doc against the code) matches, 
 
 | Id | Location | Finding | Action | Size |
 |---|---|---|---|---|
-| D1 | `docs/plan-look-and-perf.md` (615) | Indexed as "Plan of 2026-11-17 (not implemented)" (`README.md:127`) but mostly implemented (its own status table); says the default mode is `relight` (line 9); names `data/lights/_prefabs.json` (line 317), which never shipped (prefabs are `prefab:*` classes in `_rules.json`) | move to `docs/archive/`, relabel the README row "historical plan", fix ~10 links (`lighting-overrides.md:104, 1455`, `relight.md:168`, `reflections.md:554`, `performance.md:202`, `SceneProxies.Player.cs:38`, `tools/lights/score.py:21`) | move |
-| D2 | `docs/handoff-2026-11-18.md` | Its open branches (`t3/materials-fx-2`, `t3/perf-dispatch` ray counters, `t3/stained-glass`, `t3/cutout-pass`) are merged; scratch paths in another worktree. Section 4 (lines 78-112: `-Extra` quoting, the proposal layer, the "variant cannot set a field the frame overwrites" trap, the HDR capture check) is documented nowhere else | fold section 4 (~35 lines) into bench/README.md, archive the rest | ~35 moved |
-| D3 | `docs/audit-2026-11-15.md` (150) | Scores 33 poses at `7420f2c`, before the exposure policy, punch and film curve; its verdicts no longer describe the build. Cited only by `tools/lights/overview.py` | archive; README row "snapshot, superseded" | move |
-| D4 | `docs/pt-plan.md` | Sections 1-5 are the pre-implementation plan (line 13: "`relight` (default)", ReSTIR DI); section 6 (results, "not done and why") is cited by path-tracing.md, dlss.md, light-sampling.md | fold section 6 into path-tracing.md and archive, or relabel the README row "history and experiments" | ~80 moved |
+| D1 | `docs/archive/plan-look-and-perf.md` (615) | Indexed as "Plan of 2026-11-17 (not implemented)" (`README.md:127`) but mostly implemented (its own status table); says the default mode is `relight` (line 9); names `data/lights/_prefabs.json` (line 317), which never shipped (prefabs are `prefab:*` classes in `_rules.json`) | move to `docs/archive/`, relabel the README row "historical plan", fix ~10 links (`lighting-overrides.md:104, 1455`, `relight.md:168`, `reflections.md:554`, `performance.md:202`, `SceneProxies.Player.cs:38`, `tools/lights/score.py:21`) | move |
+| D2 | `docs/archive/handoff-2026-11-18.md` | Its open branches (`t3/materials-fx-2`, `t3/perf-dispatch` ray counters, `t3/stained-glass`, `t3/cutout-pass`) are merged; scratch paths in another worktree. Section 4 (lines 78-112: `-Extra` quoting, the proposal layer, the "variant cannot set a field the frame overwrites" trap, the HDR capture check) is documented nowhere else | fold section 4 (~35 lines) into bench/README.md, archive the rest | ~35 moved |
+| D3 | `docs/archive/audit-2026-11-15.md` (150) | Scores 33 poses at `7420f2c`, before the exposure policy, punch and film curve; its verdicts no longer describe the build. Cited only by `tools/lights/overview.py` | archive; README row "snapshot, superseded" | move |
+| D4 | `docs/archive/pt-plan.md` | Sections 1-5 are the pre-implementation plan (line 13: "`relight` (default)", ReSTIR DI); section 6 (results, "not done and why") is cited by path-tracing.md, dlss.md, light-sampling.md | fold section 6 into path-tracing.md and archive, or relabel the README row "history and experiments" | ~80 moved |
 | D5 | `docs/lighting-overrides.md:1376-1380` "Per-level status (2026-11-15)", `:1506-1513` "Not done yet" | Both describe the state before light classes and the punch policy ("Other levels have no file", "nothing but the rules ships yet") | delete or retitle as dated history | ~20 |
 | D6 | `docs/lighting-overrides.md` (1,513 lines) | Mostly dated per-branch sections (lines ~101-1243) around a reference core | later: split into a reference doc (format, classes, rules, editor, classifier) and `archive/lighting-history.md` | ~700 moved |
 | D7 | `README.md:100` | `relight.md` is "The default mode"; the default is `pathtrace` where RR runs | "The relight mode (default without DLSS RR)" | 1 |

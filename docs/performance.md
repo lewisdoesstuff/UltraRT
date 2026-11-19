@@ -199,7 +199,7 @@ still a record.
 
 ## Profiling (2026-11-17, branch `t3/perf-profile`)
 
-Tools added for the 120 Hz pathtrace / 240 Hz relight work (docs/plan-look-and-perf.md, 5.1). They answer three
+Tools added for the 120 Hz pathtrace / 240 Hz relight work (docs/archive/plan-look-and-perf.md, 5.1). They answer three
 questions the numbers above could not: is a frame bound by the GPU, the main thread or the render thread; what does
 each pass cost on each of the three; and where do the slow frames come from.
 
@@ -443,8 +443,8 @@ in screen space). C4 (fewer shader-table records in 8-x) stays the open render-t
    radiance cache instead and use the slim pass; the viewmodel pass could reuse the frame's cache instead of tracing the
    scene), or one dispatch for several passes (Unity's 8-UAV limit makes that hard).
 2. **PathTrace dispatch** (2.4-2.9 ms relight, 2.3-3.5 ms pathtrace): register pressure of the one big RayGen. Next
-   experiments: compile-time specialisation of the relight path (`_Mode` is a uniform; hybrid-only and reference-only code
-   is compiled into every mode), fewer `TraceScene` sites (bounce, reflection and transparent rays each inline the portal
+   experiments: compile-time specialisation of the relight path (`_Mode` is a uniform; reference-only code is compiled into
+   every mode; the hybrid-only code went on 2026-11-19), fewer `TraceScene` sites (bounce, reflection and transparent rays each inline the portal
    loop).
 3. **Allocations in 8-3**: ~47 KB/frame more than `off` (GC pauses every few seconds there). Needs a sampling approach
    (heap growth per section over many frames) since the per-thread counter is not available.
