@@ -59,7 +59,7 @@ namespace UltraRT
             {
                 _viewEnabled = v;
                 _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset();
-            }, "-ultrart-off").SessionOnly();
+            }, "-ultrart-off").SessionOnly().Basic();
             m.Choice("View", "DefaultMode", "View mode  [PgUp/PgDn]",
                 () => { foreach (var kv in modeOf) if (kv.Value == _mode) return kv.Key; return ViewModeChoice.Relight; },
                 v => { if (modeOf.TryGetValue(v, out int i)) _mode = i; },
@@ -70,8 +70,8 @@ namespace UltraRT
                     ViewModeChoice.Pathtrace => "pathtrace (multi-bounce)",
                     ViewModeChoice.PtDn => "pt-dn (path traced)",
                     _ => modeOf.TryGetValue(v, out int i) ? Modes[i].name : v.ToString(),
-                }, "-ultrart-view").Legacy();
-            m.Bool("View", "GameDither", "The game's screen dither while ray traced", () => _gameDither, v => _gameDither = v, "-ultrart-game-dither");
+                }, "-ultrart-view").Legacy().Basic();
+            m.Bool("View", "GameDither", "The game's screen dither while ray traced", () => _gameDither, v => _gameDither = v, "-ultrart-game-dither").Basic();
 
             m.Group = "Quality and performance";
             m.Choice("Quality", "TraceScale", "Trace resolution",
@@ -82,7 +82,7 @@ namespace UltraRT
                     _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset();
                 },
                 v => v.ToString(),
-                v => v == TraceQuality.Performance ? "Performance (0.5x)" : v == TraceQuality.Balanced ? "Balanced (0.67x)" : "Quality (1x)", "-ultrart-scale");
+                v => v == TraceQuality.Performance ? "Performance (0.5x)" : v == TraceQuality.Balanced ? "Balanced (0.67x)" : "Quality (1x)", "-ultrart-scale").Basic();
             m.Bool("Quality", "TemporalUpsampler", "Temporal upsampler  [F2]", () => _upsampler?.Settings.enabled ?? UpsamplerDefaults.enabled, v =>
             {
                 if (_upsampler != null) _upsampler.Settings.enabled = v;
@@ -111,18 +111,18 @@ namespace UltraRT
                 v => { _ptSettings.denoiser = v; _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); },
                 v => v.ToString(),
                 v => v == PathTraceDenoiser.Auto ? "Auto (DLSS RR if available)" : v == PathTraceDenoiser.UltraRT ? "UltraRT denoiser" : "DLSS Ray Reconstruction",
-                "-ultrart-pt-denoiser");
+                "-ultrart-pt-denoiser").Basic();
             m.Choice("PathTrace", "ScaleRR", "Render resolution with DLSS RR",
                 () => _ptSettings.scaleRR < 0.42f ? PathTraceScale.UltraPerformance : _ptSettings.scaleRR < 0.585f ? PathTraceScale.Performance : PathTraceScale.Balanced,
                 v => _ptSettings.scaleRR = v == PathTraceScale.UltraPerformance ? 1f / 3f : v == PathTraceScale.Performance ? 0.5f : 0.67f,
                 v => v.ToString(),
                 v => v == PathTraceScale.UltraPerformance ? "Ultra performance (1/3)" : v == PathTraceScale.Performance ? "Performance (1/2)" : "Balanced (0.67x)",
-                "-ultrart-pt-scale");
+                "-ultrart-pt-scale").Basic();
             m.Choice("PathTrace", "Scale", "Render resolution with UltraRT's denoiser",
                 () => _ptSettings.scale < 0.42f ? PathTraceScale.UltraPerformance : _ptSettings.scale < 0.585f ? PathTraceScale.Performance : PathTraceScale.Balanced,
                 v => { _ptSettings.scale = v == PathTraceScale.UltraPerformance ? 1f / 3f : v == PathTraceScale.Performance ? 0.5f : 0.67f; _denoiser?.Reset(); _lightSampling?.Reset(); },
                 v => v.ToString(),
-                v => v == PathTraceScale.UltraPerformance ? "1/3 (with exact texels)" : v == PathTraceScale.Performance ? "1/2" : "0.67x");
+                v => v == PathTraceScale.UltraPerformance ? "1/3 (with exact texels)" : v == PathTraceScale.Performance ? "1/2" : "0.67x").Basic();
             m.Bool("PathTrace", "Remodulate", "UltraRT's denoiser: exact texels (remodulation)", () => _ptSettings.remodulate, v => _ptSettings.remodulate = v);
             m.Float("PathTrace", "Paths", "Paths per pixel", 1f, 4f, 0, () => _ptSettings.paths, v => _ptSettings.paths = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4), "-ultrart-pt-paths");
             m.Float("PathTrace", "Bounces", "Bounces per path", 1f, 4f, 0, () => _ptSettings.bounces, v => _ptSettings.bounces = Mathf.Clamp(Mathf.RoundToInt(v), 1, 4), "-ultrart-pt-bounces");
@@ -130,7 +130,7 @@ namespace UltraRT
             m.Bool("PathTrace", "CacheTail", "Radiance cache after the last bounce", () => _ptSettings.cacheTail, v => _ptSettings.cacheTail = v, "-ultrart-pt-nocache");
             m.Float("PathTrace", "Footprint", "End wide paths in the cache (cells; 0 = off)", 0f, 8f, 2, () => _ptSettings.footprint, v => _ptSettings.footprint = Mathf.Max(0f, v), "-ultrart-pt-footprint");
             m.Bool("PathTrace", "SkyAtVertices", "Sky sample at every bounce", () => _ptSettings.skyAtVertices, v => _ptSettings.skyAtVertices = v);
-            m.Bool("DLSS", "RayReconstruction", "DLSS RR in relight / pt-dn  [Ctrl+F8]", () => _rrEnabled, v => _rrEnabled = v, "-ultrart-rr", "-ultrart-norr").Legacy();
+            m.Bool("DLSS", "RayReconstruction", "DLSS RR in relight / pt-dn  [Ctrl+F8]", () => _rrEnabled, v => _rrEnabled = v, "-ultrart-rr", "-ultrart-norr").Legacy().Basic();
             m.Bool("DLSS", "Remodulate", "DLSS RR: exact texels (remodulation)", () => _rrRemodulate, v => _rrRemodulate = v, "-ultrart-rr-noremod");
 
             m.Group = "Lighting";
@@ -149,13 +149,13 @@ namespace UltraRT
 
             m.Group = "Auto exposure";
             m.Bool("Relight", "AutoExposure", "Auto exposure  [Ctrl+F4]", () => _aeSettings.enabled, v => { _aeSettings.enabled = v; _autoExposure?.Reset(); }, "-ultrart-relight-autoexposure").Legacy();
-            m.Float("Relight", "RtBrightness", "RT brightness (0 = as the game)", 0f, 1f, 2, () => _aeSettings.rtBrightness, v => _aeSettings.rtBrightness = Mathf.Clamp01(v), "-ultrart-rt-brightness");
+            m.Float("Relight", "RtBrightness", "RT brightness (0 = as the game)", 0f, 1f, 2, () => _aeSettings.rtBrightness, v => _aeSettings.rtBrightness = Mathf.Clamp01(v), "-ultrart-rt-brightness").Basic();
             m.Float("Relight", "AutoExposureKey", "Target brightness", 0.1f, 1f, 2, () => _aeSettings.key, v => _aeSettings.key = v, "-ultrart-ae-key");
             m.Float("Relight", "AutoExposureMin", "Darkest exposure (EV)", -6f, 0f, 1, () => _aeSettings.minEV, v => _aeSettings.minEV = v, "-ultrart-ae-min");
             m.Float("Relight", "AutoExposureMax", "Brightest exposure (EV)", 0f, 3f, 1, () => _aeSettings.maxEV, v => _aeSettings.maxEV = v, "-ultrart-ae-max");
 
             m.Group = "Effects";
-            m.Bool("Volumetrics", "Enabled", "Volumetric light and fog  [Ctrl+F6]", () => _volSettings.enabled, v => { _volSettings.enabled = v; _volumetrics?.Reset(); }, "-ultrart-volumetrics").Legacy();
+            m.Bool("Volumetrics", "Enabled", "Volumetric light and fog  [Ctrl+F6]", () => _volSettings.enabled, v => { _volSettings.enabled = v; _volumetrics?.Reset(); }, "-ultrart-volumetrics").Legacy().Basic();
             m.Float("Volumetrics", "Density", "Fog density", 0f, 4f, 2, () => _volSettings.densityScale, v => _volSettings.densityScale = v, "-ultrart-vol-density");
             // Key renamed from "Strength" when the default went from 1 to 0.65 (docs/volumetrics.md, "Balance"): config files
             // keep the default they were first written with, so the old key would have pinned 1.
@@ -163,10 +163,15 @@ namespace UltraRT
             m.Bool("Materials", "Enabled", "Surface detail maps  [Ctrl+F1]", () => MaterialMaps.Settings.enabled, v => MaterialMaps.Settings.enabled = v, "-ultrart-materials").Legacy();
             m.Float("Materials", "NormalStrength", "Detail strength (relight, pt-dn)", 0f, 4f, 2, () => MaterialMaps.Settings.normalStrength, v => MaterialMaps.Settings.normalStrength = v, "-ultrart-materials-normal").Legacy();
             m.Float("Materials", "Roughness", "Roughness variation", 0f, 2f, 2, () => MaterialMaps.Settings.roughness, v => MaterialMaps.Settings.roughness = v, "-ultrart-materials-roughness").Legacy();
-            m.Bool("Reflections", "Enabled", "Reflections  [F4]", () => _reflSettings.enabled, v => { _reflSettings.enabled = v; _reflFilter?.Reset(); }, "-ultrart-noreflections");
+            m.Bool("Reflections", "Enabled", "Reflections  [F4]", () => _reflSettings.enabled, v => { _reflSettings.enabled = v; _reflFilter?.Reset(); }, "-ultrart-noreflections").Basic();
             m.Float("Reflections", "Strength", "Reflection strength", 0f, 2f, 2, () => _reflSettings.reflStrength, v => _reflSettings.reflStrength = v, "-ultrart-refl-strength");
-            m.Bool("Reflections", "PlayerInReflections", "V1 in reflections", () => _playerRays != 0, v => _playerRays = v ? 15 : 0, "-ultrart-player-rays", "-ultrart-noplayer");
+            m.Bool("Reflections", "PlayerInReflections", "V1 in reflections", () => _playerRays != 0, v => _playerRays = v ? 15 : 0, "-ultrart-player-rays", "-ultrart-noplayer").Basic();
             m.Bool("Reflections", "RtMirrors", "Ray-traced mirrors", () => _rtMirrors, v => _rtMirrors = v, "-ultrart-rtmirrors");
+            // Bound by ParseParticleArgs / ParseViewmodelArgs (hence Legacy); the setters do what Shift+F7 / Ctrl+F7 do.
+            m.Bool("Particles", "Lit", "Lit particles: smoke, dust, blood spray  [Shift+F7]", () => _particleSettings.enabled,
+                v => { _particleSettings.enabled = v; _particleLight?.Reset(); }, "-ultrart-particles").Legacy().Basic();
+            m.Bool("Viewmodel", "Enabled", "Ray-traced lighting on the gun and arms  [Ctrl+F7]", () => _vmEnabled,
+                v => { _vmEnabled = v; _vmHistValid = false; }, "-ultrart-viewmodel").Legacy().Basic();
             m.Bool("Effects", "EffectLights", "Effect lights",
                 () => _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker,
                 v => _effectSettings.spawnedLights = _effectSettings.virtualLights = _effectSettings.flicker = v);
@@ -195,9 +200,9 @@ namespace UltraRT
 
             // HDR display output (Plugin.Hdr.cs, docs/hdr.md). The switch is read when the game starts (the preloader patcher).
             m.Group = "HDR display";
-            m.Bool("Display", "HDR", "HDR output (applies after a restart)", () => _hdrRequested, v => _hdrRequested = v, "-ultrart-hdr").Legacy();
-            m.Float("Display", "HDRPaperWhiteNits", "Paper white (nits; 0 = as Windows shows SDR)", 0f, 500f, 0, () => _hdrPaperWhite, v => _hdrPaperWhite = v, "-ultrart-hdr-paperwhite").Legacy();
-            m.Float("Display", "HDRPeak", "Peak brightness (nits; 0 = the display's)", 0f, 4000f, 0, () => _hdrPeak, v => _hdrPeak = v, "-ultrart-hdr-peak").Legacy();
+            m.Bool("Display", "HDR", "HDR output (applies after a restart)", () => _hdrRequested, v => _hdrRequested = v, "-ultrart-hdr").Legacy().Basic();
+            m.Float("Display", "HDRPaperWhiteNits", "Paper white (nits; 0 = as Windows shows SDR)", 0f, 500f, 0, () => _hdrPaperWhite, v => _hdrPaperWhite = v, "-ultrart-hdr-paperwhite").Legacy().Basic();
+            m.Float("Display", "HDRPeak", "Peak brightness (nits; 0 = the display's)", 0f, 4000f, 0, () => _hdrPeak, v => _hdrPeak = v, "-ultrart-hdr-peak").Legacy().Basic();
             m.Float("Display", "HDREmissive", "Glowing surfaces (x their SDR brightness)", 1f, 4f, 2, () => _hdrEmissive, v => _hdrEmissive = v, "-ultrart-hdr-emissive").Legacy();
             m.Float("Display", "HDRLava", "Lava and acid (x their SDR brightness)", 1f, 4f, 2, () => _hdrGameSurfaces, v => _hdrGameSurfaces = v, "-ultrart-hdr-lava").Legacy();
             m.Float("Display", "HDRSky", "Sky (x its SDR brightness)", 1f, 4f, 2, () => _hdrSky, v => _hdrSky = v, "-ultrart-hdr-sky").Legacy();
@@ -222,7 +227,13 @@ namespace UltraRT
         }
 
         /// <summary>After the shaders are loaded and every Parse* has run: apply the config, then create the menu page.</summary>
-        private void AttachSettings() => _menu?.Attach();
+        private void AttachSettings()
+        {
+            // [Particles] Lit is bound by ParseParticleArgs, which otherwise first runs in the first update: bind it before
+            // the menu does, or the menu's Legacy lookup binds it first with its label as the config description.
+            if (!_particleArgsParsed) ParseParticleArgs();
+            _menu?.Attach();
+        }
     }
 
     internal interface IMenuBuilder
@@ -241,11 +252,14 @@ namespace UltraRT
         public bool IsLegacy;
         /// <summary>No config entry: changes last for the session.</summary>
         public bool IsSessionOnly;
+        /// <summary>On the main page; everything else is on the "Advanced settings" sub-page (docs/settings.md, "Layout").</summary>
+        public bool IsBasic;
         public SettingsMenu Menu;
         protected ConfigEntryBase Entry;
 
         public Setting Legacy() { IsLegacy = true; return this; }
         public Setting SessionOnly() { IsSessionOnly = true; return this; }
+        public Setting Basic() { IsBasic = true; return this; }
 
         public abstract void Capture();
         public abstract void BindEntry(ConfigFile cfg, bool apply);
@@ -423,7 +437,16 @@ namespace UltraRT
                 catch (Exception e) { _log.LogWarning($"Settings: {s.Section}.{s.Key}: {e.Message}"); }
             }
             _cfg.Save();
+            LogPages();
             TryCreateMenu();
+        }
+
+        /// <summary>Which setting is on which page, logged with or without PluginConfigurator (a check of the split that needs no menu).</summary>
+        private void LogPages()
+        {
+            string List(bool basic) => string.Join(", ", All.Where(s => s.IsBasic == basic).Select(s => $"{s.Section}.{s.Key}"));
+            _log.LogInfo($"Settings menu: main page ({All.Count(s => s.IsBasic)}): {List(true)}");
+            _log.LogInfo($"Settings menu: advanced page ({All.Count(s => !s.IsBasic)}): {List(false)}");
         }
 
         public void Log(string line) => _log.LogInfo(line);
@@ -469,7 +492,7 @@ namespace UltraRT
         private void CreateUi()
         {
             SettingsMenuUi.Create(this);
-            _log.LogInfo($"Settings menu: PluginConfigurator page created ({All.Count} settings)");
+            _log.LogInfo($"Settings menu: PluginConfigurator page created ({All.Count} settings: {All.Count(s => s.IsBasic)} main, {All.Count(s => !s.IsBasic)} advanced)");
         }
 #endif
     }
@@ -486,18 +509,14 @@ namespace UltraRT
         {
             var pc = PluginConfig.API.PluginConfigurator.Create("UltraRT", "ooo.lew.ultrart");
             pc.saveToFile = false; // the values live in the BepInEx config; the page only shows and edits them
-            var ui = new SettingsMenuUi(pc.rootPanel);
             new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel, "Changes apply and save at once. Hotkeys: session only.", 14);
-            string group = null;
-            foreach (var s in menu.All)
-            {
-                if (s.Group != group)
-                {
-                    group = s.Group;
-                    new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel, group, 22);
-                }
-                s.Build(ui);
-            }
+            AddPage(pc.rootPanel, menu.All.Where(s => s.IsBasic));
+
+            // Everything not tagged Basic(): tuning values, sampler and denoiser internals, per-effect gains, debug and A/B switches.
+            var advanced = new PluginConfig.API.ConfigPanel(pc.rootPanel, "Advanced settings", "advanced");
+            new PluginConfig.API.Decorators.ConfigHeader(advanced, "Tuning, internals and comparison switches. Saved like the main page.", 14);
+            AddPage(advanced, menu.All.Where(s => !s.IsBasic));
+
             new PluginConfig.API.Decorators.ConfigHeader(pc.rootPanel, "Tools", 22);
             foreach (var (label, run) in menu.Actions)
                 new PluginConfig.API.Functionals.ButtonField(pc.rootPanel, label, "action." + label).onClick += () => run();
@@ -509,6 +528,22 @@ namespace UltraRT
             {
                 var p = line.Split('|');
                 new PluginConfig.API.Decorators.ConfigHeader(keys, $"{p[0]}  -  {p[1]}", 16);
+            }
+        }
+
+        /// <summary>The settings in registration order, with a header wherever the group changes.</summary>
+        private static void AddPage(PluginConfig.API.ConfigPanel panel, IEnumerable<Setting> settings)
+        {
+            var ui = new SettingsMenuUi(panel);
+            string group = null;
+            foreach (var s in settings)
+            {
+                if (s.Group != group)
+                {
+                    group = s.Group;
+                    new PluginConfig.API.Decorators.ConfigHeader(panel, group, 22);
+                }
+                s.Build(ui);
             }
         }
 
