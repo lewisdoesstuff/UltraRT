@@ -1,0 +1,129 @@
+{
+ "Name": "dark-0-S-diag",
+ "Note": "t3/dark-0-S: a carried item's light out of the air (vol.attachedReach 2.5; 1.5 = before). 0-S spawn and dark corridor with the skull, 4-3 with the torch held (the torch's halo while held).",
+ "Scenarios": [
+  {
+   "Name": "0-S spawn skull",
+   "Scene": "Level 0-S",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 5
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+vol.attachedReach=1.5"
+   ],
+   "Screenshots": [
+    3.5
+   ],
+   "Effects": {
+    "Kinds": [
+     "holditem"
+    ],
+    "PeriodicKinds": [
+     "holditem"
+    ],
+    "Every": 0.5
+   }
+  },
+  {
+   "Name": "0-S tour skull",
+   "Scene": "Level 0-S",
+   "Path": {
+    "Type": "tour"
+   },
+   "Tour": {
+    "Views": 2,
+    "Max": 1
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+vol.attachedReach=1.5"
+   ],
+   "ShotSettle": 1.0,
+   "Effects": {
+    "Kinds": [
+     "holditem"
+    ],
+    "PeriodicKinds": [
+     "holditem"
+    ],
+    "Every": 0.5
+   }
+  },
+  {
+   "Name": "4-3 torch held off",
+   "Scene": "Level 4-3",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/4-3-torch-grapple.json"
+   },
+   "Enemies": "blind",
+   "Effects": {
+    "Kinds": [
+     "holdtorch"
+    ],
+    "PeriodicKinds": [
+     "holdtorch"
+    ],
+    "Every": 0.5
+   },
+   "Modes": [
+    "off"
+   ],
+   "Screenshots": [
+    10.0
+   ]
+  },
+  {
+   "Name": "4-3 torch held pt",
+   "Scene": "Level 4-3",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/4-3-torch-grapple.json"
+   },
+   "Enemies": "blind",
+   "Effects": {
+    "Kinds": [
+     "holdtorch"
+    ],
+    "PeriodicKinds": [
+     "holdtorch"
+    ],
+    "Every": 0.5
+   },
+   "Modes": [
+    "pathtrace"
+   ],
+   "Screenshots": [
+    10.0
+   ]
+  },
+  {
+   "Name": "4-3 torch held pt reach 1.5",
+   "Scene": "Level 4-3",
+   "Path": {
+    "Type": "recording",
+    "File": "../recordings/4-3-torch-grapple.json"
+   },
+   "Enemies": "blind",
+   "Effects": {
+    "Kinds": [
+     "holdtorch"
+    ],
+    "PeriodicKinds": [
+     "holdtorch"
+    ],
+    "Every": 0.5
+   },
+   "Modes": [
+    "pathtrace+vol.attachedReach=1.5"
+   ],
+   "Screenshots": [
+    10.0
+   ]
+  }
+ ]
+}

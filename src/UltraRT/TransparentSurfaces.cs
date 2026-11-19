@@ -136,6 +136,68 @@ namespace UltraRT
         public int Count => _attached.Count;
         public bool Available => _shader != null && _shader.isSupported;
 
+        // ---- Limbo water fade (docs/reflections.md, "Limbo water fade"). The game fades LIMBO_WATER_FADE water out
+        // around the player: alpha = saturate(n + (d - near) / (far - near)), n = length(rg) of its _DitherTexture
+        // (bayer16) at uv x 4, so inside the fade band the surface shows the texture's squares (1-1's fountain: the user's
+        // "checkerboard", 2026-11-18). While frames are traced the dither is a flat, very large n: the water is not faded at
+        // all (user, 2026-11-18: "drop the fade out on the water too"). A half-float texture, so n is not clamped to 1.
+        public const float FlatFadeN = 1000f;
+        private static Texture2D _flatDither;
+        // Keyed by the material instance in use: the game instances a fading water's materials (renderer.materials, ours
+        // included) after the overlay is attached, so the instances are found on the renderers, again every 30 frames.
+        private readonly Dictionary<Material, (string prop, Texture original)> _fades = new Dictionary<Material, (string, Texture)>();
+        private bool _flatFade;
+        private int _fadeScanFrame = -1000;
+        public int FadeCount => _fades.Count;
+
+        private static Texture2D FlatDither()
+        {
+            if (_flatDither != null) return _flatDither;
+            float c = FlatFadeN / Mathf.Sqrt(2f); // length(rg) = FlatFadeN: saturate(n + (d - near) / (far - near)) = 1
+            _flatDither = new Texture2D(4, 4, TextureFormat.RGBAHalf, false, true) { name = "UltraRT no fade dither", filterMode = FilterMode.Point, hideFlags = HideFlags.DontUnloadUnusedAsset };
+            var px = new Color[16];
+            for (int i = 0; i < px.Length; i++) px[i] = new Color(c, c, 0f, 1f);
+            _flatDither.SetPixels(px);
+            _flatDither.Apply(false, true);
+            return _flatDither;
+        }
+
+        /// <summary>Every frame from the plugin: no fade while frames are traced, the game's dither otherwise.</summary>
+        public void SetFlatFade(bool on)
+        {
+            if (!on)
+            {
+                if (_flatFade) RestoreFades();
+                _flatFade = false;
+                return;
+            }
+            if (_flatFade && Time.frameCount - _fadeScanFrame < 30) return;
+            _flatFade = true;
+            _fadeScanFrame = Time.frameCount;
+            var flat = FlatDither();
+            foreach (var (r, _, _) in _attached)
+            {
+                if (r == null) continue;
+                foreach (var m in r.sharedMaterials)
+                {
+                    if (m == null) continue;
+                    string prop = IsOverlay(m) ? (m.HasProperty("_LimboFade") && m.GetFloat("_LimboFade") > 0.5f ? "_FadeDither" : null)
+                                               : (m.IsKeywordEnabled("LIMBO_WATER_FADE") && m.HasProperty("_DitherTexture") ? "_DitherTexture" : null);
+                    if (prop == null) continue;
+                    var t = m.GetTexture(prop);
+                    if (t == flat) continue;
+                    _fades[m] = (prop, t);
+                    m.SetTexture(prop, flat);
+                }
+            }
+        }
+
+        private void RestoreFades()
+        {
+            foreach (var kv in _fades) if (kv.Key != null) kv.Key.SetTexture(kv.Value.prop, kv.Value.original);
+            _fades.Clear();
+        }
+
         /// <summary>Appends the overlay for the renderer's last material slot (the submesh Unity repeats). False if that
         /// slot is not a water/glass material.</summary>
         public bool Attach(Renderer r)
@@ -211,6 +273,8 @@ namespace UltraRT
                 else if (now.Any(IsOverlay)) r.sharedMaterials = now.Where(m => !IsOverlay(m)).ToArray();
             }
             _attached.Clear();
+            RestoreFades();
+            _flatFade = false;
             foreach (var m in _materials.Values) if (m != null) Object.Destroy(m);
             _materials.Clear();
         }

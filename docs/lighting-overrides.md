@@ -91,6 +91,10 @@ The block also takes `"followGame": F` (2026-11-18, "Punch on every level"): the
 downwards (0.9 beyond 0.1 EV at 1).
 And `"followGameUp": F` (2026-11-18, `t3/level-look-3`): the exposure follows the game upwards as well (see
 "Playtest of 2026-11-18" below).
+And `"coneGain": F` (2026-11-18, `t3/playtest-lights`): the game's light cones (additive `LightPillar*` materials)
+x F while frames are traced (see "Playtest items, third part" below).
+And `"waterWaves": F` (2026-11-18, `t3/playtest-materials`): the traced water's ripples x F in the level (8-2: 0.25,
+docs/reflections.md, "8-2's pool").
 
 ## Classes and rules (2026-11-17)
 
@@ -914,6 +918,51 @@ files in the proposal layer (`lc.layer=proposed`, run `20261118-225053_fx2-b`; 0
 - **2-4 pose 1, "are the light cones fake"**: yes. They are the game's `LightPillar` meshes (additive, vertex
   gradient), drawn by the game in front of the traced image; RT adds the real light of the lamp on the surfaces and
   in the haze.
+
+### 0-S as shipped, and the held skull (2026-11-18, `t3/dark-0-S`)
+
+The user, after the playtest: 0-S's start areas are meant to be normal brightness; only the level proper (the dark
+corridors) is pitch black, lit only by the held skull. Suites `dark-0-S` (the lead's: spawn with and without the skull,
+a tour holding it) and `dark-0-S-diag` (before / after in one launch). Mean luma of the frame, and of the far end of the
+dark corridor (the middle of tour stop 0, view 0), pathtrace.
+
+| | Game | master (`followGame` 1, run `20261118-230351_dark-0-S_alt`) | now (`20261118-231755_dark-0-S-diag_alt`) |
+|---|---|---|---|
+| Spawn, no skull | 35.5 | 37.3 | (unchanged: nothing here touches it) |
+| Spawn, skull held | 47.2 | 52.3 | 49.3 |
+| Dark corridor, skull held: frame / far end | 27.8 / 1.7 | 33.3 / 14.2 | 29.5 / 5.7 |
+| Lit corridor (view 1) | 57.7 | 66.9 | 67.1 |
+
+- `followGame` 1 (718085a) works: the lead's run of 22:43 was built before it (`6846117-dirty`), which is why its log
+  showed no correction. On master the exposure comes down 1.3 EV in the dark corridor and the start rooms keep theirs.
+- What was left was a **teal glow down the dark corridor**: the held skull's own light scattering in the air. Its light
+  hangs 2.1-2.9 m from the eye in world space, beyond the 1.5 m within which a carried light is kept out of the medium,
+  so it lit a veil in front of everything (docs/volumetrics.md, "Thrown items"). Every class's `medium` at 0 changed
+  nothing; `lc.set.player.medium=0` and `vol.lights=0` removed it. Fixed by the reach (`vol.attachedReach` 2.5 m); no
+  level setting.
+- **The held skull's class depended on timing.** A carried item's light is `item` on the ground (x2.5, reach 0, air
+  x0.4) and `player` in the hand (x1, full reach, ClassifyLight), but the resolved set is cached, so a skull picked up
+  after the last cache clear kept `item` until the next one (any review switch, a fixture or handover change) and then
+  switched to `player` mid-play: the corridor walls went 32 -> 24 in one run. `CarriedChanged` re-resolves a light whose
+  carried state no longer matches its class. Held, the skull is `player` now, always.
+- **Not reached: black.** The far end is 5.7 against the game's 1.7 (10th percentile of the frame 6.4 against 0.7): with
+  every level light off it is still 5.9, so it is not a light; the bounce of the skull's light and the denoiser's floor
+  are the suspects. The walls near the skull are a little darker than the game's (21.8 against 27.6). Sheets:
+  `bench/results/review/dark0s/` (`corridor_before_after.png`, `spawn_before_after.png`, `litcorridor_before_after.png`;
+  `diag.png` is master with `lc.solo=none` and without the level's exposure).
+
+## Playtest items, third part (2026-11-18, `t3/playtest-lights`)
+
+Items left open by `t3/materials-fx-2` (docs/handoff-2026-11-18.md). Suite `playtest-lights` (as shipped, each with
+its "before" as a variant), `gabriel` and `playtest-diag` (the viewprobe and census run that found the causes). Sheets:
+`bench/results/review/ptl/`.
+
+| Item | Cause | Change | Evidence |
+|---|---|---|---|
+| 6-2 pose 4: Gabriel's wings do not light the ground | the wings (`GabrielWings`, queue 3000) are not traced; his own light (`gabrielRigged_Swords_Held/metarig/Root/spine/Point Light`, blue, x5, range 10) ends before the floor. Only 6-2's intro rig has it (offline census): 3-2's Gabriel lights are 25-50 m already | rule `gabriel's light` in `_rules.json`, class `boss:gabriel` x1.5, `range` x1.5 (reach as relight's) | within one load (the cutscene runs on, so loads cannot be compared): frame 13.9 -> 17.1, the floor in front of him and the organ wall behind lit blue as in the game's own frame (`gabriel2.png`, runs `20261118-233430_gabriel_alt`). x2.5 with range 25 (the first try) flooded the hall |
+| 0-3 pose 1: light pillars "too transparent" | the game's additive cone (`LightPillar 1E Outlines`, alpha 0.5, `SrcAlpha One`) at its fixed strength over a traced room brighter than the game's, burnt-out strips behind | level `"exposure": { "coneGain": 1.6 }` in `Level 0-3.json` (`Plugin.Beams.cs`): the 14 additive `LightPillar*` materials x1.6 while frames are traced (alpha first, then colour), the game's values back otherwise. Bench `plugin._coneGainOverride` | the pillar reads as a solid column again (`pillars.png`); 2.2 looks the same as 1.6 (the alpha is at 1 by then) |
+| 1-4 pose 3: the white Cerberus orbs | not a missing shell: the white orbs' shell, `Sphere_8`, has the opaque white unlit `Light` material where the orange ones have the additive `ExplosionSphere`, so the apple inside is hidden and the orb is a flat white ball (in the game too) | while traced, such a shell is drawn as an additive glow tinted with the orb light's colour (x0.35) and kept out of the RT scene; the orb counts as an orb fixture like the orange ones (docs/scene-proxies.md, "White orbs") | the apple shows through a glow rim (`orb_look_crop.png`); 6 shells in 1-4. The gain hardly matters between 0.15 and 0.6 |
+| Lamp, dome, mushroom and screen parts with no light beside them | already emitters: unlit `Light`, `GlowingShroom`, `ComputerScreen*` are in the emissive table at x1 (1-4's census: `Light` lum 5.5, no rule) | none: they light their surroundings at their own strength, without the x2.5 punch handed-over parts get. A `glow` rule per material would add that; not done without the user's review | `lights_Level 1-4.json` of `20261118-232200_playtest-diag_alt` |
 
 ## Handover: a fixture's glowing part carries its light (2026-11-18, `t3/emissive-all`)
 

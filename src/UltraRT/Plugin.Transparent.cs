@@ -86,7 +86,9 @@ namespace UltraRT
                            // Under water the overlays draw nothing for water (see TransparentOverlay.shader): don't trace
                            // reflections that would be discarded (every pixel hits the volume: +0.4 ms in 7-1).
                            && !_proxies.InsideWater(_camera.transform.position);
-            _transWater = new Vector4(s.waves, Time.timeSinceLevelLoad % 3600f, s.waveFade, s.refraction);
+            // A level's own ripple factor ("exposure": { "waterWaves": F }: 8-2's still pool, docs/reflections.md).
+            float levelWaves = _lightOverrides && _aeSettings.levelOverride && _lightOv != null ? _lightOv.LevelWaterWaves : 1f; // bench ae.levelOverride=0: without
+            _transWater = new Vector4(s.waves * levelWaves, Time.timeSinceLevelLoad % 3600f, s.waveFade, s.refraction);
             _cmd.SetRayTracingVectorParam(shader, "_TransParams", new Vector4(s.cacheSpread, _transActive ? 1f : 0f, 0, 0));
             _cmd.SetRayTracingVectorParam(shader, "_UltraRTWater", _transWater);
         }

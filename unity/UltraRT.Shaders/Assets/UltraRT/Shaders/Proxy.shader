@@ -39,6 +39,7 @@ Shader "UltraRT/Proxy"
         // rules: a partial value, SceneProxies.Unlit.cs). Non-atlas only; atlas geometry carries it in the vertex colour alpha,
         // and an atlas variant with a "lit" rule lifts the fullbright part: lerp(_LitOverride, 1, alpha) (-1 = alpha alone).
         _Unlit ("Unlit (0 lit, 1 fullbright)", Float) = 0
+        _NoFog ("The game draws it without distance fog (_FOG_OFF)", Float) = 0
         _LitOverride ("Atlas lit weight of fullbright slots (-1 = vertex alpha)", Float) = -1
         // BLOOD_FILLER (7-3's tree): the game paints the albedo's green and blue out below a fill height (mesh TEXCOORD2.y in
         // [-1, 1]) with a noisy edge. _BloodFill: the renderer's _FillAmount (0 = off), _BloodScale its _MeshScale.z
@@ -146,6 +147,7 @@ Shader "UltraRT/Proxy"
             float _TransOpacity;
             float _UltraRTTransAlpha; // global: 1 = water's path tint follows the game's blend alpha
             float _Unlit;
+            float _NoFog;
             float _LitOverride;
             float _BloodFill, _BloodScale;
             Texture2D _BloodNoiseTex;
@@ -727,7 +729,7 @@ Shader "UltraRT/Proxy"
                 p.material = PackMaterialWord(rough, metal, f0, specWeight);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls)
-                        | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT);
+                        | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT) | (_NoFog > 0.5 ? ULTRART_FLAG_NOFOG : 0u);
 
                 // Hybrid primary hits: the game's cubemap term for the composite to remove. uvHalf / primitive are debug-only
                 // otherwise; PathTrace's primary rays never read them.

@@ -22,6 +22,8 @@ Shader "UltraRT/VolumetricsComposite"
             Texture2D _VolSceneColor;          // copy of the target (screen resolution)
             Texture2D _UltraRTGameDepth;       // the game's depth (raw), set by the plugin for the RT composite
             Texture2D _UltraRTUpsampled;       // temporal upsampler output: a > 0 where the RT image replaced the game's pixel
+            Texture2D<uint4> _UltraRTSurface;  // PathTrace's packed surface (trace resolution): SurfaceNoFog = the game draws it unfogged
+            float _UltraRTSurfaceOn;
             Texture2D<float4> _VolHist;        // low-res accumulated in-scattering (linear, unexposed)
             Texture2D<float>  _VolDepthTex;    // low-res ray lengths
             StructuredBuffer<float4> _VolExposure; // [0].x auto exposure (AutoExposure's buffer)
@@ -114,6 +116,14 @@ Shader "UltraRT/VolumetricsComposite"
             float4 fragFog(v2f i) : SV_Target
             {
                 if (_VolFogColor.w < 0.5 || _UltraRTUpsampled.Sample(my_point_clamp_sampler, i.uv).a <= 0.0) return float4(0, 0, 0, 1);
+                // "NoFog" materials (_FOG_OFF): the game leaves them unfogged (0-1's gears, 2026-11-18).
+                if (_UltraRTSurfaceOn > 0.5)
+                {
+                    uint sw, sh;
+                    _UltraRTSurface.GetDimensions(sw, sh);
+                    uint4 sf = _UltraRTSurface.Load(int3(min((uint2)(i.uv * float2(sw, sh)), uint2(sw - 1, sh - 1)), 0));
+                    if ((sf.z & 0x8000u) != 0u) return float4(0, 0, 0, 1);
+                }
                 float z, d;
                 PixelRay(i.uv, z, d);
                 float vis = FogVisibility(z);

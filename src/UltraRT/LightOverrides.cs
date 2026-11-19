@@ -110,6 +110,12 @@ namespace UltraRT
         [JsonProperty("followGame", NullValueHandling = NullValueHandling.Ignore)] public float? FollowGame;
         /// <summary>0-1: the level follows the game's brightness upwards (AutoExposureSettings.levelFollowGameUp).</summary>
         [JsonProperty("followGameUp", NullValueHandling = NullValueHandling.Ignore)] public float? FollowGameUp;
+        /// <summary>Strength of the game's light cones (LightPillar* materials, additive) while frames are traced
+        /// (Plugin.Beams.cs): the cone is drawn by the game over the traced room, which is often brighter than the game's.</summary>
+        [JsonProperty("coneGain", NullValueHandling = NullValueHandling.Ignore)] public float? ConeGain;
+        /// <summary>Factor on the traced water's ripples in this level (TransparentSettings.waves; 0 = a flat mirror). For
+        /// still water the user wants calm (8-2's pool, 2026-11-18).</summary>
+        [JsonProperty("waterWaves", NullValueHandling = NullValueHandling.Ignore)] public float? WaterWaves;
         [JsonProperty("note", NullValueHandling = NullValueHandling.Ignore)] public string Note;
     }
 
@@ -159,6 +165,8 @@ namespace UltraRT
         public float LevelRtBrightness => Mathf.Clamp01((_userExposure?.RtBrightness ?? _shippedExposure?.RtBrightness) ?? 0f);
         public float LevelFollowGame => Mathf.Clamp01((_userExposure?.FollowGame ?? _shippedExposure?.FollowGame) ?? 0f);
         public float LevelFollowGameUp => Mathf.Clamp01((_userExposure?.FollowGameUp ?? _shippedExposure?.FollowGameUp) ?? 0f);
+        public float LevelWaterWaves => Mathf.Clamp((_userExposure?.WaterWaves ?? _shippedExposure?.WaterWaves) ?? 1f, 0f, 2f);
+        public float LevelConeGain => Mathf.Clamp((_userExposure?.ConeGain ?? _shippedExposure?.ConeGain) ?? 1f, 0f, 4f);
 
         /// <summary>Classes and rules (lights\_rules.json plus this level's own).</summary>
         public readonly LightClasses Classes;

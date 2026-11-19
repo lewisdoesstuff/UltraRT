@@ -71,6 +71,11 @@ SurfaceMaterial MaterialFromPayload(uint word, uint flags)
     return UnpackMaterial(word, (flags >> 1) & 3u, FromUnorm8(flags >> 16), (flags >> 24) & 0x1Fu);
 }
 
+// Payload flags (hit -> ray gen): the game draws this material without its distance fog (_FOG_OFF, the "NoFog"
+// materials: 0-1's giant gears). Kept in _Surface as the sign bit of emission.b's half (emission is never negative), so
+// the fog pass leaves the pixel unfogged as the game does (SurfaceNoFog; VolumetricsComposite.shader, pass 0).
+#define ULTRART_FLAG_NOFOG 0x40u
+
 uint4 PackSurface(float3 albedo, float3 emission, uint materialWord, uint flags)
 {
     uint mode = (flags >> 1) & 3u;
@@ -78,12 +83,13 @@ uint4 PackSurface(float3 albedo, float3 emission, uint materialWord, uint flags)
     uint rs = (flags >> 16) & 0xFFu;
     return uint4(Unorm8(albedo.r) | (Unorm8(albedo.g) << 8) | (Unorm8(albedo.b) << 16) | (cls << 24) | (mode << 29),
                  f32tof16(emission.r) | (f32tof16(emission.g) << 16),
-                 f32tof16(emission.b) | (rs << 16),
+                 (f32tof16(max(emission.b, 0.0)) & 0x7FFFu) | ((flags & ULTRART_FLAG_NOFOG) != 0u ? 0x8000u : 0u) | (rs << 16),
                  materialWord);
 }
 
 float3 SurfaceAlbedo(uint4 s) { return float3(FromUnorm8(s.x), FromUnorm8(s.x >> 8), FromUnorm8(s.x >> 16)); }
-float3 SurfaceEmission(uint4 s) { return float3(f16tof32(s.y), f16tof32(s.y >> 16), f16tof32(s.z)); }
+float3 SurfaceEmission(uint4 s) { return float3(f16tof32(s.y), f16tof32(s.y >> 16), f16tof32(s.z & 0x7FFFu)); }
+bool SurfaceNoFog(uint4 s) { return (s.z & 0x8000u) != 0u; }
 SurfaceMaterial SurfaceMat(uint4 s) { return UnpackMaterial(s.w, (s.x >> 29) & 3u, FromUnorm8(s.z >> 16), (s.x >> 24) & 0x1Fu); }
 
 // Game cubemap removal (hybrid): k = what the game left of the lit colour (1 - m RS for blend, 1 for additive).
