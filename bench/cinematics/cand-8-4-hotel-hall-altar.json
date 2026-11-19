@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "cand-8-4-hotel-hall-altar",
+  "Scene": "Level 8-4",
+  "Note": "v5c candidate D: a slow pan across the Hotel Hallway's red skull altar and its spot lights from the east end.",
+  "Keys": [
+    {"Player": [-60.5, 29.3, 368.0], "Yaw": -75, "Pitch": 0, "Fov": 85, "Duration": 6.0, "Ease": "smooth"},
+    {"Player": [-60.5, 29.3, 378.0], "Yaw": -105, "Pitch": 0, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

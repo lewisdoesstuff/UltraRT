@@ -1,0 +1,37 @@
+{
+ "Version": 1,
+ "Scene": "Level 8-4",
+ "Created": "2026-11-19T23:30:00",
+ "Note": "Synthetic route for trailer v5c: stand at the Elevator checkpoint, at the twisting hallway (Load: checkpoint).",
+ "SampleRate": 30.0,
+ "Samples": [
+  [
+   0.0,
+   -25.75,
+   52.75,
+   104.0,
+   0.0,
+   0.0
+  ],
+  [
+   0.5,
+   -25.75,
+   52.75,
+   104.0,
+   0.0,
+   0.0
+  ]
+ ],
+ "Arenas": [],
+ "Checkpoints": [
+  {
+   "Time": 0.0,
+   "Path": "Checkpoint",
+   "Position": [
+    -25.75,
+    51.25,
+    104.0
+   ]
+  }
+ ]
+}

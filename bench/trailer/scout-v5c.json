@@ -1,0 +1,23 @@
+[
+  { "Name": "v5c-4-4-window-hall", "Scene": "Level 4-4",
+    "Note": "Trailer v5c candidates: 4-4's '5 - Window Hallway' before the boss arena (x 107.5-127.5, z 355-475; floor y 648.5, the upper landing y 662.5 by the boss gate at z 355, stairs at z 395). The slatted window is on the east side, lit by three spots outside at x 160. World frame: keys [z, x, feet y, yaw, pitch]. Loaded at the Boss Entrance checkpoint, the hallway switched on with LookActivate.",
+    "Base": { "Player": [0, 0, 0], "Yaw": 0, "Pitch": 0 }, "Fov": 85,
+    "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/v5c-4-4-boss-entrance.json", "Duration": 1,
+              "LookAt": "5 - Window Hallway/Floor", "LookActivate": true, "LookDistance": 6 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [470, 117.5, 648.5, 180, 0], [398, 117.5, 662.5, 0, -6], [440, 110, 648.5, 60, 2], [420, 123, 648.5, -120, -6],
+              [455, 117.5, 649.0, 90, -12], [430, 117.5, 648.5, 0, -28] ] },
+  { "Name": "v5c-8-4-twisting-hall", "Scene": "Level 8-4",
+    "Note": "Trailer v5c candidates: 8-4's TwistingHallway (x -28.5, z 67-228, a gravity volume rolls the floor along it), at the Elevator checkpoint (-25.75, 51.25, 104). World frame keys [z, x, feet y, yaw, pitch].",
+    "Base": { "Player": [0, 0, 0], "Yaw": 0, "Pitch": 0 }, "Fov": 85,
+    "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/v5c-8-4-elevator.json", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [104, -28.5, 51.25, 0, 0], [96, -28.5, 51.5, 0, 4], [112, -28.5, 51.25, 180, 0], [104, -27, 51.25, 0, -12],
+              [118, -28.5, 52, 0, 0] ] },
+  { "Name": "v5c-8-4-hotel-hall", "Scene": "Level 8-4",
+    "Note": "Trailer v5c candidates: 8-4's Hotel Hallway in the lower intro (x -89.5 to -56.5, z 358-390, floor y 29; red skull altar and spot lights at x -64.5, z 372), on at level start. World frame keys [z, x, feet y, yaw, pitch].",
+    "Base": { "Player": [0, 0, 0], "Yaw": 0, "Pitch": 0 }, "Fov": 85,
+    "Path": { "Type": "static", "Load": "none", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [374, -59, 29, -90, 0], [374, -87, 29, 90, 0], [362, -62, 29, -55, 0], [386, -86, 29, 125, -4], [345, -70, 29, 0, 0] ] }
+]

@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "cand-4-4-window-hall-down",
+  "Scene": "Level 4-4",
+  "Note": "v5c candidate A: from the far (north) end of 4-4's Window Hallway down the hall towards the stairs and the boss gate, the slats' light across the floor (world frame [z, x, feet y, yaw, pitch]).",
+  "Keys": [
+    {"Player": [117.5, 648.6, 472.0], "Yaw": 180, "Pitch": 1, "Fov": 85, "Duration": 6.0, "Ease": "smooth"},
+    {"Player": [117.5, 648.9, 446.0], "Yaw": 180, "Pitch": -2, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

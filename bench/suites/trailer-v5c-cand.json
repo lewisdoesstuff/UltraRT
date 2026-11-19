@@ -1,0 +1,203 @@
+{
+  "Name": "trailer-v5c-cand",
+  "Note": "Trailer v5c: candidate moves for 4-4's Window Hallway and 8-4's hallways, paired live takes at 1440p (stills for the user to choose from).",
+  "Scenarios": [
+    {
+      "Name": "4-4-window-hall-down",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-4-4-boss-entrance.json",
+        "Duration": 1,
+        "LookAt": "5 - Window Hallway/Floor",
+        "LookActivate": true,
+        "LookDistance": 6
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/cand-4-4-window-hall-down.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.0,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 60,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 6.0
+      }
+    },
+    {
+      "Name": "4-4-window-hall-stairs",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-4-4-boss-entrance.json",
+        "Duration": 1,
+        "LookAt": "5 - Window Hallway/Floor",
+        "LookActivate": true,
+        "LookDistance": 6
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/cand-4-4-window-hall-stairs.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.0,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 60,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 6.0
+      }
+    },
+    {
+      "Name": "4-4-window-hall-track",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-4-4-boss-entrance.json",
+        "Duration": 1,
+        "LookAt": "5 - Window Hallway/Floor",
+        "LookActivate": true,
+        "LookDistance": 6
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/cand-4-4-window-hall-track.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.0,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 60,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 6.0
+      }
+    },
+    {
+      "Name": "8-4-twisting-hall-in",
+      "Scene": "Level 8-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-4-elevator.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/cand-8-4-twisting-hall-in.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.0,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 60,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 6.0
+      }
+    },
+    {
+      "Name": "8-4-twisting-hall-back",
+      "Scene": "Level 8-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-4-elevator.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/cand-8-4-twisting-hall-back.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.0,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 60,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 6.0
+      }
+    },
+    {
+      "Name": "8-4-hotel-hall-doors",
+      "Scene": "Level 8-4",
+      "Path": {
+        "Type": "static",
+        "Load": "none",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/cand-8-4-hotel-hall-doors.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.0,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 60,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 6.0
+      }
+    },
+    {
+      "Name": "8-4-hotel-hall-altar",
+      "Scene": "Level 8-4",
+      "Path": {
+        "Type": "static",
+        "Load": "none",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/cand-8-4-hotel-hall-altar.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 6.0,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 60,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 0,
+        "OffUntil": 6.0
+      },
+      "FreshLoad": true
+    }
+  ]
+}

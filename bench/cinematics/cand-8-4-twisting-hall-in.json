@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "cand-8-4-twisting-hall-in",
+  "Scene": "Level 8-4",
+  "Note": "v5c candidate A: a push down 8-4's twisting hallway from the elevator (+z).",
+  "Keys": [
+    {"Player": [-28.5, 51.25, 98.0], "Yaw": 0, "Pitch": 2, "Fov": 85, "Duration": 6.0, "Ease": "smooth"},
+    {"Player": [-28.5, 51.6, 118.0], "Yaw": 0, "Pitch": 0, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

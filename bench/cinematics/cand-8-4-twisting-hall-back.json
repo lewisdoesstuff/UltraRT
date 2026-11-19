@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "cand-8-4-twisting-hall-back",
+  "Scene": "Level 8-4",
+  "Note": "v5c candidate B: back along the twisting hallway towards the elevator (-z).",
+  "Keys": [
+    {"Player": [-28.5, 51.6, 120.0], "Yaw": 180, "Pitch": 0, "Fov": 85, "Duration": 6.0, "Ease": "smooth"},
+    {"Player": [-28.5, 51.25, 102.0], "Yaw": 180, "Pitch": 2, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

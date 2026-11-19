@@ -279,6 +279,34 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## v5c scouting (2026-11-19, branch `t3/trailer-v5c`)
+
+The user's decisions on v5b: no captions (the level titles stay), the 7-3 gunfire shot out, and candidates for two new
+shots: 8-4's hallway and 4-4's hallway before the arena (the slatted window and the water). The final takes wait for
+the glints removal and the 6-2 blood / 1-4 arena fixes to merge.
+
+- Scout: `bench/trailer/scout-v5c.json` (suite `trailer-v5c-scout`, 16 keys, game | accumulated path tracing).
+  Candidate moves: `bench/trailer/cand-v5c.json`, suite `trailer-v5c-cand`, paired live takes at 1440p with
+  full-resolution RR, 6 s at 30 fps. Stills (game | path traced at 15, 50 and 90 % of each move, plus an overview) are
+  in the main checkout's `bench\results\trailer\v5c-candidates\`.
+- **4-4's "5 - Window Hallway"** (x 107.5-127.5, z 355-475; floor y 648.5; stairs at z 395 up to the boss gate's
+  landing at y 662.5). The game paints the window's light as striped beam meshes. Path traced, the slats also throw
+  real striped light and shadow across the floor and both walls, and the water channels along the walls reflect it.
+  Three moves: down the hall from the north end, down the stairs into the hall, sideways past the window.
+- **8-4's twisting hallway** (`3 - Upper Intro/TwistingHallway`, x -28.5, z 67-228, at the Elevator checkpoint): a
+  striking corridor, but the game and the traced image look almost the same there, so it could only be a traced-only
+  shot. Two moves: in from the elevator, and back towards it.
+- **8-4's Hotel Hallway** (`1 - Lower Intro/Hotel Hallway`, x -89.5 to -56.5, z 358-390, floor y 29, on at level
+  start: `Load: none`): towards the hall's doors (traced: warm light on the wood and the carpet), and a pan across the
+  red skull altar (the game draws the altar as a black silhouette; traced, the skull's light picks it out and throws its
+  shadow across the carpet).
+- **Loading a room behind a checkpoint without a recorded route**: a two-sample synthetic route whose `Checkpoints`
+  entry names the checkpoint (`bench/recordings/v5c-4-4-boss-entrance.json`, `v5c-8-4-elevator.json`) makes
+  `Load: checkpoint` jump there. 4-4's Window Hallway lies before the Boss Entrance checkpoint and is off after the
+  jump; `"LookAt": "5 - Window Hallway/Floor", "LookActivate": true` switches it on with its lights.
+- Traps: the Hotel Hallway's east wall is thicker than its objects' bounds suggest: a camera at x -58 renders black
+  in both images (x -59 and -60.5 are inside the room).
+
 ## The final trailer, v5b (2026-11-19, `trailer-final-v5b`)
 
 The user's notes on v5, on branch `t3/trailer-v5b` from master 1e9adda (glints on water and wet surfaces, caustics
