@@ -1,0 +1,38 @@
+{
+ "Name": "glass-cost",
+ "Note": "Branch t3/stained-glass: GPU cost with no stained glass in view (merge-regress 2026-11-19: 0-1 metal +0.2-0.3 ms). -Perf; run against bb80589, -ultrart-glass off, default.",
+ "Scenarios": [
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "relight",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    4
+   ]
+  },
+  {
+   "Name": "6-2 start",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/6-2-start.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "relight",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}
