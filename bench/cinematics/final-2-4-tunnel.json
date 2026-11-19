@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-2-4-tunnel",
+  "Scene": "Level 2-4",
+  "Note": "Trailer v4: a push down 2-4's tunnel towards the red-lit arches, which the game does not light (base = end of bench/recordings/u1118-2-4-3.json, the user's pose 3).",
+  "Keys": [
+    {"Player": [135.5, -10.5, 701.86], "Yaw": 91.76, "Pitch": -2, "Fov": 85, "Duration": 4.8, "Ease": "linear"},
+    {"Player": [155.491, -10.5, 701.246], "Yaw": 91.76, "Pitch": 0, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

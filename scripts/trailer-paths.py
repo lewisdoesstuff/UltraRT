@@ -75,7 +75,7 @@ def main():
             doc["Note"] = s["Note"]
         doc["Keys"] = keys
         path = os.path.join(out, name + ".json")
-        with open(path, "w", encoding="utf-8", newline="\r\n") as f:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write("{\n")
             for key in ("Version", "Name", "Scene", "Note"):
                 if key in doc:
@@ -92,7 +92,7 @@ def main():
                               **s.get("Cinematic", {})},
             })
     if a.scout:
-        with open(a.scout, "w", encoding="utf-8", newline="\r\n") as f:
+        with open(a.scout, "w", encoding="utf-8", newline="\n") as f:
             json.dump({"Name": os.path.splitext(os.path.basename(a.scout))[0],
                        "Note": "Camera scouting (scripts/trailer-paths.py --scout): one low-sample frame per candidate key.",
                        "Scenarios": scenarios}, f, indent=2)

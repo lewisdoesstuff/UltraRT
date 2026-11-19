@@ -1,0 +1,10 @@
+[
+  { "Name": "2-1-ring", "Scene": "Level 2-1",
+    "Note": "Trailer v4: scouting the 2-1 reflection sweep around the user's pose (end of bench/recordings/u1118-2-1-1.json).",
+    "Base": { "Player": [18.21, -13.54, 351.13], "Yaw": 22.3, "Pitch": -2.9 }, "Fov": 85,
+    "Path": { "Type": "static", "Approach": "../recordings/u1118-2-1-1.json", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [0,0,0], [0,0,0,45,0], [0,0,0,90,0], [0,0,0,135,0], [0,0,0,180,0], [0,0,0,225,0], [0,0,0,270,0], [0,0,0,315,0],
+              [0,0,0,0,-25], [0,0,3,0,-20], [0,0,3,90,-20], [0,0,3,180,-20], [0,0,3,270,-20],
+              [6,0,0,0,-5], [12,0,0,0,-5], [-6,0,1.5,0,-10], [4,4,0,-30,-10], [4,-4,0,30,-10] ] }
+]
