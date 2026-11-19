@@ -74,10 +74,15 @@ def main():
             sc.update(plan.get("Scenario", {}))
             sc.update(sh.get("Scenario", {}))
             sc["Cinematic"] = cine
+            # "Slot": "main" renders the shot in the main install (the user's save: their gun colours) in a run of its own
+            # (suite <Name>-<tier>-main); results folders of main-slot runs have no slot suffix.
+            sc["_slot"] = sh.get("Slot", "alt")
             scenarios.append(sc)
-            src = "*_%s-%s-*_alt/%s" % (name, tier, folder)
+            src = ("*_%s-%s-main*/%s" % (name, tier, folder)) if sc["_slot"] == "main" else ("*_%s-%s-*_alt/%s" % (name, tier, folder))
             if kind == "beauty":
-                c = {"Type": "shot", "Name": sname, "Source": src, "In": t_in, "Out": round(t_in + dur, 4)}
+                # A beauty shot rendered as a paired capture ("Cinematic": { "Paired": true }, e.g. to keep the game's image
+                # of the take too) shows its traced folder.
+                c = {"Type": "shot", "Name": sname, "Source": src + ("_" + mode if cine.get("Paired") else ""), "In": t_in, "Out": round(t_in + dur, 4)}
             else:
                 keys = [[0, 0], [round(off - 0.001, 3), 0], [off, 1]] if kind == "switch" else [[0, 0], [off, 0], [round(off + sweep, 3), 1]]
                 wipe = {"Keys": keys, "Slant": sh.get("Slant", 0 if kind == "switch" else 0.18)}
@@ -96,10 +101,18 @@ def main():
         old = [f for f in os.listdir(suites) if f.startswith("%s-%s-" % (name, tier)) and f.endswith(".json")]
         for f in old:
             os.remove(os.path.join(suites, f))
-        runs = [(str(n), scenarios[i:i + per]) for n, i in enumerate(range(0, len(scenarios), per), 1)]
+        alt = [sc for sc in scenarios if sc["_slot"] != "main"]
+        main_ = [sc for sc in scenarios if sc["_slot"] == "main"]
+        runs = [(str(n), alt[i:i + per]) for n, i in enumerate(range(0, len(alt), per), 1)]
+        if main_:
+            runs.append(("main", main_))
         if a.only:
             want = [x.strip() for x in a.only.split(",")]
-            runs.append(("redo", [sc for sc in scenarios if sc["Name"] in want]))
+            runs.append(("redo", [sc for sc in alt if sc["Name"] in want]))
+            if any(sc["Name"] in want for sc in main_):
+                runs.append(("main-redo", [sc for sc in main_ if sc["Name"] in want]))
+        for sc in scenarios:
+            sc.pop("_slot", None)
         for n, group in runs:
             doc = {"Name": "%s-%s-%s" % (name, tier, n),
                    "Note": "Written by scripts/trailer-plan.py from bench/trailer/%s (tier %s, run %s): do not edit, change the plan." %

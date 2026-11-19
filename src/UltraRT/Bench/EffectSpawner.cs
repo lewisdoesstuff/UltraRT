@@ -35,7 +35,9 @@ namespace UltraRT.Bench
 
         private static readonly System.Reflection.MethodInfo RevolverShoot =
             typeof(Revolver).GetMethod("Shoot", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-        private static int _shootFailures, _beamLogs;
+        private static int _shootFailures, _beamLogs, _shotgunLogs;
+        private static readonly System.Reflection.MethodInfo ShotgunShoot =
+            typeof(Shotgun).GetMethod("Shoot", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, null, Type.EmptyTypes, null);
 
         /// <summary>Revolver.Shoot(1) on the held revolver: the shot exactly as the player fires it.</summary>
         private static bool ShootRevolver(Revolver rev)
@@ -105,6 +107,19 @@ namespace UltraRT.Bench
                             : cam.position + cam.right * 0.35f - cam.up * 0.3f + cam.forward * 0.6f;
                     }
                     if (_beamLogs++ < 2) LogBeam(go, cam, rev);
+                    break;
+                }
+                case "shotgun":
+                {
+                    // The held shotgun fires as the player fires it (Shotgun.Shoot): pellets, muzzle flashes at its shoot
+                    // points (with their lights), recoil. Only while it is out ("Weapon": 2).
+                    Shotgun sg = null;
+                    foreach (var s in UnityEngine.Object.FindObjectsOfType<Shotgun>(false))
+                        if (s != null && s.isActiveAndEnabled) { sg = s; break; }
+                    if (sg == null) throw new InvalidOperationException("no shotgun out (scenario \"Weapon\": 2)");
+                    if (ShotgunShoot == null) throw new InvalidOperationException("Shotgun.Shoot not found");
+                    ShotgunShoot.Invoke(sg, null);
+                    if (_shotgunLogs++ < 2) Log?.LogInfo($"EffectSpawner: shotgun shot by {GameControl.PathOf(sg.transform)} (variation {sg.variation})");
                     break;
                 }
                 case "explosion":

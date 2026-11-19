@@ -312,7 +312,8 @@ frames by number. The player-driven options above work as before.
 `"ShowWeapon": true` (with `"Player": "camera"`, and `"Weapon": <slot>` on the scenario) keeps the gun in view: the HUD
 camera draws the viewmodel again, lit by the traced scene as in play, and the HUD's own canvases stay hidden.
 `"Shots": [0.75, 2.25, ...]` fires at those path seconds (`"ShotKinds"`, default `["revolver"]`: the held revolver fires as
-the player fires it, with its muzzle light, beam and recoil; any kind of the bench's `Effects` works). Add the runtime
+the player fires it, with its muzzle light, beam and recoil; `["shotgun"]` fires the held pump shotgun the same way, with
+`"Weapon": 2, "WeaponVariant": "Shotgun Grenade"` on the scenario; any kind of the bench's `Effects` works). Add the runtime
 variant `plugin._vmFullScreen=1` to the mode: the viewmodel pass otherwise works in a rectangle measured a few frames
 earlier, and the recoil swings the gun out of it for a moment.
 

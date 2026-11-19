@@ -1,0 +1,13 @@
+{
+  "Version": 1,
+  "Name": "final-0-3-beams-walk",
+  "Scene": "Level 0-3",
+  "Note": "Trailer v5: the player's walk for final-0-3-beams (a Cinematic Player path): stands in the hallway at the end of bench/recordings/v5-0-3-before-beams.json (the route cut before the door), then walks down through the door into the room, which switches the room and its light pillars on, and stops before the arena's trigger.",
+  "Keys": [
+    {"Player": [0.03, -5.48, 291.97], "Yaw": 0, "Pitch": 0, "Fov": 0, "Duration": 0.5, "Ease": "linear"},
+    {"Player": [0.03, -5.48, 291.97], "Yaw": 0, "Pitch": 0, "Fov": 0, "Duration": 0.9, "Ease": "linear"},
+    {"Player": [-0.1, -7.2, 296.6], "Yaw": 0, "Pitch": 0, "Fov": 0, "Duration": 1.8, "Ease": "linear"},
+    {"Player": [0.0, -8.5, 306.0], "Yaw": 0, "Pitch": 0, "Fov": 0, "Duration": 7.0, "Ease": "linear"},
+    {"Player": [0.0, -8.5, 306.0], "Yaw": 0, "Pitch": 0, "Fov": 0, "Duration": 2.0, "Ease": "linear"}
+  ]
+}
