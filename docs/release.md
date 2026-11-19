@@ -5,7 +5,7 @@ Manager), what goes where, and what is still to decide before the first upload. 
 (`t3/thunderstore-release-package`).
 
 ```powershell
-.\scripts\package.ps1 -SkipIconCheck        # dist\UltraRT-<version>.zip, from a clean commit (no icon yet)
+.\scripts\package.ps1                        # dist\UltraRT-<version>.zip, from a clean commit
 .\scripts\package.ps1 -TexturePack -SkipIconCheck -Team <team>   # dist\UltraRT_DetailMaps-<version>.zip (optional pack)
 ```
 
@@ -197,8 +197,9 @@ bundle (the code path is the same notice), Steam's own launch options combined w
 
 ## Manual steps left before the first upload
 
-1. **Icon**: a 256x256 PNG at `packaging/thunderstore/icon.png` (`assets/icon.svg` is the README's logo and could be the
-   base). Thunderstore rejects a package without `icon.png`; then drop `-SkipIconCheck`.
+1. **Icon**: done 2026-11-19. `packaging/thunderstore/icon.png` (256x256: "URT", U white, RT the trailer red, a glowing
+   ray bouncing off the bottom and right edges), drawn by `tools/icon/make_icon.py` in VCR OSD Mono (free font). Build
+   without `-SkipIconCheck` now.
 2. **Thunderstore team**: create it on thunderstore.io, then build the detail-map package with `-Team <team>` (its
    dependency string names the team).
 3. **Website URL** (optional): `-WebsiteUrl`, e.g. the repository if it becomes public.
