@@ -377,6 +377,8 @@ namespace UltraRT
             [JsonProperty("path")] public string Path;
             [JsonProperty("pos")] public float[] Pos;
             [JsonProperty("type")] public string Type;
+            [JsonProperty("dir", NullValueHandling = NullValueHandling.Ignore)] public float[] Dir; // spot and directional: where it points
+            [JsonProperty("angle", NullValueHandling = NullValueHandling.Ignore)] public float? Angle; // spot: full cone angle (deg)
             [JsonProperty("range")] public float Range;
             [JsonProperty("intensity")] public float Intensity;
             [JsonProperty("color")] public float[] Color;
@@ -452,6 +454,8 @@ namespace UltraRT
                         {
                             Path = id.path, Pos = new[] { LightOverrides.Round(id.pos.x), LightOverrides.Round(id.pos.y), LightOverrides.Round(id.pos.z) },
                             Type = l.type.ToString().ToLowerInvariant(), Range = l.range, Intensity = l.intensity,
+                            Dir = l.type == LightType.Point ? null : new[] { LightOverrides.Round(l.transform.forward.x), LightOverrides.Round(l.transform.forward.y), LightOverrides.Round(l.transform.forward.z) },
+                            Angle = l.type == LightType.Spot ? l.spotAngle : (float?)null,
                             Color = new[] { LightOverrides.Round(l.color.r), LightOverrides.Round(l.color.g), LightOverrides.Round(l.color.b) },
                             Active = l.isActiveAndEnabled, Class = r.Class, Rule = r.Rule, Policy = r.PolicyText(), Entry = e?.Origin,
                             Fixture = layer == null ? FixtureMaterials(l) : null, Handover = r.Handed,

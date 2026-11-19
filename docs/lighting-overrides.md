@@ -62,6 +62,7 @@ they change on disk, so hand edits show up live.
       "normal": [0, -1, 0],      // emission side of a rect / disc (default: a spot's forward, else down)
       "tangent": [1, 0, 0],      // a rect's width axis
       "offset": [0, -0.4, 0],    // world-space move (m); an entry with an offset or a shape owns the position (no fixture lift)
+      "angle": 24,               // a spot's full cone (deg); with no shape, "normal" re-aims a spot (2026-11-19)
       "class": "fixture:lamp", "source": "classifier", "confidence": 0.7, "note": "..."
     }
   ],
@@ -77,7 +78,8 @@ nearest one if several: ULTRAKILL reuses names like `Point Light`); otherwise an
 Checkpoints clone whole rooms in place and rooms are switched on later, so path + original position survives both. A
 light first seen while moving (a platform) keys on where it was then.
 
-**Added lights** are appended after the scene lights (and before the effect lights) as area lights. `bind` names a
+**Added lights** are appended after the scene lights (and before the effect lights) as area lights, or as spots with
+`"kind": "spot"` (`normal` = where it points, `angle` = full cone, default 30; 2026-11-19). `bind` names a
 renderer by normalised path: the light is on only while that renderer is drawn (an emissive screen, a room that toggles).
 
 **Level exposure** (`"exposure": { "rtBrightness": F, "note": ".." }`, 2026-11-17): the level's own RT brightness
@@ -824,6 +826,25 @@ back at x1 (the entries are gone). x2 on P-2 would be a taste call (more contras
 
 Sheets: `bench/results/review/dark-7-3/` (`trailer-poses.jpg`: first master / ships at both shots; the candidate
 rounds; `tour-7-3.png`).
+
+## Window beams in 6-2 (2026-11-19, `t3/stained-glass`)
+
+The user (playtest 2026-11-18, 6-2 poses 1 and 2): the window god rays feel wrong, the beams should light the floor,
+and pose 2 has a second beam that looks like a floating light aimed at the window.
+
+- **Grand Hall** (pose 1): each window has a red spot (`1 - Entryway/Grand Hall/Walls/Cube*/Spot Light*`) at
+  (-32, 0) aimed 35 deg down, cone 30, range 30: it lights the floor by the window wall. The game's beam mesh
+  (`LightPillar HeresyWindows Big`, `Cube (4)`-`(7)`) starts at the window's top, about (-30, 15), and travels
+  (0.89, -0.45, 0) for 54 m to the far side of the hall (the window-beam fit, `-ultrart-window-beams on`,
+  docs/volumetrics.md "Window beams"). `Level 6-2.json` moves each spot to the window's top (`offset` [2, 15, 0]),
+  aims it along the beam (`normal`), cone 24, range x2. The red pool moves from the window wall out under the beams,
+  and the haze glows along them. Sheet: `bench/results/20261119-000855_glass-62_alt` (game | pathtrace without
+  overrides | pathtrace | relight).
+- **Corner Room** (pose 2): the "floating light" is the fill `1 - Entryway/Lighting/Point Light (3)` (red, range 30,
+  8.5 m up at (15, 20, 434.5)): traced shadows gave it a sharp-edged lit wedge on the wall above the left window. The
+  game draws it unshadowed; the entry sets `"shadows": false` and the wedge is gone. This room's windows have no light
+  of their own and their beam (`Corner Room/Cube (13)`) is part of a 10,535-vertex combined mesh the fit can't read, so
+  no light was added there (a question for the user).
 
 ## Playtest of 2026-11-18: level look and stray lights (`t3/level-look-3`)
 

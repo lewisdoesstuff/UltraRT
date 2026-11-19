@@ -177,6 +177,10 @@ float4 _UltraRTPlayerBoxMin, _UltraRTPlayerBoxMax;
 
 bool InPlayerBox(float3 e) { return all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz); }
 
+// The transmittance of the last visibility ray that got through (VisibleRaw): 1, or the colour of the stained glass it
+// crossed (Proxy.shader any-hit, docs/materials.md "Stained glass"). Read it right after a test that returned true.
+static float3 g_ShadowTint;
+
 // The one shadow-ray TraceRay. Every visibility test computes its ray first and traces through here once: each extra
 // TraceRay site in a function that is inlined into the ray generation shaders costs (docs/performance.md, "One trace site").
 bool VisibleRaw(float3 p, float3 n, float3 dir, float dist, uint mask)
@@ -188,7 +192,10 @@ bool VisibleRaw(float3 p, float3 n, float3 dir, float dist, uint mask)
     r.TMax = max(0.0, dist - 0.05);
     RayPayload sp = (RayPayload)0;
     sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
+    sp.albedo = 1.0; // transmittance: stained glass multiplies its colour in (ULTRART_PAYLOAD_SHADOW)
+    sp.flags = ULTRART_PAYLOAD_SHADOW;
     TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, mask, 0, 1, 0, r, sp);
+    g_ShadowTint = sp.albedo;
     return sp.t < 0.0;
 }
 
@@ -517,8 +524,9 @@ float3 LightFrom(uint i, float3 p, float3 n, uint layer)
     float3 L, c;
     float dist;
     if (!LightEval(i, p, n, layer, L, dist, c)) return 0;
-    if (!LightUnshadowed(i)) { if (!LightVisible(i, p, n, L, dist)) return 0; } // nested: && does not short-circuit
-    return c;
+    float3 tint = 1.0;
+    if (!LightUnshadowed(i)) { if (!LightVisible(i, p, n, L, dist)) return 0; tint = g_ShadowTint; } // nested: && does not short-circuit
+    return c * tint;
 }
 
 // ---------------------------------------------------------------- emissive triangles
@@ -647,7 +655,7 @@ float3 EmissiveDirect(float3 p, float3 n, int count, inout uint rng, out float3 
         if (pdf <= 0.0 || !EmissiveEval(tri, bary, p, n, L, dist, c, area)) continue;
         c *= area / pdf;
         unshadowed += c;
-        if (EmissiveVisible(p, n, L, dist)) shadowed += c;
+        if (EmissiveVisible(p, n, L, dist)) shadowed += c * g_ShadowTint;
     }
     unshadowed /= (float)count;
     return shadowed / (float)count;
@@ -1154,9 +1162,11 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
             if (!LightEval((uint)i, pos, n, layer, L, dist, c)) continue;
             unshadowed += c;
             bool lit = LightUnshadowed((uint)i);
-            if (!lit) lit = LightVisible((uint)i, pos, n, L, dist); // not ||: it does not short-circuit
+            float3 tint = 1.0;
+            if (!lit) { lit = LightVisible((uint)i, pos, n, L, dist); tint = g_ShadowTint; } // not ||: it does not short-circuit
             if (lit)
             {
+                c *= tint;
                 float3 cd = c * DetailScale(n, L);
                 g_DirectVertex += c * _LightScale;
                 shadowed += cd;
@@ -1203,6 +1213,7 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
         unshadowedSum += r.c * W;
         // With visibility reuse, occluded samples are stored with W = 0 so they stop propagating.
         bool visible = SampleVisible(r, pos, n);
+        float3 tint = g_ShadowTint;
         // Visibility memory: a blocked or clear draw toward this light (not one a moving occluder may have decided).
         bool observe = true;
 #ifdef ULTRART_MOVERS
@@ -1236,8 +1247,8 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
 #endif
         if (visible)
         {
-            float3 cd = r.c * (W * DetailScale(n, r.L));
-            vertexSum += r.c * W;
+            float3 cd = r.c * tint * (W * DetailScale(n, r.L));
+            vertexSum += r.c * tint * W;
             sum += cd;
             if ((r.light & ULTRART_EMISSIVE) != 0u) g_DirectEmissive = cd * _LightScale;
             else g_DirectAdditive = cd * (_LightScale * LightHybridWeight(r.light));
@@ -1282,7 +1293,7 @@ float3 DirectOne(float3 p, float3 n, uint layer, inout uint rng)
     float3 sum = FillLighting(p, n, layer);
     Reservoir r = RisCandidates(p, n, layer, _BounceCandidates, rng);
     float W = ReservoirW(r);
-    [branch] if (W > 0.0) { if (SampleVisible(r, p, n)) sum += r.c * W; } // nested: no shadow ray without a sample
+    [branch] if (W > 0.0) { if (SampleVisible(r, p, n)) sum += r.c * g_ShadowTint * W; } // nested: no shadow ray without a sample
     return sum * _LightScale;
 }
 

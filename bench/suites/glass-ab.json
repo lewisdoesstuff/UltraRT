@@ -1,0 +1,51 @@
+{
+ "Name": "glass-ab",
+ "Note": "Branch t3/stained-glass: stained glass off (glass.enabled=0) vs on at the user's 1-4 pose 4 (moonlit V2 arena windows), and looking down at the floor.",
+ "Scenarios": [
+  {
+   "Name": "1-4 pose 4",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 3,
+    "Load": "checkpoint"
+   },
+   "Modes": [
+    "off",
+    "relight+glass.enabled=0",
+    "relight",
+    "pathtrace+glass.enabled=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-4 pose 4 down",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 3,
+    "Load": "checkpoint",
+    "Pitch": -35,
+    "Position": [
+     1.119,
+     -16.54,
+     575.865
+    ],
+    "Yaw": 359.0
+   },
+   "Modes": [
+    "off",
+    "pathtrace+glass.enabled=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

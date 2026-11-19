@@ -1,0 +1,42 @@
+{
+ "Name": "glass-62",
+ "Note": "Branch t3/stained-glass: 6-2 poses 1 and 2 (window god rays): the game, pathtrace before (plugin._lightOverrides=0) and after the window-spot overrides, relight.",
+ "Scenarios": [
+  {
+   "Name": "6-2 pose 1",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-6-2-1.json",
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "pathtrace+plugin._lightOverrides=0",
+    "pathtrace",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "6-2 pose 2",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-6-2-2.json",
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "pathtrace+plugin._lightOverrides=0",
+    "pathtrace",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

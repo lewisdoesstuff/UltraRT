@@ -134,7 +134,7 @@ namespace UltraRT
                 if (d.Visible && d.Proxy != null)
                 {
                     Rtas.RemoveInstance(d.Proxy);
-                    Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                    Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
                 }
             }
             return remasked;

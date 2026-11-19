@@ -275,6 +275,7 @@ void RayGen()
         un += r.c * W;
         if (SampleVisible(r, pos, n))
         {
+            r.c *= g_ShadowTint;
             sh += r.c * W;
             if ((r.light & ULTRART_EMISSIVE) != 0u) additive += r.c * (W * _EmissiveHybridAdd);
             else additive += r.c * (W * LightHybridWeight(r.light));

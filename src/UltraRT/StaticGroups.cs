@@ -1096,8 +1096,10 @@ namespace UltraRT
             else _sumAddRemove++;
             gp.Filter.sharedMesh = mesh;
             gp.Proxy.sharedMaterials = mats;
+            // Transparent stained glass: shadow rays meet it through the geometry bit (SceneProxies.Glass.cs).
+            uint glassBit = gp.Transparent ? GlassShadowBit(flags, mats) : 0u;
             Rtas.AddInstance(gp.Proxy, flags, enableTriangleCulling: (p & 1) == 0, frontTriangleCounterClockwise: FrontCounterClockwise,
-                mask: gp.Transparent ? TransparentMask : (p & 2) != 0 ? SkyWallMask : GeometryMask, id: c.Id);
+                mask: (gp.Transparent ? TransparentMask : (p & 2) != 0 ? SkyWallMask : GeometryMask) | glassBit, id: c.Id);
             gp.InRtas = true;
             if (gp.Transparent) CountTransparent(true);
             gp.Shown = want;

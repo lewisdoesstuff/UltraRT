@@ -95,6 +95,10 @@ float PhaseHG(float cosT, float g)
     return (1.0 - g * g) / (4.0 * kPi * d * sqrt(max(d, 1e-6)));
 }
 
+// Transmittance of the last Unoccluded ray that got through: the colour of the stained glass it crossed (else 1), so the
+// air behind a window glows in its colours (docs/materials.md "Stained glass").
+static float3 g_VolTint;
+
 bool Unoccluded(float3 p, float3 dir, float dist, uint mask = 0x05u)
 {
     RayDesc r;
@@ -104,9 +108,12 @@ bool Unoccluded(float3 p, float3 dir, float dist, uint mask = 0x05u)
     r.TMax = max(0.0, dist);
     RayPayload sp = (RayPayload)0;
     sp.t = 1.0; // stays positive if anything is hit; the miss shader sets it negative
+    sp.albedo = 1.0;
+    sp.flags = ULTRART_PAYLOAD_SHADOW;
     // No back-face culling: a point in the air must be shadowed by thin one-sided geometry (leaf cards, roofs) from
     // either side. Geometry and light fixtures (0x05); sky walls never block light.
     TraceRay(_Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, mask, 0, 1, 0, r, sp);
+    g_VolTint = sp.albedo;
     return sp.t < 0.0;
 }
 
@@ -315,7 +322,7 @@ float3 LightSample(uint i, float w, float uT, float3 o, float3 dir, float tEnd, 
     float clear = min(0.35, 0.5 * dist);
     if (!Unoccluded(x, L, dist - clear)) return 0;
     float trans = exp(-sigmaT * (t + dist));
-    return Li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdf) * w;
+    return Li * g_VolTint * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdf) * w;
 }
 
 // One emissive sample: RIS over 6 points from the emissive table, equiangular distance from uT, one shadow ray.
@@ -359,7 +366,7 @@ float3 EmissiveSample(inout uint rng, float uT, float3 o, float3 dir, float tEnd
     if (b2) cosL = abs(cosL);
     if (!(cosL > 1e-4) || !(pdfT > 0.0)) return 0;
     if (!Unoccluded(x, L, dist * 0.999 - 0.02)) return 0; // separate: || does not short-circuit in HLSL 2018
-    float3 li = ble * (cosL / max(d2, _EmissiveParams.z));
+    float3 li = ble * g_VolTint * (cosL / max(d2, _EmissiveParams.z));
     float trans = exp(-sigmaT * (t + dist));
     float3 em = li * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdfT) * W * _VolEmissive;
     // Small hot emitters (lamp bulbs) behind their housings make rare, very bright samples: clamp this part tighter
@@ -471,7 +478,7 @@ void VolumeRayGen()
         float3 sunT = _VolSunDir.xyz;
         float3 tt = abs(sunT.y) < 0.999 ? normalize(cross(sunT, float3(0, 1, 0))) : float3(1, 0, 0);
         float3 bb = cross(sunT, tt);
-        float lit = 0.0;
+        float3 lit = 0.0;
         for (int s = 0; s < steps; s++)
         {
             float t0 = s * dt;
@@ -484,7 +491,7 @@ void VolumeRayGen()
             float3 L = normalize(tt * (sinT * cos(phi)) + bb * (sinT * sin(phi)) + sunT * cosT);
             // Segment weight: the integral of exp(-sigma_t t) over [t0, t0 + dt] (series form when the medium is thin).
             float w = exp(-sigmaT * t0) * segLen;
-            if (Unoccluded(x, L, 1.0e4)) lit += w;
+            if (Unoccluded(x, L, 1.0e4)) lit += w * g_VolTint;
         }
         sum += _VolSunColor.rgb * (phase * lit) * sigmaS;
     }

@@ -19,6 +19,7 @@ Shader "UltraRT/Proxy"
         _BlendTex ("Blend atlas", 2D) = "white" {}
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
+        _Transmit ("Stained glass: shadow rays pass, tinted by the colour x this (0 = opaque)", Float) = 0
         // ULTRAKILL/Master SCROLLING: uv * _MainTex_ST + _ScrollOffset + _ScrollSpeed * _Time.y (5-2's sea current, conveyor
         // belts, opaque lava). _ScrollOffset is ScrollingTexture's per-renderer property block value (SceneProxies.Sync.cs).
         _Scrolling ("Texture scrolls (SCROLLING)", Float) = 0
@@ -145,6 +146,8 @@ Shader "UltraRT/Proxy"
             float _CameraSkip;
             float _Transparent;
             float _TransOpacity;
+            float _Transmit;
+            float4 _UltraRTGlass; // global (SceneProxies.Glass): x transmission gain (0 = stained glass blocks light, the old look)
             float _UltraRTTransAlpha; // global: 1 = water's path tint follows the game's blend alpha
             float _Unlit;
             float _NoFog;
@@ -535,16 +538,33 @@ Shader "UltraRT/Proxy"
             }
 
             // Alpha-tested (cutout) materials such as grass cards: ignore the hit where the texture is transparent.
+            // Stained glass (_Transmit, docs/materials.md "Stained glass"): shadow rays (ULTRART_PAYLOAD_SHADOW) pass,
+            // their transmittance (p.albedo) times the pane's colour in linear light; where that leaves nothing (the lead
+            // lines) the hit stands and blocks. Transparent instances with the geometry bit (transparent stained glass,
+            // so shadow rays meet it) are seen only by the transparent pass's ray; every other ray goes through.
             [shader("anyhit")]
             void AnyHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
             {
                 if (_CameraSkip > 0.5 && (p.flags & ULTRART_PAYLOAD_WANT_MOTION) != 0u) { IgnoreHit(); return; }
-                if (_AlphaTest < 0.5) return;
+                bool shadowRay = (p.flags & ULTRART_PAYLOAD_SHADOW) != 0u;
+                bool glass = shadowRay && _Transmit > 0.0 && _UltraRTGlass.x > 0.0;
+                bool transparentOnly = _Transparent > 0.5 && (p.flags & ULTRART_PAYLOAD_TRANSPARENT) == 0u;
+                if (_AlphaTest < 0.5 && !glass && !transparentOnly) return;
                 uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
                 float litWeight, blendWeight;
                 float2 texUV;
-                if (SampleAlbedo(tri, b, FetchUV(tri, b), -64.0, 64.0, litWeight, blendWeight, texUV).a < _Cutoff) IgnoreHit();
+                float4 c = SampleAlbedo(tri, b, FetchUV(tri, b), -64.0, 64.0, litWeight, blendWeight, texUV);
+                if (_AlphaTest > 0.5 && c.a < _Cutoff) { IgnoreHit(); return; }
+                if (glass)
+                {
+                    float opacity = _Transparent > 0.5 ? saturate(c.a * _TransOpacity) : 1.0;
+                    float3 t = lerp(1.0, saturate(pow(max(c.rgb, 0.0), 2.2) * (_Transmit * _UltraRTGlass.x)), opacity);
+                    p.albedo *= t;
+                    if (transparentOnly || max(p.albedo.r, max(p.albedo.g, p.albedo.b)) > 1e-3) IgnoreHit();
+                    return;
+                }
+                if (transparentOnly) IgnoreHit();
             }
 
             [shader("closesthit")]
@@ -768,32 +788,48 @@ Shader "UltraRT/Proxy"
             float _Cutoff;
             float _AtlasMode;
             float _AlphaTest;
+            float _Transparent;
+            float _TransOpacity;
+            float _Transmit;
+            float4 _UltraRTGlass;
 
             [shader("anyhit")]
             void AnyHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
             {
-                if (_AlphaTest < 0.5) return;
+                // As the UltraRTHit pass: stained glass tints shadow rays, transparent instances pass every ray.
+                bool glass = (p.flags & ULTRART_PAYLOAD_SHADOW) != 0u && _Transmit > 0.0 && _UltraRTGlass.x > 0.0;
+                bool transparentOnly = _Transparent > 0.5;
+                if (_AlphaTest < 0.5 && !glass && !transparentOnly) return;
                 uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
                 float2 uv = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0) * b.x
                           + UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0) * b.y
                           + UnityRayTracingFetchVertexAttribute2(tri.z, kVertexAttributeTexCoord0) * b.z;
-                float a;
+                float4 c;
                 if (_AtlasMode > 0.5)
                 {
                     float2 f = frac(uv);
                     float4 rect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord1);
-                    a = _MainTex.SampleLevel(my_point_repeat_sampler, lerp(rect.xy, rect.zw, f), 0).a;
+                    c = _MainTex.SampleLevel(my_point_repeat_sampler, lerp(rect.xy, rect.zw, f), 0);
                     float nw = abs(UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeNormal).w) * b.x
                              + abs(UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeNormal).w) * b.y
                              + abs(UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeNormal).w) * b.z;
                     float blendW = saturate(nw - 1.0);
                     float4 blendRect = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeTexCoord2);
                     if (any(blendRect != 0) && blendW < 0.999)
-                        a = lerp(_BlendTex.SampleLevel(my_point_repeat_sampler, lerp(blendRect.xy, blendRect.zw, f), 0).a, a, blendW);
+                        c = lerp(_BlendTex.SampleLevel(my_point_repeat_sampler, lerp(blendRect.xy, blendRect.zw, f), 0), c, blendW);
                 }
-                else a = _MainTex.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0).a;
-                if (a * _Color.a < _Cutoff) IgnoreHit();
+                else c = _MainTex.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0);
+                c *= _Color;
+                if (_AlphaTest > 0.5 && c.a < _Cutoff) { IgnoreHit(); return; }
+                if (glass)
+                {
+                    float opacity = _Transparent > 0.5 ? saturate(c.a * _TransOpacity) : 1.0;
+                    p.albedo *= lerp(1.0, saturate(pow(max(c.rgb, 0.0), 2.2) * (_Transmit * _UltraRTGlass.x)), opacity);
+                    if (transparentOnly || max(p.albedo.r, max(p.albedo.g, p.albedo.b)) > 1e-3) IgnoreHit();
+                    return;
+                }
+                if (transparentOnly) IgnoreHit();
             }
             ENDHLSL
         }

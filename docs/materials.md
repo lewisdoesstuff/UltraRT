@@ -518,3 +518,54 @@ rise after the merge (0-3 relight 6.20 -> 7.05 ms) did not reproduce in a direct
 (2026-11-18, `bench/suites/regress-unlit.json`, `bench/results/20261118-225844_regress-unlit` and `-230000_`): 0-3
 ghosts relight 7.46 -> 6.57 ms, pathtrace 7.21 -> 6.25; 6-2 start relight 6.44 -> 5.87, pathtrace 6.50 -> 5.66; 0-5
 lava relight 6.51 -> 6.43, pathtrace 6.02 -> 6.20. Equal or faster: run-to-run noise.
+
+## 12. Stained glass (2026-11-19, `t3/stained-glass`)
+
+The user's playtest of 2026-11-18 asked for real stained glass (light through the panes tinted, the leading casting
+shadow) and named 1-4 pose 4 and 6-2 poses 1 and 2 (`bench/suites/user-1118.json`). What those poses turned out to
+be, and what ships:
+
+| Pose | What it was | Change |
+|---|---|---|
+| 1-4 pose 4 (V2 arena windows, `StainedGlassBig`/`Blue`, atlas slots) | not light at all: the windows are `_FOG_OFF` in the game, and the fog pass fogged them blue. Window mean colour game (145, 114, 94), before (75, 64, 71) | **No-fog surfaces** (below): now (140, 113, 100) in pathtrace and relight |
+| 6-2 pose 1 (Grand Hall) | the windows are an opaque unlit wall texture (`GothicWindow`), not glass; the beams are additive meshes (`LightPillar HeresyWindows Big`); the light under each window is a red spot aimed 35 deg down with a 30 m range, lighting the floor by the window wall, 36 m short of where the beam lands | the four spots re-aimed along the beams: `data/lights/Level 6-2.json`, docs/lighting-overrides.md "Window beams in 6-2" |
+| 6-2 pose 2 (Corner Room), "a floating light aimed at the window" | the fill `1 - Entryway/Lighting/Point Light (3)`, 8.5 m up: its traced shadow edge drew a lit wedge above the left window that reads as a second beam (it stays with `shaft.beams=0`) | unshadowed, as the game draws it: the wedge is gone |
+
+**Transmission** (all `StainedGlass*` materials, a `"transmit": 1` rule in `ultrart-materials.json`): shadow rays pass
+the glass, tinted; the leading (dark texels) blocks.
+
+- **Path**: the rule gives the proxy material (or the atlas variant) `_Transmit`, and its submeshes run the any-hit.
+  Shadow rays set `ULTRART_PAYLOAD_SHADOW` and start with a transmittance of 1 in the payload's albedo
+  (`VisibleRaw`, UltraRTLights.hlsl; `Unoccluded`, Volumetrics.raytrace). The any-hit (Proxy.shader, both passes)
+  multiplies in `lerp(1, saturate(colour^2.2 x transmit x gain), opacity)` (opacity: the texture alpha for transparent
+  glass, 1 for opaque) and ignores the hit, unless nothing is left: then it blocks. The lighting multiplies by the
+  result (`g_ShadowTint`: direct light in relight and pathtrace, emitters, sky, the radiance cache, lit particles, the
+  viewmodel; `g_VolTint`: the air's in-scatter, so sun shafts through a window take its colours).
+- **Transparent stained glass** (`StainedGlass1A 10-19`, mask 0x10) was never in a shadow ray's mask, so it cast no
+  shadow at all. Its instances now also carry the geometry bit (`DynamicProxy.ShadowMask`, static transparent parts in
+  StaticGroups) with every enabled submesh running the any-hit, which lets every ray through except shadow rays (tint)
+  and the transparent pass's own (`ULTRART_PAYLOAD_TRANSPARENT`, PathTrace `TraceTransparent`).
+- **Switches**: `[Materials] StainedGlass` (default on), `-ultrart-glass on|off`, `-ultrart-glass-gain F` (default
+  1.5), bench `glass.gain=2`, `glass.enabled=0` (the gain goes to 0: opaque glass blocks again, transparent glass casts
+  nothing; the instance masks stay until the next level load). `-ultrart-glass-extra GLOB` (diagnostic): every
+  matching material transmits. The scene log has `Stained glass (...): N proxy materials and N atlas variants
+  transmit, N transparent instances (re)added with the geometry bit`; `-ultrart-lit-probe StainedGlass*` lists them.
+- **Check**: with `-ultrart-glass-extra *` on 1-1's sunlit start (`bench/suites/glass-check.json`,
+  `bench/results/20261119-000128_glass-check_alt`) the ground under the trees brightens in the leaves' green and the
+  trunks' brown (4 % of pixels change; dark textures pass little light after the ^2.2). With the real rule no pose
+  checked so far shows a coloured patch: the windows found (1-3's Water Hall `StainedGlassBig`, 1-4's arena, 8-3 pose
+  1's `StainedGlass1A`, P-2's hall) sit on solid walls or face away from the sun, so nothing comes through
+  (`bench/suites/glass-13.json`, `glass-ab.json`, `glass-p2.json`; image differences on vs off are noise).
+- **Cost** (`-Perf`, exclusive lock, 1440p, `bench/suites/glass-perf.json`; `-ultrart-glass off` -> default,
+  `bench/results/20261119-001108_glass-perf` -> `-001220_`): GPU total 1-3 hall relight 4.33 -> 4.56, pathtrace
+  4.80 -> 4.97; 1-4 pose 4 relight 4.06 -> 4.20, pathtrace 4.45 -> 4.51; 8-3 pose 1 relight 6.33 -> 6.25, pathtrace
+  5.97 -> 5.91 (noise). About 0.1-0.2 ms where stained glass is in view; frame times in that run are noisy (the first
+  run was colder).
+
+**No-fog surfaces.** ULTRAKILL/Master materials with `_FOG_OFF` are drawn without the distance fog; the fog pass
+(VolumetricsComposite.shader pass 0) fogged every traced pixel. One implementation since the merge with
+`t3/playtest-materials` (0-1's gears, docs/volumetrics.md): the proxy material carries `_NoFog`, and so does the atlas
+variant of a slot whose original has `_FOG_OFF` (`AtlasVariant`; 1-4's windows are atlas slots), the hit sets
+`ULTRART_FLAG_NOFOG`, `PackSurface` keeps it as the sign bit of emission.b's half (`SurfaceNoFog`), and the fog pass
+reads the depth-matched trace texel of the 2x2 and leaves those pixels alone. Bench `plugin._noFogSkip=0` fogs them
+again. Run (first implementation): `bench/results/20261118-234255_glass-fog_alt`.

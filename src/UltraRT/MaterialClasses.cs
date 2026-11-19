@@ -138,6 +138,14 @@ namespace UltraRT
         private readonly List<Rule> _rules = new List<Rule>();
         private readonly Dictionary<Material, (MaterialParams p, MaterialParams? s)> _cache = new Dictionary<Material, (MaterialParams, MaterialParams?)>();
         private readonly Dictionary<Material, float?> _litCache = new Dictionary<Material, float?>();
+        private readonly Dictionary<Material, float> _transmitCache = new Dictionary<Material, float>();
+        /// <summary>The classifier of the current RT scene (SceneProxies.SubmeshOn reads "transmit" rules on source materials).</summary>
+        public static MaterialClassifier Current;
+        /// <summary>-ultrart-glass-extra GLOB (diagnostic): materials whose name matches transmit as stained glass (factor 1),
+        /// whatever the rules say. "*" tints every shadow by its caster's colour: a check that the path works.</summary>
+        public static Regex TransmitExtra;
+        /// <summary>Materials a "transmit" rule matched (for the log).</summary>
+        public int TransmitHits { get; private set; }
         /// <summary>Materials a "lit" rule matched (for the log).</summary>
         public int LitHits { get; private set; }
         private readonly List<string> _dump = new List<string>();
@@ -167,6 +175,10 @@ namespace UltraRT
             /// <summary>Lit weight 0-1 (0 = fullbright as the game draws unlit materials, 1 = fully relit). Independent of
             /// the reflection fields: a rule with only "lit" leaves the reflection alone (<see cref="LitOf"/>).</summary>
             [JsonProperty("lit")] public float? Lit;
+            /// <summary>Stained glass: shadow rays pass, tinted by the texture colour x this (docs/materials.md "Stained
+            /// glass"); 0 or none = opaque to light (transparent glass: no shadow at all, as before). Independent of the
+            /// other fields, as "lit" (<see cref="TransmitOf"/>).</summary>
+            [JsonProperty("transmit")] public float? Transmit;
             [JsonProperty("note")] public string Note;
             [JsonIgnore] public Regex MaterialRx, TextureRx, ShaderRx;
             [JsonIgnore] public string Origin;
@@ -234,7 +246,7 @@ namespace UltraRT
                 if (r.Class == null && !r.Roughness.HasValue && !r.Metalness.HasValue && !r.F0.HasValue && !r.SpecWeight.HasValue &&
                     !r.ReflStrength.HasValue && r.ReflMode == null)
                 {
-                    if (!r.Detail.HasValue && !r.DetailRoughness.HasValue) continue; // "lit" only: LitOf
+                    if (!r.Detail.HasValue && !r.DetailRoughness.HasValue) continue; // "lit" / "transmit" only: LitOf, TransmitOf
                     if (r.Detail.HasValue) p.DetailNormal = Mathf.Max(0f, r.Detail.Value);
                     if (r.DetailRoughness.HasValue) p.DetailRoughness = Mathf.Max(0f, r.DetailRoughness.Value);
                     if (secondary is MaterialParams sd) { sd.DetailNormal = p.DetailNormal; sd.DetailRoughness = p.DetailRoughness; secondary = sd; }
@@ -286,6 +298,30 @@ namespace UltraRT
             if (lit.HasValue) LitHits++;
             _litCache[src] = lit;
             return lit;
+        }
+
+        /// <summary>The "transmit" factor a rule gives this material (stained glass, docs/materials.md), or 0. Matched like
+        /// the reflection rules; the last matching rule with "transmit" wins.</summary>
+        public float TransmitOf(Material src)
+        {
+            if (src == null) return 0f;
+            if (_transmitCache.TryGetValue(src, out var hit)) return hit;
+            float tr = 0f;
+            string name = CleanName(src);
+            string tex = src.HasProperty("_MainTex") && src.GetTexture("_MainTex") is Texture t ? t.name : "";
+            string shader = src.shader != null ? src.shader.name : "";
+            foreach (var r in _rules)
+            {
+                if (!r.Transmit.HasValue) continue;
+                if (r.MaterialRx != null && !r.MaterialRx.IsMatch(name)) continue;
+                if (r.TextureRx != null && !r.TextureRx.IsMatch(tex)) continue;
+                if (r.ShaderRx != null && !r.ShaderRx.IsMatch(shader)) continue;
+                tr = Mathf.Max(0f, r.Transmit.Value);
+            }
+            if (TransmitExtra != null && TransmitExtra.IsMatch(name)) tr = Mathf.Max(tr, 1f);
+            if (tr > 0f) TransmitHits++;
+            _transmitCache[src] = tr;
+            return tr;
         }
 
         /// <summary>Relative weight of dielectric specular classes (metals use 1).</summary>
@@ -408,7 +444,7 @@ namespace UltraRT
             var classes = Enumerable.Range(0, _classCounts.Length).Where(i => _classCounts[i] > 0)
                 .OrderByDescending(i => _classCounts[i]).Select(i => $"{(SurfaceClass)i} {_classCounts[i]}");
             return $"by class: {string.Join(", ", classes)}; reflection modes: none {_modeCounts[0]}, specular {_modeCounts[1]}, " +
-                   $"blend {_modeCounts[2]}, additive {_modeCounts[3]}; override hits {OverrideHits}, lit-weight rules matched {LitHits} materials (rules: {RuleSources})";
+                   $"blend {_modeCounts[2]}, additive {_modeCounts[3]}; override hits {OverrideHits}, lit-weight rules matched {LitHits} materials, transmit rules {TransmitHits} (rules: {RuleSources})";
         }
 
         /// <summary>Tab-separated: name, shader, main texture, parameters, deciding rule (for tuning overrides).</summary>

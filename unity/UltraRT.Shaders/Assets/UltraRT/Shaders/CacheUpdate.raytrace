@@ -56,7 +56,7 @@ float3 CacheDirect(float3 p, float3 n, uint layer, inout uint rng)
     float3 sum = FillLighting(p, n, layer);
     Reservoir r = RisCandidates(p, n, layer, _CacheCandidates, rng);
     float W = ReservoirW(r);
-    [branch] if (W > 0.0) { if (SampleVisible(r, p, n)) sum += r.c * W; } // nested: && does not short-circuit
+    [branch] if (W > 0.0) { if (SampleVisible(r, p, n)) sum += r.c * g_ShadowTint * W; } // nested: && does not short-circuit
     return sum * _LightScale + SkyDirect(p, n, rng);
 }
 
