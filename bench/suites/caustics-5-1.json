@@ -1,0 +1,195 @@
+{
+    "Name": "caustics-5-1",
+    "Scenarios": [
+        {
+            "Name": "5-1 shaft E",
+            "Scene": "Level 5-1",
+            "Path": {
+                "Type": "static",
+                "Duration": 2,
+                "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+                "LookActivate": true,
+                "LookDistance": 0.5,
+                "LookYaw": 90,
+                "Pitch": -10
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace",
+                "pathtrace+ptx.denoiser=UltraRT"
+            ],
+            "Screenshots": [
+                1.5
+            ],
+            "ShotSettle": 0.5
+        },
+        {
+            "Name": "5-1 shaft W",
+            "Scene": "Level 5-1",
+            "Path": {
+                "Type": "static",
+                "Duration": 2,
+                "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+                "LookActivate": true,
+                "LookDistance": 0.5,
+                "LookYaw": 270,
+                "Pitch": -10
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace",
+                "pathtrace+ptx.denoiser=UltraRT"
+            ],
+            "Screenshots": [
+                1.5
+            ],
+            "ShotSettle": 0.5
+        },
+        {
+            "Name": "5-1 shaft N",
+            "Scene": "Level 5-1",
+            "Path": {
+                "Type": "static",
+                "Duration": 2,
+                "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+                "LookActivate": true,
+                "LookDistance": 0.5,
+                "LookYaw": 0,
+                "Pitch": -10
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace",
+                "pathtrace+ptx.denoiser=UltraRT"
+            ],
+            "Screenshots": [
+                1.5
+            ],
+            "ShotSettle": 0.5
+        },
+        {
+            "Name": "5-1 shaft S",
+            "Scene": "Level 5-1",
+            "Path": {
+                "Type": "static",
+                "Duration": 2,
+                "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+                "LookActivate": true,
+                "LookDistance": 0.5,
+                "LookYaw": 180,
+                "Pitch": -10
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace",
+                "pathtrace+ptx.denoiser=UltraRT"
+            ],
+            "Screenshots": [
+                1.5
+            ],
+            "ShotSettle": 0.5
+        },
+        {
+            "Name": "5-1 shaft up",
+            "Scene": "Level 5-1",
+            "Path": {
+                "Type": "static",
+                "Duration": 2,
+                "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+                "LookActivate": true,
+                "LookDistance": 0.5,
+                "LookYaw": 0,
+                "Pitch": 70
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace",
+                "pathtrace+ptx.denoiser=UltraRT"
+            ],
+            "Screenshots": [
+                1.5
+            ],
+            "ShotSettle": 0.5
+        },
+        {
+            "Name": "5-1 shaft water",
+            "Scene": "Level 5-1",
+            "Path": {
+                "Type": "static",
+                "Duration": 2,
+                "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+                "LookActivate": true,
+                "LookDistance": 0.5,
+                "LookYaw": 218,
+                "Pitch": -25
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace",
+                "pathtrace+ptx.denoiser=UltraRT"
+            ],
+            "Screenshots": [
+                1.5
+            ],
+            "ShotSettle": 0.5
+        },
+        {
+            "Name": "5-1 shaft seq off",
+            "Scene": "Level 5-1",
+            "Path": {
+                "Type": "static",
+                "Duration": 2,
+                "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+                "LookActivate": true,
+                "LookDistance": 0.5,
+                "LookYaw": 90,
+                "Pitch": -10
+            },
+            "Modes": [
+                "off"
+            ],
+            "Screenshots": [
+                1.0,
+                1.1,
+                1.2,
+                1.3,
+                1.4,
+                1.5,
+                1.6,
+                1.7
+            ],
+            "ShotSettle": 0
+        },
+        {
+            "Name": "5-1 shaft seq pt",
+            "Scene": "Level 5-1",
+            "Path": {
+                "Type": "static",
+                "Duration": 2,
+                "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+                "LookActivate": true,
+                "LookDistance": 0.5,
+                "LookYaw": 90,
+                "Pitch": -10
+            },
+            "Modes": [
+                "pathtrace"
+            ],
+            "Screenshots": [
+                1.0,
+                1.1,
+                1.2,
+                1.3,
+                1.4,
+                1.5
+            ],
+            "ShotSettle": 0
+        }
+    ]
+}
