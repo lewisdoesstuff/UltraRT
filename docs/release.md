@@ -203,8 +203,11 @@ bundle (the code path is the same notice), Steam's own launch options combined w
 2. **Thunderstore team**: done, `lemmonsltd` (the `-Team` default since 2026-11-19; the detail-map package depends on
    `lemmonsltd-UltraRT-<version>`).
 3. **Website URL** (optional): `-WebsiteUrl`, e.g. the repository if it becomes public.
-4. **Decisions above**: licence MIT and the detail maps ship (user, 2026-11-19, non-commercial); left: the NVIDIA email / DLL
-   or no DLL.
+4. **Decisions above**: licence MIT and the detail maps ship (user, 2026-11-19, non-commercial); the DLL ships (`-IncludeDlss`, default):
+   nvidia-rtx-license-questions@nvidia.com bounced (550 access denied, 2026-11-19); a reply in the Nexus Mods thread
+   "Serious violation of NVIDIA Streamline licenses in upscalers mods" says NVIDIA told them DLLs shared as part of mods
+   are fine. Courtesy notice via developer.nvidia.com/sw-notification; drop the DLL (`-IncludeDlss:$false`) if NVIDIA
+   objects.
 5. **Upload**: thunderstore.io > Upload, community ULTRAKILL, the zip from `dist\`; categories by hand. Check the
    dependency versions first (table above).
 6. Optional: the native DLL initialises NGX with the engine version string `UltraRT-0.1` (`Dlss.cpp`); harmless
