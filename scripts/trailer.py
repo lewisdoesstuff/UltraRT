@@ -35,16 +35,42 @@ def find_ffmpeg(name="ffmpeg"):
 FFMPEG = None
 
 
-def run(args, cwd, log):
-    """Run ffmpeg quietly; on failure show the tail of its output."""
+def run(args, cwd, log, timeout=None):
+    """Run ffmpeg quietly; on failure show the tail of its output. timeout: seconds before an attempt counts as hung
+    (ffmpeg 9.0.2 stalled for good, at 0 % CPU, in clip encodes: docs/trailer.md, v5); it is killed and run once more."""
     cmd = [FFMPEG, "-hide_banner", "-loglevel", "warning", "-y"] + args
     with open(log, "a", encoding="utf-8") as f:
         f.write("\n$ ffmpeg " + " ".join(f'"{a}"' if (" " in a or "'" in a) else a for a in cmd[1:]) + "\n")
-    p = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+    for attempt in range(2 if timeout else 1):
+        try:
+            p = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                               errors="replace", timeout=timeout)
+            break
+        except subprocess.TimeoutExpired:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(f"(no result after {timeout} s: killed{', trying again' if attempt == 0 else ''})\n")
+            print(f"ffmpeg hung ({timeout} s){': trying again' if attempt == 0 else ''}", flush=True)
+            if attempt == 1:
+                sys.exit(f"ffmpeg hung twice; see {log}")
     with open(log, "a", encoding="utf-8") as f:
         f.write(p.stdout or "")
     if p.returncode != 0:
         sys.exit(f"ffmpeg failed ({p.returncode}); see {log}\n" + "\n".join((p.stdout or "").splitlines()[-15:]))
+
+
+def probe_duration(path):
+    """A video file's duration (seconds) from ffprobe next to ffmpeg, or None."""
+    probe = os.path.join(os.path.dirname(FFMPEG), "ffprobe" + os.path.splitext(FFMPEG)[1])
+    if not os.path.isfile(probe):
+        probe = shutil.which("ffprobe")
+    if not probe:
+        return None
+    p = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    try:
+        return float(p.stdout.strip())
+    except ValueError:
+        return None
 
 
 def slug(s):
@@ -257,7 +283,8 @@ class Builder:
 
     def encode(self, inputs, graph, dur, out):
         run(inputs + ["-filter_complex", graph, "-map", "[v]", "-t", num(dur), "-r", num(self.fps), "-an",
-                      "-c:v", "libx264", "-preset", "fast", "-crf", str(int(self.e.get("ClipCrf", 12))), "-pix_fmt", "yuv420p", out], self.work, self.log)
+                      "-c:v", "libx264", "-preset", "fast", "-crf", str(int(self.e.get("ClipCrf", 12))), "-pix_fmt", "yuv420p", out], self.work, self.log,
+            timeout=max(600, 60 * dur))  # a clip encodes in 1-3 minutes at 1440p
 
     # ------------------------------------------------------------ clip types
 
@@ -343,26 +370,31 @@ class Builder:
         d = f"(X-W*({pos})-(Y-H/2)*{num(slant)})"
         blend = f"blend=all_expr='if(lt(abs({d}),{num(line)}),255,if(lt({d},0),{'B' if flip else 'A'},{'A' if flip else 'B'}))'"
         parts, segs = [], []
-        parts.append(chain("0:v", dur - ta, after_label) + ",format=gbrp,split=2[a0][a1]")
-        parts.append(chain("1:v", max(tb, fr), before_label) + ",format=gbrp,split=2[b0][b1]")
+        # Each picture is split only into the parts that use it (a hard switch uses each picture once): no idle
+        # nullsink branches in the graph.
+        use_a = [n for n, used in (("a0", tb > ta), ("a1", dur > tb)) if used]
+        use_b = [n for n, used in (("b0", ta > 0), ("b1", tb > ta)) if used]
+
+        def fan(label_in, length, extra, outs):
+            head = chain(label_in, length, extra) + ",format=gbrp"
+            if len(outs) == 1:
+                return head + f"[{outs[0]}]"
+            if not outs:
+                return head + ",nullsink"
+            return head + f",split={len(outs)}" + "".join(f"[{o}]" for o in outs)
+        parts.append(fan("0:v", dur - ta, after_label, use_a))
+        parts.append(fan("1:v", max(tb, fr), before_label, use_b))
         if ta > 0:
             parts.append(f"[b0]trim=duration={num(ta)},setpts=PTS-STARTPTS[s0]")
             segs.append("[s0]")
-        else:
-            parts.append("[b0]nullsink")
         if tb > ta:
             parts.append(f"[a0]trim=duration={num(tb - ta)},setpts=PTS-STARTPTS[am]")
             parts.append(f"[b1]trim=start={num(ta)}:duration={num(tb - ta)},setpts=PTS-STARTPTS[bm]")
             parts.append(f"[am][bm]{blend}[s1]")
             segs.append("[s1]")
-        else:
-            parts.append("[a0]nullsink")
-            parts.append("[b1]nullsink")
         if dur > tb:
             parts.append(f"[a1]trim=start={num(tb - ta)},setpts=PTS-STARTPTS[s2]")
             segs.append("[s2]")
-        else:
-            parts.append("[a1]nullsink")
         if self.motion:
             # The badge changes when the picture under it does: at the switch, or when the divider passes over it.
             bx, by = self.W * 0.06, self.H * 0.06
@@ -376,10 +408,17 @@ class Builder:
                     if (q < thr) if flip else (q > thr):
                         switch = t
                         break
-            ov_args, items = self.motion_overlays(c, dur, 2, switch_at=switch, labels=labels)
-            parts.append("".join(segs) + (f"concat=n={len(segs)}:v=1:a=0," if len(segs) > 1 else "") + "format=yuv420p[m]")
-            parts.append(self.overlay_chain("m", items, self.fades(c, dur)))
-            self.encode(a_args + b_args + ov_args, ";".join(parts), dur, out)
+            # Two passes: the picture (both renders, the divider) losslessly to a work file, then the overlays on it. In
+            # one graph, ffmpeg 9.0.2 stalled for good (0 % CPU) when the overlays' inputs were read alongside two
+            # picture inputs that concat only takes one after the other (v5's 7-3 gun clip, every time).
+            base = os.path.join(self.work, os.path.splitext(os.path.basename(out))[0] + "_base.mkv")
+            parts.append("".join(segs) + (f"concat=n={len(segs)}:v=1:a=0," if len(segs) > 1 else "") + "format=yuv420p[v]")
+            run(a_args + b_args + ["-filter_complex", ";".join(parts), "-map", "[v]", "-t", num(dur), "-r", num(self.fps), "-an",
+                                   "-c:v", "ffv1", base], self.work, self.log, timeout=max(600, 60 * dur))
+            ov_args, items = self.motion_overlays(c, dur, 1, switch_at=switch, labels=labels)
+            # A render a frame or two short of the clip (the museum take) holds its last frame.
+            self.encode(["-i", base] + ov_args, f"[0:v]tpad=stop_mode=clone:stop_duration={num(dur)}[m];" + self.overlay_chain("m", items, self.fades(c, dur)), dur, out)
+            os.remove(base)
             return dur, f"{b_src} | {a_src}"
         tail = ",".join(["format=yuv420p"] + self.caption_filters(c, dur) + self.fades(c, dur))
         parts.append("".join(segs) + (f"concat=n={len(segs)}:v=1:a=0," if len(segs) > 1 else "") + tail + "[v]")
@@ -440,6 +479,9 @@ class Builder:
             if fn is None:
                 sys.exit(f"clip {i + 1}: unknown Type '{kind}'")
             dur, src = fn(c, out)
+            got = probe_duration(out)
+            if got is not None and abs(got - dur) > 1.5 / self.fps:
+                sys.exit(f"clip {i + 1}: {got:.3f} s written, {dur:.3f} s planned ({out}); see {self.log}")
             print(f"clip {i + 1:2d} {kind:5s} {dur:5.2f}s  {name}  <- {src}")
             clips.append((c, dur, out))
         return clips
@@ -515,7 +557,7 @@ class Builder:
                     "-crf", str(self.crf), "-pix_fmt", "yuv420p", "-movflags", "+faststart", final], self.work, self.log)
         print(f"trailer {total:.2f}s -> {final}")
         # "Exports": smaller copies of the finished trailer: { Suffix, Height, Crf }.
-        for ex in self.e.get("Exports", []):
+        for ex in ([] if self.no_exports else self.e.get("Exports", [])):
             h = int(ex["Height"])
             w = int(round(self.W * h / self.H / 2)) * 2
             path = os.path.join(self.out, slug(self.e.get("Name", "trailer")) + ex.get("Suffix", f"-{h}p") + ".mp4")
@@ -533,10 +575,12 @@ def main():
     ap.add_argument("--out", help="output folder (default: <root>/trailer/<name>)")
     ap.add_argument("--only", help="rebuild only these clips (1-based, comma separated); the others are reused if present")
     ap.add_argument("--keep", action="store_true", help="keep the work folder (text files, fonts)")
+    ap.add_argument("--no-exports", action="store_true", help="skip the edit list's Exports (e.g. the 1080p copy)")
     a = ap.parse_args()
     FFMPEG = find_ffmpeg()
     edit = json.load(open(a.edit, encoding="utf-8-sig"))
     b = Builder(edit, a.edit, a.root, a.out)
+    b.no_exports = a.no_exports
     only = {int(x) for x in a.only.split(",")} if a.only else None
     clips = b.build(only)
     b.join(clips)

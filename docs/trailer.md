@@ -32,7 +32,7 @@ python scripts\trailer.py bench\trailer\trailer-test.json
 ```
 
 `trailer.py --only 2,5` rebuilds only those clips (the others are reused) and joins again: the loop for tuning a wipe
-or a caption. `--root` and `--out` move the source and output folders.
+or a caption. `--root` and `--out` move the source and output folders; `--no-exports` skips the edit list's `Exports` (the 1080p copy).
 
 ## Render modes for footage
 
@@ -278,6 +278,80 @@ Notes from making it:
 - **8-2's vending machines** (user: their glass panel reflects well) are a candidate for a second V1 reflection shot.
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
+
+## The final trailer, fifth render (2026-11-19, `trailer-final-v5`)
+
+The user's shot-by-shot notes on v4, rendered on master 3692116 (torches x1.25, smooth glow sprites, the game's dither
+off while traced) on branch `t3/trailer-v5-shot-revisions`. Output: `bench\results\trailer\trailer-final-v5\`
+(`trailer-final-final.mp4`, 2560x1440, 60 fps, 120.84 s, 40 Mbit/s, 599 MB; no 1080p copy this time, at the user's request: `trailer.py
+--no-exports`; `clips\`; `contact-v4-v5.jpg`: one frame per shot, v4 | v5), in the branch worktree and copied to the main checkout's
+`bench\results\trailer\trailer-final-v5\`. The shot list is under "The final trailer" below.
+
+Changes against v4:
+- **Cards**: the title is "A RAY TRACING MOD FOR ULTRAKILL" / ULTRART (no "unofficial /// work in progress" line); the
+  end card is ULTRART and the small print only.
+- **Captions**: 0-1 "Real-time path tracing" (it shows the room filling with lamp light more than shadows, and
+  "Global illumination" was P-2's); 7-3 tree "Glowing objects cast real light"; P-2 hall "Light bounces realistically,
+  carrying color"; 8-2 street "Water reflections"; P-2 street "Reflective wet surfaces"; terminal "Ray-traced
+  reflections"; gun "Gunfire is a light source". No sub lines.
+- **0-3's opening room opens the trailer** (the user's idea, 2026-11-19): path traced throughout, from the room's back
+  wall facing the door. The route (`v5-0-3-before-beams.json`, the user's pose 1 route cut at 7.3 s in the hallway) stops
+  before the door; during the take V1 walks in (`Player` path `final-0-3-beams-walk`, `ShowPlayer`), the game switches
+  the room on and its light pillars grow from thin lines to full columns while the room fills with light. The pillars
+  start 3.17 s into the take; `In` 1.667 puts that on the second bar. (Rendered as a paired capture; the game's image
+  was the "before" until the user asked for path tracing the whole time.)
+- **0-1 statue room** is a sweep (was a hard switch) and moves to third, after 1-1's hallway.
+- **P-2 street and the 1-1 terminal are path traced only** (no comparison). P-2's red arch is lit by the tunnel's
+  `Metro Light/Spot Light` (a `Flicker`, red, intensity 25): v4's take lost it to the random flicker, so v5 holds it on
+  from 1 s (`Flickers`); it flickers by itself before.
+- **7-3 gun: the pump shotgun** (`Shotgun Grenade`), fired on the half bars with the new bench kind `shotgun`
+  (`Shotgun.Shoot`; bench/README.md, "Combat effects"). The blast and its pellets light the path and the trees orange
+  (late-frame mean 22 against the game's 11). The alt install's slot 2 holds the impact hammer (`Hammer Pump`, a
+  different component), hence `WeaponVariant`. The shot is rendered in the main install (`"Slot": "main"`), whose save
+  has the user's gun colour presets (`gunColorPreset.N` in `Preferences\Prefs.json`; the alt install has no
+  `Prefs.json`).
+- **0-5 lava** is a sweep (was a hard switch).
+- **New: 6-2 entry** (4 bars, sweep): down the entryway from the start between the windows to the lit arch (path
+  `final-6-2-entry`; the scout showed the same red room, the traced one brighter with the arch lit and a sheen on the floor).
+- **New: the museum's main hall** (`final-museum-hall`, replaces the fountain): low over the hall's water towards the
+  statue's door, the traced water reflecting the arches. The museum's rooms are always on: the fountain's areas load
+  and a free camera reach every room (scout `scout-v5.json`: lobby, hall, upper floor, wings, theater, aquarium, garden).
+- **New: 1-4's hall inside the building** (`final-1-4-hall`, replaces the night lamps): the user's pose 4 (checkpoint
+  load), a push towards the stained glass. The game's hall is nearly black (frame mean 21-24); traced, the lamps light
+  the stone, the pool and the planters (46-56).
+- **New: Gabriel's intro, the last shot** (`final-6-2-organ`; the user's pose 4, checkpoint load): his own light (the
+  rule from 2026-11-18, docs/lighting-overrides.md) lights the organ teal, which the game leaves dark blue; 10.8 s into
+  the take the hall turns red as the fight starts. The take is 16 s (`Render`, both images throughout), `In` 6.3 puts
+  the red flip on the fourth bar; the camera tilts up with him as he rises. Fades out into the end card.
+- **Out**: 1-3's water (2-1's water takes its slot, uncaptioned), 4-4's hall, the museum fountain, 1-4's night lamps.
+- **Music**: one more four-bar phrase of the calm layer (44 bars), so the battle layer enters at 66.34 s on P-2's
+  street; total 2:00.8 (v4 1:54.8).
+
+Render: scouts (one launch, about 3 minutes: museum 19 keys, 1-4 hall 9, 6-2 entry 11, organ hall time-lapse 25 s, a
+shotgun test and the P-2 lamp test; then a 0-3 test), a draft-tier check of the six new shots (one launch), then the
+final tier: suites 1-4 in one alt launch (about 13 minutes, 0 failures), the gun shot in the main install (about
+1.5 minutes). The frames (43 GB) are in the branch worktree's `bench\results\20261119-19*_trailer-final-final-*`; delete them
+once the cut is accepted. Assembly: about 30 minutes of encoding, spread over several runs because of the ffmpeg stalls below.
+
+Traps found:
+- **0-3's room is off until the player comes in.** A camera inside it sees black (the room's objects are inactive) until
+  the player crosses into it; whether the approach route's end already did that varied between loads when the route
+  ended inside the room, so the route now ends in the hallway and the walk does it during the take.
+- **Gabriel's red flip** comes 10.8 s after the take starts (the world is held during the preroll), the same in the scout
+  and the final run, about 11 s after the checkpoint load's route end.
+- A walk path's `Player` positions are applied at path time 0 before the preroll, so V1 stands at its first key while
+  the preroll runs.
+- **ffmpeg (now 9.0.2, from WinGet) deadlocked** on the 7-3 gun clip (a hard switch) every time, and once on 2-2's
+  sweep: 0 % CPU, every thread waiting, the output stuck at a few MB, also with `-filter_complex_threads 1` and with a
+  null output. The two renders alone (concat, no overlays) encode in seconds; with the graphics' PNG inputs in the same
+  graph it stalls. A wipe clip is now made in two passes: the picture (both renders and the divider) losslessly (FFV1)
+  to the work folder, then the overlays on it; and each render is split only into the parts that use it. As a guard,
+  `trailer.py` also gives a clip encode `max(600 s, 60 x its length)`, kills a hung one and tries once more. A clip
+  file left by a killed run is partial: delete it (or pass its number to `--only`) before running again, since
+  existing clips are reused. The same ffmpeg once *finished* a clip early instead (2-2's street: 3.03 s of 4.5, exit
+  code 0), so every clip `trailer.py` builds is now checked with ffprobe against its planned length (it stops with the
+  clip's name); in the overlay pass a picture a frame or two short holds its last frame (the museum take was 2 frames
+  short).
 
 ## The final trailer, fourth render (2026-11-19, `trailer-final-v4`)
 
@@ -538,7 +612,7 @@ All comparisons are paired live takes (the game's image / real-time path tracing
 | # | Start | s | Shot | Level | Treatment | Caption |
 |---|---|---|---|---|---|---|
 | 1 | 0:00.0 | 4.84 | Title card: "A RAY TRACING MOD FOR ULTRAKILL" / ULTRART | - | card | |
-| 2 | 0:04.8 | 7.5 | Opening room from its back wall: V1 walks in through the door, the room and its light pillars come on (on the second bar) | 0-3 | sweep | |
+| 2 | 0:04.8 | 7.5 | Opening room from its back wall: V1 walks in through the door, the room and its light pillars come on (on the second bar) | 0-3 | beauty | |
 | 3 | 0:12.3 | 9.0 | Torch hallway, round the corner to the doorway | 1-1 | sweep from the right | |
 | 4 | 0:21.3 | 6.0 | Statue room glide (world frozen) | 0-1 | sweep | Real-time path tracing |
 | 5 | 0:27.3 | 7.5 | Tree orbit | 7-3 | sweep from the right | Glowing objects cast real light |

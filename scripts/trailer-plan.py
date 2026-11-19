@@ -80,7 +80,9 @@ def main():
             scenarios.append(sc)
             src = ("*_%s-%s-main*/%s" % (name, tier, folder)) if sc["_slot"] == "main" else ("*_%s-%s-*_alt/%s" % (name, tier, folder))
             if kind == "beauty":
-                c = {"Type": "shot", "Name": sname, "Source": src, "In": t_in, "Out": round(t_in + dur, 4)}
+                # A beauty shot rendered as a paired capture ("Cinematic": { "Paired": true }, e.g. to keep the game's image
+                # of the take too) shows its traced folder.
+                c = {"Type": "shot", "Name": sname, "Source": src + ("_" + mode if cine.get("Paired") else ""), "In": t_in, "Out": round(t_in + dur, 4)}
             else:
                 keys = [[0, 0], [round(off - 0.001, 3), 0], [off, 1]] if kind == "switch" else [[0, 0], [off, 0], [round(off + sweep, 3), 1]]
                 wipe = {"Keys": keys, "Slant": sh.get("Slant", 0 if kind == "switch" else 0.18)}

@@ -23,11 +23,11 @@
         "TimeScale": 1,
         "Preroll": 90,
         "Encode": false,
+        "Player": "../cinematics/final-0-3-beams-walk.json",
+        "ShowPlayer": true,
         "Paired": true,
         "OnFrom": 0,
-        "OffUntil": 10.0,
-        "Player": "../cinematics/final-0-3-beams-walk.json",
-        "ShowPlayer": true
+        "OffUntil": 10.0
       }
     },
     {
