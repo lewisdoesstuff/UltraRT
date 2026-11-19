@@ -1,8 +1,10 @@
 # Path tracing mode: plan
 
+> **Archived 2026-11-19.** The pre-implementation plan of the `pathtrace` mode (sections 1-5) and its experiments (section 6, still cited by [path-tracing.md](../path-tracing.md), [dlss.md](../dlss.md) and [light-sampling.md](../light-sampling.md)). The current design: [path-tracing.md](../path-tracing.md).
+
 Working plan for the `pathtrace` mode, DLSS Ray Reconstruction as its denoiser, and tracing what the game still
-rasterises. The mode's own documentation is [path-tracing.md](path-tracing.md); results land there and in
-[dlss.md](dlss.md). This file records what was there, what was tried first and why the design is what it is.
+rasterises. The mode's own documentation is [path-tracing.md](../path-tracing.md); results land there and in
+[dlss.md](../dlss.md). This file records what was there, what was tried first and why the design is what it is.
 
 ## 1. What exists (master f4be515)
 
@@ -159,11 +161,11 @@ the fallback needs 1 path x 2 bounces to stay near 120 fps. Section 6 replaces t
 | Stage | Outcome |
 |---|---|
 | 0 Experiments | RR wants RIS without reuse (35-45% quieter); 1/3 scale keeps noise but loses texels; default preset is F; no "first burst" effect (6.1) |
-| 1 `pathtrace` mode | done: `RayGenPT`, energy within 0-5% of relight on the same sampler ([path-tracing.md](path-tracing.md)) |
+| 1 `pathtrace` mode | done: `RayGenPT`, energy within 0-5% of relight on the same sampler ([path-tracing.md](../path-tracing.md)) |
 | 2 RR for the mode | done: RIS, remodulation, exact 3x3 jitter grid at 1/3 scale, colour and game match. 10-45% quieter than relight at rest, 4-11% noisier moving, same GPU cost, 132-195 fps at 1440p |
 | 3 Transparents in the path | done: Fresnel reflection or tinted pass-through at water / glass / blood; viewmodel, particles, volumetrics run unchanged |
 | 4 Effects pass | done for additive glows (particles, sprites, trails, lines): visible to every specular ray in relight, hybrid and pathtrace |
-| 5 Decals, lit particles, alpha-blended sprites in reflections | blood stains done (2026-11-15: a world-space grid of the game's stains, the game's composite at reflection hits; [path-tracing.md](path-tracing.md), "Blood stains in reflections"); particles and sprites not done (6.2) |
+| 5 Decals, lit particles, alpha-blended sprites in reflections | blood stains done (2026-11-15: a world-space grid of the game's stains, the game's composite at reflection hits; [path-tracing.md](../path-tracing.md), "Blood stains in reflections"); particles and sprites not done (6.2) |
 | 6 Sweep, settings, docs | done: defaults 1 path x 2 bounces x 1 light sample; the settings menu's "Path tracing" section |
 
 The cost estimate of section 5 was wrong in one way that mattered: a path segment past the primary hit costs about
@@ -174,7 +176,7 @@ twice what the primary's does (incoherent rays, RIS candidates at every vertex),
 
 - **Blood stains in reflections**: done since (2026-11-15). Not as geometry: a hash grid of the stains near the camera,
   built each frame from the game's buffers with the stamp shader's box, rotation and atlas cell (ported for wet blood
-  already), looked up at reflection hits ([path-tracing.md](path-tracing.md), "Blood stains in reflections").
+  already), looked up at reflection hits ([path-tracing.md](../path-tracing.md), "Blood stains in reflections").
 - **Alpha-blended particles and sprites** (blood drops, dust, smoke, splashes) in reflections: they need lighting at the
   hit (the froxel volume is camera-aligned and could be sampled) and order-dependent blending; the any-hit
   accumulation is order-independent. Additive-only for now.

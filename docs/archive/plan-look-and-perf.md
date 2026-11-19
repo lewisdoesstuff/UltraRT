@@ -1,5 +1,7 @@
 # Plan: look and performance (2026-11-17)
 
+> **Archived 2026-11-19.** Mostly implemented; the status table below is the state of 2026-11-19. Where it says the default mode is `relight`: it is `pathtrace` where DLSS RR runs (since 2026-11-17). `data/lights/_prefabs.json` never shipped: prefabs are `prefab:*` classes in `data/lights/_rules.json`. Reference docs still cite its decisions and workstreams.
+
 The plan of phase 1 of the owner's brief (written with no code changes, on master `8ceda9b`), approved by the user on
 2026-11-17 and merged at `b028469`. Implementation is under way: one agent, one branch at a time, in the order of
 section 7; the [status](#status) table says where each step is. Measured on the RTX 5070 Ti at 2560x1440.

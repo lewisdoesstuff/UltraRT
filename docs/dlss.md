@@ -108,7 +108,7 @@ ignores exposure parameters).
 ## RR for path tracing
 
 Four changes made RR the better denoiser for the `pathtrace` mode. The measurements behind them are in
-[pt-plan.md](pt-plan.md), section 6.1, and in [path-tracing.md](path-tracing.md).
+[pt-plan.md](archive/pt-plan.md), section 6.1, and in [path-tracing.md](path-tracing.md).
 
 ### Independent samples
 

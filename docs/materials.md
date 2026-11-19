@@ -217,7 +217,8 @@ every 1.25 s so on/off are timed in the same pass), `materials-tune` (strength 1
 
 ### GPU cost
 
-Final build at the defaults (detail on primary rays only; relight normal strength 2, hybrid 1), GPU total ms, detail
+Final build at the defaults of then (detail on primary rays only; relight normal strength 2, hybrid 1; the relight
+default is 1 since 2026-11-17), GPU total ms, detail
 off -> on in the same pass (`bench/results/20261114-134928_materials`):
 
 | Pose | hybrid | relight |

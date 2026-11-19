@@ -6,7 +6,7 @@ but the indirect light and the reflections come from real multi-bounce paths ins
 cache. DLSS Ray Reconstruction denoises and upscales it when it is available ([dlss.md](dlss.md)); UltraRT's own
 denoiser is the fallback. Relight is unchanged and stays the default.
 
-How the design was arrived at (the experiments, the alternatives): [pt-plan.md](pt-plan.md).
+How the design was arrived at (the experiments, the alternatives): [pt-plan.md](archive/pt-plan.md).
 
 | File | Role |
 |---|---|
@@ -227,7 +227,7 @@ noted. `bench/results/20261114-234716_pt-perf2` (the defaults) and `20261114-231
 - **It misses the target** with 2 paths and 2 light samples (65-107 fps), with a third bounce in the heavy scenes
   (96-121 fps), at RR render scale 1/2 (0-1 metal: 13.6 ms, 70 fps) and on UltraRT's denoiser at its 0.5 scale
   (72-116 fps). `ptx.scale=0.3333` brings the fallback to 136-172 fps, at the temporal upsampler's 1/3-scale texture
-  blur ([pt-plan.md](pt-plan.md), 6.1).
+  blur ([pt-plan.md](archive/pt-plan.md), 6.1).
 - Where the time goes (default, 0-1 metal): `dispatch` 4.11 ms, RR 1.57 ms (Prepare + evaluate + Finish + the
   demodulation pass; 1.32 ms without remodulation), radiance cache 0.19, volumetrics 0.30, viewmodel 0.43.
 - What the knobs cost in `dispatch` (0-1 metal / 7-3 flashlight): a second path +4.0 / +3.1 ms (the

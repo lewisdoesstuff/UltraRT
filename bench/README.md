@@ -300,3 +300,35 @@ A burst measures a held pose. In motion a pixel's history keeps moving and being
 **Viewmodel** (`"MotionViewmodel": true`, docs/viewmodel.md "Motion"): the same measure over the pixels the viewmodel pass covers this frame (read back from its G-buffer), which `MotionExclude` keeps out of the main statistics: `viewmodel sigma ... block4 ...` in the log line and a "Viewmodel motion noise" table in `summary.md`. Each pass then starts the gun from the same state: the animators under the main camera go back to their state at the start of the first pass (state, time, parameters), the FOV kick is undone and `Random` is reseeded (a revolver shot picks its animation at random). `"GunBob": 1` moves the gun as `WalkingBob` does when walking at full speed (the bench takes the player over, so the game never bobs it), as a function of path time; with `revolver` effects every 0.25 s the window also has recoil (bone animation). `bench/suites/viewmodel-motion.json`.
 
 `plugin._motionJitterRotate=1` starts each pass at a different TAAU jitter phase, so jitter-dependent flicker (thin geometry alternating between surfaces) counts too. Effect kinds `flash` (a revolver-like muzzle light, 20 / range 5, fading over 0.2 s) and `blast` (an explosion-like light, 60 / range 10) spawn a light only, so the game's random particles don't differ between passes. `bench/suites/motion-noise.json`, `motion-noise-r3.json`, `motion-final.json`, `motion-cost.json` and `motion-blast.json` are behind docs/denoiser.md's "Motion noise". Volumetric haze adds its own noise (docs/volumetrics.md): those suites measure with `vol=0`.
+
+## Methods and traps
+
+Collected from the look-and-perf handoff of 2026-11-18 (`docs/archive/handoff-2026-11-18.md`).
+
+- **`-Extra`**: one comma-separated string (`-Extra "-ultrart-viewprobe,-ultrart-light-census"`); the wrapper
+  re-quotes each part. An array does not survive the nested PowerShell call.
+- **Sheets**: `python tools/bench/sheet.py <run> <scenario prefix> <out.png> [columns]` labels each mode and prints
+  the frame's mean luma. A prefix that is the start of another scenario's name ("0-S spawn" / "0-S spawn skull")
+  matches both.
+- **Light work goes through the proposal layer**: put the level file or rules in `data/lights/proposed/`, compare
+  `pathtrace` against `pathtrace+lc.layer=proposed` in one launch, then move the file and empty the layer. The
+  build copies `data/lights` into `stage`, so rebuild after editing them.
+- **What lights what**: `lc.solo=none` (every level light off: what is left is sky, emitters and unlit materials),
+  `lc.class.NAME=F`, `lc.set.CLASS.FIELD=V` (a kind with a dot: `prefab.shop`), `lc.light.TEXT=0`, `vol.strength=0`,
+  `vol.emissive=0`, `vfx.enabled=0`, `ae.levelOverride=0`. `-ultrart-light-census` writes `lights_<scene>.json` per
+  layer into the run folder: path, class, rule, policy of every light.
+- **A variant can only set what the plugin does not overwrite every frame**: `ae.levelFollowGame` and `plugin._skyScale`
+  do nothing as variants (set from the level file; taken back by auto exposure). Use the proposal layer. A variant
+  naming a field that does not exist only logs `Burst: no Plugin field` / `no field`: check the log.
+- **Modes run one after the other on the same loaded pose**, so time passes: a cutscene pose (6-2 pose 4) drifts
+  into the fight by the third mode. Short duration, early shot, few modes.
+- **Random level state**: 7-1's dummies take a new pose per load; do not compare shapes across launches.
+- **Game-drawn transparents** (queue 3000: grates, light cones, water) are drawn by the game after the traced
+  composite with the game's own lighting. They are absent from `_raw.png` and cannot be relit without a proxy or a
+  material swap. `_raw.png` against the final shot tells haze and screen effects from the traced image.
+- **All water in the game is `VERTEX_LIGHTING`** (the proxy log prints it): "water too bright" is the room being
+  too dark, not the water.
+- **HDR capture**: a bench with `-Extra "-ultrart-hdr,on,-ultrart-hdr-capture,raw"` logs
+  `HDR display: available=False active=False` when the slot's display is not in HDR; check that line before reading
+  anything into an "HDR" run.
+- **Unity's log**: `Debug.Log` from the plugin does not reach `game.log`; use the BepInEx logger.

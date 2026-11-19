@@ -97,10 +97,9 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 | Doc | What it covers |
 |---|---|
 | [docs/settings.md](docs/settings.md) | The in-game settings page: layout, saving, flags versus config, hotkeys |
-| [docs/relight.md](docs/relight.md) | The default mode: physical light model, tone curve, auto exposure, sky and sun, colour match |
+| [docs/relight.md](docs/relight.md) | The relight mode (default without DLSS RR): physical light model, tone curve, auto exposure, sky and sun, colour match |
 | [docs/hdr.md](docs/hdr.md) | HDR10 display output (prototype, off by default): the swapchain proxy, the highlight gain map, effects and bloom above white, settings |
 | [docs/path-tracing.md](docs/path-tracing.md) | The `pathtrace` mode: paths, settings, effects in reflections, cost and noise |
-| [docs/pt-plan.md](docs/pt-plan.md) | How the path tracing design was arrived at: experiments and alternatives |
 | [docs/dlss.md](docs/dlss.md) | DLSS Ray Reconstruction through NGX: setup, evaluation, license |
 | [docs/denoiser.md](docs/denoiser.md) | UltraRT's SVGF-style denoiser, static and motion noise work, temporal upsampling |
 | [docs/light-sampling.md](docs/light-sampling.md) | RIS and temporal ReSTIR direct lighting, bias and noise |
@@ -122,10 +121,8 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 | [docs/performance.md](docs/performance.md) | Where the 1440p frame goes and what was done about it |
 | [docs/gpu-timer.md](docs/gpu-timer.md) | The native D3D12 GPU timer (`UltraRT.Native`) |
 | [docs/ultrakill-rendering.md](docs/ultrakill-rendering.md) | Notes on how ULTRAKILL itself renders, including its final screen dither and how UltraRT replaces it |
-| [docs/audit-2026-11-15.md](docs/audit-2026-11-15.md) | A visual audit of 33 poses against the game |
 | [docs/cleanup-audit-2026-11-19.md](docs/cleanup-audit-2026-11-19.md) | A static audit for dead code, duplication and stale suites and docs, with proposed cleanup PRs (report only) |
-| [docs/handoff-2026-11-18.md](docs/handoff-2026-11-18.md) | Handoff of the look-and-perf work: plan state, open playtest items with next steps, bench methods and traps |
-| [docs/plan-look-and-perf.md](docs/plan-look-and-perf.md) | Plan of 2026-11-17 (not implemented): light classes and brightness, material maps, trailer flaws, the 120 / 240 Hz targets |
+| [docs/archive/](docs/archive) | Dated plans, audits and handoffs kept as history: [pt-plan](docs/archive/pt-plan.md) (how the path tracing design was arrived at, its experiments), [plan-look-and-perf](docs/archive/plan-look-and-perf.md) (plan of 2026-11-17, mostly implemented), [audit-2026-11-15](docs/archive/audit-2026-11-15.md) (visual audit of 33 poses), [handoff-2026-11-18](docs/archive/handoff-2026-11-18.md) |
 | [bench/README.md](bench/README.md) | Running benchmarks: the game lock, suites, scenario JSON, poses, noise and motion metrics |
 | [tools/materials/README.md](tools/materials/README.md) | The offline material-map pipeline |
 | [AGENTS.md](AGENTS.md) | Rules for coding agents working in this repo |

@@ -218,7 +218,7 @@ columns ran with the visibility memory on, which measured neutral at rest):
 **Default: RIS, 16 candidates.** Unbiased, quieter than either ReSTIR at every held pose (at the reference's level on
 0-1 metal and 1-4's penumbrae), the same in motion within the metric's spread. ReSTIR's samples persist for up to 20
 frames, which relight's temporal filter can't average away (slow boiling: high block sigma); RIS samples are
-independent from frame to frame and the filter averages them (docs/pt-plan.md 6.1 found the same for DLSS RR). 32
+independent from frame to frame and the filter averages them (docs/archive/pt-plan.md 6.1 found the same for DLSS RR). 32
 candidates helped 8-2 a little and nothing else. ReSTIR stays available (F6, the menu, `lights=restir`) and may still
 win where many lights compete per pixel (8-3's 100+ lights were not re-measured here).
 

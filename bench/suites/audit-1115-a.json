@@ -1,6 +1,6 @@
 {
   "Name": "audit-1115-a",
-  "Note": "Visual audit of the user poses: game vs relight vs pathtrace (docs/audit-2026-11-15.md)",
+  "Note": "Visual audit of the user poses: game vs relight vs pathtrace (docs/archive/audit-2026-11-15.md)",
   "Scenarios": [
     {
       "Name": "0-2 door red metal",

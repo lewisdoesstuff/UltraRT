@@ -1,6 +1,6 @@
 {
   "Name": "trailer-fixes",
-  "Note": "Workstream C (docs/plan-look-and-perf.md): V1 in 1-1's terminal room (run again with -Extra \"-ultrart-v1-unlit 0\" for the pair), P-2's street and Puddle with the soft puddles off and on.",
+  "Note": "Workstream C (docs/archive/plan-look-and-perf.md): V1 in 1-1's terminal room (run again with -Extra \"-ultrart-v1-unlit 0\" for the pair), P-2's street and Puddle with the soft puddles off and on.",
   "Scenarios": [
     {
       "Name": "v1 pathtrace",

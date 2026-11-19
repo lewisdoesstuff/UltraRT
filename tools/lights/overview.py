@@ -1,4 +1,4 @@
-"""One overview sheet over several bench results folders (docs/audit-2026-11-15.md).
+"""One overview sheet over several bench results folders (docs/archive/audit-2026-11-15.md).
 
 Every scenario becomes one cell: game | relight | pathtrace thumbnails with the masked luma ratio to the game and the
 tint error (same measures as sheet.py). Cells are laid out two per row. Also prints a markdown table of the numbers.

@@ -216,7 +216,8 @@ namespace UltraRT
                 "Page Up / Page Down|previous / next view mode", "F7|ray tracing on / off", "F2|temporal upsampler",
                 "F3|radiance cache mode (Shift: debug view)", "Ctrl+F3|denoiser preset", "F4|reflections", "Ctrl+F4|auto exposure",
                 "F5|glowing surfaces as lights", "Ctrl+F5|sky light and linear transport", "F6|light sampling", "Ctrl+F6|volumetrics",
-                "Ctrl+F1|surface detail maps", "Ctrl+F2|screen effects (bloom, heat haze, shockwaves, underwater)", "Shift+F2|bloom", "Ctrl+F8|DLSS Ray Reconstruction (relight)", "F9|reload shaders", "F10|record", "F11|save pose",
+                "Ctrl+F1|surface detail maps", "Ctrl+F2|screen effects (bloom, heat haze, shockwaves, underwater)", "Shift+F2|bloom", "Ctrl+F8|DLSS Ray Reconstruction (relight)", "F9|reload shaders",
+                "Ctrl+F7|viewmodel pass (the gun and arms traced)", "Shift+F7|lit particles", "F10|record a camera path (bench)", "F11|save the current pose (bench)","F10|record", "F11|save pose",
                 "Insert|light editor (then numpad: 5 aim-select, 4/6 cycle, 8/2 parameter, +/- change, Enter save; docs/lighting-overrides.md)",
             }.Concat(CineKeybinds).ToArray();
             m.Capture();

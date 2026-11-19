@@ -199,7 +199,7 @@ still a record.
 
 ## Profiling (2026-11-17, branch `t3/perf-profile`)
 
-Tools added for the 120 Hz pathtrace / 240 Hz relight work (docs/plan-look-and-perf.md, 5.1). They answer three
+Tools added for the 120 Hz pathtrace / 240 Hz relight work (docs/archive/plan-look-and-perf.md, 5.1). They answer three
 questions the numbers above could not: is a frame bound by the GPU, the main thread or the render thread; what does
 each pass cost on each of the three; and where do the slow frames come from.
 
