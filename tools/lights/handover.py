@@ -33,9 +33,9 @@ def verdict(r):
     names = [f.rsplit(":", 1)[0] for f in fx]
     kinds = {f.rsplit(":", 1)[0]: f.rsplit(":", 1)[1] for f in fx if ":" in f}
     pol = r.get("policy") or ""
-    if re.match(r"x0(,|$)", pol) and not r["class"].startswith("fixture:torch"):
+    if re.match(r"x0(,|$)", pol) and not r["class"].startswith(("fixture:torch", "fixture:candle")):
         return "emissive"
-    if any(n.startswith("FireMaterial") or n.startswith("Campfire") for n in names) or r["class"] == "fixture:torch":
+    if any(n.startswith("FireMaterial") or n.startswith("Campfire") for n in names) or r["class"] in ("fixture:torch", "fixture:candle"):
         return "flame"
     if not fx:
         return "no fixture"

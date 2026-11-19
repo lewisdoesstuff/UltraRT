@@ -300,6 +300,9 @@ views) and under the punch target. **The wing-shaped shadows of 1-1's torch cups
 rim and as large as the flame; `bench/results/review/emissive-all/flames-1-1-wings.jpg`, first row). The 1-1 cup rooms
 are more orange than with the old lights (yellow); the game's own frame is orange-brown there.
 
+Since 2026-11-19 torches are x1.25 by class, not x2.5 (docs/lighting-overrides.md, "Torches x1.25"): with the flame
+above the cup, the x2.5 burned 1-1's torch hall and 4-4's boss hall out in trailer v4.
+
 Not covered: a flame farther away than the tracked 48 keeps the game's light; candle piles are handed over to their
 texture (the handover rule), not driven.
 

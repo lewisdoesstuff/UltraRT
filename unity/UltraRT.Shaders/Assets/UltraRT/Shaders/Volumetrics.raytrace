@@ -66,6 +66,7 @@ float4   _VolSamples;       // x light samples per pixel, y emissive samples per
 // [13..20] per plane the face's vertex colour brightness w + dot(xyz, x) (0: no face).
 StructuredBuffer<float4> _VolBeams;
 float4   _VolLightShape;    // x haze range (m; lights with a larger range scatter less, 0 = off), y soft core (x range)
+                            // z: 1 = an emitter triangle's air share applies (EmissiveLights: a handed-over fixture's class "medium")
 
 static const float kPi = 3.14159265;
 
@@ -291,6 +292,9 @@ bool SampleEmissivePoint(inout uint rng, out float3 x, out float3 nl, out bool t
     if (b1 + b2 > 1.0) { b1 = 1.0 - b1; b2 = 1.0 - b2; }
     x = p0 + e1 * b1 + e2 * b2;
     le = ToLightV(float3(f16tof32(t1.w), f16tof32(t1.w >> 16), f16tof32(t2.w))) * _EmissiveParams.y;
+    // The triangle's air share (high half of t2.w, 1 for an ordinary emitter): a fixture handed to its glowing part keeps
+    // its class's "medium" in the air, as its light did (docs/volumetrics.md, "Handed-over lamps in the air").
+    le *= lerp(1.0, f16tof32(t2.w >> 16), saturate(_VolLightShape.z));
     pdfA = pdf / (0.5 * len);
     return true;
 }

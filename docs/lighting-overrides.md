@@ -133,7 +133,7 @@ fixtures"), `enclosed` (in a static lamp shade), `orb` (a statue orb's), `script
 
 Classes of the shipped rules: `prefab:firstroom|shop|finaldoor|finalroom|checkpoint|door|pit` (the same objects in
 every level), `gameplay` (altars, grapple points, switches, coloured arena lights), `lightning`,
-`fixture:torch|orb|window|screen|lamp`, `scripted`, `accent` (a spot with no fixture), `fill` (a point light with no
+`fixture:torch|candle|orb|window|screen|lamp` (`candle`: the candle piles, since 2026-11-19), `scripted`, `accent` (a spot with no fixture), `fill` (a point light with no
 fixture and a range of 12 m or more), `glow` (the same, smaller). `fixture` names all its kinds wherever a class is
 given.
 
@@ -666,7 +666,7 @@ of having the lamps. The emissive principle stands where the glowing part can ca
 The user, after the trailer's second render and the night's sheets: "i think we probably could go up to the 2.5x on
 the lights". The global class policy (`data/lights/_rules.json`) is now `fixture`, `accent`, `glow`, `effect`, `item`
 `reach` 0, **x2.5, `medium` 0.4** (1/2.5: their haze where it was); fills and scripted lights unchanged (`reach` 0,
-full strength).
+full strength). (Torches, braziers and open fires, `fixture:torch`, are x1.25 since 2026-11-19: "Torches x1.25" below.)
 
 Every campaign level was toured again with the game, x1.8 as shipped and x2.5 (runs `20261118-123308_p25-a..d_alt`
 and `20261118-123311_p25-e..g`, 0 exceptions; 2-S has no tour stops). Medians per level, x1.8 -> x2.5, against the
@@ -826,6 +826,53 @@ back at x1 (the entries are gone). x2 on P-2 would be a taste call (more contras
 
 Sheets: `bench/results/review/dark-7-3/` (`trailer-poses.jpg`: first master / ships at both shots; the candidate
 rounds; `tour-7-3.png`).
+
+## Torches x1.25 (2026-11-19, `t3/trailer-v4-light-halo-fix`)
+
+The user on trailer v4: the 1-1 torch hall and the 4-4 boss hall are "wildly bright on the lights". Both shots are
+`live` takes of pathtrace with DLSS RR (docs/cinematics.md), so it is the normal render, not the offline path. Variants
+at the trailer's poses (`bench/suites/light-halo-diag.json`, `light-halo-diag2.json`; sheets
+`bench/results/review/halo-fix/`, `diag_*.jpg`, `d2_*.jpg`), share of pixels with a channel at 254 or more:
+
+| 1-1 torch hall (game: mean 47, clip 4.0 %) | mean | clip |
+|---|---|---|
+| as shipped (torches x2.5) | 101 | 14.3 % |
+| auto exposure off | 134 | 24.2 % |
+| `fx.flameDriven=0` | 101 | 14.4 % |
+| `vfx.bloom=0` | 101 | 13.2 % |
+| `vol.strength=0` | 100 | 13.0 % |
+| torches x1.6 | 97 | 13.1 % |
+| torches x1.25 | 82 | 9.4 % |
+| torches x1 | 70 | 7.0 % |
+
+Not the bloom, the haze, the tone curve or exposure (auto exposure is already taking 0.5 EV off: it is the only thing
+holding the hall below white). It is the torches' light. Their game lights are already strong: 1-1's `BigTorch/Fire` is
+intensity 5 at range 15, 4-4's braziers 5 to 8 at range 15 to 40. 1-1's census has 44 torch lights at 4 to 6 and 13
+above; over all levels 3,100 of the 4,500 boosted lights are above 4. The x2.5 of the punch was judged on rooms whose
+key lights are 1 to 3, and in a narrow sandstone corridor eight torches at 12.5 light the walls and the floor and
+their bounce off each other. The flame-driven light (docs/emissive-lights.md) sits above the cup that shadowed the
+game's light, so a torch reaches more of the room than before (4-4: x0.5 flame gain and still brighter than the old
+light, 101 against 83). 4-1 (x1.25) and 4-3 (x1.2) had needed level cuts for the same thing.
+
+So `fixture:torch` has its own global class: `reach` 0, **x1.25, `medium` 0.8** (its haze where it was), the value 4-1
+already shipped. A level's own `fixture` policy still wins (4-1, 4-3, 5-1, 5-3: the lookup takes the level's `fixture`
+when it has no `fixture:torch`). Candle piles moved to their own class, `fixture:candle`: they are handed over to the
+candles' texture and keep the fixture policy (x2.5). Other fixtures (lamps, orbs, screens, windows) are unchanged.
+The 100 pooled `BloodsplatterManager` lights per level that the rules also class `fixture:torch` (above, "Emissive
+fixtures") are x1.25 with them (not checked at a pose).
+
+As shipped (`20261119-140528_light-halo-fix_alt`, the old strength as the variant
+`lc.set.fixture.torch.intensity=2.5+lc.set.fixture.torch.medium=0.4`):
+
+| Pose | game | before | now |
+|---|---|---|---|
+| 1-1 torch hall (trailer path, 66 / 330) | mean 47, clip 4.0 %, p95 125 | 101, 14.2 %, 225 | 82, 9.3 %, 201 |
+| 1-1 corner to the doorway (the trailer's late frame) | 52, 2.6 %, 114 | 101, 9.8 %, 202 | 87, 5.7 %, 179 |
+| 4-4 boss hall (`4-4-v2-chair`) | 36, 2.8 %, 75 | 77, 9.3 %, 181 | 53, 4.3 %, 121 |
+
+The torches and braziers stay bright and orange, above the game (RT may be brighter), and the walls round them hold
+their colour and texture instead of washing to white. 1-1's hall is still the brightest of the three against the game:
+what is left is bounce in a closed, bright-walled corridor (x1 still reads 70 against 47).
 
 ## Window beams in 6-2 (2026-11-19, `t3/stained-glass`)
 
@@ -1017,6 +1064,9 @@ street lamp bulbs, standing lamps, lanterns, glowing orbs, dome lamps, glowing m
 hotel wall lights, hotel desk lamps. 8-2 keeps its hand-tuned level rules for the street lamps (light x1.3 next to
 heads x2) and standing lamps. 1-4's hand-tuned lamp rules are gone; its lamps and orbs run at three times the global
 gain (at the global gain the lamp garden's walls read at p95 x0.62 of the game's, at x4 x1.22 with the dark end up 18).
+
+**Air share (2026-11-19).** The part keeps the handed light's `medium` in the air: before, its glass scattered the
+full x2.5 output in the fog (the street lamps' "sprite" halo; docs/volumetrics.md, "Handed-over lamps in the air").
 
 **Hybrid.** 8-3's hooded street lamps (58): the head under its hood lights the hood and the pole, not the street, so
 the light stays at 0.52 (air x0.5) and the head gets gain 0.2. 8-2's 33 street lamps are the same idea by its level

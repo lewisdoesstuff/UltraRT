@@ -70,6 +70,10 @@ namespace UltraRT
         public float sun = 1f;
         /// <summary>Emissive surface scattering multiplier (lava, glowing panels; one sample per pixel, 0 = off).</summary>
         public float emissive = 0.5f;
+        /// <summary>1: an emitter triangle's air share applies (a fixture handed over to its glowing part scatters its class's
+        /// "medium" share in the air, as its light did; docs/volumetrics.md, "Handed-over lamps in the air"). 0 = the full
+        /// emitter output, as before 2026-11-19.</summary>
+        public float emitterMedium = 1f;
         /// <summary>Firefly clamp: max luminance (linear) of a pixel's one-sample light + emissive estimate.</summary>
         public float maxSample = 2f;
         /// <summary>Apply the game's own distance fog to ray-traced pixels (the replace modes lost it).</summary>
@@ -120,6 +124,7 @@ namespace UltraRT
                     case "-ultrart-vol-g": anisotropy = F(anisotropy); break;
                     case "-ultrart-vol-lights": lights = F(lights); break;
                     case "-ultrart-vol-emissive": emissive = F(emissive); break;
+                    case "-ultrart-vol-emitter-medium": emitterMedium = F(emitterMedium); break;
                     case "-ultrart-vol-distance": maxDistance = F(maxDistance); break;
                     case "-ultrart-vol-nofog": gameFog = false; break;
                     case "-ultrart-vol-hybrid": hybrid = true; break;
@@ -344,7 +349,7 @@ namespace UltraRT
             float sunScale = Mathf.Max(0f, s.sun);
             cmd.SetRayTracingVectorParam(_rt, IdVolSunColor, new Vector4(f.sunColor.r * sunScale, f.sunColor.g * sunScale, f.sunColor.b * sunScale,
                 f.sunDir.w > 0f && sunScale > 0f ? 1f : 0f));
-            cmd.SetRayTracingVectorParam(_rt, IdVolLightShape, new Vector4(Mathf.Max(0f, s.hazeRange), Mathf.Max(0f, s.core), 0, 0));
+            cmd.SetRayTracingVectorParam(_rt, IdVolLightShape, new Vector4(Mathf.Max(0f, s.hazeRange), Mathf.Max(0f, s.core), Mathf.Clamp01(s.emitterMedium), 0));
             int beams = f.beams != null ? Mathf.Clamp(f.beamCount, 0, 32) : 0;
             cmd.SetRayTracingVectorParam(_rt, IdVolSamples, new Vector4(Mathf.Clamp(s.lightSamples, 1, 8), Mathf.Clamp(s.emissiveSamples, 1, 8),
                 beams, Mathf.Clamp(f.beamParams.x, 1f, 4f)));
