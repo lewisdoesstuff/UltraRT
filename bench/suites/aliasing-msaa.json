@@ -11,7 +11,7 @@
     "Duration": 1
    },
    "Modes": [
-    "hybrid"
+    "off"
    ],
    "Enemies": "blind",
    "Cinematic": {
@@ -44,13 +44,6 @@
       "Aa": 16,
       "Start": 0.13333333333333333,
       "Seconds": 0.001
-     },
-     {
-      "Name": "hybrid-msaa4",
-      "Mode": "live",
-      "View": "hybrid+plugin._msaaProbe=4",
-      "Start": 0.13333333333333333,
-      "Seconds": 0.001
      }
     ]
    }
@@ -79,7 +72,7 @@
     "Duration": 1
    },
    "Modes": [
-    "hybrid"
+    "off"
    ],
    "Enemies": "blind",
    "Cinematic": {
@@ -110,13 +103,6 @@
       "Name": "off-ref",
       "Mode": "off",
       "Aa": 16,
-      "Start": 0.13333333333333333,
-      "Seconds": 0.001
-     },
-     {
-      "Name": "hybrid-msaa4",
-      "Mode": "live",
-      "View": "hybrid+plugin._msaaProbe=4",
       "Start": 0.13333333333333333,
       "Seconds": 0.001
      }

@@ -20,8 +20,6 @@ namespace UltraRT
         /// (Le cos cos / (pi d^2)); ULTRAKILL's point lights are far brighter than that convention. See docs/emissive-lights.md.
         /// </summary>
         public float lightScale = 4f;
-        /// <summary>EmissiveHybridAdd: hybrid mode adds this much of the shadowed emissive direct light on top of the game's colour.</summary>
-        public float hybridAdd = 0.25f;
         /// <summary>Probability that a RIS candidate is an emissive triangle (when there are both lights and emitters).</summary>
         public float share = 0.5f;
         /// <summary>Reference light mode: emitter samples (shadow rays) per primary hit; the bounce takes at most one.</summary>
@@ -60,8 +58,7 @@ namespace UltraRT
     ///    downsample of the emissive (or albedo) texture.
     ///  - Per frame: owner transforms (so moving emitters stay exact), which emitters are in the RTAS (a bit per
     ///    triangle), and an alias table over the active triangles weighted by luminance x area x camera falloff.
-    ///  - The triangle list is append-only between compactions, so indices stay stable for ReSTIR history; a compaction
-    ///    bumps the generation and the shader drops emissive history for one frame.
+    ///  - The triangle list is append-only between compactions (a compaction bumps the generation).
     /// Skinned emitters are not handled (TODO): they still light through bounce hits only if bounceHitEmission is on.
     /// </summary>
     internal sealed partial class EmissiveLights : IDisposable
@@ -301,7 +298,7 @@ namespace UltraRT
         private int[] _aliasTri = new int[0], _small = new int[0], _large = new int[0], _aliasIdx = new int[0];
 
         private bool _activeDirty, _ownersDirty;
-        private int _generation, _boundGeneration = -1;
+        private int _generation;
         private Vector3 _aliasCam = new Vector3(float.MaxValue, 0, 0);
         private int _aliasFrame;
 
@@ -313,10 +310,8 @@ namespace UltraRT
             IdCount = Shader.PropertyToID("_EmissiveCount"),
             IdTriCount = Shader.PropertyToID("_EmissiveTriCount"),
             IdRefSamples = Shader.PropertyToID("_EmissiveRefSamples"),
-            IdHistoryValid = Shader.PropertyToID("_EmissiveHistoryValid"),
             IdParams = Shader.PropertyToID("_EmissiveParams"),
-            IdBounceWeight = Shader.PropertyToID("_EmissiveBounceWeight"),
-            IdHybridAdd = Shader.PropertyToID("_EmissiveHybridAdd");
+            IdBounceWeight = Shader.PropertyToID("_EmissiveBounceWeight");
 
         public EmissiveLights(ManualLogSource log)
         {
@@ -517,12 +512,9 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(shader, IdCount, count);
             cmd.SetRayTracingIntParam(shader, IdTriCount, s.enabled ? _triCount : 0);
             cmd.SetRayTracingIntParam(shader, IdRefSamples, Mathf.Clamp(s.referenceSamples, 0, 16));
-            cmd.SetRayTracingIntParam(shader, IdHistoryValid, _generation == _boundGeneration ? 1 : 0);
-            _boundGeneration = _generation;
             float dmin = Mathf.Max(1e-3f, s.minDistance);
             cmd.SetRayTracingVectorParam(shader, IdParams, new Vector4(Mathf.Clamp(s.share, 0.01f, 0.99f), Mathf.Max(0f, s.lightScale) / Mathf.PI, dmin * dmin, 0));
             cmd.SetRayTracingFloatParam(shader, IdBounceWeight, sampled && !s.bounceHitEmission ? 0f : 1f);
-            cmd.SetRayTracingFloatParam(shader, IdHybridAdd, sampled ? Mathf.Max(0f, s.hybridAdd) : 0f);
         }
 
         /// <summary>Scene change / shader reload: forget everything (caches included: meshes and textures belong to the scene).</summary>

@@ -3,17 +3,17 @@
   "Scenarios": [
     { "Name": "1-1 start", "Scene": "Level 1-1",
       "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 10 },
-      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight", "hybrid+plugin._vmEnabled=0", "hybrid", "pt-dn",
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight", "pt-dn",
                 "relight+plugin._vmCheckerboard=0", "relight+plugin._vmFullScreen=1", "relight+plugin._vmDebug=1", "relight+plugin._vmDebug=2", "relight+plugin._vmDebug=4"],
       "Screenshots": [8],
       "Burst": 32, "BurstModes": ["off", "relight+plugin._vmEnabled=0", "relight"] },
     { "Name": "1-1 start revolver", "Scene": "Level 1-1",
       "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 3 },
       "Effects": { "Kinds": ["revolver"], "Every": 0, "ShotDelay": 0.03 },
-      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight", "hybrid"], "Screenshots": [1.5] },
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight"], "Screenshots": [1.5] },
     { "Name": "1-4 lamps", "Scene": "Level 1-4",
       "Path": { "Type": "static", "Approach": "../recordings/1-4-lamps.json", "Duration": 6 },
-      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight", "hybrid", "relight+plugin._vmDebug=2"],
+      "Modes": ["off", "relight+plugin._vmEnabled=0", "relight", "relight+plugin._vmDebug=2"],
       "Screenshots": [4] }
   ]
 }

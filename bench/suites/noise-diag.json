@@ -20,25 +20,19 @@
       "BurstModes": [
         "off",
         "relight+dn.stabilize=0",
-        "hybrid+dn.stabilize=0",
         "relight+lights=ref+dn.stabilize=0",
         "relight+cache=off+dn.stabilize=0",
         "relight+refl=0+dn.stabilize=0",
         "relight+emissive=0+dn.stabilize=0",
         "relight+plugin._lightRadius=0+dn.stabilize=0",
-        "relight+ls.historyLimit=4+dn.stabilize=0",
         "relight+cache.historyFrames=128+dn.stabilize=0",
         "relight+dn.alphaMin=0.03+dn.maxHistory=100+dn.stabilize=0",
         "relight+dn.stability=0+dn.stabilize=0",
-        "hybrid+lights=ref+dn.stabilize=0",
-        "hybrid+cache=off+dn.stabilize=0",
         "dn-lighting+relight+dn.stabilize=0",
         "pt-direct+relight",
         "pt-indirect+relight",
         "relight",
-        "hybrid",
-        "relight+dn.stabilizeAlphaMin=0.1",
-        "relight+ls.historyLimit=4"
+        "relight+dn.stabilizeAlphaMin=0.1"
       ]
     },
     {
@@ -60,25 +54,19 @@
       "BurstModes": [
         "off",
         "relight+dn.stabilize=0",
-        "hybrid+dn.stabilize=0",
         "relight+lights=ref+dn.stabilize=0",
         "relight+cache=off+dn.stabilize=0",
         "relight+refl=0+dn.stabilize=0",
         "relight+emissive=0+dn.stabilize=0",
         "relight+plugin._lightRadius=0+dn.stabilize=0",
-        "relight+ls.historyLimit=4+dn.stabilize=0",
         "relight+cache.historyFrames=128+dn.stabilize=0",
         "relight+dn.alphaMin=0.03+dn.maxHistory=100+dn.stabilize=0",
         "relight+dn.stability=0+dn.stabilize=0",
-        "hybrid+lights=ref+dn.stabilize=0",
-        "hybrid+cache=off+dn.stabilize=0",
         "dn-lighting+relight+dn.stabilize=0",
         "pt-direct+relight",
         "pt-indirect+relight",
         "relight",
-        "hybrid",
-        "relight+dn.stabilizeAlphaMin=0.1",
-        "relight+ls.historyLimit=4"
+        "relight+dn.stabilizeAlphaMin=0.1"
       ]
     },
     {
@@ -105,8 +93,6 @@
         "relight",
         "relight+dn.stability=0+dn.stabilize=0",
         "relight+plugin._guardX=0.05+plugin._guardY=0.03",
-        "hybrid+dn.stabilize=0",
-        "hybrid",
         "dn-lighting+relight+dn.stabilize=0",
         "dn-lighting+relight",
         "dn-lighting+relight+dn.stability=0+dn.stabilize=0",

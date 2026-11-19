@@ -16,7 +16,7 @@ namespace UltraRT
     ///    only (the Light components are never touched, so the game's flicker, triggers and day/night keep working: the
     ///    entry scales whatever the light is this frame).
     ///  - Added lights (area lights on emissive surfaces, sky portals) go after the scene lights.
-    ///  - Applied in the relight look only (relight, pathtrace, or a forced relight); hybrid and pt-dn keep the game's
+    ///  - Applied in the relight look only (relight, pathtrace, or a forced relight); pt-dn keeps the game's
     ///    lights, whose image they composite against. -ultrart-nolightoverrides or the menu switch turn them off.
     /// </summary>
     public partial class Plugin
@@ -347,7 +347,7 @@ namespace UltraRT
             Logger.LogInfo($"Light editor {(on ? "on" : "off")}");
         }
 
-        private void ResetLightHistories() { _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset(); _radianceCache?.Reset(); }
+        private void ResetLightHistories() { _lightSampling?.Reset(); _denoiser?.Reset(); _radianceCache?.Reset(); }
 
         /// <summary>Editable lights: the active point/spot/directional lights (not the player's own or spawned effects) and the added lights.</summary>
         private List<(EditTarget t, float dist)> EditCandidates()

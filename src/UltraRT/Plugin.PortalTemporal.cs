@@ -69,9 +69,7 @@ namespace UltraRT
             // replayed path up to metres, the recording's exit being elsewhere) is camera motion, which the view matrix has.
             var nowToOld = travel.inverse;
             _denoiser?.RemapHistory(nowToOld);
-            _denoiserDirect?.RemapHistory(nowToOld);
             _reflFilter?.RemapHistory(nowToOld);
-            _lightSampling?.RemapHistory(nowToOld);
             _upsampler?.RemapHistory(nowToOld);
             _remodUpX?.RemapHistory(nowToOld);
             _remodUpD?.RemapHistory(nowToOld);

@@ -1,6 +1,0 @@
-{
-    "Name": "perf-8-3-route-hybrid",
-    "Scenarios": [
-        { "Name": "8-3 route hybrid", "Scene": "Level 8-3", "Path": { "Type": "recording", "File": "../recordings/8-3-b.json" }, "KillEnemies": true, "Modes": ["hybrid"] }
-    ]
-}

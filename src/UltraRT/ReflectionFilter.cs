@@ -34,15 +34,11 @@ namespace UltraRT
         /// reflection footprint covers <see cref="cacheFootprint"/> of a cache cell, else 1-sample direct + cached indirect.</summary>
         public int cacheShading = 1;
         public float cacheFootprint = 0.35f;
-        /// <summary>Hybrid: remove the game's own REFLECTION cubemap term where ours applies (-ultrart-refl-keepcube: off).</summary>
-        public bool replaceGameCube = true;
-        /// <summary>Hybrid cube removal: cap on the keep factor divided by what the game left of the lit colour.</summary>
-        public float maxCubeKeep = 4f;
 
         /// <summary>The shaders' _ReflParams: x enabled, y spec weight, z refl strength, w threshold.</summary>
         public Vector4 ShaderParams => new Vector4(enabled ? 1f : 0f, specWeight, reflStrength, threshold);
-        /// <summary>PathTrace's _ReflCache: x cache mode, y footprint threshold (cells), z replace the game cubemap.</summary>
-        public Vector4 CacheParams => new Vector4(Mathf.Clamp(cacheShading, 0, 2), Mathf.Max(0f, cacheFootprint), replaceGameCube ? 1f : 0f, 0f);
+        /// <summary>PathTrace's _ReflCache: x cache mode, y footprint threshold (cells).</summary>
+        public Vector4 CacheParams => new Vector4(Mathf.Clamp(cacheShading, 0, 2), Mathf.Max(0f, cacheFootprint), 0f, 0f);
     }
 
     public struct ReflectionInputs
@@ -89,9 +85,8 @@ namespace UltraRT
         /// <summary>The camera went through a portal: last frame's view of this frame's world (docs/portals.md, "Temporal").</summary>
         public void RemapHistory(Matrix4x4 nowToOld) { _prevViewProj = _prevViewProj * nowToOld; }
 
-        /// <param name="hybrid">Hybrid composite weights (dielectric specular is added on top of the game's colour).</param>
         /// <param name="debugView">0 none, 1 raw reflection, 2 filtered reflection, 3 specular contribution, 4 history length.</param>
-        public void Execute(CommandBuffer cmd, in ReflectionInputs inp, ReflectionSettings s, bool hybrid, int debugView)
+        public void Execute(CommandBuffer cmd, in ReflectionInputs inp, ReflectionSettings s, int debugView)
         {
             int w = inp.surface.width, h = inp.surface.height;
             var cs = _cs;
@@ -145,10 +140,8 @@ namespace UltraRT
             else _historyValid = false;
 
             cmd.SetComputeIntParam(cs, "_Enabled", s.enabled ? 1 : 0);
-            cmd.SetComputeIntParam(cs, "_Hybrid", hybrid ? 1 : 0);
             cmd.SetComputeIntParam(cs, "_DebugView", debugView);
             cmd.SetComputeVectorParam(cs, "_ReflParams", s.ShaderParams);
-            cmd.SetComputeFloatParam(cs, "_MaxCubeKeep", Mathf.Max(1f, s.maxCubeKeep));
             cmd.SetComputeTextureParam(cs, _kResolve, "_Surface", inp.surface);
             cmd.SetComputeTextureParam(cs, _kResolve, "_NormalDepth", inp.normalDepth);
             cmd.SetComputeTextureParam(cs, _kResolve, "_Reflection", inp.reflection);

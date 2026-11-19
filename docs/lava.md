@@ -30,7 +30,7 @@ No mask bit is free: 0x01 geometry, 0x02 sky walls, 0x04 fixtures, 0x08 emitters
 
 | Ray | Mask | Sees lava? |
 |---|---|---|
-| camera (PathTrace primary) | `ULTRART_MASK_SCENE` | replace modes: yes, at `cameraGlow` (0.8) x its emission. Hybrid: no, the any-hit shader calls `IgnoreHit()` (see below). Camera rays are recognised by `ULTRART_PAYLOAD_WANT_MOTION`, which only PathTrace's primary ray sets |
+| camera (PathTrace primary) | `ULTRART_MASK_SCENE` | yes, at `cameraGlow` (0.8) x its emission (until 2026-11-19 hybrid's camera rays passed through: the any-hit shader called `IgnoreHit()`, see below). Camera rays are recognised by `ULTRART_PAYLOAD_WANT_MOTION`, which only PathTrace's primary ray sets |
 | reflection (opaque surfaces, water/glass pass) | `ULTRART_MASK_SCENE` | yes: the lava's emission (texture x tint, scrolling) |
 | bounce, radiance cache | `ULTRART_MASK_SCENE` | yes, as a black surface: emission x `_EmissiveBounceWeight` = 0, because the lava is sampled directly |
 | shadow, volumetric shadow | 0x05 / 0x01 | no: the lava is the light source |
@@ -44,7 +44,7 @@ Lava submeshes are added without `ClosestHitOnly` so that the any-hit shader run
 The game draws its additive lava after our composite, so the final pixel is the game's lava plus whatever the composite put underneath. In the raster game that is the channel floor, dimly lit. Replacing the game's lava would mean suppressing its draw and reproducing its vertex waves, depth writes and fog, so the game's lava stays. What changes is the layer underneath, through the global `_UltraRTLavaCamera` (set every frame in `Plugin.Lava.cs`):
 
 - **Replace modes (relight, pt-dn, pt): camera rays stop at the lava.** The pixel under the game's lava is the RT lava's own emission x `cameraGlow` (0.8), not the floor. In the first version camera rays passed through. RT then lit the floor under the lava far brighter than the game does (0-5 lava pose, mean sRGB of a lava patch: game (251, 214, 0), relight (252, 246, 9)), and the additive lava on top washed out to flat yellow with its dark crust gone. Lava over its own glow reads as lava: (252, 225, 10) at the same spot, with the crust visible.
-- **Hybrid: camera rays pass through.** Hybrid keeps the game's own colour for the floor, and its lava already matched the raster game.
+- **Hybrid: camera rays passed through** (until the hybrid mode was removed on 2026-11-19). Hybrid kept the game's own colour for the floor, and its lava already matched the raster game.
 
 `-ultrart-lava-camera 0` makes camera rays pass through in every mode.
 

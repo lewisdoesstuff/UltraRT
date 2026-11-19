@@ -3,7 +3,7 @@
   "Scenarios": [
     { "Name": "1-1 start revolver", "Scene": "Level 1-1", "Weapon": 1,
       "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 8 },
-      "Modes": ["relight+plugin._vmEnabled=0", "relight", "relight+plugin._vmSkinnedMotion=0", "hybrid"] },
+      "Modes": ["relight+plugin._vmEnabled=0", "relight", "relight+plugin._vmSkinnedMotion=0"] },
     { "Name": "1-1 start gun shots", "Scene": "Level 1-1", "Weapon": 1,
       "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 8 },
       "GunBob": 1,

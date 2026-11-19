@@ -2,9 +2,8 @@
     "Name": "perf-8-3",
     "Scenarios": [
         { "Name": "8-3 route off", "Scene": "Level 8-3", "Path": { "Type": "recording", "File": "../recordings/8-3-b.json" }, "KillEnemies": true, "Modes": ["off"] },
-        { "Name": "8-3 route hybrid", "Scene": "Level 8-3", "Path": { "Type": "recording", "File": "../recordings/8-3-b.json" }, "KillEnemies": true, "Modes": ["hybrid"] },
         { "Name": "8-3 route relight", "Scene": "Level 8-3", "Path": { "Type": "recording", "File": "../recordings/8-3-b.json" }, "KillEnemies": true, "Modes": ["relight"] },
-        { "Name": "8-3 b", "Scene": "Level 8-3", "Path": { "Type": "static", "Approach": "../recordings/8-3-b.json", "Duration": 8 }, "Modes": ["off", "hybrid", "relight"] },
-        { "Name": "8-3 portals sweep", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "sweep", "Yaw": 631.03, "Pitch": -4.38, "Duration": 10, "YawSpeed": 90, "PitchAmplitude": 15, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2 }, "Modes": ["off", "hybrid", "relight"] }
+        { "Name": "8-3 b", "Scene": "Level 8-3", "Path": { "Type": "static", "Approach": "../recordings/8-3-b.json", "Duration": 8 }, "Modes": ["off", "relight"] },
+        { "Name": "8-3 portals sweep", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "sweep", "Yaw": 631.03, "Pitch": -4.38, "Duration": 10, "YawSpeed": 90, "PitchAmplitude": 15, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2 }, "Modes": ["off", "relight"] }
     ]
 }

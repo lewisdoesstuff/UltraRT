@@ -41,7 +41,7 @@ With the duplication, the settings registry and the owner-decision items: **abou
   |---|---|
   | ReSTIR experiment knobs (O1); denoiser presets `Static`, `Previous`, `Legacy` and the Ctrl+F3 cycle (O3; `Full` becomes the only preset, its individual fields stay as bench keys); the TAAU-off 2x2 composite, F2 and `-ultrart-notaau` (O4); `fx.flameDriven=0` (O5); the old-look and early-days flags (O6, O7, O9); `Plugin.MsaaProbe.cs` (O8); `Plugin.EnemySurvey.cs` if EnemyGlow does not read its output | `Reference` light sampling (ground truth for `-ultrart-accumulate`); RIS; the debug views; the documented diagnostics of section 8 |
 
-- **Hybrid mode: open.** What it alone keeps alive: ReSTIR as a sampler (`hybridMode` defaults to ReSTIR and its
+- **Hybrid mode: dropped, with ReSTIR** (decided later the same day; RIS and Reference stay). What it alone kept alive: ReSTIR as a sampler (`hybridMode` defaults to ReSTIR and its
   composite uses the reuse passes, `LightSampling.cs:27, 104, 119`), the second denoiser instance (`_denoiserDirect`,
   `Plugin.cs:841`), `UnpackHybrid.compute`, the `_gHybrid` G-buffer (allocated in every mode, `Plugin.cs:921`), the
   game-colour copy and ratio composite (`Plugin.cs:1548-1567`, `Composite.shader`), `PackHybridW` and `_Mode == 3`
@@ -51,6 +51,30 @@ With the duplication, the settings registry and the owner-decision items: **abou
   `LightSampling.cs` and 53 in `UltraRTLights.hlsl`. Estimated ~600-900 lines with the ReSTIR removal; needs one
   visual run of relight and pathtrace to confirm nothing shared changed. It does not affect non-NVIDIA users: relight
   and pathtrace already run with UltraRT's own denoiser.
+
+## Implementation status (2026-11-19, branch `t3/codebase-cleanup-audit`)
+
+- **PR 1 (dead code and one-line defects): done**, commit `8a3145e`, build-only check. Section 1 as listed, except:
+  **C3 kept** (`_readdDynamic` is used by the `chairs-diag` / `chairs-repeat` suites; the "used by no suite" below was
+  wrong) and **C9 kept** (`_cutoutFlip` and `_portalJumpDiag` are documented diagnostics, docs/path-tracing.md and
+  docs/portals.md). `UltraRT.Probe` is out of the build and deploy scripts, but the installed
+  `BepInEx\plugins\UltraRT\UltraRT.Probe.dll` is still in **both game installs** (main, Steam; alt,
+  `D:\UltraRT-Bench\ULTRAKILL`). Deleting it is left to the lead; nothing builds or deploys it any more.
+- **PR 2 (bench suites, docs): done**, commits `e8365a4` (102 unreferenced suites deleted, the five added on 11-19 kept)
+  and `70a5e1f` (dated docs to `docs/archive/`, handoff traps into bench/README.md, stale docs fixed).
+- **Hybrid mode and ReSTIR: removed**, a separate commit after PR 2. One denoiser instance; no `UnpackHybrid.compute`,
+  ratio composite, game-colour copy, reservoir buffers, `_Mode` 3, game-cube removal or per-feature hybrid weights.
+  `_HybridLight` is now `_LitWeight` (its lit weight in `w` is read by auto exposure and RR in every mode), so
+  PathTrace binds 7 UAVs. Fallbacks: `hybrid` as a view mode (config, `-ultrart-view`, bench) gives relight, and
+  `-ultrart-lights restir` / bench `lights=restir` give RIS, each with a warning; a config `LightSampler = ReSTIR` is
+  reset to the default. Bench suites lost their hybrid and ReSTIR-key modes (three hybrid-only suites deleted:
+  `perf-8-3-portals`, `perf-8-3-route-hybrid`, `portals-align`). Docs got dated removal notes; measured history
+  stays. Checked with an A/B on alt (relight / pathtrace / pathtrace with UltraRT's denoiser at 4 poses, before vs
+  after build) plus `poses-quick`; the numbers are in the commit message.
+- **Not started:** PR 3 (duplication), PR 4 (legacy options, including the MSAA probe O8), PR 5+.
+- **Follow-ups found on the way:** `_LitWeight` could shrink to one channel (only `w` is used now); the proxies still
+  get `_GameRefl` / `_CubeTex` for every REFLECTION material although only pattern cubes read them now;
+  `ViewmodelComposite`'s `_VMDirect` stays (the filter's luma moments use it).
 
 ## Proposed PRs
 

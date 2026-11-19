@@ -23,7 +23,6 @@
     "relight",
     "relight+plugin._rrEnabled=1",
     "relight+plugin._rrEnabled=1+lights=ris",
-    "relight+plugin._rrEnabled=1+ls.historyLimit=2",
     "relight+plugin._rrEnabled=1+lights=ref",
     "relight+plugin._rrEnabled=1+cache=off",
     "relight+plugin._rrEnabled=1+lights=ris+cache=off",
@@ -54,7 +53,6 @@
     "relight",
     "relight+plugin._rrEnabled=1",
     "relight+plugin._rrEnabled=1+lights=ris",
-    "relight+plugin._rrEnabled=1+ls.historyLimit=2",
     "relight+plugin._rrEnabled=1+lights=ref",
     "relight+plugin._rrEnabled=1+cache=off",
     "relight+plugin._rrEnabled=1+lights=ris+cache=off",
@@ -85,7 +83,6 @@
     "relight",
     "relight+plugin._rrEnabled=1",
     "relight+plugin._rrEnabled=1+lights=ris",
-    "relight+plugin._rrEnabled=1+ls.historyLimit=2",
     "relight+plugin._rrEnabled=1+lights=ref",
     "relight+plugin._rrEnabled=1+cache=off",
     "relight+plugin._rrEnabled=1+lights=ris+cache=off",
@@ -115,8 +112,7 @@
     "off",
     "relight+vol=0",
     "relight+plugin._rrEnabled=1+vol=0",
-    "relight+plugin._rrEnabled=1+lights=ris+vol=0",
-    "relight+plugin._rrEnabled=1+ls.historyLimit=2+vol=0"
+    "relight+plugin._rrEnabled=1+lights=ris+vol=0"
    ]
   }
  ]

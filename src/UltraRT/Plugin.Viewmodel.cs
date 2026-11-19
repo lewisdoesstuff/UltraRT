@@ -19,10 +19,10 @@ namespace UltraRT
     ///      the world RTAS, one bounce lit from the radiance cache, one reflection ray on glossy/metal parts.
     ///   3. ViewmodelFilter.compute: screen-space temporal accumulation (rigid motion of each renderer) and a-trous.
     ///   4. ViewmodelComposite.shader: replaces the game's viewmodel pixels where the depths match (relight / pt-dn: albedo
-    ///      x RT lighting, exposure and tone curve as the world; hybrid: the game's colour x RT shadow ratio + bounce).
+    ///      x RT lighting, exposure and tone curve as the world).
     /// Hooks in Plugin.cs: ParseViewmodelArgs (Awake), LoadViewmodelShaders (LoadShaders), ViewmodelPreRender
     /// (OnCameraPreRender, non-main cameras), ViewmodelTraced (end of Trace), ViewmodelReset (ResetScene), ViewmodelHotkeys.
-    ///   -ultrart-viewmodel on|off (config [Viewmodel] Enabled), -ultrart-vm-hybrid on|off, -ultrart-vm-debug N,
+    ///   -ultrart-viewmodel on|off (config [Viewmodel] Enabled), -ultrart-vm-debug N,
     ///   -ultrart-vm-samples N, -ultrart-vm-history N, -ultrart-vm-lightmask HEX
     /// Ctrl+F7 toggles in game.
     /// </summary>
@@ -30,7 +30,6 @@ namespace UltraRT
     {
         // Settings (Plugin fields, so bench variants can set them: plugin._vmEnabled=0, plugin._vmDebug=1, ...).
         private bool _vmEnabled = true;
-        private bool _vmHybrid = true;     // also in hybrid (shadow ratio + bounce on the game's own viewmodel colour)
         private int _vmDebug;              // composite debug view: 1 coverage, 2 lighting, 3 albedo, 4 reflection, 5 history
         private int _vmSamples = 1;        // direct light samples (shadow rays) per half-res pixel
         private float _vmMaxHistory = 32f, _vmMaxHistoryRefl = 12f, _vmClampK = 3f;
@@ -121,19 +120,17 @@ namespace UltraRT
             VmStampId = Shader.PropertyToID("_VMStamp"), VmPrevDeltaId = Shader.PropertyToID("_VMPrevDelta"),
             VmGB0Id = Shader.PropertyToID("_VMGB0"), VmGB1Id = Shader.PropertyToID("_VMGB1"), VmGB2Id = Shader.PropertyToID("_VMGB2"),
             VmGB3Id = Shader.PropertyToID("_VMGB3"),
-            VmLightId = Shader.PropertyToID("_VMLight"), VmDirectId = Shader.PropertyToID("_VMDirect"), VmReflId = Shader.PropertyToID("_VMRefl"),
+            VmLightId = Shader.PropertyToID("_VMLight"), VmReflId = Shader.PropertyToID("_VMRefl"),
             VmGeoId = Shader.PropertyToID("_VMGeo"), VmGameDepthId = Shader.PropertyToID("_VMGameDepth"),
-            VmMaterialsId = Shader.PropertyToID("_VMMaterials"), VmModeId = Shader.PropertyToID("_VMMode"), VmDebugId = Shader.PropertyToID("_VMDebug"),
+            VmMaterialsId = Shader.PropertyToID("_VMMaterials"), VmDebugId = Shader.PropertyToID("_VMDebug"),
             VmCamFwdId = Shader.PropertyToID("_VMCamFwd"), VmParamsId = Shader.PropertyToID("_VMParams"), VmRefl2Id = Shader.PropertyToID("_VMRefl2"),
             VmExposureId = Shader.PropertyToID("_UltraRTExposureGlobal");
 
         private void ParseViewmodelArgs()
         {
             _vmEnabled = Config.Bind("Viewmodel", "Enabled", true,
-                "Ray-traced lighting for the first-person arms and guns in relight, pt-dn and hybrid (docs/viewmodel.md). " +
+                "Ray-traced lighting for the first-person arms and guns in relight, pt-dn and pathtrace (docs/viewmodel.md). " +
                 "Overridden by -ultrart-viewmodel on|off; Ctrl+F7 toggles in game.").Value;
-            _vmHybrid = Config.Bind("Viewmodel", "Hybrid", true,
-                "Also apply RT shadows, bounce and reflections to the viewmodel in hybrid mode.").Value;
             var a = Environment.GetCommandLineArgs();
             for (int i = 0; i < a.Length; i++)
             {
@@ -142,7 +139,6 @@ namespace UltraRT
                 switch (a[i].ToLowerInvariant())
                 {
                     case "-ultrart-viewmodel": _vmEnabled = On(); break;
-                    case "-ultrart-vm-hybrid": _vmHybrid = On(); break;
                     case "-ultrart-vm-debug": int.TryParse(Next(), out _vmDebug); break;
                     case "-ultrart-vm-samples": int.TryParse(Next(), out _vmSamples); break;
                     case "-ultrart-vm-history": float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out _vmMaxHistory); break;
@@ -151,7 +147,7 @@ namespace UltraRT
                     case "-ultrart-vm-skinned": _vmSkinnedMotion = On(); break;
                 }
             }
-            Logger.LogInfo($"Viewmodel RT: {(_vmEnabled ? "on" : "off")} (hybrid {(_vmHybrid ? "on" : "off")})");
+            Logger.LogInfo($"Viewmodel RT: {(_vmEnabled ? "on" : "off")}");
         }
 
         private void LoadViewmodelShaders(AssetBundle bundle)
@@ -216,7 +212,7 @@ namespace UltraRT
 
         private bool ViewmodelWanted() =>
             _vmEnabled && _vmRt != null && _vmTraceFrame == Time.frameCount && _proxies?.Rtas != null && _radianceCache != null &&
-            (RelightLook(_vmTraceMode) || _vmTraceMode == "pt-dn" || (_vmTraceKind == Kind.Hybrid && _vmHybrid));
+            (RelightLook(_vmTraceMode) || _vmTraceMode == "pt-dn");
 
         /// <summary>Camera.onPreRender for every camera other than Main Camera: record the pass on the HUD camera.</summary>
         private void ViewmodelPreRender(Camera cam)
@@ -514,7 +510,6 @@ namespace UltraRT
                 Logger.LogInfo("Viewmodel draws: " + string.Join(", ", _vmDraws.Select(d => $"{d.r.name}[{d.sub}] '{d.src.name}'{(d.custom ? " custom colours" : "")} {_proxies?.ClassifyMaterial(d.src)}")));
             }
             if (_vmDraws.Count == 0) { _vmHistValid = false; return; }
-            bool hybrid = _vmTraceKind == Kind.Hybrid;
             EnsureViewmodelTargets(depth);
             UploadViewmodelMaterials();
             int w = depth.width, h = depth.height, hw = (w + 1) / 2, hh = (h + 1) / 2;
@@ -593,7 +588,6 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(rt, "_CamPos", _camera != null ? _camera.transform.position : hud.transform.position);
             cmd.SetRayTracingVectorParam(rt, "_VMRect", new Vector4(hx, hy, w, h));
             cmd.SetRayTracingFloatParam(rt, "_VMStamp", stamp);
-            cmd.SetRayTracingIntParam(rt, "_VMMode", hybrid ? 3 : 0);
             cmd.SetRayTracingIntParam(rt, "_VMLightMask", ViewmodelLightMask(hud));
             cmd.SetRayTracingIntParam(rt, "_VMDirectSamples", Mathf.Clamp(_vmSamples, 1, 4));
             cmd.SetRayTracingIntParam(rt, "_VMCheckerboard", _vmCheckerboard ? 1 : 0);
@@ -607,7 +601,7 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(rt, "_Relight", RelightParams);
             cmd.SetRayTracingFloatParam(rt, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
             _lightSampling.BindTables(cmd, rt);
-            // More RIS candidates than the world's 8: the viewmodel has no ReSTIR history to lean on, and candidates are
+            // More RIS candidates than the cache's 8: the viewmodel has no history to lean on, and candidates are
             // light evaluations only (no rays) over a few thousand half-res pixels.
             if (_vmCandidates > 0) cmd.SetRayTracingIntParam(rt, "_RisCandidates", Mathf.Clamp(_vmCandidates, 1, 64));
             _emissive.Bind(cmd, rt, _lightSamplingSettings.mode);
@@ -623,7 +617,6 @@ namespace UltraRT
             cmd.SetRayTracingFloatParam(rt, "_BounceAmbient", 1f);
             cmd.SetRayTracingFloatParam(rt, "_LightScale", 1f);
             cmd.SetRayTracingFloatParam(rt, "_EmissionScale", 1f);
-            cmd.SetRayTracingFloatParam(rt, "_GIStrength", _giStrength);
             cmd.SetRayTracingVectorParam(rt, "_ReflParams", _reflSettings.ShaderParams);
             cmd.SetRayTracingFloatParam(rt, "_ReflMaxRadiance", Mathf.Max(0.01f, _reflSettings.maxRadiance));
             cmd.SetRayTracingVectorParam(rt, "_ReflCache", _reflSettings.CacheParams);
@@ -722,7 +715,6 @@ namespace UltraRT
             cmd.SetGlobalTexture(VmGB2Id, _vmGB2);
             cmd.SetGlobalTexture(VmGB3Id, _vmGB3);
             cmd.SetGlobalTexture(VmLightId, fl);
-            cmd.SetGlobalTexture(VmDirectId, fd);
             cmd.SetGlobalTexture(VmReflId, fr);
             cmd.SetGlobalTexture(VmGeoId, _vmRawGeo);
             // The game's depth (its viewmodel drawn) is read directly: the composite binds only the colour target.
@@ -736,24 +728,23 @@ namespace UltraRT
                 exposure = _vmDummyExposure;
             }
             mat.SetBuffer(VmExposureId, exposure);
-            mat.SetInt(VmModeId, hybrid ? 3 : 0);
             mat.SetInt(VmDebugId, _vmDebug);
             mat.SetFloat(VmStampId, stamp);
             mat.SetVector(VmCamFwdId, fwd);
-            mat.SetVector(VmParamsId, new Vector4(_shadowBias, _giStrength, Mathf.Max(0.001f, _vmDepthTol), 1f));
+            mat.SetVector(VmParamsId, new Vector4(0f, 0f, Mathf.Max(0.001f, _vmDepthTol), 1f));
             mat.SetVector(VmRefl2Id, new Vector4(_reflSettings.specWeight, _reflSettings.reflStrength, _reflSettings.enabled ? 1f : 0f, 0f));
             _gpu?.Begin(cmd, SlotVmComposite);
             cmd.SetRenderTarget(color.colorBuffer);
             cmd.EnableScissorRect(rect);
-            var hdrLate = hybrid ? null : HdrLateForViewmodel(mat);
+            var hdrLate = HdrLateForViewmodel(mat);
             if (hdrLate != null)
             {
                 // The gun's glowing parts into the HDR late map the screen-effects pass wrote this frame (docs/hdr.md).
                 cmd.SetRandomWriteTarget(1, hdrLate);
-                cmd.DrawProcedural(Matrix4x4.identity, mat, 2, MeshTopology.Triangles, 3);
+                cmd.DrawProcedural(Matrix4x4.identity, mat, 1, MeshTopology.Triangles, 3); // pass 1: replace + HDR gain
                 cmd.ClearRandomWriteTargets();
             }
-            else cmd.DrawProcedural(Matrix4x4.identity, mat, hybrid ? 1 : 0, MeshTopology.Triangles, 3);
+            else cmd.DrawProcedural(Matrix4x4.identity, mat, 0, MeshTopology.Triangles, 3);
             cmd.DisableScissorRect();
             cmd.SetRenderTarget(color.colorBuffer, depth.depthBuffer); // the HUD camera's own targets, for its transparents
             _gpu?.End(cmd, SlotVmComposite);

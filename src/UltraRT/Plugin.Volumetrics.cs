@@ -12,7 +12,7 @@ namespace UltraRT
     /// TraceVolumetrics (Trace, right after the RT composite).
     ///   -ultrart-volumetrics on|off (config [Volumetrics] Enabled), -ultrart-vol-density F, -ultrart-vol-min-density F,
     ///   -ultrart-vol-strength F, -ultrart-vol-steps N, -ultrart-vol-block N, -ultrart-vol-g G, -ultrart-vol-lights F,
-    ///   -ultrart-vol-distance M, -ultrart-vol-nofog, -ultrart-vol-hybrid
+    ///   -ultrart-vol-distance M, -ultrart-vol-nofog
     /// Ctrl+F6 toggles in game.
     /// </summary>
     public partial class Plugin
@@ -111,8 +111,7 @@ namespace UltraRT
         {
             if (_volumetrics == null || !_volSettings.enabled) return false;
             if (RelightLook(name)) return true;
-            if (name == "pt-dn") return _volSettings.ptDn;
-            return kind == Kind.Hybrid && _volSettings.hybrid;
+            return name == "pt-dn" && _volSettings.ptDn;
         }
 
         /// <summary>After the RT composite (the camera target holds the RT image), before the pre-alpha copy and the game's
@@ -168,7 +167,7 @@ namespace UltraRT
                 sunColor = sunColor,
                 falloff = new Vector4(_relightActive ? _relightFalloff : 0f, lightExposure, 1f, 0f),
                 localLightCount = _lightCount,
-                applyGameFog = upsampled && kind != Kind.Hybrid,
+                applyGameFog = upsampled,
                 autoExposure = AutoExposureFor(name),
                 exposure = _autoExposure?.ExposureBuffer,
                 composite = _volCompositeMat,

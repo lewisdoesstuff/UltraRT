@@ -473,7 +473,6 @@ namespace UltraRT
         private void CineCut()
         {
             _denoiser?.Reset();
-            _denoiserDirect?.Reset();
             _reflFilter?.Reset();
             _lightSampling?.Reset();
             _rr?.Reset();

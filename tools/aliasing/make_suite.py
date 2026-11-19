@@ -6,8 +6,8 @@
 Per pose one cinematic scenario renders, with the world frozen (TimeScale 0), so every take shows the same instant:
   - a path: HOLD frames still at the pose, then SLOW frames of a slow pan (sub-pixel per frame), then FAST frames of a
     fast pan + strafe (about 10 px per frame at the screen centre);
-  - live takes (the mode as played: trace scale, denoiser / TAAU / DLSS RR and their histories) of off, relight, hybrid
-    and pathtrace over the whole path;
+  - live takes (the mode as played: trace scale, denoiser / TAAU / DLSS RR and their histories) of off, relight and
+    pathtrace over the whole path (hybrid until its removal on 2026-11-19);
   - references from the hold's last instant on: each mode accumulated at full resolution with AA x SAMPLES (Halton
     sub-pixel jitter, a box-filtered pixel), and the game's own image with AA x16;
   - un-jittered references (AA 1, the same sample count in one pixel centre) for the still frame only: the converged
@@ -81,14 +81,14 @@ def takes(quick, variants=False):
            for n, v in (("inst", "instance"), ("nrm", "normals"), ("depth", "depth"), ("spec", "spec-params"))]
     out.append({"Name": "off", "Mode": "off", "Aa": 1, "Start": 0, "Seconds": t0 + pan})
     out.append({"Name": "off-ref", "Mode": "off", "Aa": AA_OFF, "Start": t0, "Seconds": one if quick else pan})
-    for m in ("relight", "hybrid", "pathtrace"):
+    for m in ("relight", "pathtrace"):
         v0 = m + NOVOL
         out.append({"Name": m, "Mode": "live", "View": v0, "Start": 0, "Seconds": t0 + pan})
         out.append({"Name": m + "-ref", "Mode": "current", "View": v0, "Aa": AA_REF, "Samples": SAMPLES_REF, "Start": t0,
                     "Seconds": one if quick else pan})
         out.append({"Name": m + "-ref1", "Mode": "current", "View": v0, "Aa": 1, "Samples": AA_REF * SAMPLES_REF,
                     "Start": t0, "Seconds": one})
-        if variants and m != "hybrid":
+        if variants:
             for tag, v in VARIANTS:
                 out.append({"Name": f"{m}@{tag}", "Mode": "live", "View": f"{v0}+{v}", "Start": 0, "Seconds": t0 + pan})
     return out
@@ -124,8 +124,9 @@ def main():
         json.dump(suite, f, indent=1)
         f.write("\n")
     if a.msaa:
-        # The MSAA probe: the game's image (off) and hybrid with the game's targets at 4x MSAA, still frame only, plus
-        # frame times of off vs off at 4x in a plain static scenario (Modes alternate within one pass).
+        # The MSAA probe: the game's image (off) with the game's targets at 4x MSAA, still frame only, plus frame times
+        # of off vs off at 4x in a plain static scenario (Modes alternate within one pass). The hybrid take (RT on the
+        # game's MSAA colour) went with the hybrid mode on 2026-11-19.
         t0 = HOLD / FPS
         msaa = {"Name": "aliasing-msaa", "Note": "MSAA feasibility probe (docs/aliasing.md, 'MSAA on the game's raster'). "
                 "Written by tools/aliasing/make_suite.py --msaa.", "Scenarios": []}
@@ -134,13 +135,12 @@ def main():
             if load:
                 path["Load"] = load
             msaa["Scenarios"].append({
-                "Name": name + " msaa", "Scene": scene, "Path": path, "Modes": ["hybrid"], "Enemies": "blind",
+                "Name": name + " msaa", "Scene": scene, "Path": path, "Modes": ["off"], "Enemies": "blind",
                 "Cinematic": {"File": f"../cinematics/alias-{slug(name)}.json", "Fps": FPS, "TimeScale": 0, "Preroll": 90,
                               "OutputScale": 1, "Encode": False, "Render": False, "Takes": [
                                   {"Name": "off", "Mode": "off", "Aa": 1, "Start": t0, "Seconds": 0.001},
                                   {"Name": "off-msaa4", "Mode": "off", "View": "off+plugin._msaaProbe=4", "Aa": 1, "Start": t0, "Seconds": 0.001},
                                   {"Name": "off-ref", "Mode": "off", "Aa": AA_OFF, "Start": t0, "Seconds": 0.001},
-                                  {"Name": "hybrid-msaa4", "Mode": "live", "View": "hybrid+plugin._msaaProbe=4", "Start": t0, "Seconds": 0.001},
                               ]}})
             msaa["Scenarios"].append({
                 "Name": name + " msaa cost", "Scene": scene, "Path": {**path, "Duration": 12},

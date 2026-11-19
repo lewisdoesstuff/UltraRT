@@ -71,7 +71,7 @@ namespace UltraRT
 
         /// <summary>
         /// Before the main DispatchRays (PathTrace bind block): whether RayGen also traces water and glass into _Output
-        /// (hybrid / denoised modes only, and only while a transparent instance is active).
+        /// (denoised modes only, and only while a transparent instance is active).
         /// </summary>
         /// <summary>Bench plugin._transRect=0: the transparent ray at every pixel again (no screen rectangle).</summary>
         private bool _transRect = true;

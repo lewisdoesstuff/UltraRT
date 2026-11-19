@@ -30,7 +30,7 @@ See also: [relight.md](relight.md) ("HDR displays": why Unity itself can't do it
 | `HDRHighlights` | `-ultrart-hdr-highlights on\|off` | true | the gain map as a whole; off = the SDR image at paper white |
 | | `-ultrart-hdr-white X` | 0 | composite value (display gamma, 1 = SDR white) that reaches the peak; 0 = the tone curve's white point (3). Lower = harsher |
 | | `-ultrart-hdr-gamma srgb\|2.2` | 2.2 | how the SDR image is decoded |
-| | `-ultrart-hdr-boost X` | 0 | frames without a gain map (hybrid, off, menus): highlights above 0.7 scaled up to 1 + X |
+| | `-ultrart-hdr-boost X` | 0 | frames without a gain map (off, menus): highlights above 0.7 scaled up to 1 + X |
 | | `-ultrart-hdr-debug` | | tints the pixels that got gain magenta |
 | | `-ultrart-hdr-capture [raw]` | | bench: statistics of the HDR10 frame at every screenshot; `raw` also writes it |
 
@@ -84,7 +84,7 @@ writes `UltraRTHdrGain` (`UltraRTToneCurve.hlsl`) to a float texture:
   r - b).
 
 The plugin (`Plugin.Hdr.cs`) announces the map with a plugin event recorded right after the kernel, so the `Present`
-of that same frame uses it; a frame without the event (menus, hybrid, off, debug views) has none. The present pass
+of that same frame uses it; a frame without the event (menus, off, debug views) has none. The present pass
 multiplies the gain in, except where the finished frame is darker than the packed colour (by 0.06-0.25 in luma) or
 another hue (r - b off by 0.15-0.4): there something was drawn in front (HUD, the gun, smoke), and it stays SDR.
 
@@ -145,7 +145,6 @@ the world are covered.
 | Mode | HDR content |
 |---|---|
 | `pathtrace`, `relight`, `pt-dn` | gain map: ray-traced surfaces and glowing surfaces up to the peak; lava and sky with DLSS RR. Late map: effects, bloom, the gun's glowing parts |
-| `hybrid` | late map: effects and bloom (not the gun: hybrid's viewmodel pass blends) |
 | `off`, menus, debug views | the SDR image at paper white (`-ultrart-hdr-boost` expands its highlights) |
 
 ### Auto exposure
@@ -183,7 +182,7 @@ bright scene is darkened less, since its highlights have the display's headroom.
 
   | Pose | Mode | Max luminance | Above paper white | Within 10% of peak |
   |---|---|---|---|---|
-  | all | `off`, `hybrid` | 240 nits | 0% | 0% |
+  | all | `off`, `hybrid` (removed 2026-11-19) | 240 nits | 0% | 0% |
   | 0-1 metal | `relight` | 451 | 0.145% | 0.009% |
   | 0-1 metal | `pathtrace` (DLSS RR) | 354 | 0.040% | 0% |
   | 0-1 metal | `pathtrace`, UltraRT's denoiser | 346 | 0.039% | 0% |

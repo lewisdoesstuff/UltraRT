@@ -21,9 +21,7 @@
    "MotionModes": [
     "off",
     "relight+vol=0+preset=static",
-    "relight+vol=0",
-    "hybrid+vol=0+preset=static",
-    "hybrid+vol=0"
+    "relight+vol=0"
    ]
   },
   {
@@ -46,9 +44,7 @@
    "MotionModes": [
     "off",
     "relight+vol=0+preset=static",
-    "relight+vol=0",
-    "hybrid+vol=0+preset=static",
-    "hybrid+vol=0"
+    "relight+vol=0"
    ]
   },
   {
@@ -78,10 +74,7 @@
     "relight+vol=0+preset=static",
     "relight+vol=0",
     "relight+vol=0+dn.antilag=0",
-    "relight+vol=0+dn.antilagMinLength=0",
-    "relight+vol=0+ls.perPixelLightChange=0",
-    "hybrid+vol=0+preset=static",
-    "hybrid+vol=0"
+    "relight+vol=0+dn.antilagMinLength=0"
    ]
   },
   {
@@ -113,10 +106,7 @@
     "relight+vol=0+preset=static",
     "relight+vol=0",
     "relight+vol=0+dn.antilag=0",
-    "relight+vol=0+dn.antilagMinLength=0",
-    "relight+vol=0+ls.perPixelLightChange=0",
-    "hybrid+vol=0+preset=static",
-    "hybrid+vol=0"
+    "relight+vol=0+dn.antilagMinLength=0"
    ]
   },
   {
@@ -137,9 +127,7 @@
    "BurstModes": [
     "off",
     "relight+preset=static",
-    "relight",
-    "hybrid+preset=static",
-    "hybrid"
+    "relight"
    ]
   },
   {
@@ -161,9 +149,7 @@
    "BurstModes": [
     "off",
     "relight+preset=static",
-    "relight",
-    "hybrid+preset=static",
-    "hybrid"
+    "relight"
    ]
   },
   {
@@ -195,10 +181,7 @@
     "relight+vol=0+preset=static",
     "relight+vol=0",
     "relight+vol=0+dn.antilag=0",
-    "relight+vol=0+dn.antilagMinLength=0",
-    "relight+vol=0+ls.perPixelLightChange=0",
-    "hybrid+vol=0+preset=static",
-    "hybrid+vol=0"
+    "relight+vol=0+dn.antilagMinLength=0"
    ]
   },
   {
@@ -223,9 +206,7 @@
    "MotionModes": [
     "off",
     "relight+vol=0+preset=static",
-    "relight+vol=0",
-    "hybrid+vol=0+preset=static",
-    "hybrid+vol=0"
+    "relight+vol=0"
    ]
   },
   {
@@ -247,9 +228,7 @@
    "BurstModes": [
     "off",
     "relight+preset=static",
-    "relight",
-    "hybrid+preset=static",
-    "hybrid"
+    "relight"
    ]
   },
   {
@@ -283,10 +262,7 @@
     "relight+vol=0+preset=static",
     "relight+vol=0",
     "relight+vol=0+dn.antilag=0",
-    "relight+vol=0+dn.antilagMinLength=0",
-    "relight+vol=0+ls.perPixelLightChange=0",
-    "hybrid+vol=0+preset=static",
-    "hybrid+vol=0"
+    "relight+vol=0+dn.antilagMinLength=0"
    ]
   },
   {
@@ -308,9 +284,7 @@
    "Modes": [
     "off",
     "relight+preset=full",
-    "relight+preset=static",
-    "hybrid+preset=full",
-    "hybrid+preset=static"
+    "relight+preset=static"
    ],
    "Screenshots": [
     15,

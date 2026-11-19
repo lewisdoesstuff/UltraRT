@@ -6,8 +6,7 @@
 //             emission), a miss sees the sky: bounce light, sky light, lava glow.
 // Output: linear (in the mode's lighting space) lighting units, the same units as a surface's lighting (displayed =
 // albedo x lighting), unfiltered. ParticleLight.compute accumulates it over time.
-// A separate .raytrace (PathTrace is at Unity's 8-UAV limit). UAVs: _PLRaw (+ _ReservoirCur, declared by
-// UltraRTLights.hlsl and stripped as unused).
+// A separate .raytrace (PathTrace's UAVs are nearly all taken). UAVs: _PLRaw.
 #pragma max_recursion_depth 1
 
 #define ULTRART_LIGHT_ISOTROPIC

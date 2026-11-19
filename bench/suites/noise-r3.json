@@ -12,9 +12,7 @@
       "Modes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         1
@@ -23,12 +21,6 @@
       "BurstModes": [
         "off",
         "relight",
-        "relight+ls.spatialSamples=1",
-        "relight+ls.spatialSamples=2+ls.spatialRadius=6",
-        "relight+ls.spatialSamples=4+ls.spatialRadius=6",
-        "hybrid",
-        "hybrid+ls.spatialSamples=2",
-        "hybrid+ls.spatialSamples=2+ls.spatialRadius=6",
         "dn-history+relight",
         "motion+relight"
       ]
@@ -44,9 +36,7 @@
       "Modes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         1
@@ -55,12 +45,6 @@
       "BurstModes": [
         "off",
         "relight",
-        "relight+ls.spatialSamples=1",
-        "relight+ls.spatialSamples=2+ls.spatialRadius=6",
-        "relight+ls.spatialSamples=4+ls.spatialRadius=6",
-        "hybrid",
-        "hybrid+ls.spatialSamples=2",
-        "hybrid+ls.spatialSamples=2+ls.spatialRadius=6",
         "dn-history+relight",
         "motion+relight"
       ]
@@ -77,9 +61,7 @@
       "Modes": [
         "off",
         "relight+preset=previous",
-        "relight",
-        "hybrid+preset=previous",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         20,

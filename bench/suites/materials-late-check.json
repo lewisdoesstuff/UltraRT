@@ -46,7 +46,6 @@
       },
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [
@@ -64,7 +63,6 @@
       },
       "Modes": [
         "off",
-        "hybrid",
         "relight",
         "relight+trans.frosted=0"
       ],
@@ -83,7 +81,6 @@
       },
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [
@@ -108,7 +105,6 @@
       "Enemies": "blind",
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [
@@ -133,7 +129,6 @@
       "Enemies": "blind",
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [
@@ -158,7 +153,6 @@
       "Enemies": "blind",
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [
@@ -183,7 +177,6 @@
       "Enemies": "blind",
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [
@@ -208,7 +201,6 @@
       "Enemies": "blind",
       "Modes": [
         "off",
-        "hybrid",
         "relight"
       ],
       "Screenshots": [
@@ -232,8 +224,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         2
@@ -249,8 +240,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         2
@@ -266,8 +256,7 @@
       },
       "Modes": [
         "off",
-        "relight",
-        "hybrid"
+        "relight"
       ],
       "Screenshots": [
         4

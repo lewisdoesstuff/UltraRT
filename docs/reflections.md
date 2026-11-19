@@ -1,6 +1,6 @@
 # Materials and ray-traced reflections
 
-Glossy, metal and ULTRAKILL `REFLECTION` surfaces trace one reflection ray per pixel. The result is filtered and then composited in all three paths (`pt`, `pt-dn`, `hybrid`). Rough surfaces trace nothing, so the cost follows how much of the screen is glossy, and specular weights stay low so the flat PSX look survives.
+Glossy, metal and ULTRAKILL `REFLECTION` surfaces trace one reflection ray per pixel. The result is filtered and then composited in every lit path (`pt`, `pt-dn`, `relight`, `pathtrace`; also `hybrid` until its removal on 2026-11-19). Rough surfaces trace nothing, so the cost follows how much of the screen is glossy, and specular weights stay low so the flat PSX look survives.
 
 Real mirrors (layer-8 `Portal` objects with `mirror == true`) are portals ([portals.md](portals.md)). Transparent water and glass have their own pass (section 12). V1's third-person model shows in reflections, mirrors and shadows, never in the first-person view (section 13).
 
@@ -125,6 +125,8 @@ Unity ray tracing shaders allow at most 8 UAVs. A 9th makes `DispatchRays` fail 
 | 7 | `_Reflection` | ARGBHalf | **new**: rgb reflected radiance, a = hit distance (sky 1000, −1 = not traced) |
 | 8 | `_ReservoirCur` | RWStructuredBuffer<uint4> | ReSTIR |
 
+Since 2026-11-19 (hybrid and ReSTIR removed) the list is 7: `_HybridLight` is `_LitWeight` (w: the lit weight only) and `_ReservoirCur` is gone, so one UAV slot is free. The game-cube bits of `_Surface` below (x bit 31, z bits 24-31) are unused since then.
+
 `_Surface` packing (`PackSurface` in `UltraRTMaterial.hlsl`):
 - x: albedo RGB unorm8 \| class << 24 \| mode << 29 \| game cube removed << 31
 - y: half emission r \| g << 16
@@ -135,10 +137,10 @@ The precision is the same as before: albedo was ARGB32 and emission ARGBHalf.
 
 All consumers now read the unpacked textures produced by the **resolve** pass (`Reflections.compute`, kernel `Resolve`), which writes `_gAlbedo` (ARGB32) and `_gEmission` (ARGBHalf):
 - the denoiser's `albedo` and `emission` inputs
-- the hybrid composite's `_UltraRTAlbedo`
+- the hybrid composite's `_UltraRTAlbedo` (until 2026-11-19)
 - the debug `SaveOutput` of denoised modes
 
-The resolve runs in every denoised mode, even with reflections off. The non-denoised `pt*` modes don't need it, because the ray generation shader composites `_Output` itself. `UnpackHybrid.compute` is unchanged.
+The resolve runs in every denoised mode, even with reflections off. The non-denoised `pt*` modes don't need it, because the ray generation shader composites `_Output` itself. `UnpackHybrid.compute` was unchanged (it went with the hybrid mode on 2026-11-19).
 
 ## 5. The reflection ray (PathTrace RayGen)
 
@@ -157,7 +159,7 @@ How the ray is traced:
   - **Footprint ≥ 0.35 cell** (`-ultrart-refl-cache auto`, default): the cell's total lighting. No shadow ray, no light-selection speckle, multi-bounce light. Footprint = `hitDist·2·roughness² + (t + hitDist)·pixelAngle`, so rough metals and distant hits use the cache.
   - **Smaller footprint** (mirrors, sharp gloss, near hits): `DirectOne` (one shadow ray, sharp shadows in the reflection) plus the cell's indirect light.
   - **Cell missing or below `minSamples`**: `DirectOne` only, as before.
-  - Hybrid scales the cached indirect part by `_GIStrength`, the same weight the bounce gets on the game's colour, so reflected surfaces match the directly seen ones.
+  - (Hybrid scaled the cached indirect part by `_GIStrength`, the weight of its bounce on the game's colour, until the mode was removed on 2026-11-19.)
   - `always` uses the cell whenever it is valid; `off` restores v1 (`DirectOne` + ambient).
 - **Miss**: `SkyRadiance(dir)`.
 - **Firefly clamp**: glossy samples are clamped to luminance `maxRadiance` (8). Mirrors are not clamped.
@@ -194,7 +196,7 @@ The shared form is `final = base·keep + specW·Lrefl` (`SpecularTerms` in `Ultr
 | Path | base | keep |
 |---|---|---|
 | `pt`, `pt-dn` (full RT) | albedo · lighting (diffuse only; emission stays additive) | `1 − w·lerp(luma(F), 1, metalness)` |
-| `hybrid` | game colour × RT shadow ratio + bounce (Composite.shader) | dielectrics `1` (pure add), metals `1 − w·metalness` |
+| `hybrid` (removed 2026-11-19) | game colour × RT shadow ratio + bounce (Composite.shader) | dielectrics `1` (pure add), metals `1 − w·metalness` |
 
 - **Full RT**: the keep term is energy-conserving, a lerp between the PSX diffuse and a physically-based metal.
 - **Hybrid**: a deliberate deviation from "always add" for metals. Adding albedo-tinted reflections on top of the game's already-lit metal brightens it noticeably, so metals partly replace the game colour instead.
@@ -203,7 +205,11 @@ The shared form is `final = base·keep + specW·Lrefl` (`SpecularTerms` in `Ultr
 
 **`additive`** (`_CubeMode` ≠ 0): `specW = RS² × reflStrength`, `keep = 1`. The result is `base + RS²·Lrefl` (the game scales its cube sample by RS twice, see below).
 
-### Replacing the game's cubemap (hybrid)
+### Replacing the game's cubemap (hybrid, removed 2026-11-19)
+
+This subsection is history except for the game's formula and **Pattern cubes**, which still apply: the removal below
+went with the hybrid mode on 2026-11-19 (`ULTRART_FLAG_GAMECUBE`, the `_Surface` keep bits, `maxCubeKeep`,
+`-ultrart-refl-keepcube`). Every mode that remains replaces the game's image, so there is no game cube to remove.
 
 The hybrid game colour already contains ULTRAKILL's cubemap reflection. It is now **reconstructed and removed** wherever we apply a reflection of our own, so e.g. the shop terminal at a glancing angle shows the RT reflection instead of the stock cube.
 
@@ -226,10 +232,9 @@ The hybrid game colour already contains ULTRAKILL's cubemap reflection. It is no
 **Pattern cubes** (2026-11-14): `DiamondCubemap` (3-2's big eye `M_BigEye*`, `Eye`, `DiamondRed`, `Water 6 Reflection`)
 and `SwordCubemap` (Gabriel's swords) are stylised patterns, not environment captures (`GameReflection.IsPatternCube`).
 An RT reflection in their place lost the pattern: the eye (additive, RS 0.5, `_LightingContribution` 1) became a flat
-pink blob. Their materials now classify as `none` ("pattern cube") and the proxy gets `_GameCubeLit` 1: every ray except
-hybrid primaries (whose game colour already holds the cube) adds the game's own term in the hit shader, as
-`albedo·k + C·lc` (lit by RT lighting) plus `C·(1 − lc)` as emission, `lc` = `_LightingContribution`. In hybrid the
-game's cube simply stays (mode `none`). Remaining difference on the eye in relight: its underside, lit from below by the
+pink blob. Their materials now classify as `none` ("pattern cube") and the proxy gets `_GameCubeLit` 1: every ray adds
+the game's own term in the hit shader, as `albedo·k + C·lc` (lit by RT lighting) plus `C·(1 − lc)` as emission, `lc` =
+`_LightingContribution` (until 2026-11-19 hybrid primaries were the exception: their game colour already held the cube). Remaining difference on the eye in relight: its underside, lit from below by the
 mouth lights, clips to a flat bright pink where the game's per-vertex lighting stays dimmer and shows the pattern; that
 is light intensity / exposure, not the material.
 
@@ -237,7 +242,7 @@ is light intensity / exposure, not the material.
 
 Where each path applies it:
 - **pt-dn**: the denoiser's composite kernel computes `albedo·lighting·spec.a + emission + spec.rgb` (`DenoiserInputs.specular`, optional).
-- **hybrid**: `Composite.shader` computes `result = result·spec.a + spec.rgb` after the shadow and bounce terms. `_gSpecular` is at trace resolution, so reflections are as blocky as the bounce.
+- **hybrid** (until 2026-11-19): `Composite.shader` computed `result = result·spec.a + spec.rgb` after the shadow and bounce terms. `_gSpecular` is at trace resolution, so reflections were as blocky as the bounce.
 
 ## 8. Settings, flags and keys
 
@@ -250,7 +255,6 @@ Where each path applies it:
 | `-ultrart-refl-strength X` | `reflStrength` (scales REFLECTION materials' RS) | 1.0 |
 | `-ultrart-matdump` | `SceneProxies.DumpMaterialClasses` | off |
 | `-ultrart-refl-cache off\|auto\|always` | `cacheShading` (radiance cache at reflection hits), `cacheFootprint` (0.35 cell) | auto |
-| `-ultrart-refl-keepcube` | `replaceGameCube` = false (hybrid keeps the game's cubemap) | replace |
 | — | `threshold` (minimum luma(specW) for a ray), `maxRadiance` (8) | 0.015 |
 | — | `temporal`, `spatial`, `alphaMirror`/`alphaRough` (0.3/0.08), `clampMirror`/`clampRough` (1.25/2.5), `maxHistory` (32), `spatialMinRoughness` (0.08) | |
 
@@ -318,8 +322,7 @@ Together about 0.05–0.15 ms. The resolve runs even with reflections off (about
 - **Sharp glossy reflections remain somewhat noisy** at 1 spp where the footprint is below the cache threshold (near hits, roughness below about 0.25): those keep the 1-sample direct light. Rough and distant hits read the cache and are smooth. The spatial pass is display-only and small. If it is too noisy: lower `alphaRough` (longer history), lower `-ultrart-spec-weight`, or classify more metals as rough via overrides.
 - **SurfaceType is noisy.** Expect odd glossy objects until the override list grows (`-ultrart-matdump`, `materials` view).
 - **Atlas slots take one dominant class per source renderer.** A secondary type on baked geometry relies on the unverified `|normal.w| − 1` blend weight.
-- **Hybrid cube removal** is approximate at saturated pixels and at trace resolution (section 7).
-- **`_ColorContribution` / `_LightingContribution` tint only the removed game term**, not our RT reflection (the RT radiance is real light).
+- **`_ColorContribution` / `_LightingContribution` tint only the game's term** (pattern cubes), not our RT reflection (the RT radiance is real light).
 - **Unlit Master materials get no specular**, by design. Override them to opt in.
 - **Footstep-clone fallback**: `PhysicsSceneStateEnforcer.matchingObject` is read by reflection (private field). If the game renames it, only the fallback is lost.
 
@@ -327,7 +330,7 @@ Together about 0.05–0.15 ms. The resolve runs even with reflections off (about
 
 - **1-1** marble floors: `FloorPanelSmall*` (REFLECTION blend, RS 0.025–0.05, roughness 0.15), `FloorPanelBig` (additive 0.1) and Marble-class `Floor`. Check:
   - `refl` and `refl-raw` look right;
-  - `hybrid` shows subtle floor reflections of the room;
+  - `relight` shows subtle floor reflections of the room;
   - `materials` shows the striped panels;
   - reflections stay put while strafing (virtual reprojection).
 - **Water in early levels** (`Water 1C`, `Water 10A–D`, `Limbo Water*`): roughness-0 mirror reflections of the sky and geometry; sky walls should reflect as sky.
@@ -336,7 +339,7 @@ Together about 0.05–0.15 ms. The resolve runs even with reflections off (about
 - **Metal in 0-2 / 1-x** (`DPC*`/`DPM*`/`DPS*` MetalHigh, `Metal Decoration *`, doors and grates as MetalGrill). Check:
   - noise and ghosting in `refl` while moving;
   - cost with the GPU timer: `-ultrart-gputimer`, comparing dispatch time against F4 off;
-  - whether metals look too dark or too bright in `hybrid` (tune `-ultrart-spec-weight`).
+  - whether metals look too dark or too bright in `relight` (tune `-ultrart-spec-weight`).
 - **Logs**:
   - `Material classes`;
   - `Baked (atlas) slots` (expect hook ≫ unknown);

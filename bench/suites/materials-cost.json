@@ -15,9 +15,7 @@
     "relight+mat.roughness=0",
     "relight+mat.normalStrength=0",
     "relight+refl.enabled=0+mat.enabled=0",
-    "relight+refl.enabled=0",
-    "hybrid+mat.enabled=0",
-    "hybrid"
+    "relight+refl.enabled=0"
    ],
    "Segment": 1.0,
    "Screenshots": [
@@ -38,9 +36,7 @@
     "relight+mat.roughness=0",
     "relight+mat.normalStrength=0",
     "relight+refl.enabled=0+mat.enabled=0",
-    "relight+refl.enabled=0",
-    "hybrid+mat.enabled=0",
-    "hybrid"
+    "relight+refl.enabled=0"
    ],
    "Segment": 1.0,
    "Screenshots": [
@@ -61,9 +57,7 @@
     "relight+mat.roughness=0",
     "relight+mat.normalStrength=0",
     "relight+refl.enabled=0+mat.enabled=0",
-    "relight+refl.enabled=0",
-    "hybrid+mat.enabled=0",
-    "hybrid"
+    "relight+refl.enabled=0"
    ],
    "Segment": 1.0,
    "Screenshots": [
@@ -84,9 +78,7 @@
     "relight+mat.roughness=0",
     "relight+mat.normalStrength=0",
     "relight+refl.enabled=0+mat.enabled=0",
-    "relight+refl.enabled=0",
-    "hybrid+mat.enabled=0",
-    "hybrid"
+    "relight+refl.enabled=0"
    ],
    "Segment": 1.0,
    "Screenshots": [

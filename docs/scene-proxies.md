@@ -522,7 +522,7 @@ traced image replaces the game's portal view, so there the veil was missing. Now
   one more DispatchRays on the render thread). The pass now needs a portal side in the RTAS. Measured after the fix
   (`bench/suites/veil-gate-perf.json`, `-Perf`, everything of the branch off against on, one launch): 6-2 start
   pathtrace 5.82 / 5.83 ms, relight 6.16 / 6.15; 0-3 ghosts pathtrace 6.11 / 6.13, relight 6.41 / 6.39.
-- **When it runs**: relight, pt-dn, pathtrace (not hybrid, not the debug views), and only with a veil proxy in the RTAS,
+- **When it runs**: relight, pt-dn, pathtrace (not the debug views), and only with a veil proxy in the RTAS,
   or with a portal side in the RTAS and fog that can matter: a portal with its own fog, exponential fog, or linear fog
   ending within `veil.fogOnlyWithin` (20 km). No portal and no veil: no dispatch.
 - **Settings** (bench prefix `veil`): `enabled` (`-ultrart-noveils`), `gain` 1 (colour), `cover` 0.6, `fog` 1, `scale`

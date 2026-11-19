@@ -40,8 +40,6 @@ namespace UltraRT
             foreach (var kv in VariantTargets())
                 if (s.TryGetValue(kv.Key, out var fields))
                     foreach (var f in fields) f.Key.SetValue(kv.Value, f.Value);
-            if (_denoiserDirect != null && s.TryGetValue("dn", out var dn))
-                foreach (var f in dn) f.Key.SetValue(_denoiserDirect.Settings, f.Value);
             _relightForce = (bool)s["relight"].Values.First();
             foreach (var kv in _variantPluginRestore) kv.Key.SetValue(this, kv.Value);
             _variantPluginRestore.Clear();
@@ -81,14 +79,13 @@ namespace UltraRT
         private void ResetHistories()
         {
             _denoiser?.Reset();
-            _denoiserDirect?.Reset();
             _lightSampling?.Reset();
             _reflFilter?.Reset();
             _volumetrics?.Reset();
             _autoExposure?.Reset(); // snap to the variant's exposure (same base mode: no automatic snap)
         }
 
-        /// <summary>"mode+key=value+..." -> applies the variants, returns the view mode. Keys: lights=ref|ris|restir,
+        /// <summary>"mode+key=value+..." -> applies the variants, returns the view mode. Keys: lights=ref|ris (restir: ris, with a warning),
         /// cache=off|bounce|primary, refl=0|1, emissive=0|1, relight=0|1 (force the relight model), and
         /// &lt;object&gt;.&lt;field&gt;=value for any public field of ls (LightSamplingSettings), cache (RadianceCacheSettings),
         /// refl (ReflectionSettings), em (EmissiveLightSettings), dn (DenoiserSettings, both instances) or up (UpsamplerSettings;
@@ -105,7 +102,8 @@ namespace UltraRT
                 switch (k.ToLowerInvariant())
                 {
                     case "lights":
-                        _lightSamplingSettings.mode = v == "ref" ? LightSamplingMode.Reference : v == "ris" ? LightSamplingMode.Ris : LightSamplingMode.ReSTIR;
+                        if (v == "restir") Logger.LogWarning("Burst: lights=restir: ReSTIR was removed on 2026-11-19; using ris");
+                        _lightSamplingSettings.mode = v == "ref" ? LightSamplingMode.Reference : LightSamplingMode.Ris;
                         break;
                     case "cache":
                         if (v == "off") _cacheSettings.mode = RadianceCacheMode.Off;
@@ -141,7 +139,6 @@ namespace UltraRT
                         var target = dot > 0 ? VariantTargets().FirstOrDefault(t => t.Key == k.Substring(0, dot)).Value : null;
                         if (target == null) { Logger.LogWarning($"Burst: unknown variant '{p}'"); break; }
                         SetField(target, k.Substring(dot + 1), v);
-                        if (target == _denoiser?.Settings && _denoiserDirect != null) SetField(_denoiserDirect.Settings, k.Substring(dot + 1), v);
                         break;
                     }
                 }

@@ -1,6 +1,6 @@
 # Lit particles
 
-In relight (and pt-dn and hybrid) the opaque world is ray traced and relit, but the game draws its effects afterwards
+In relight (and pt-dn) the opaque world is ray traced and relit, but the game draws its effects afterwards
 with its own lighting, or none: blood spray, dust, debris trails, splashes, smoke. Most of that art is unlit, so in a
 dark relit room it stayed as bright as in daylight, and torch light, sunlight and shadow never touched it. Lit particles
 light those effects from the ray-traced solution, the way Quake II RTX lights its sprites with its own lighting.
@@ -60,8 +60,8 @@ A camera-aligned froxel grid, 64 x 36 x 32 by default (about 40 px tiles at 1440
 - **Indirect**: one ray in a uniform direction. A hit is shaded from the radiance cache (`albedo x cached lighting +
   emission`, what a bounce ray sees); a miss sees the sky. This is the average radiance around the point: bounce light,
   sky light, lava and screen glow. A cache cell that doesn't exist yet counts as unlit.
-- In hybrid the light model is the game's (as hybrid's own trace), the indirect part is scaled by the GI strength, and the
-  game's flat ambient (2 x ambient) is added. In relight the ambient is cut, as for the surfaces.
+- In relight the game's flat ambient is cut, as for the surfaces. (The hybrid mode, removed on 2026-11-19, used the game's
+  light model, the GI strength on the indirect part and the game's flat ambient.)
 
 `ParticleLight.compute` filters it: a 3x3x3 Gaussian of this frame's samples, blended with the previous volume reprojected
 through the previous frame's grid (alpha 0.12, 0.5 for 3 frames after a light-set change: muzzle flashes and explosions
@@ -131,10 +131,9 @@ Seen so far: 3-2 `HeatWaves (2)` and a 44 m cone of dust `Dot`s, 0-5 `Lava Found
 
 | Flag | Field | Default | |
 |---|---|---|---|
-| `-ultrart-particles on\|off`, config `[Particles] Lit`, **Shift+F7** | `enabled` | on | relight, pt-dn and hybrid |
+| `-ultrart-particles on\|off`, config `[Particles] Lit`, **Shift+F7** | `enabled` | on | relight and pt-dn |
 | `-ultrart-particles-soft on\|off`, `-ultrart-particles-soft-distance M` | `soft`, `softDistance` (`pl.soft`, `pl.softDistance`; `softKinds`) | on, 0.6 m | the soft fade ([vfx.md](vfx.md), "Soft particles"; menu "Soft particles") |
 | `-ultrart-particles-strength F` | `strength` | 1 | relight and pt-dn: 0 = the game's look |
-| `-ultrart-particles-hybrid F` | `hybridStrength` | 1 | 0 turns hybrid off |
 | `-ultrart-particles-additive on\|off` | `additiveSmoke` | on | additive smoke, dust and mist |
 | `-ultrart-particles-additive-scale F` / `-ultrart-particles-additive-max F` | `additiveScale` / `additiveMax` | 0.5 / 0.6 | Master additive smoke: lighting multiplier `s m / (1 + s m / max)` (see "Additive smoke brightness") |
 | `-ultrart-particles-atmosphere M` | `atmosphereSize` | 30 m | emitters (and their particles) this large keep the game's look (see "Atmosphere"); 0 = off |

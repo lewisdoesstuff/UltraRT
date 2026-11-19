@@ -92,7 +92,7 @@ the camera starts: 1.4 m up). `bench/cinematics/*.json` are written that way fro
 P plays the path in the current view mode at real time: what you see is what the player would see if the camera moved
 like that (RR, the denoiser and the upsampler behave as in play). The camera is posed in `Application.onBeforeRender`,
 after every LateUpdate, so nothing in the game moves it later in the frame, and every temporal pass (denoiser,
-upsampler, RR, reflections, ReSTIR) reprojects with that frame's camera matrix as usual. Object motion vectors are
+upsampler, RR, reflections) reprojects with that frame's camera matrix as usual. Object motion vectors are
 world space and don't depend on the camera. A jump (cut segment, a key selected, more than 3 m or 25 degrees in a frame)
 resets the temporal histories instead of smearing.
 

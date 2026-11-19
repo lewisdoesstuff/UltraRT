@@ -3,8 +3,8 @@
 // renderer a proxy with this material under EmitterMask (0x08): shadow rays (0x05) pass through it, while bounce,
 // reflection and cache rays (ULTRART_MASK_SCENE) see a black, fullbright surface whose emission is the lava texture.
 // Camera rays (PathTrace's primary ray, flagged ULTRART_PAYLOAD_WANT_MOTION) are steered by the global
-// _UltraRTLavaCamera (Plugin.Lava.cs): 0 (hybrid) = they pass through in the any-hit shader, so the game's own additive
-// lava is drawn over the RT floor as in the raster game; > 0 (replace modes) = they stop at the lava, which shows that
+// _UltraRTLavaCamera (Plugin.Lava.cs, LavaCfg.cameraGlow): 0 = they pass through in the any-hit shader, so the game's own additive
+// lava is drawn over the RT floor as in the raster game; > 0 (the default) = they stop at the lava, which shows that
 // fraction of its emission instead of the floor below it, and the game's additive lava is drawn on top.
 Shader "UltraRT/LavaProxy"
 {

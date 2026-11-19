@@ -11,7 +11,6 @@
                                    },
                           "Modes":  [
                                         "off",
-                                        "hybrid",
                                         "relight",
                                         "pt-dn"
                                     ]
@@ -54,8 +53,7 @@
                                    },
                           "Modes":  [
                                         "off",
-                                        "relight",
-                                        "hybrid"
+                                        "relight"
                                     ]
                       },
                       {
@@ -68,8 +66,7 @@
                                    },
                           "Modes":  [
                                         "off",
-                                        "relight",
-                                        "hybrid"
+                                        "relight"
                                     ]
                       }
                   ]

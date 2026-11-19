@@ -492,14 +492,14 @@ namespace UltraRT
         /// Packs an area light into _Lights[i*4+2] and [i*4+3] (UltraRTLights.hlsl). halfX / halfY are half sizes (sphere and
         /// disc: the radius in halfX).
         /// </summary>
-        public static void PackArea(int shape, Vector3 normal, Vector3 tangent, float halfX, float halfY, float unshadowed, float hybridWeight, out Vector4 l2, out Vector4 l3)
+        public static void PackArea(int shape, Vector3 normal, Vector3 tangent, float halfX, float halfY, float unshadowed, float w3, out Vector4 l2, out Vector4 l3)
         {
             normal = normal.sqrMagnitude > 1e-8f ? normal.normalized : Vector3.down;
             tangent = tangent - normal * Vector3.Dot(tangent, normal);
             tangent = tangent.sqrMagnitude > 1e-8f ? tangent.normalized : DefaultTangent(normal);
             uint code = (uint)shape | (OctEncode10(tangent) << 2);
             l2 = new Vector4(normal.x, normal.y, normal.z, Mathf.Max(halfX, 0.005f));
-            l3 = new Vector4(-2f - Mathf.Max(halfY, 0f), code, unshadowed, hybridWeight);
+            l3 = new Vector4(-2f - Mathf.Max(halfY, 0f), code, unshadowed, w3); // w3: unused slot, kept as passed
         }
 
         private static uint OctEncode10(Vector3 v)

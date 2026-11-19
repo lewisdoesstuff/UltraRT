@@ -31,7 +31,7 @@ namespace UltraRT
         // Mirrors Plugin.Modes by name (PascalCase of the mode name: "pt-dn" -> PtDn). A mode without a member is left out of the menu.
         internal enum ViewModeChoice
         {
-            Hybrid, PtDn, Relight, Pathtrace, DnLighting, DnVariance, DnHistory, Pt, PtDirect, PtIndirect, Lit, Albedo, Normals, Depth, Instance, Uv,
+            PtDn, Relight, Pathtrace, DnLighting, DnVariance, DnHistory, Pt, PtDirect, PtIndirect, Lit, Albedo, Normals, Depth, Instance, Uv,
             Emission, Primitive, Refl, ReflRaw, ReflSpec, ReflHistory, Materials, SpecParams, Cache, CacheCells, DnBoost, Motion,
         }
 
@@ -58,15 +58,14 @@ namespace UltraRT
             m.Bool("View", "Enabled", "Ray tracing  [F7]", () => _viewEnabled, v =>
             {
                 _viewEnabled = v;
-                _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset();
+                _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset();
             }, "-ultrart-off").SessionOnly();
             m.Choice("View", "DefaultMode", "View mode  [PgUp/PgDn]",
-                () => { foreach (var kv in modeOf) if (kv.Value == _mode) return kv.Key; return ViewModeChoice.Hybrid; },
+                () => { foreach (var kv in modeOf) if (kv.Value == _mode) return kv.Key; return ViewModeChoice.Relight; },
                 v => { if (modeOf.TryGetValue(v, out int i)) _mode = i; },
                 v => modeOf.TryGetValue(v, out int i) ? Modes[i].name : v.ToString(),
                 v => v switch
                 {
-                    ViewModeChoice.Hybrid => "hybrid (game + RT)",
                     ViewModeChoice.Relight => "relight (full RT)",
                     ViewModeChoice.Pathtrace => "pathtrace (multi-bounce)",
                     ViewModeChoice.PtDn => "pt-dn (path traced)",
@@ -80,7 +79,7 @@ namespace UltraRT
                 v =>
                 {
                     _scale = v == TraceQuality.Performance ? 0.5f : v == TraceQuality.Balanced ? 0.67f : 1f;
-                    _denoiser?.Reset(); _denoiserDirect?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset();
+                    _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset();
                 },
                 v => v.ToString(),
                 v => v == TraceQuality.Performance ? "Performance (0.5x)" : v == TraceQuality.Balanced ? "Balanced (0.67x)" : "Quality (1x)", "-ultrart-scale");
@@ -104,7 +103,7 @@ namespace UltraRT
                 () => _lightSamplingSettings.mode,
                 v => { _lightSamplingSettings.mode = v; _lightSampling?.Reset(); },
                 v => v.ToString(),
-                v => v == LightSamplingMode.Reference ? "Reference (every light, slow)" : v == LightSamplingMode.Ris ? "RIS" : "ReSTIR", "-ultrart-lights");
+                v => v == LightSamplingMode.Reference ? "Reference (every light, slow)" : "RIS", "-ultrart-lights");
 
             m.Group = "Path tracing (view mode pathtrace)";
             m.Choice("PathTrace", "Denoiser", "Denoiser",
@@ -144,7 +143,7 @@ namespace UltraRT
             m.Bool("Lighting", "EmissiveLights", "Emissive lighting  [F5]", () => _emissiveSettings.enabled, v =>
             {
                 _emissiveSettings.enabled = v;
-                _lightSampling?.Reset(); _denoiser?.Reset(); _denoiserDirect?.Reset();
+                _lightSampling?.Reset(); _denoiser?.Reset();
             }, "-ultrart-noemissive");
             m.Float("Lighting", "EmissiveScale", "Emissive brightness", 0f, 8f, 2, () => _emissiveSettings.lightScale, v => _emissiveSettings.lightScale = v, "-ultrart-emissive-scale");
 
@@ -163,7 +162,6 @@ namespace UltraRT
             m.Float("Volumetrics", "ShaftStrength", "Light shaft strength", 0f, 4f, 2, () => _volSettings.strength, v => _volSettings.strength = v, "-ultrart-vol-strength");
             m.Bool("Materials", "Enabled", "Surface detail maps  [Ctrl+F1]", () => MaterialMaps.Settings.enabled, v => MaterialMaps.Settings.enabled = v, "-ultrart-materials").Legacy();
             m.Float("Materials", "NormalStrength", "Detail strength (relight, pt-dn)", 0f, 4f, 2, () => MaterialMaps.Settings.normalStrength, v => MaterialMaps.Settings.normalStrength = v, "-ultrart-materials-normal").Legacy();
-            m.Float("Materials", "HybridNormalStrength", "Detail strength (hybrid)", 0f, 4f, 2, () => MaterialMaps.Settings.hybridNormalStrength, v => MaterialMaps.Settings.hybridNormalStrength = v, "-ultrart-materials-hybrid-normal").Legacy();
             m.Float("Materials", "Roughness", "Roughness variation", 0f, 2f, 2, () => MaterialMaps.Settings.roughness, v => MaterialMaps.Settings.roughness = v, "-ultrart-materials-roughness").Legacy();
             m.Bool("Reflections", "Enabled", "Reflections  [F4]", () => _reflSettings.enabled, v => { _reflSettings.enabled = v; _reflFilter?.Reset(); }, "-ultrart-noreflections");
             m.Float("Reflections", "Strength", "Reflection strength", 0f, 2f, 2, () => _reflSettings.reflStrength, v => _reflSettings.reflStrength = v, "-ultrart-refl-strength");
@@ -367,7 +365,10 @@ namespace UltraRT
         protected override bool Same(E a, E b) => EqualityComparer<E>.Default.Equals(a, b);
         protected override ConfigEntryBase Bind(ConfigFile cfg) =>
             IsLegacy ? cfg.Bind(Section, Key, KeyOf(Default), Label)
-                     : cfg.Bind(Section, Key, KeyOf(Default), new ConfigDescription(Label, new AcceptableValueList<string>(Values.Select(KeyOf).ToArray())));
+                     : cfg.Bind(Section, Key, KeyOf(Default), new ConfigDescription(Label, new AcceptableValueList<string>(
+                         // Default first: BepInEx clamps a value that is not in the list (a removed choice, e.g. an old
+                         // LightSampler = ReSTIR) to the list's first entry, which should be the default, not the enum's first.
+                         new[] { KeyOf(Default) }.Concat(Values.Select(KeyOf).Where(k => k != KeyOf(Default))).ToArray())));
         protected override object ToEntry(E v) => KeyOf(v);
         protected override E FromEntry(object o)
         {

@@ -13,13 +13,13 @@ Code: `src/UltraRT/LightOverrides.cs` (data, matching, packing), `Plugin.LightOv
 
 ## Where overrides apply
 
-- **Relight look only**: `relight`, `pathtrace`, or a mode with relight forced (`+relight=1`). Hybrid and pt-dn composite
-  against the game's own lighting (the game draws its lights itself), so changing the traced lights there would only
-  break their ratio; they keep the game's lights.
+- **Relight look only**: `relight`, `pathtrace`, or a mode with relight forced (`+relight=1`). pt-dn uses the game's
+  light model, so it keeps the game's lights (so did the hybrid mode, removed on 2026-11-19, whose ratio composite was
+  against the game's own lighting).
 - Overrides change the **packed light data only** (`_Lights`). The `Light` components are never touched, so the game's
   flicker scripts, area triggers and 8-2's day/night keep working: an entry multiplies whatever the light is this frame,
-  and a light the game switches off stays off. Every consumer of `_Lights` sees the result: direct light (RIS, ReSTIR,
-  reference), pathtrace's NEE, the radiance cache, volumetrics, lit particles, the viewmodel pass.
+  and a light the game switches off stays off. Every consumer of `_Lights` sees the result: direct light (RIS and
+  reference; ReSTIR until 2026-11-19), pathtrace's NEE, the radiance cache, volumetrics, lit particles, the viewmodel pass.
 - **Statue orb lights** get one more factor after the override: `Plugin._orbLightScale` 0.5 (`-ultrart-orb-light F`), applied to
   the lights of orb fixtures whose holder was found ([scene-proxies.md](scene-proxies.md), "Statue orbs"). It stacks on any
   override of those lights, and the classifier leaves `fixture:orb` lights alone.
@@ -1254,12 +1254,12 @@ payload untouched):
 | `[3].y` | spot sharpness | shape (1 sphere, 2 rect, 3 disc) \| octahedral tangent (2 x 10 bits) << 2, an exact integer |
 
 Every spot test in the code (`l3.x > -0.5`, the cone `saturate((cos - l3.x) * l3.y)`) reads "no cone" for these values, so
-consumers that don't know area lights (volumetrics' scattering, the hybrid ratio) treat them as point lights at the
+consumers that don't know area lights (volumetrics' scattering; the hybrid ratio until 2026-11-19) treat them as point lights at the
 centre.
 
 - **Evaluation** (`LightEvalRaw`): the light is evaluated at the point of its shape closest to the receiver, with the
   game's falloff (or relight's physical one) from there, times the emitter cosine for rect and disc (one-sided; a
-  sphere emits everywhere). It is deterministic, so RIS, ReSTIR (reservoirs store the light index, as before), the
+  sphere emits everywhere). It is deterministic, so RIS, ReSTIR (until its removal on 2026-11-19), the
   reference sampler, pathtrace's NEE and the radiance cache use it unchanged. A long rect lights a corridor evenly along
   its length, like a fluorescent tube; a downward panel leaves the ceiling to the bounce.
 - **Shadows** (`LightVisible`): the shadow ray aims at a uniform random point on the shape (spheres: the half facing the

@@ -45,8 +45,7 @@
    "Modes": [
     "off",
     "relight+preset=full",
-    "relight+preset=static",
-    "relight+preset=full+ls.freshCandidates=0"
+    "relight+preset=static"
    ],
    "Segment": 1.0,
    "SwitchSkipFrames": 30
@@ -70,10 +69,7 @@
    "Modes": [
     "off",
     "relight+preset=full",
-    "relight+preset=static",
-    "relight+preset=full+ls.freshCandidates=0",
-    "hybrid+preset=full",
-    "hybrid+preset=static"
+    "relight+preset=static"
    ],
    "Segment": 1.0,
    "SwitchSkipFrames": 30

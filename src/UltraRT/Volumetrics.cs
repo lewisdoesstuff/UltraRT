@@ -14,9 +14,8 @@ namespace UltraRT
         /// <summary>Trace with Proxy.shader's slim UltraRTShadow hit pass (alpha test only) instead of UltraRTHit: same
         /// shadows, a cheaper shader table on the render thread (docs/performance.md, "Render thread").</summary>
         public bool shadowPass = true;
-        /// <summary>Also in pt-dn and hybrid (relight always, when enabled). Hybrid gets the in-scattering only: the game's
-        /// colour already carries its fog.</summary>
-        public bool ptDn = true, hybrid = false;
+        /// <summary>Also in pt-dn (relight always, when enabled).</summary>
+        public bool ptDn = true;
         /// <summary>Screen pixels per low-res pixel along each axis (4 = quarter resolution).</summary>
         public int block = 4;
         /// <summary>Sun shadow rays per low-res pixel and frame.</summary>
@@ -127,7 +126,6 @@ namespace UltraRT
                     case "-ultrart-vol-emitter-medium": emitterMedium = F(emitterMedium); break;
                     case "-ultrart-vol-distance": maxDistance = F(maxDistance); break;
                     case "-ultrart-vol-nofog": gameFog = false; break;
-                    case "-ultrart-vol-hybrid": hybrid = true; break;
                 }
             }
         }

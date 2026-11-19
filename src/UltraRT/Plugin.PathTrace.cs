@@ -62,8 +62,8 @@ namespace UltraRT
         /// burst sigma on 0-1 metal at 1/3: 1.90 with 0.5 / 4, 1.38 with 4 / 3 (the plain upsampler's), 1.20 with 1 / 6.</summary>
         public float remodSharpness = 1f;
         public float remodMaxWeight = 6f;
-        /// <summary>Light sampling at the primary hit while RR denoises: -1 = as configured (F6), 1 = RIS without reuse,
-        /// 2 = ReSTIR. RR wants uncorrelated samples (docs/dlss.md).</summary>
+        /// <summary>Light sampling at the primary hit while RR denoises: -1 = as configured (F6), 0 = reference, 1 = RIS.
+        /// RR wants uncorrelated samples (docs/dlss.md; 2, ReSTIR, was removed on 2026-11-19).</summary>
         public int lightsRR = 1;
         /// <summary>RIS candidates at the primary hit while RR denoises and <see cref="lightsRR"/> is RIS.</summary>
         public int candidatesRR = 16;
@@ -137,7 +137,7 @@ namespace UltraRT
             _ptSavedLights = ls.mode;
             _ptSavedCandidates = ls.candidates;
             _ptSavedRisCandidates = ls.risCandidates;
-            ls.mode = (LightSamplingMode)Mathf.Clamp(_ptSettings.lightsRR, 0, 2);
+            ls.mode = (LightSamplingMode)Mathf.Clamp(_ptSettings.lightsRR, 0, 1);
             if (ls.mode == LightSamplingMode.Ris) ls.candidates = ls.risCandidates = Mathf.Clamp(_ptSettings.candidatesRR, 1, 64);
         }
 

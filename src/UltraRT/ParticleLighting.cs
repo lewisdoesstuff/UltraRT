@@ -10,7 +10,6 @@ namespace UltraRT
     public sealed class ParticleLightSettings
     {
         public bool enabled = true;      // -ultrart-particles on|off (config [Particles] Lit); Ctrl+F7 in game
-        public bool hybrid = true;       // also in hybrid (the game's light model, RT shadows and bounce)
         public bool ptDn = true;         // also in pt-dn
         public bool additiveSmoke = true; // relight additive smoke / dust / mist too (not fire, flashes, glows)
         public float strength = 1f;      // relight / pt-dn: 0 = the game's look, 1 = fully ray-traced lighting
@@ -20,7 +19,6 @@ namespace UltraRT
         // up to 13). The multiplier is m s / (1 + m s / max) of the brightest lighting channel m (hue kept: a red light
         // keeps the gas red instead of pushing it through the tone curve to fiery orange). 0 = the raw lighting.
         public float additiveScale = 0.5f, additiveMax = 0.6f;
-        public float hybridStrength = 1f;
         public int gridX = 64, gridY = 36, gridZ = 32;
         public float near = 0.5f, far = 96f;
         public int candidates = 8;       // RIS candidates per froxel
@@ -52,7 +50,6 @@ namespace UltraRT
                 {
                     case "-ultrart-particles": enabled = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
                     case "-ultrart-particles-strength": strength = F(strength); break;
-                    case "-ultrart-particles-hybrid": hybridStrength = F(hybridStrength); hybrid = hybridStrength > 0f; break;
                     case "-ultrart-particles-additive": additiveSmoke = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
                     case "-ultrart-particles-grid":
                     {
@@ -74,7 +71,7 @@ namespace UltraRT
         }
 
         public override string ToString() => FormattableString.Invariant(
-            $"{(enabled ? "on" : "off")}, strength {strength} (hybrid {(hybrid ? hybridStrength : 0f)}, pt-dn {(ptDn ? "on" : "off")}), additive smoke {(additiveSmoke ? "on" : "off")} (x{additiveScale}, max {additiveMax}), grid {gridX}x{gridY}x{gridZ} {near}-{far} m, {candidates} candidates, alpha {alpha}, indirect {(indirect ? "on" : "off")}, atmosphere from {atmosphereSize} m");
+            $"{(enabled ? "on" : "off")}, strength {strength} (pt-dn {(ptDn ? "on" : "off")}), additive smoke {(additiveSmoke ? "on" : "off")} (x{additiveScale}, max {additiveMax}), grid {gridX}x{gridY}x{gridZ} {near}-{far} m, {candidates} candidates, alpha {alpha}, indirect {(indirect ? "on" : "off")}, atmosphere from {atmosphereSize} m");
     }
 
     /// <summary>What <see cref="ParticleLighting.Execute"/> needs from the plugin each frame.</summary>
@@ -83,8 +80,8 @@ namespace UltraRT
         public Camera camera;
         public RayTracingAccelerationStructure rtas;
         public uint frameIndex;
-        public float indirectScale;   // hybrid: the GI strength; otherwise 1
-        public Color ambient;         // flat ambient in game units (hybrid: the game's 2 x ambient)
+        public float indirectScale;   // 1 (was the hybrid mode's GI strength)
+        public Color ambient;         // flat ambient in game units
         public bool lightsChanged;
         public bool linear;           // relight's linear transport
     }

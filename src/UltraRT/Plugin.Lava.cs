@@ -62,9 +62,8 @@ namespace UltraRT
         /// </summary>
         private void DimLavaLights()
         {
-            // What camera rays see at lava (LavaProxy.shader): its emission in the replace modes, the game's floor in hybrid.
-            bool replace = Modes[_mode].kind != Kind.Hybrid;
-            Shader.SetGlobalFloat(LavaCameraId, replace ? Mathf.Max(0f, LavaCfg.cameraGlow) : 0f);
+            // What camera rays see at lava (LavaProxy.shader): its emission (cameraGlow 0: the floor below it).
+            Shader.SetGlobalFloat(LavaCameraId, Mathf.Max(0f, LavaCfg.cameraGlow));
             var px = _proxies;
             float scale = LavaCfg.pointLightScale;
             if (px == null || px.LavaCount == 0 || Mathf.Approximately(scale, 1f)) return;

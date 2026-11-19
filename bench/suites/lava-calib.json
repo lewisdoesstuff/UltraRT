@@ -13,10 +13,7 @@
         "off",
         "relight",
         "relight+em.lightScale=2.4",
-        "relight+em.lightScale=1.6",
-        "hybrid",
-        "hybrid+em.lightScale=2.4",
-        "hybrid+em.hybridAdd=0.1"
+        "relight+em.lightScale=1.6"
       ],
       "Screenshots": [
         5
@@ -34,10 +31,7 @@
         "off",
         "relight",
         "relight+em.lightScale=2.4",
-        "relight+em.lightScale=1.6",
-        "hybrid",
-        "hybrid+em.lightScale=2.4",
-        "hybrid+em.hybridAdd=0.1"
+        "relight+em.lightScale=1.6"
       ],
       "Screenshots": [
         4
@@ -63,10 +57,7 @@
         "off",
         "relight",
         "relight+em.lightScale=2.4",
-        "relight+em.lightScale=1.6",
-        "hybrid",
-        "hybrid+em.lightScale=2.4",
-        "hybrid+em.hybridAdd=0.1"
+        "relight+em.lightScale=1.6"
       ],
       "Screenshots": [
         4
@@ -92,10 +83,7 @@
         "off",
         "relight",
         "relight+em.lightScale=2.4",
-        "relight+em.lightScale=1.6",
-        "hybrid",
-        "hybrid+em.lightScale=2.4",
-        "hybrid+em.hybridAdd=0.1"
+        "relight+em.lightScale=1.6"
       ],
       "Screenshots": [
         4

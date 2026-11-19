@@ -10,7 +10,7 @@ namespace UltraRT
     /// <summary>
     /// Lit particles wiring (docs/particles.md). Plugin.cs only calls <see cref="UpdateParticles"/> from OnUpdate and
     /// <see cref="TraceParticleLight"/> in Trace, after PathTrace's DispatchRays.
-    ///   -ultrart-particles on|off (config [Particles] Lit), -ultrart-particles-strength F, -ultrart-particles-hybrid F,
+    ///   -ultrart-particles on|off (config [Particles] Lit), -ultrart-particles-strength F,
     ///   -ultrart-particles-additive on|off, -ultrart-particles-grid X,Y,Z, -ultrart-particles-far M,
     ///   -ultrart-particles-alpha F, -ultrart-particles-noindirect, -ultrart-particlesurvey (diagnostic; costs ms)
     /// Shift+F7 toggles in game.
@@ -42,7 +42,7 @@ namespace UltraRT
             _particleArgsParsed = true;
             _particleSettings.enabled = Config.Bind("Particles", "Lit", true,
                 "Lit particles: smoke, dust, blood spray, debris and splashes take their lighting from the ray-traced solution in " +
-                "relight, pt-dn and hybrid (docs/particles.md). Overridden by -ultrart-particles on|off; Shift+F7 toggles in game.").Value;
+                "relight and pt-dn (docs/particles.md). Overridden by -ultrart-particles on|off; Shift+F7 toggles in game.").Value;
             _particleSettings.ParseArgs();
             foreach (var a in Environment.GetCommandLineArgs())
                 if (string.Equals(a, "-ultrart-particlesurvey", StringComparison.OrdinalIgnoreCase)) _particleSurveyEnabled = true;
@@ -77,8 +77,7 @@ namespace UltraRT
             var s = _particleSettings;
             if (!s.enabled || _particlesOff || _particleLight == null) return false;
             if (RelightLook(name)) return true;
-            if (name == "pt-dn") return s.ptDn;
-            return kind == Kind.Hybrid && s.hybrid;
+            return name == "pt-dn" && s.ptDn;
         }
 
         /// <summary>Every frame, from OnUpdate: swaps the effect materials in and out as the mode changes.</summary>
@@ -160,7 +159,7 @@ namespace UltraRT
         {
             string name = Modes[_mode].name;
             // Before the first activation the materials are not swapped yet; run anyway so the volume is warm.
-            if (!ParticlesFor(name, kind) || !(kind == Kind.Denoised || kind == Kind.Hybrid) || _proxies?.Rtas == null || _camera == null) return;
+            if (!ParticlesFor(name, kind) || kind != Kind.Denoised || _proxies?.Rtas == null || _camera == null) return;
             // Not on the pass schedule (docs/performance.md, "Pass schedule"): with the volume a frame old, smoke read
             // 2-4 times noisier between replays (P-2 vent smoke, 2026-11-17).
             if (Time.frameCount - _particleTracedFrame > 2) _particleLight.Reset(); // stale after other modes / view off
@@ -180,14 +179,13 @@ namespace UltraRT
             BindSky(u);
             _radianceCache?.BindRayTracingLookup(_cmd, u);
 
-            bool hybrid = kind == Kind.Hybrid;
             float ambientScale = 2f * (_relightActive ? 1f - Mathf.Clamp01(RelightParams.w) : 1f); // the game's lit term is 2 x ambient + lights
             var frame = new ParticleLightFrame
             {
                 camera = _camera,
                 rtas = _proxies.Rtas,
                 frameIndex = _frameIndex,
-                indirectScale = hybrid ? _giStrength : 1f,
+                indirectScale = 1f,
                 ambient = ambient * ambientScale,
                 lightsChanged = _lightSampling.LightSetChanged || _emissive.SetChanged,
                 linear = LinearActive,
@@ -197,7 +195,7 @@ namespace UltraRT
             _gpu?.End(_cmd, SlotParticles);
 
             var cam = _camera.transform;
-            float strength = hybrid ? _particleSettings.hybridStrength : _particleSettings.strength;
+            float strength = _particleSettings.strength;
             _cmd.SetGlobalTexture(PLTexId, _particleLight.Output);
             _cmd.SetGlobalMatrix(PLViewProjId, _particleLight.ViewProj);
             _cmd.SetGlobalVector(PLCamId, new Vector4(cam.position.x, cam.position.y, cam.position.z, 1f));

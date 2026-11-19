@@ -77,25 +77,22 @@ namespace UltraRT
         // ---- Denoiser stability (docs/denoiser.md). Lives here so Plugin.cs needs no further hooks.
 
         /// <summary>
-        /// Tell the denoisers which cache value matches their input this frame (the disocclusion seed). Hybrid's main
-        /// denoiser filters the bounce only (PathTrace _Mode 3: cache indirect); the other denoised modes filter full
-        /// lighting (_Mode 0: cache total + the primary ambient). Both add the bounce-hit ambient the cache leaves out,
-        /// approximated with albedo 0.5. Hybrid's direct denoiser filters a luminance pair the cache has no equivalent for.
+        /// Tell the denoiser which cache value matches its input this frame (the disocclusion seed): the denoised modes filter
+        /// full lighting (_Mode 0: cache total + the primary ambient), plus the bounce-hit ambient the cache leaves out,
+        /// approximated with albedo 0.5.
         /// </summary>
         private void ConfigureDenoiserCacheSeed(Color ambient)
         {
             if (_denoiser == null) return;
-            bool hybrid = Modes[_mode].kind == Kind.Hybrid;
             float ambientScale = 2f * (_relightActive ? 1f - Mathf.Clamp01(RelightParams.w) : 1f); // PathTrace's _Ambient * RelightAmbientScale()
             var amb = new Vector3(ambient.r, ambient.g, ambient.b) * ambientScale;
             _denoiser.CacheSource = _radianceCache;
-            _denoiser.CacheChannel = hybrid ? DenoiserCacheChannel.Indirect : DenoiserCacheChannel.Total;
-            _denoiser.CacheOffset = amb * ((hybrid ? 0f : _primaryAmbient) + 0.5f);
-            if (_denoiserDirect != null) _denoiserDirect.CacheChannel = DenoiserCacheChannel.None;
+            _denoiser.CacheChannel = DenoiserCacheChannel.Total;
+            _denoiser.CacheOffset = amb * (_primaryAmbient + 0.5f);
         }
 
         /// <summary>Ctrl+F3: cycle the denoiser presets (DenoiserPreset): Full -> Static (the build before the motion-noise work)
-        /// -> Previous (the build before the static-noise work, also without the guard band and hybrid's ReSTIR spatial reuse)
+        /// -> Previous (the build before the static-noise work, also without the guard band)
         /// -> Legacy (plain SVGF) -> Full.</summary>
         private bool DenoiserStabilityHotkey()
         {
@@ -116,20 +113,12 @@ namespace UltraRT
             return true;
         }
 
-        /// <summary>Ctrl+F3 and the settings menu (SettingsMenu.cs): a DenoiserPreset on both denoisers plus the parts that live elsewhere: the guard band, hybrid's ReSTIR
-        /// spatial reuse (static-noise work) and LightSampling's motion features (per-pixel light-change history, extra
-        /// candidates for fresh pixels).</summary>
+        /// <summary>Ctrl+F3 and the settings menu (SettingsMenu.cs): a DenoiserPreset on the denoiser plus the guard band, which
+        /// lives elsewhere (static-noise work). The ReSTIR parts the presets used to switch went with ReSTIR (2026-11-19).</summary>
         private void ApplyDenoiserPreset(DenoiserPreset p)
         {
             _denoiser?.Settings.ApplyPreset(p);
-            _denoiserDirect?.Settings.ApplyPreset(p);
-            bool staticWork = p == DenoiserPreset.Full || p == DenoiserPreset.Static;
-            bool motion = p == DenoiserPreset.Full;
-            var d = new LightSamplingSettings();
-            _guardActive = staticWork;
-            _lightSamplingSettings.spatialSamplesHybrid = staticWork ? d.spatialSamplesHybrid : 0;
-            _lightSamplingSettings.perPixelLightChange = motion && d.perPixelLightChange;
-            _lightSamplingSettings.freshCandidates = motion ? d.freshCandidates : 0;
+            _guardActive = p == DenoiserPreset.Full || p == DenoiserPreset.Static;
         }
 
         private void CacheHotkeys()

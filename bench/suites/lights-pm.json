@@ -2,16 +2,16 @@
   "Name": "lights-pm",
   "Scenarios": [
     { "Name": "8-2 b", "Scene": "Level 8-2", "Path": { "Type": "static", "Approach": "../recordings/8-2-b.json", "Duration": 4 },
-      "Modes": ["off", "relight", "relight+shaft.keepFakes=1", "hybrid"], "Screenshots": [2] },
+      "Modes": ["off", "relight", "relight+shaft.keepFakes=1"], "Screenshots": [2] },
     { "Name": "8-2 a", "Scene": "Level 8-2", "Path": { "Type": "static", "Approach": "../recordings/8-2-a.json", "Duration": 4 },
-      "Modes": ["off", "relight", "hybrid"], "Screenshots": [2] },
+      "Modes": ["off", "relight"], "Screenshots": [2] },
     { "Name": "8-2 lamp flicker", "Scene": "Level 8-2", "Path": { "Type": "static", "Approach": "../recordings/8-2-lamp-flicker.json", "Duration": 6 },
       "Modes": ["off", "relight"], "Screenshots": [2], "Burst": 48, "BurstModes": ["off", "relight", "relight+plugin._lightRadius=0.02"] },
     { "Name": "P-2 vent smoke", "Scene": "Level P-2", "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Duration": 4 },
-      "Modes": ["off", "relight", "relight+pl.additiveScale=0", "relight+plugin._particlesOff=1", "hybrid"], "Screenshots": [2] },
+      "Modes": ["off", "relight", "relight+pl.additiveScale=0", "relight+plugin._particlesOff=1"], "Screenshots": [2] },
     { "Name": "P-2 rain floor", "Scene": "Level P-2", "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Position": [1.83, -18.5, 31.58], "Yaw": -35.8, "Pitch": -50, "Duration": 4 },
-      "Modes": ["off", "relight", "relight+plugin._rainOn=0", "hybrid"], "Screenshots": [2] },
+      "Modes": ["off", "relight", "relight+plugin._rainOn=0"], "Screenshots": [2] },
     { "Name": "7-3 flashlight", "Scene": "Level 7-3", "Path": { "Type": "static", "Approach": "../recordings/7-3-flashlight.json", "Duration": 4 },
-      "Modes": ["off", "relight", "relight+plugin._playerRays=0", "hybrid"], "Screenshots": [2] }
+      "Modes": ["off", "relight", "relight+plugin._playerRays=0"], "Screenshots": [2] }
   ]
 }

@@ -9,7 +9,7 @@ Files:
 - `unity/.../Shaders/PathTrace.raytrace`: one include plus the bounce block. Read-only: **adds no UAVs**.
 - `src/UltraRT/RadianceCache.cs`: settings, buffers, update and resolve dispatch, lookup bindings for PathTrace, and the debug dispatch.
 - `src/UltraRT/Plugin.Cache.cs`: Plugin wiring (arguments, shader loading, hotkeys, shared bindings for the update shader). Plugin.cs only has one-line hooks.
-- `src/UltraRT/LightSampling.cs`: new `BindTables(cmd, shader)`. It binds this frame's alias and fill tables to another shader without advancing the ReSTIR ping-pong.
+- `src/UltraRT/LightSampling.cs`: new `BindTables(cmd, shader)`. It binds this frame's alias and fill tables to another shader (without advancing ReSTIR's reservoir ping-pong, until ReSTIR was removed on 2026-11-19).
 
 ## Why
 
@@ -36,7 +36,7 @@ In 4-1 (about 30 point lights, ambient 0), the bounce was black speckle. Each pi
 
 Lighting is demodulated, in the same game units as PathTrace's `lighting`:
 - **total**: direct plus indirect light arriving at the surface. A bounce hit uses `albedo × lerp(1, total, litWeight) + emission`.
-- **indirect**: the indirect part only, used by the primary-hit query mode, where ReSTIR already provides direct light.
+- **indirect**: the indirect part only, used by the primary-hit query mode, where the primary hit's direct light is traced separately (RIS; ReSTIR before 2026-11-19).
 
 Ambient (`_Ambient · _BounceAmbient`) is not in the cache. PathTrace still adds it at the bounce hit exactly as before, so a cache hit and a cache miss differ only in the light term (no seams between them).
 
@@ -118,7 +118,7 @@ Changing `cellSize`, `lodDistance`, `normalOffset` or `capacityLog2` clears the 
 
 | Shader | UAVs |
 |---|---|
-| `PathTrace.raytrace` | **8, unchanged**: `_Output _Radiance _AlbedoOut _EmissionOut _NormalDepth _InstanceId _HybridLight _ReservoirCur`. The cache adds 2 SRVs (`_CacheKeys`, `_CacheResolved`), for 14 SRVs in total including the RTAS and sky. |
+| `PathTrace.raytrace` | **8, unchanged**: `_Output _Radiance _AlbedoOut _EmissionOut _NormalDepth _InstanceId _HybridLight _ReservoirCur`. (Since 2026-11-19, 7: `_HybridLight` is `_LitWeight` and `_ReservoirCur` went with ReSTIR.) The cache adds 2 SRVs (`_CacheKeys`, `_CacheResolved`), for 14 SRVs in total including the RTAS and sky. |
 | `CacheUpdate.raytrace` | **3**: `_CacheKeys _CacheAccum _CacheDebugOut`. `_ReservoirCur`, declared by UltraRTLights.hlsl, is stripped as unused, and so are `_LightRemap`, `_ReservoirPrev` and `_EmissiveActive`. Binding them anyway (BindTables, EmissiveLights.Bind) is harmless. |
 | `CacheResolve.compute` | 3 (compute, no RT limit) |
 
@@ -148,9 +148,9 @@ At 1280x720 trace resolution, stride 4, 2 bounces:
 
 - **Light leaking through thin walls**: opposite faces of a wall never share a cell (normal bins). The remaining leak is between **same-facing surfaces on both sides of a wall inside one cell**, typically the floor strip along the base of a wall separating a lit room from a dark one. It is ≤ ½ cell wide near the camera, and wider with distance (cells are 2 m at 40 m). Lower `cellSize` (0.25) reduces it, at the cost of more noise per cell. A cell is also shared by any same-facing surfaces inside its volume, such as a ledge and the floor just below it.
 - **Stale cells on room toggles**: handled by the short history after `LightSetChanged` / `SetChanged` (about 4–8 frames). Changes that don't add or remove a light, such as intensity animation or a light moving, converge at the normal rate: about 32 frames (0.5 s at 60 fps) to 1/e. Lower `historyFrames` trades lag for noise. Cells out of view aren't updated; they keep their old value until evicted (120 frames) or refreshed.
-- **Moving lights / muzzle flashes**: the primary hit's direct light is unaffected (ReSTIR). Only the bounce lags.
+- **Moving lights / muzzle flashes**: the primary hit's direct light is unaffected (traced every frame). Only the bounce lags.
 - **Cold cells**: when the view changes (teleport, fast turn, LOD change), the bounce falls back to `DirectOne` for a frame or two (level fallback softens LOD changes). In debug view `cache`, cold cells show as the magenta checker.
-- **Brightness changes**: the bounce is now multi-bounce and much stronger than the old 1-sample estimate, which was also biased dark in practice. Hybrid's `GIStrength` (0.35) and `EmissiveLightScale` were tuned against the old bounce and may need retuning. `-ultrart-cache-feedback 0` turns off the infinite-bounce feedback: each path then carries exactly `bounces` bounces (the tail contributes only its emission and fullbright term), which is useful for A/B.
+- **Brightness changes**: the bounce is now multi-bounce and much stronger than the old 1-sample estimate, which was also biased dark in practice. Hybrid's `GIStrength` (0.35) and `EmissiveLightScale` were tuned against the old bounce (`GIStrength` went with the hybrid mode on 2026-11-19). `-ultrart-cache-feedback 0` turns off the infinite-bounce feedback: each path then carries exactly `bounces` bounces (the tail contributes only its emission and fullbright term), which is useful for A/B.
 - **Primary mode** is cell-resolution GI. Contact shadows and corners are washed out, and leaking is larger, because the query happens at the visible surface itself.
 - **Cache keys use the dominant axis only**: surfaces at exactly 45° can alternate between two bins. This is harmless (it only splits samples).
 - **SRV count in PathTrace** rises from 12 to 14. No SRV limit is known for Unity ray tracing shaders. If `DispatchRays` ever fails with the cache on and works with `-ultrart-nocache`, check this first.
@@ -163,7 +163,7 @@ At 1280x720 trace resolution, stride 4, 2 bounces:
 2. **4-1 indoor poses**: `-ultrart-scene "Level 4-1" -ultrart-pose ... -ultrart-gputimer`
    - `pt-indirect` with and without `-ultrart-nocache` (or F3 to cycle): the bounce should go from black speckle to a warm, smooth fill.
    - `cache` view: rooms should be fully covered within a few frames, with no magenta. `cache-cells`: about 0.5 m cells nearby and LOD rings further away. Shift+F3 → 5 (samples): red/yellow near, blue far.
-   - `hybrid`, and `pt-dn` with A/B via F3: check `GIStrength` and the brightness.
+   - `pt-dn` with A/B via F3: check the brightness (hybrid and its `GIStrength` were removed on 2026-11-19).
    - Leak check: stand next to a wall between a lit and a dark room. In the `cache` view, check the floor strip on the dark side.
    - Room toggle: walk through a door that switches rooms. The bounce should settle within about 8 frames.
 3. **1-1** via the bench harness: add `"cache"` to a scenario's modes if wanted. Compare `GpuMs.cache` and `GpuMs.dispatch` with and without the cache (`-ultrart-nocache` as the bench tag run). The expected `cache` slot is ≤ 0.15 ms at a trace scale giving 1280x720.

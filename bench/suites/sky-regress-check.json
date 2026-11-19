@@ -30,9 +30,7 @@
       },
       "Modes": [
         "off",
-        "hybrid",
-        "relight",
-        "hybrid+plugin._skyGI=1"
+        "relight"
       ],
       "Screenshots": [
         4

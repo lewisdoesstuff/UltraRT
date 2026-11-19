@@ -21,14 +21,8 @@ namespace UltraRT
         public float smooth = 1f;
         /// <summary>-ultrart-materials-normal F: global multiplier on the per-class normal strength (relight, pt-dn, pt).</summary>
         public float normalStrength = 1f;
-        /// <summary>-ultrart-materials-hybrid-normal F: the same in hybrid, whose shadow ratio scales the game's lit colour
-        /// (half-resolution, ambient included), so it takes less before texel rows look dirty.</summary>
-        public float hybridNormalStrength = 1f;
         /// <summary>-ultrart-materials-roughness F: global multiplier on the per-class roughness variation.</summary>
         public float roughness = 1f;
-        /// <summary>-ultrart-materials-guided on|off: hybrid composite picks the trace texel by albedo as well as depth
-        /// (Composite.shader), so per-texel shading follows texel edges instead of the half-resolution trace grid.</summary>
-        public bool guidedPick = true;
         /// <summary>-ultrart-materials-lod on|off ([Materials] TextureLod): ray-cone texture LOD for the detail maps
         /// (docs/materials.md, "Texture LOD"). Primary hits pick the detail mip whose texels match the traced pixel's
         /// footprint, so normal detail smaller than a pixel is averaged instead of aliasing (RR at 1/3 scale: noise).
@@ -52,7 +46,7 @@ namespace UltraRT
         /// stands for a wide lobe, so its hit's texture is averaged over a matching area.</summary>
         public float lodDiffuse = 0.3f;
 
-        public override string ToString() => $"{(enabled ? "on" : "off")}, source {source}, normal x{normalStrength:0.##} (hybrid x{hybridNormalStrength:0.##}), roughness x{roughness:0.##}, guided pick {(guidedPick ? "on" : "off")}, " +
+        public override string ToString() => $"{(enabled ? "on" : "off")}, source {source}, normal x{normalStrength:0.##}, roughness x{roughness:0.##}, " +
                                              $"lod {(lod ? "on" : "off")} (bias {lodBias:0.##}, aniso {lodAniso:0.##}, toksvig {toksvig:0.##}, albedo {(albedoLod ? "on" : "off")})";
     }
 

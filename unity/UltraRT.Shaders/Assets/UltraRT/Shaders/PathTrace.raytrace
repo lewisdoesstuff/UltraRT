@@ -10,20 +10,18 @@
 RaytracingAccelerationStructure _Scene;
 #include "UltraRTPortals.hlsl" // TraceScene: rays follow portals (docs/portals.md)
 // NOTE: Unity ray tracing shaders support at most 8 UAVs; a 9th makes DispatchRays fail silently. This shader binds
-// exactly 8: the 7 below plus _ReservoirCur (UltraRTLights.hlsl). Albedo and emission share _Surface to make room for
-// _Reflection. Add outputs only by packing.
+// the 7 below (one slot is free since ReSTIR's _ReservoirCur went, 2026-11-19). Albedo and emission share _Surface.
 RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission + reflections); also the accumulation history (ARGBHalf)
 RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by albedo); a = 2: moving-occluder flag, else 1
 RWTexture2D<uint4>  _Surface;     // packed albedo, emission and reflection material (UltraRTMaterial.hlsl, PackSurface)
 RWTexture2D<float4> _NormalDepth; // xyz world normal, w = hit distance (< 0 = sky)
 RWTexture2D<int2>   _InstanceId;  // RGInt: x InstanceIndex() (-1 = sky), y packed world-space motion (PackMotion, 0 = static)
-RWTexture2D<uint4>  _HybridLight;  // hybrid: packed halves: unshadowed direct rgb, shadowed direct rgb, lit weight
+RWTexture2D<uint4>  _LitWeight;   // w & 0xFF: lit weight unorm8 (0 = fullbright), for auto exposure and DLSS RR; xyz unused
 RWTexture2D<float4> _Reflection;  // rgb reflected radiance; a: reflection hit distance (sky: 1000), -1 = not traced
 
 float4x4 _InvViewProj;
 float4   _CamPos;
-int      _Mode;          // 0 full, 1 direct only, 2 indirect only, 3 hybrid numerator
-float    _GIStrength;    // hybrid: how much of the RT bounce to add on top of the game's fills
+int      _Mode;          // 0 full, 1 direct only, 2 indirect only
 uint     _FrameIndex;
 uint     _AccumFrames;   // frames already accumulated (0 = reset)
 
@@ -40,8 +38,11 @@ float    _EmissionScale;
 float4   _ReflParams;
 float    _ReflMaxRadiance; // firefly clamp (luminance) for glossy reflections; mirrors are not clamped
 // Reflections v2 (docs/reflections.md): x radiance cache at reflection hits (0 off, 1 by footprint, 2 always),
-// y footprint threshold (fraction of a cache cell), z hybrid: replace the game's cubemap (0/1). Unbound = all off.
+// y footprint threshold (fraction of a cache cell). Unbound = all off.
 float4   _ReflCache;
+// World-space motion of the primary hit (previous position - current), from its packed motion; through portals in the
+// camera-side space (RayGenBody).
+static float3 g_PrimaryMotion = 0;
 
 // ---------------------------------------------------------------- rng
 
@@ -99,65 +100,30 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 
 // ---------------------------------------------------------------- lights
 
-#define ULTRART_MOVERS // moving-occluder boxes: ReSTIR drops stale shadows, _Radiance.a flags the pixel (UltraRTLights.hlsl)
+#define ULTRART_MOVERS // moving-occluder boxes: _Radiance.a flags the pixel for the denoiser (UltraRTLights.hlsl)
 #include "UltraRTLights.hlsl"
 #include "UltraRTCache.hlsl" // radiance cache lookups (read-only: no UAVs)
 #include "UltraRTSky.hlsl"   // sky radiance and sky light sampling (SRVs only)
 #include "UltraRTEffects.hlsl" // glowing effects along a specular ray (EffectsAlong)
 #include "UltraRTStains.hlsl"  // blood stains at reflection hits (StainTint)
 
-// The game's lighting at a point: same lights and falloff, but no shadows (the game has none) and its full ambient.
-// Used as the denominator of the ratio composite: game colour * (RT lighting / game lighting).
-float3 UnshadowedFrom(int i, float3 p, float3 n, uint layer)
-{
-    float4 l0 = _Lights[i * 4];
-    float4 l1 = _Lights[i * 4 + 1];
-    if (((_LightMasks[i] >> layer) & 1u) == 0u) return 0;
-    bool local = l0.w != 0.0;
-    float3 toL = local ? l0.xyz - p : l0.xyz;
-    float d2 = max(dot(toL, toL), 1e-6);
-    float d = sqrt(d2);
-    float3 L = toL / d;
-    float ndl = dot(n, L);
-    if (ndl <= 0.0) return 0;
-    float atten = 1.0;
-    if (local)
-    {
-        float4 l2 = _Lights[i * 4 + 2];
-        float4 l3 = _Lights[i * 4 + 3];
-        float r = max(l0.w, 1e-6);
-        atten = 1.0 / (1.0 + d2 * 25.0 / (r * r));
-        atten *= saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
-        atten *= saturate(2.0 - d / r);
-    }
-    return l1.rgb * (atten * ndl);
-}
-
-float3 UnshadowedAll(float3 p, float3 n, uint layer)
-{
-    float3 sum = 0;
-    for (int i = 0; i < _LightCount; i++) sum += UnshadowedFrom(i, p, n, layer);
-    return sum * _LightScale;
-}
 // ---------------------------------------------------------------- reflections
 
 // Lighting arriving at a reflection hit. With the radiance cache, a hit whose reflection footprint (lobe spread plus
 // the pixel's footprint at the virtual image distance) covers at least _ReflCache.y of a cache cell reads the cell's
 // total lighting: no shadow ray, no light-selection speckle, and multi-bounce light. Smaller footprints (mirrors, sharp
 // glossy) keep the 1-sample direct light, for sharp shadows in the reflection, plus the cell's indirect light. A missing
-// or unconverged cell falls back to the old estimate (direct + ambient only). Hybrid scales the indirect part by
-// _GIStrength, like the bounce it adds to the game's colour.
+// or unconverged cell falls back to the old estimate (direct + ambient only).
 float3 ReflectionHitLight(float3 hp, RayPayload h, float footprint, inout uint rng)
 {
     float3 total = 0, indirect = 0;
     bool cached = false;
     if (_ReflCache.x > 0.5) cached = CacheLookup(hp, h.normal, total, indirect); // not &&: HLSL 2018 doesn't short-circuit
-    float giW = _Mode == 3 ? _GIStrength : 1.0;
     float3 light;
     if (cached && (_ReflCache.x > 1.5 || footprint >= CacheCellSize(CacheLevel(hp)) * _ReflCache.y))
-        light = total - indirect * (1.0 - giW);
+        light = total;
     else
-        light = DirectOne(hp, h.normal, PayloadLayer(h), rng) + (cached ? indirect * giW : 0.0);
+        light = DirectOne(hp, h.normal, PayloadLayer(h), rng) + (cached ? indirect : 0.0);
     return light + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
 }
 
@@ -210,7 +176,7 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
 
 // ---------------------------------------------------------------- water and glass (docs/reflections.md, "Water and glass")
 
-// Transparent surfaces (instance mask 0x10) are invisible to every other ray. In hybrid and denoised modes
+// Transparent surfaces (instance mask 0x10) are invisible to every other ray. In denoised modes
 // (_TransParams.y = 1, only while a water/glass instance is active) the end of RayGen finds the nearest water or glass
 // surface in front of the opaque hit and traces its mirror reflection (procedural ripples on water), writing
 // _Output = (reflected radiance, distance to the transparent surface; < 0 = none) instead of the composited colour,
@@ -295,17 +261,14 @@ void RayGenBody(bool full)
     float4 farN = mul(_InvViewProj, float4(ndc + float2(2.0 / (float)dim.x, 0.0), 1.0, 1.0));
     float pixelAngle = length(normalize(farN.xyz / farN.w - _CamPos.xyz) - ray.Direction);
     g_Cone = float2(0.0, pixelAngle);
-    // Hybrid with reflections: ask the hit shader for the game's cubemap term (UltraRTMaterial.hlsl, game cubemap).
-    bool wantGameCube = _Mode == 3 && _ReflParams.x > 0.5 && _ReflCache.z > 0.5;
     // The hit returns its motion in p.motion; per-texel detail at the cone's mip.
     uint inFlags = ULTRART_PAYLOAD_WANT_MOTION | ULTRART_FLAG_DETAIL | ULTRART_PAYLOAD_CONE;
-    if (wantGameCube) inFlags |= ULTRART_FLAG_GAMECUBE;
     // Portal mirrors: keep the game's own mirror view (it shows V1 and is sharper than a traced reflection). The ray stops
     // there and the pixel is written like sky, which every composite leaves to the game (docs/portals.md, "Mirrors").
     if (_UltraRTMirrors == 0) inFlags |= ULTRART_TRACE_STOP_AT_MIRROR;
     // Through portals the ray continues on the far side (UltraRTPortals.hlsl): from here on `ray` is the last segment, so
     // shading uses the real hit point and direction. The G-buffer gets the camera-side ("virtual") view of the hit: path
-    // length, normal and motion as seen through the portals, so the denoiser, ReSTIR and the reflection filter reproject
+    // length, normal and motion as seen through the portals, so the denoiser and the reflection filter reproject
     // it like any other surface (portals are rigid).
     float3 camDir = ray.Direction;
     RayDesc camRay = ray;
@@ -321,28 +284,24 @@ void RayGenBody(bool full)
         albedo = 1;
         emission = 0;
         _NormalDepth[id] = float4(0, 0, 0, -1);
-        _HybridLight[id] = uint4(0, 0, 0, 0);
+        _LitWeight[id] = uint4(0, 0, 0, 0);
         _InstanceId[id] = int2(-1, 0);
         _Surface[id] = PackSurface(albedo, emission, 0u, 0u);
         _Reflection[id] = float4(0, 0, 0, -1);
-        RestirWriteEmpty(id, dim);
     }
     else
     {
         float3 pos = ray.Origin + ray.Direction * p.t;
         float3 n = p.normal; // shading normal: per-texel detail where the material has it (docs/materials.md)
         EffectCover(camRay.Origin, camRay.Direction, path.firstT >= 0.0 ? path.firstT : p.t); // UltraRTEffects.hlsl
-        // The interpolated vertex normal: ray offsets and the hemisphere test, the radiance cache lookup, and in hybrid the
-        // game's own lighting (the shadow ratio's denominator).
+        // The interpolated vertex normal: ray offsets and the hemisphere test, the radiance cache lookup.
         bool detail = (p.flags & ULTRART_FLAG_DETAIL) != 0u;
         float3 nv = detail ? UnpackOct24(p.primitive) : n;
         if (dot(nv, ray.Direction) > 0.0) nv = -nv; // faces the ray, like p.normal
-        bool hybridDetail = detail && _Mode == 3;
-        float3 nLight = hybridDetail ? nv : n; // the normal DirectLighting samples and stores reservoirs with
         uint layer = PayloadLayer(p);
         uint motion = p.motion;
         float tTotal = path.travelled + p.t;
-        g_PrimaryMotion = UnpackMotion(motion); // ReSTIR temporal reuse reprojects pos + motion
+        g_PrimaryMotion = UnpackMotion(motion);
         if (path.hops > 0u)
         {
             float3 virtualPos = _CamPos.xyz + camDir * tTotal;
@@ -364,26 +323,10 @@ void RayGenBody(bool full)
             }
             else g_PrimaryMotion = PortalToVirtual(path, g_PrimaryMotion);
             motion = PackMotion(g_PrimaryMotion);
-            g_PrimaryVirtual = true; // ReSTIR: reproject and store the camera-side point (UltraRTLights.hlsl)
-            g_PrimaryVirtualPos = virtualPos;
-            g_PrimaryVirtualN = PortalToVirtual(path, nLight);
         }
 
-        // Hybrid: sample with the vertex normal and re-shade the shadowed part with the detail normal (UltraRTLights.hlsl).
-        if (hybridDetail) g_DetailN = n;
-        float3 direct = DirectLighting(id, dim, pos, nLight, tTotal, layer, rng);
-        if (full) PtMoreDirect(direct, id, dim, pos, nLight, tTotal, layer, rng); // pathtrace: more samples where there are no reservoirs
-        if (hybridDetail)
-        {
-            // The composite scales the game's whole colour by shadowed / unshadowed, but the game's ambient doesn't
-            // depend on the normal: apply the detail as (detail + ambient) / (vertex + ambient) on the vertex-normal
-            // result, so grazing lights don't turn tilted texels black. Clamped: at night the vertex-normal light can be
-            // tiny next to a texel tilted towards a lamp, and the ratio then made single texels glow.
-            const float3 lw = float3(0.2126, 0.7152, 0.0722);
-            float a = dot(ToLight(_Ambient.rgb), lw) + 1e-3;
-            direct = g_DirectVertex * clamp((dot(direct, lw) + a) / (dot(g_DirectVertex, lw) + a), 0.3, 1.5);
-        }
-        g_DetailN = 0;
+        float3 direct = DirectLighting(pos, n, layer, rng);
+        if (full) PtMoreDirect(direct, pos, n, layer, rng); // pathtrace: more light samples per pixel (RIS)
 
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
         // Radiance cache (docs/radiance-cache.md): mode 2 reads the indirect light at the primary hit and skips the bounce
@@ -442,11 +385,6 @@ void RayGenBody(bool full)
             case 0: lighting = direct + indirect + ambient; break;
             case 1: lighting = direct + ambient; break;
             case 2: lighting = indirect; break;
-            // Hybrid: shadows come from _DirectLight/_GameLighting as a ratio; the denoised bounce is added on top.
-            // Hybrid: only the bounce goes through the denoiser, plus emissive direct light as an optional extra (the game
-            // doesn't light surfaces from emissives). The composite multiplies this channel by _GIStrength, hence the divide.
-            // Virtual effect lights (EffectLights.cs) are added the same way, with their own weight.
-            case 3: lighting = indirect + (g_DirectEmissive * _EmissiveHybridAdd + g_DirectAdditive) / max(_GIStrength, 1e-3); break;
         }
         lighting = lerp(1.0, lighting, p.alpha); // fullbright surfaces ignore lighting, like the game
         if (any(g_PlayerBlocked > 0.0))
@@ -491,7 +429,7 @@ void RayGenBody(bool full)
             float NdotV = saturate(dot(n, -ray.Direction));
             float3 specW;
             float keep;
-            SpecularTerms(mat, albedo, NdotV, _ReflParams.yz, _Mode == 3, specW, keep);
+            SpecularTerms(mat, albedo, NdotV, _ReflParams.yz, specW, keep);
             if (dot(specW, float3(0.2126, 0.7152, 0.0722)) >= _ReflParams.w)
             {
                 float3 L = ReflectionDirection(n, ray.Direction, mat.roughness, rng);
@@ -507,24 +445,9 @@ void RayGenBody(bool full)
             }
         }
         _Reflection[id] = refl;
-        // Game cubemap (hybrid): replaced only where we apply a reflection of our own; elsewhere the game's stays.
-        uint4 surface = PackSurface(albedo, emission, p.material, p.flags);
-        float3 gameCube = 0;
-        if (wantGameCube && (p.flags & ULTRART_FLAG_GAMECUBE) != 0u && mat.mode != ULTRART_REFL_NONE)
-        {
-            gameCube = float3(FromUnorm8(p.uvHalf), FromUnorm8(p.uvHalf >> 8), FromUnorm8(p.uvHalf >> 16));
-            float lightContribution = FromUnorm8(p.primitive >> 24);
-            if (lightContribution > 0.0) // the game tints it by its vertex lighting (2 * ambient + unshadowed lights)
-                gameCube *= lerp(1.0, UnshadowedAll(pos, nv, layer) + _Ambient.rgb, lightContribution);
-            surface = SurfaceSetGameCube(surface, FromUnorm8(p.uvHalf >> 24));
-        }
-        _Surface[id] = surface;
+        _Surface[id] = PackSurface(albedo, emission, p.material, p.flags);
         _NormalDepth[id] = float4(PortalToVirtual(path, n), tTotal);
-        float3 un = g_DirectUnshadowed; // same samples as `direct`, without visibility
-        _HybridLight[id] = uint4(f32tof16(un.r) | (f32tof16(un.g) << 16),
-                                 f32tof16(un.b) | (f32tof16(direct.r) << 16),
-                                 f32tof16(direct.g) | (f32tof16(direct.b) << 16),
-                                 PackHybridW(p.alpha, gameCube));
+        _LitWeight[id] = uint4(0, 0, 0, Unorm8(p.alpha));
         // x: instance (consumers use its low 7 bits). Seen through a portal, the high half holds the distance to the first
         // portal surface (half float, > 0), which is what the game's depth buffer has there (Composite.shader).
         uint instWord = p.instance & 0xFFFFu;

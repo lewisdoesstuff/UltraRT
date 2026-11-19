@@ -8,7 +8,7 @@ namespace UltraRT
     /// dynamic objects that moved recently: the player's third-person model first (its shadow is the one the player looks at
     /// all the time), then the nearest moving enemies and props. Each box is the union of this frame's and last frame's
     /// bounds, so it covers both where a shadow arrives and where it leaves. PathTrace tests its direct-light shadow
-    /// segment against them (UltraRTLights.hlsl, MoverCrosses): ReSTIR drops occluded history whose sample crosses one, and
+    /// segment against them (UltraRTLights.hlsl, MoverCrosses): and
     /// the pixel is flagged for the denoiser's targeted anti-lag.
     /// </summary>
     internal sealed partial class SceneProxies

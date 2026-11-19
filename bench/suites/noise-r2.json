@@ -26,11 +26,6 @@
         "relight+dn.alphaMin=0.1+dn.maxHistory=32",
         "relight+dn.alphaMin=0.03",
         "relight+dn.spatialVarianceFloor=2",
-        "relight+ls.spatialSamples=2",
-        "relight+ls.candidates=16+ls.historyLimit=10",
-        "hybrid+preset=previous",
-        "hybrid",
-        "hybrid+ls.spatialSamples=2",
         "dn-lighting+relight+preset=previous",
         "dn-lighting+relight"
       ]
@@ -60,11 +55,6 @@
         "relight+dn.alphaMin=0.1+dn.maxHistory=32",
         "relight+dn.alphaMin=0.03",
         "relight+dn.spatialVarianceFloor=2",
-        "relight+ls.spatialSamples=2",
-        "relight+ls.candidates=16+ls.historyLimit=10",
-        "hybrid+preset=previous",
-        "hybrid",
-        "hybrid+ls.spatialSamples=2",
         "dn-lighting+relight+preset=previous",
         "dn-lighting+relight"
       ]
@@ -94,11 +84,6 @@
         "relight+dn.alphaMin=0.1+dn.maxHistory=32",
         "relight+dn.alphaMin=0.03",
         "relight+dn.spatialVarianceFloor=2",
-        "relight+ls.spatialSamples=2",
-        "relight+ls.candidates=16+ls.historyLimit=10",
-        "hybrid+preset=previous",
-        "hybrid",
-        "hybrid+ls.spatialSamples=2",
         "dn-lighting+relight+preset=previous",
         "dn-lighting+relight"
       ]
@@ -125,8 +110,6 @@
         "off",
         "relight+preset=previous",
         "relight",
-        "hybrid+preset=previous",
-        "hybrid",
         "dn-lighting+relight+preset=previous",
         "dn-lighting+relight",
         "dn-lighting+relight+plugin._guardX=0+plugin._guardY=0",

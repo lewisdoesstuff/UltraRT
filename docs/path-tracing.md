@@ -74,7 +74,7 @@ The ray generation is relight's with two parts swapped (`RayGenBody(full)`; `ful
    one shadow ray; V1's shadow split and the moving-occluder flag as in relight) and one sky sample.
    - With RR: plain RIS (`lightsRR` 1, `candidatesRR` 16), no reservoirs, `directSamplesRR` samples averaged
      (`PtMoreDirect`). RR wants samples that are independent from frame to frame; see [dlss.md](dlss.md).
-   - With UltraRT's denoiser: whatever F6 selects (RIS by default since 2026-11-15, ReSTIR optional), one sample.
+   - With UltraRT's denoiser: whatever F6 selects (RIS by default since 2026-11-15, or the reference; ReSTIR was optional until its removal on 2026-11-19), one sample.
 3. **Diffuse paths** (`PtIndirect`, `paths` per pixel): a cosine direction from the primary hit, then up to `bounces`
    segments (`PtPath`). At each vertex:
    - **emission**: zero for emitters the light sampling covers (as relight's bounce), in full after a specular bounce;
@@ -93,8 +93,8 @@ The ray generation is relight's with two parts swapped (`RayGenBody(full)`; `ful
 5. **Effects** in front of every specular segment (below).
 6. **Water and glass**: the overlay's mirror reflection as in relight (it has no denoiser, so it stays cache shaded).
 
-Everything is written to relight's G-buffer (`_Radiance`, `_Surface`, `_NormalDepth`, `_InstanceId`, `_HybridLight`,
-`_Reflection`, `_Output`), so the reflection filter, both denoisers, auto exposure, volumetrics, the viewmodel pass and
+Everything is written to relight's G-buffer (`_Radiance`, `_Surface`, `_NormalDepth`, `_InstanceId`, `_LitWeight` (`_HybridLight` before 2026-11-19),
+`_Reflection`, `_Output`), so the reflection filter, the denoiser (both, until hybrid's went on 2026-11-19), auto exposure, volumetrics, the viewmodel pass and
 lit particles run unchanged.
 
 Energy against relight (radiance statistics, mean lighting, linear): 6-2 start 0.661 relight, 0.635 `pathtrace` with RR,
@@ -122,7 +122,7 @@ the light comes from: contact shadows and colour bleeding within the first two b
 | `remodulate`, `remodExactGrid` | on, on | UltraRT's denoiser remodulates as RR does, with the exact N x N jitter grid at 1/3 (or 1/5) |
 | `remodSharpness`, `remodMaxWeight` | 1, 6 | the remodulated lighting's upsampler: sample weight exp(-x d^2), history cap |
 | `prewarm` | on | compile RayGenPT's pipeline on the session's first trace (Warm-up), only when the session starts in pathtrace or a benchmark runs (relight players get no menu freeze; their first switch to pathtrace compiles it instead) |
-| `lightsRR`, `candidatesRR`, `directSamplesRR` | 1 (RIS), 16, 1 | light sampling at the primary hit under RR |
+| `lightsRR`, `candidatesRR`, `directSamplesRR` | 1 (RIS), 16, 1 | light sampling at the primary hit under RR (`lightsRR` 0 = reference, 1 = RIS; 2 was ReSTIR until 2026-11-19) |
 
 ## Effects in reflections
 
@@ -138,7 +138,7 @@ them: a screen next to a fire reflected an empty room (0-4's terminal). Now:
 - The hit shader is an any-hit that adds `texture x vertex colour x tint` (times alpha for `SrcAlpha One`) to the
   payload and ignores the hit. One ray per specular segment (`EffectsAlong`: mask 0x10, `RAY_FLAG_CULL_OPAQUE`, so the
   opaque water/glass proxies under the same mask are skipped) collects every billboard in front of the hit.
-- Used by relight's and hybrid's reflection ray, the water/glass overlay's reflection and every specular segment of a
+- Used by relight's (and, until 2026-11-19, hybrid's) reflection ray, the water/glass overlay's reflection and every specular segment of a
   path. Camera rays don't (the game draws the effect itself, at full resolution); cosine bounces don't (effects light
   the scene through their point lights already; counting the billboards too would light it twice).
 - Tracked effects that are off are polled in turn (one in 12 per frame): most of a level's glowing effects are pooled
@@ -309,7 +309,7 @@ windows; run-to-run spread 0.2-0.35), `bench/results/20261115-014817_pt2-c` and 
 | relight | 1.38-1.59 |
 | pathtrace (default) | 1.59-1.96 |
 | RR render guard (`plugin._rrGuard=1`) | 2.02 |
-| ReSTIR under RR (`ptx.lightsRR=2`) | 2.28 |
+| ReSTIR under RR (`ptx.lightsRR=2`; removed 2026-11-19, the value is clamped to 1) | 2.28 |
 | 32 RIS candidates | 1.92 |
 | RR at 0.5 scale | 1.67 |
 | 2 paths | 1.75 |
@@ -444,7 +444,7 @@ stain's box, axes, atlas cell and clip state exactly as the game's stamp shader 
 `StainTint` (UltraRTStains.hlsl) applies the game's composite at a hit: x (1, 1 - t, 1 - t), t fading with distance over
 the fog range, darker where the stain is wet (BloodWet.cs's birth times).
 
-- Used at relight's and hybrid's reflection hits and at the specular vertices of pathtrace's paths. Not at the camera
+- Used at relight's (and, until 2026-11-19, hybrid's) reflection hits and at the specular vertices of pathtrace's paths. Not at the camera
   hit: there the game's own decal is already in the image.
 - Cost (0-1 metal with stains spawned, `bench/results/20261115-021448_pt2-perf`): relight +0.13 ms GPU, pathtrace
   +0.33 ms, CPU +0.06 ms.
@@ -513,7 +513,7 @@ Mean demodulated lighting at the primary hit (radiance statistics, linear; `benc
 - So under RR `pathtrace` shows slightly less direct light than relight in rooms with many competing lights (lava
   room -16%, 2-2 less blue, 1-4's lamps +17% the other way), and it is the one that agrees with the reference. Relight
   was not changed at the time (its look was the accepted one: it used ReSTIR then; see the next bullet for today's
-  default); `ptx.lightsRR=2` gives `pathtrace` ReSTIR, at RR's correlated-noise cost.
+  default); `ptx.lightsRR=2` gave `pathtrace` ReSTIR, at RR's correlated-noise cost (until ReSTIR went on 2026-11-19; 2 is now clamped to RIS).
 - Since 2026-11-15 relight defaults to RIS and its ReSTIR no longer reuses visibility; both match the reference
   within about 2 % (docs/light-sampling.md, "Bias and noise").
 - The rest of the difference (pathtrace 0.778 against RIS relight 0.810 in the lava room; 0-5% of screen luma) is the

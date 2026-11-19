@@ -14,13 +14,14 @@ Cycle them in game with **Page Up / Page Down**, pick one in the settings menu, 
 |---|---|
 | `relight` (default without DLSS RR) | Full ray tracing with a physical light model: inverse-square falloff, soft shadows from every light, sky and sun, one bounce of global illumination from a radiance cache, ray-traced reflections, auto exposure, volumetrics. Calibrated against the game's brightness and colour; see [docs/relight.md](docs/relight.md). |
 | `pathtrace` (default with DLSS RR) | Real multi-bounce path tracing with the same look as relight. [DLSS Ray Reconstruction](docs/dlss.md) denoises and upscales it when it is available (NVIDIA RTX GPU, the DLSS SDK runtime fetched by `scripts/fetch-dlss.ps1`); otherwise UltraRT's own denoiser runs at a lower trace resolution with exact-texel remodulation. See [docs/path-tracing.md](docs/path-tracing.md). |
-| `hybrid` | The game draws its own image; ray-traced lighting ratios are applied on top of it. |
 | `pt-dn` | Ray traced with the game's own light model (its falloff and flat ambient) and the denoiser. |
 | debug views | `dn-lighting`, `dn-variance`, `normals`, `albedo`, `depth`, `refl`, `cache`, `motion`, and others at the end of the Page Up / Page Down cycle. |
 
+The `hybrid` mode (the game's own image with ray-traced lighting ratios on top) was removed on 2026-11-19, together with ReSTIR light sampling ([docs/cleanup-audit-2026-11-19.md](docs/cleanup-audit-2026-11-19.md)). A config, flag (`-ultrart-view hybrid`) or bench mode that still names it gets `relight`, with a warning in the log; `-ultrart-lights restir` and `LightSampler = ReSTIR` get RIS the same way. `-ultrart-view` takes a mode name or an index; the indices after the old `hybrid` slot moved down by one.
+
 ## Features
 
-- **Ray-traced lighting**: shadow rays per pixel with RIS / ReSTIR light sampling ([docs/light-sampling.md](docs/light-sampling.md)), emissive surfaces as lights ([docs/emissive-lights.md](docs/emissive-lights.md)), lava and acid as emitters ([docs/lava.md](docs/lava.md)), a world-space radiance cache for bounce light ([docs/radiance-cache.md](docs/radiance-cache.md)), and auto exposure.
+- **Ray-traced lighting**: shadow rays per pixel with RIS light sampling ([docs/light-sampling.md](docs/light-sampling.md)), emissive surfaces as lights ([docs/emissive-lights.md](docs/emissive-lights.md)), lava and acid as emitters ([docs/lava.md](docs/lava.md)), a world-space radiance cache for bounce light ([docs/radiance-cache.md](docs/radiance-cache.md)), and auto exposure.
 - **Reflections**: glossy and metal surfaces, water, glass and the layer-8 portal mirrors, with V1 visible in them; fire, explosions and blood stains appear in reflections too ([docs/reflections.md](docs/reflections.md), [docs/portals.md](docs/portals.md)).
 - **Scene coverage**: static-batched geometry, skinned enemies (including mirrored statues), the game's vertex displacement (flesh levels, water), scrolling textures with texture motion vectors, alpha-cutout materials, portal-aware levels (8-x), and the first-person gun and arms lit by the ray tracer ([docs/scene-proxies.md](docs/scene-proxies.md), [docs/viewmodel.md](docs/viewmodel.md)).
 - **Per-texel materials**: normal and roughness detail for the game's pixel-art textures, generated offline from your own game files, with ray-cone texture LOD (normal-map mips, Toksvig roughness) ([docs/materials.md](docs/materials.md)).
@@ -69,7 +70,7 @@ Without `lib\dlss` the native DLL builds as a stub and DLSS Ray Reconstruction i
 | F3, Shift+F3, Ctrl+F3 | radiance cache mode; its debug view; denoiser preset |
 | F4, Ctrl+F4 | reflections; auto exposure |
 | F5, Ctrl+F5 | emissive surfaces as lights; sky light and linear light transport |
-| F6, Ctrl+F6 | light sampling (reference, RIS, ReSTIR); volumetrics |
+| F6, Ctrl+F6 | light sampling (reference, RIS); volumetrics |
 | Ctrl+F1, Ctrl+F7, Shift+F7 | surface detail maps; viewmodel pass; lit particles |
 | Ctrl+F8 | DLSS Ray Reconstruction in relight and pt-dn (pathtrace chooses its own) |
 | F9 | reload shaders |
@@ -102,7 +103,7 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 | [docs/path-tracing.md](docs/path-tracing.md) | The `pathtrace` mode: paths, settings, effects in reflections, cost and noise |
 | [docs/dlss.md](docs/dlss.md) | DLSS Ray Reconstruction through NGX: setup, evaluation, license |
 | [docs/denoiser.md](docs/denoiser.md) | UltraRT's SVGF-style denoiser, static and motion noise work, temporal upsampling |
-| [docs/light-sampling.md](docs/light-sampling.md) | RIS and temporal ReSTIR direct lighting, bias and noise |
+| [docs/light-sampling.md](docs/light-sampling.md) | RIS direct lighting (temporal ReSTIR until 2026-11-19), bias and noise |
 | [docs/radiance-cache.md](docs/radiance-cache.md) | The world-space hash-grid cache for multi-bounce diffuse light |
 | [docs/emissive-lights.md](docs/emissive-lights.md) | Emissive triangles and effect lights as direct light sources |
 | [docs/lighting-overrides.md](docs/lighting-overrides.md) | Per-level light overrides, area lights, the light editor and classifier |

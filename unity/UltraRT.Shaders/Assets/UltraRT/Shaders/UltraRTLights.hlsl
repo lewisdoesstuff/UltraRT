@@ -3,9 +3,8 @@
 
 // Direct lighting for PathTrace.raytrace: ULTRAKILL's light model plus light selection.
 //   _LightSampling 0: reference. Every light, one shadow ray each (DirectAll), uniform pick at the bounce.
-//   _LightSampling 1: RIS. M candidates from an alias table, one shadow ray for the winner.
-//   _LightSampling 2: RIS + temporal reuse (ReSTIR DI, 1/M combine). One shadow ray per pixel.
-// At the primary hit both can weight lights by a per-pixel visibility memory (_VisMemory).
+//   _LightSampling 1: RIS. M candidates from an alias table, one shadow ray for the winner. No history (temporal
+//   reuse, ReSTIR DI, was removed on 2026-11-19 with the hybrid mode that was its last user; docs/light-sampling.md).
 // Unshadowed fill lights are always evaluated exhaustively (they are few and need no rays).
 // Emissive triangles (EmissiveLights.cs) are a second kind of RIS candidate: a point on a triangle of an emissive
 // surface. In reference mode they get _EmissiveRefSamples extra shadow rays per hit instead.
@@ -21,9 +20,8 @@
 //       _LightMasks.
 //   [2] forward, soft-shadow radius (m; 0 = _LightRadius; < 0 upper half-sphere). Lights lifted out of their fixture
 //       get the fixture's size.
-//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light),
-//       hybrid weight: > 0 for lights the game doesn't draw (EffectLights' virtual lights for glowing effects); hybrid
-//       adds that much of their shadowed light on top of the game's image, like emissive surfaces
+//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), w unused (was
+//       the removed hybrid mode's weight for lights the game doesn't draw)
 // Area lights (per-level light overrides, LightOverrides.cs; docs/lighting-overrides.md) keep this layout:
 //   [2] xyz the emission normal (rect/disc emit to its side only), w half-size x (sphere/disc: radius)
 //   [3] x = -2 - half-size y (<= -2 marks an area light; every spot test sees "no cone"), y = shape | octahedral tangent
@@ -45,7 +43,7 @@ int      _LightCount;
 uint     _LightIsoMask;
 #endif
 
-int      _LightSampling;     // 0 reference, 1 RIS, 2 RIS + temporal reuse
+int      _LightSampling;     // 0 reference, 1 RIS
 int      _RisCandidates;     // candidates per pixel at the primary hit
 int      _BounceCandidates;  // candidates at the bounce hit
 int      _RisLightCount;     // entries in _LightAlias (every shadowed light, once)
@@ -55,56 +53,16 @@ StructuredBuffer<uint4>  _LightAlias;
 int      _FillCount;
 StructuredBuffer<uint>   _FillLights;   // indices of unshadowed fill lights
 
-// Temporal reuse (only touched when _LightSampling == 2).
-StructuredBuffer<uint>    _LightRemap;     // previous frame's light index -> this frame's index (0xFFFF = gone)
-int       _PrevLightCount;
-// Reservoir per pixel (docs/emissive-lights.md, "Reservoir layout"):
-//   x: light code (17 bits: index | emissive flag << 16; 0xFFFF = none) | uint(M) << 20 (12 bits)
-//   y: asuint(W) with its 10 low mantissa bits replaced by the emissive sample's barycentric u (10 bits)
-//   z: oct11x2 normal (22 bits) | barycentric v << 22 (10 bits)
-//   w: asuint(dot(normal, pos)): the surface plane
-StructuredBuffer<uint4>   _ReservoirPrev;
-RWStructuredBuffer<uint4> _ReservoirCur;
-float4x4  _PrevViewProj;    // viewProj of the frame that wrote _ReservoirPrev
-int       _RestirHistoryValid;
-float4    _RestirParams;    // x max history M (<= 4095), y min normal cosine, z plane tolerance (x ray t), w spatial radius (px)
-int       _RestirSpatial;   // extra neighbour reservoirs taken from the previous frame (0 = temporal only)
-// Lights that changed since the previous frame (LightSampling.cs, docs/light-sampling.md "Light changes"): per change,
-// 8 x float4 = the light's packed data last frame (zero colour: it is new) and this frame (zero colour: it is gone).
-// The history M cap is shortened only where these changes matter (RestirChangeCap).
-StructuredBuffer<float4>  _LightChanges;
-int       _LightChangeCount;
-float     _LightChangeTolerance; // share of a pixel's direct light that may be stale before its history is shortened
-int       _RestirFreshCandidates; // extra RIS candidates for a pixel whose temporal history failed (disocclusion, screen edge)
-float     _RestirOccludedCap;     // most M an occluded (W = 0) history may carry (docs/light-sampling.md, "Penumbrae")
-int       _RestirOccludedRetest;  // 1: an occluded temporal history re-tests its sample's visibility instead of the cap
-float     _RestirRetestCap;       // most M a re-tested history that is blocked again may carry, unless it is in an umbra
-int       _RestirRetestUmbra;     // 1: blocked again and the light's centre blocked too (an umbra): the history keeps its M
-// Visibility reuse (the old ReSTIR history): 1 = an occluded final sample is stored with W = 0 (and its M capped by
-// _RestirOccludedCap), so the history carries the pixel's visibility. Biased bright wherever lights compete with shadowed
-// ones (docs/light-sampling.md, "Bias"). 0 = the history keeps the sample's unshadowed W and every frame traces its own
-// visibility: plain temporal RIS reuse, unbiased.
-int       _RestirVisReuse;
-// Visibility memory (docs/light-sampling.md, "Visibility memory"): per pixel, up to 3 lights with a running count of their
-// shadow-ray outcomes. The RIS target becomes p_hat * Vbar (Vbar = (visible + 1) / (tests + 2)), so a light that is blocked
-// at this pixel (8-2's sun on the skylight room's walls) stops taking the samples of the lights that reach it. The
-// estimate stays unbiased: Vbar > 0, and the shading traces the real visibility. Stored next to the reservoir
-// (_ReservoirStride 2: element 2i is the reservoir, 2i + 1 the memory).
-int       _VisMemory;          // 1: use and update the memory at the primary hit
-int       _VisMemoryValid;     // the previous frame's memory may be read
-int       _ReservoirStride;    // elements per pixel in _ReservoirPrev / _ReservoirCur (1 or 2)
-
 // Moving occluders (docs/denoiser.md, "Moving shadows"): world AABBs of dynamic objects that moved in the last frames (the
 // player's third-person model first, then the nearest moving enemies and props), each the union of this frame's and the
 // previous frame's bounds, as min, max pairs. A shadow ray that crosses one may be shadowed differently than last frame:
-// ReSTIR drops occluded history whose sample crosses one, and PathTrace flags the pixel for the denoiser's targeted
-// anti-lag. Only PathTrace defines ULTRART_MOVERS (other includers never see these globals).
+// PathTrace flags the pixel for the denoiser's targeted anti-lag. Only PathTrace defines ULTRART_MOVERS (other includers never see these globals).
 #ifdef ULTRART_MOVERS
 StructuredBuffer<float4> _UltraRTMovers;
 int _UltraRTMoverCount;
-static bool g_MoverShadow = false; // the primary hit's light sample (or its dropped history) crossed a moving occluder
+static bool g_MoverShadow = false; // the primary hit's light sample crossed a moving occluder
 // Player shadow split (docs/denoiser.md, "Moving shadows"): with _UltraRTPlayerSplit, the primary hit's final shadow ray
-// ignores V1's model, so the denoised lighting (and ReSTIR's visibility reuse) never holds the player's shadow; a second
+// ignores V1's model, so the denoised lighting never holds the player's shadow; a second
 // ray against V1 alone (only where the sample's segment crosses V1's box) gives the light it blocks, which the denoiser
 // applies after filtering as a lightly filtered factor. g_PlayerBlocked is that light (lighting units, x _LightScale).
 int _UltraRTPlayerSplit;
@@ -144,10 +102,8 @@ StructuredBuffer<uint>   _EmissiveActive;  // one bit per triangle: its surface 
 int      _EmissiveCount;        // entries in _EmissiveAlias (0 = no emissive candidates)
 int      _EmissiveTriCount;     // triangles in _EmissiveTris
 int      _EmissiveRefSamples;   // reference mode: emissive samples (one shadow ray each) per primary hit
-int      _EmissiveHistoryValid; // 0 when triangle indices changed since the previous frame: drop emissive history
 float4   _EmissiveParams;       // x P(a RIS candidate is emissive), y EmissiveLightScale / pi, z min squared distance
 float    _EmissiveBounceWeight; // weight of hit emission on bounce rays (0 while emissive triangles are sampled directly)
-float    _EmissiveHybridAdd;    // hybrid: emissive direct light added on top of the game's colour (via the bounce channel)
 
 // ---------------------------------------------------------------- light model
 
@@ -533,7 +489,7 @@ float3 LightFrom(uint i, float3 p, float3 n, uint layer)
 // ---------------------------------------------------------------- emissive triangles
 
 // The point on a triangle: 10-bit stratum centres folded into the triangle, so it is uniform over the triangle's area
-// and exactly reproducible from the 20 bits stored in the reservoir.
+// and exactly reproducible from 20 bits.
 float2 EmissiveBary(uint bary)
 {
     float2 b = (float2(bary & 0x3FFu, (bary >> 10) & 0x3FFu) + 0.5) * (1.0 / 1024.0);
@@ -722,61 +678,6 @@ void ReservoirAdd(inout Reservoir r, uint light, uint bary, float w, float M, fl
     }
 }
 
-// ---------------------------------------------------------------- visibility memory
-
-// Slots of this pixel's memory (light index | visible count << 16 | test count << 20; light 0xFFFF = empty), loaded by
-// VisLoad from the previous frame and updated by VisObserve. Only the primary hit's light selection uses them
-// (g_VisActive): bounce hits, the cache and the other shaders see Vbar = 1.
-static uint3 g_VisSlot = uint3(0xFFFFu, 0xFFFFu, 0xFFFFu);
-static bool  g_VisActive = false;
-static bool  g_VisLoaded = false;
-#define ULTRART_VIS_MAX 15u
-
-float VisEstimate(uint s)
-{
-    float v = (float)((s >> 16) & 0xFu), n = (float)((s >> 20) & 0xFu);
-    return (v + 1.0) / (n + 2.0);
-}
-
-// Vbar of light code `light` at this pixel (1 when it has no slot). A light whose shadow segment crosses a moving occluder
-// may have been blocked by it: its memory is stale, so it gets at least 1/2.
-float VisFactor(uint light, float3 p, float3 L, float dist)
-{
-    if (!g_VisActive) return 1.0;
-    float f = 1.0;
-    [unroll] for (uint k = 0; k < 3; k++)
-        if ((g_VisSlot[k] & 0xFFFFu) == light) f = VisEstimate(g_VisSlot[k]);
-#ifdef ULTRART_MOVERS
-    if (f < 0.5 && _UltraRTMoverCount > 0) { if (MoverCrosses(p, L, dist)) f = 0.5; }
-#endif
-    return f;
-}
-
-// The outcome of the final shadow ray toward light code `light`: counted in its slot, or (blocked, no slot) given the slot
-// that says least (the highest Vbar; an empty slot first). Emitter samples are not remembered (thousands of triangles).
-void VisObserve(uint light, bool visible)
-{
-    if (!g_VisActive || (light & ULTRART_EMISSIVE) != 0u || light >= 0xFFFFu) return;
-    int hit = -1, worst = 0;
-    float worstV = -1.0;
-    [unroll] for (int k = 0; k < 3; k++)
-    {
-        uint s = g_VisSlot[k];
-        if ((s & 0xFFFFu) == light) hit = k;
-        float v = (s & 0xFFFFu) == 0xFFFFu ? 2.0 : VisEstimate(s);
-        if (v > worstV) { worstV = v; worst = k; }
-    }
-    if (hit < 0)
-    {
-        if (!visible) g_VisSlot[worst] = light | (1u << 20);
-        return;
-    }
-    uint s = g_VisSlot[hit];
-    uint v = ((s >> 16) & 0xFu) + (visible ? 1u : 0u), n = ((s >> 20) & 0xFu) + 1u;
-    if (n > ULTRART_VIS_MAX) { n = (n + 1u) >> 1; v = (v + 1u) >> 1; }
-    g_VisSlot[hit] = light | (min(v, n) << 16) | (n << 20);
-}
-
 // Unbiased contribution weight W = wSum / (M * pHat(y)); the estimate is f(y) V(y) W.
 float ReservoirW(Reservoir r)
 {
@@ -827,7 +728,7 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
             code = li;
             if (pdf > 0.0 && LightEval(li, p, n, layer, L, dist, c))
             {
-                pHat = LightLuminance(c) * VisFactor(li, p, L, dist);
+                pHat = LightLuminance(c);
                 w = pHat / ((1.0 - share) * pdf);
             }
         }
@@ -843,364 +744,32 @@ bool SampleVisible(Reservoir r, float3 p, float3 n)
     return VisibleTo(r.light, p, n, r.L, r.dist);
 }
 
-// ---------------------------------------------------------------- temporal reuse
-
-#define ULTRART_OCT_MAX 2047.0 // 11 bits per component
-
-uint2 OctEncode11(float3 n)
-{
-    n /= abs(n.x) + abs(n.y) + abs(n.z);
-    float2 e = n.xy;
-    if (n.z < 0.0) e = (1.0 - abs(n.yx)) * float2(n.x >= 0.0 ? 1.0 : -1.0, n.y >= 0.0 ? 1.0 : -1.0);
-    return (uint2)round(saturate(e * 0.5 + 0.5) * ULTRART_OCT_MAX);
-}
-
-float3 OctDecode11(uint2 q)
-{
-    float2 e = (float2)q / ULTRART_OCT_MAX * 2.0 - 1.0;
-    float3 n = float3(e, 1.0 - abs(e.x) - abs(e.y));
-    float t = saturate(-n.z);
-    n.x += n.x >= 0.0 ? -t : t;
-    n.y += n.y >= 0.0 ? -t : t;
-    return normalize(n);
-}
-
-uint RestirIndex(uint2 q, uint2 dim) { return (q.y * dim.x + q.x) * (uint)max(_ReservoirStride, 1); }
-
-// W is the sample's unshadowed contribution weight; x bit 17 flags that its final shadow ray was blocked (the history then
-// counts as W = 0 unless it is re-tested: docs/light-sampling.md, "Occluded history").
-uint4 RestirPack(Reservoir r, float M, float W, bool occluded, float3 n, float3 pos)
-{
-    uint2 oct = OctEncode11(n);
-    float3 nq = OctDecode11(oct); // the plane is stored against the quantised normal, so the test is exact
-    uint m = min((uint)round(M), 4095u);
-    uint bary = (r.light & ULTRART_EMISSIVE) != 0u ? r.bary : 0u;
-    return uint4(
-        (r.light & 0x1FFFFu) | (occluded ? (1u << 17) : 0u) | (m << 20),
-        (asuint(W) & ~0x3FFu) | (bary & 0x3FFu), // W keeps 13 mantissa bits (relative error < 1.3e-4)
-        oct.x | (oct.y << 11) | (((bary >> 10) & 0x3FFu) << 22),
-        asuint(dot(nq, pos)));
-}
-
-float  RestirM(uint4 h) { return (float)(h.x >> 20); }
-uint   RestirLight(uint4 h) { return h.x & 0x1FFFFu; }
-bool   RestirOccludedFlag(uint4 h) { return ((h.x >> 17) & 1u) != 0u; }
-float  RestirW(uint4 h) { return asfloat(h.y & ~0x3FFu); }
-uint   RestirBary(uint4 h) { return (h.y & 0x3FFu) | ((h.z >> 22) << 10); }
-float3 RestirNormal(uint4 h) { return OctDecode11(uint2(h.z & 0x7FFu, (h.z >> 11) & 0x7FFu)); }
-
-// Sky / no surface: an entry that is never reused (M = 0), and an empty visibility memory.
-void RestirWriteEmpty(uint2 id, uint2 dim)
-{
-    if (_LightSampling >= 2) _ReservoirCur[RestirIndex(id, dim)] = uint4(ULTRART_NO_LIGHT, 0u, 0u, 0u);
-    if (_VisMemory != 0) _ReservoirCur[RestirIndex(id, dim) + 1] = uint4(0xFFFFu, 0xFFFFu, 0xFFFFu, 0u);
-}
-
-// Visibility memory record: x, y, z = slots (24 bits each), their top bytes the surface normal (oct, 2 x 8 bits) for
-// validation; w = asuint(dot(normal, pos)).
-uint4 VisPack(float3 n, float3 pos)
-{
-    float3 a = n / (abs(n.x) + abs(n.y) + abs(n.z));
-    float2 e = a.xy;
-    if (a.z < 0.0) e = (1.0 - abs(a.yx)) * float2(a.x >= 0.0 ? 1.0 : -1.0, a.y >= 0.0 ? 1.0 : -1.0);
-    uint2 q = (uint2)round(saturate(e * 0.5 + 0.5) * 255.0);
-    float3 nq = OctDecode11(uint2(round((float2)q / 255.0 * ULTRART_OCT_MAX)));
-    return uint4((g_VisSlot.x & 0xFFFFFFu) | (q.x << 24), (g_VisSlot.y & 0xFFFFFFu) | (q.y << 24),
-                  g_VisSlot.z & 0xFFFFFFu, asuint(dot(nq, pos)));
-}
-
-bool VisMatch(uint4 h, float3 pos, float3 n, float t)
-{
-    float3 nh = OctDecode11(uint2(round(float2(h.x >> 24, h.y >> 24) / 255.0 * ULTRART_OCT_MAX)));
-    if (dot(n, nh) < _RestirParams.y) return false;
-    return abs(dot(nh, pos) - asfloat(h.w)) <= _RestirParams.z * t + 0.01;
-}
-
-// Does the previous frame's reservoir h belong to (roughly) the same surface as (pos, n)?
-bool RestirMatch(uint4 h, float3 pos, float3 n, float t)
-{
-    if (!(RestirM(h) > 0.0)) return false;
-    float3 nh = RestirNormal(h);
-    if (dot(n, nh) < _RestirParams.y) return false;
-    return abs(dot(nh, pos) - asfloat(h.w)) <= _RestirParams.z * t + 0.01;
-}
-
-// Merge a previous-frame reservoir into r, re-targeting its sample at the current pixel (biased 1/M combine).
-static float g_RestirCap = 1.0;
-
-bool RestirMerge(inout Reservoir r, uint4 h, float3 pos, float3 n, uint layer, inout uint rng, bool temporalHistory)
-{
-    float M = min(RestirM(h), g_RestirCap);
-    float Wh = RestirW(h);
-    // Without visibility reuse the stored W is the unshadowed one and the occluded flag is ignored: this frame's shadow
-    // ray decides (a W of 0 is a history that found no light, which counts its M as below).
-    bool occluded = _RestirVisReuse != 0 && (RestirOccludedFlag(h) || !(Wh > 0.0));
-    // Visibility reuse: an occluded history stands for M samples that received nothing. With soft shadows that is one
-    // random draw, though: in a penumbra it held the pixel dark for up to the whole history.
-    //  - Re-test (temporal history, _RestirOccludedRetest): one shadow ray to the stored sample from here, this frame. Blocked
-    //    again: the history keeps its M with W = 0 (an umbra stays dark and keeps the pixel's memory of its visible lights);
-    //    visible: it counts as a normal history with its stored (unshadowed) W. A penumbra re-draws visibility every frame.
-    //  - Otherwise (spatial neighbours, or re-test off): the history counts at most _RestirOccludedCap samples. In an umbra
-    //    that threw the pixel's memory away each time the occluded light won RIS again (8-2's skylight room boiled).
-    bool retest = occluded && temporalHistory && _RestirOccludedRetest != 0 && Wh > 0.0;
-    if (occluded && !retest) { M = min(M, _RestirOccludedCap); Wh = 0.0; }
-    uint prevLight = RestirLight(h);
-    uint light = ULTRART_NO_LIGHT;
-    uint bary = 0;
-    float3 L = 0, c = 0;
-    float dist = 0;
-    float w = 0, pHat = 0;
-    if ((prevLight & ULTRART_EMISSIVE) != 0u)
-    {
-        // Triangle indices are stable while _EmissiveHistoryValid. A triangle whose surface left the RTAS (room hidden,
-        // object destroyed) is dropped like a light that is gone.
-        uint tri = prevLight & 0xFFFFu;
-        if (_EmissiveHistoryValid == 0 || !EmissiveActive(tri)) return false;
-        light = prevLight;
-        bary = RestirBary(h);
-        float area;
-        if (EmissiveEval(tri, bary, pos, n, L, dist, c, area)) { pHat = LightLuminance(c); w = pHat * Wh * M; }
-    }
-    else if (prevLight != ULTRART_NO_LIGHT)
-    {
-        if (prevLight >= (uint)_PrevLightCount) return false;
-        light = _LightRemap[prevLight];
-        // The light is gone (switched off with its room, destroyed): this history describes a light set that
-        // no longer exists, so drop it rather than count its M with zero weight.
-        if (light == ULTRART_NO_LIGHT) return false;
-        if (LightEval(light, pos, n, layer, L, dist, c)) { pHat = LightLuminance(c) * VisFactor(light, pos, L, dist); w = pHat * Wh * M; }
-    }
-    if (retest && w > 0.0)
-    {
-        // The same ray the final shading traces (with the player split, V1 is left out as there).
-        uint playerMask = g_ShadowPlayerMask;
-#ifdef ULTRART_MOVERS
-        if (_UltraRTPlayerSplit != 0 && _Mode == 0) g_ShadowPlayerMask = 0u;
-#endif
-        bool emitter = (light & ULTRART_EMISSIVE) != 0u;
-        bool vis = VisibleTo(light, pos, n, L, dist);
-        // Blocked twice in a row. An umbra (the light's centre is blocked as well) keeps the full M; a penumbra (or an
-        // emitter) is capped, or one more blocked draw would hold it dark for the whole history.
-        bool umbra = false;
-        [branch] if (!vis && !emitter && _RestirRetestUmbra != 0) umbra = !LightCentreVisible(light, pos, n, L, dist);
-        g_ShadowPlayerMask = playerMask;
-        if (!vis) { w = 0.0; Wh = 0.0; if (!umbra) M = min(M, _RestirRetestCap); }
-    }
-    else if (retest) Wh = 0.0;
-#ifdef ULTRART_MOVERS
-    // The history's shadow ray crosses a moving occluder: its visibility (W = 0 when it was occluded) is stale. Occluded
-    // history is dropped (the player's shadow moving away would otherwise linger for up to historyLimit frames of M);
-    // visible history is kept at the fresh candidates' weight (the final shadow ray re-tests it if it wins).
-    if (_UltraRTMoverCount > 0 && light != ULTRART_NO_LIGHT && dist > 0.0 && MoverCrosses(pos, L, dist))
-    {
-        g_MoverShadow = true;
-        if (!(Wh > 0.0)) return false;
-        float capM = (float)_RisCandidates;
-        if (M > capM) { w *= capM / M; M = capM; }
-    }
-#endif
-    // A history with no light (or W = 0 because its sample was occluded) still counts its M: it is evidence
-    // that this pixel receives nothing from those samples. See docs/light-sampling.md.
-    ReservoirAdd(r, light, bary, w, M, c, L, dist, Rand(rng), pHat);
-    return true;
-}
-
-// World-space motion of the primary hit (previous position - current), set by the ray generation shader from the hit's
-// packed motion (docs/denoiser.md). Reprojection and the plane test use pos + motion; the merge evaluates at pos.
-static float3 g_PrimaryMotion = 0;
-// Primary hits seen through a portal (UltraRTPortals.hlsl): reprojection and the stored reservoir plane use the
-// camera-side point and normal (where the camera sees the hit; g_PrimaryMotion is in that space too), while lights are
-// evaluated at the real hit. Set by PathTrace's ray generation.
-static bool   g_PrimaryVirtual = false;
-static float3 g_PrimaryVirtualPos = 0;
-static float3 g_PrimaryVirtualN = 0;
-
-// History M cap at this pixel. Lights that appeared, disappeared, changed brightness or moved since the previous frame
-// leave the history describing a different light set. rho = how much of this pixel's direct light changed (the sum of
-// |p_now - p_before| over the changes, against the fresh candidates' estimate of the total, wSum / M). The history may
-// keep at most a share tol / rho of the merged reservoir, i.e. cap = M_fresh * h / (1 - h), h = tol / rho. Pixels the
-// changes don't reach keep their full history (a muzzle flash no longer resets ReSTIR over the whole screen).
-float RestirChangeCap(Reservoir fresh, float3 pos, float3 n)
-{
-    float cap = _RestirParams.x;
-    if (_LightChangeCount <= 0) return cap;
-    float delta = 0, before = 0;
-    for (int k = 0; k < _LightChangeCount; k++)
-    {
-        float3 L, c0, c1;
-        float d;
-        uint b = (uint)k * 8u;
-        LightEvalRaw(_LightChanges[b], _LightChanges[b + 1], _LightChanges[b + 2], _LightChanges[b + 3], pos, n, L, d, c0);
-        LightEvalRaw(_LightChanges[b + 4], _LightChanges[b + 5], _LightChanges[b + 6], _LightChanges[b + 7], pos, n, L, d, c1);
-        float l0 = LightLuminance(c0), l1 = LightLuminance(c1);
-        delta += abs(l1 - l0);
-        before += l0;
-    }
-    float total = (fresh.M > 0.0 ? fresh.wSum / fresh.M : 0.0) + before;
-    float rho = delta / max(total, 1e-6);
-    if (rho <= _LightChangeTolerance) return cap;
-    float h = saturate(_LightChangeTolerance / rho);
-    float m = max(fresh.M, 1.0);
-    return clamp(m * h / max(1.0 - h, 1e-3), m, cap);
-}
-
-// The primary hit in the previous frame: its pixel (pp, continuous), and the point and normal the stored planes use.
-bool RestirReproject(uint2 dim, float3 pos, float3 n, out float2 pp, out float3 prevPos, out float3 vn)
-{
-    vn = g_PrimaryVirtual ? g_PrimaryVirtualN : n;
-    prevPos = (g_PrimaryVirtual ? g_PrimaryVirtualPos : pos) + g_PrimaryMotion;
-    pp = 0;
-    float4 pc = mul(_PrevViewProj, float4(prevPos, 1.0));
-    if (pc.w <= 1e-6) return false;
-    pp = (pc.xy / pc.w * 0.5 + 0.5) * (float2)dim;
-    return true;
-}
-
-// This pixel's visibility memory, from the previous frame (nearest pixel, validated like a reservoir, light indices
-// remapped to this frame's). Once per primary hit: further DirectLighting calls (pathtrace's extra samples) keep it.
-void VisLoad(uint2 dim, float3 pos, float3 n, float t)
-{
-    g_VisActive = _VisMemory != 0;
-    if (g_VisLoaded) return;
-    g_VisLoaded = true;
-    g_VisSlot = uint3(0xFFFFu, 0xFFFFu, 0xFFFFu);
-    if (!g_VisActive || _VisMemoryValid == 0) return;
-    float2 pp;
-    float3 prevPos, vn;
-    if (!RestirReproject(dim, pos, n, pp, prevPos, vn) || any(pp < 0.0) || any(pp >= (float2)dim)) return;
-    uint4 h = _ReservoirPrev[RestirIndex((uint2)pp, dim) + 1];
-    if (!VisMatch(h, prevPos, vn, t)) return;
-    [unroll] for (uint k = 0; k < 3; k++)
-    {
-        uint s = h[k] & 0xFFFFFFu;
-        uint li = s & 0xFFFFu;
-        if (li == 0xFFFFu || li >= (uint)_PrevLightCount) continue;
-        uint cur = _LightRemap[li];
-        if (cur != ULTRART_NO_LIGHT) g_VisSlot[k] = cur | (s & 0xFF0000u);
-    }
-}
-
-// Returns whether the temporal (reprojected) reservoir was merged.
-bool RestirReuse(inout Reservoir r, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
-{
-    if (_RestirHistoryValid == 0) return false;
-    g_RestirCap = RestirChangeCap(r, pos, n);
-    float2 pp;
-    float3 prevPos, vn;
-    if (!RestirReproject(dim, pos, n, pp, prevPos, vn)) return false;
-
-    bool merged = false;
-    if (all(pp >= 0.0) && all(pp < (float2)dim))
-    {
-        uint4 h = _ReservoirPrev[RestirIndex((uint2)pp, dim)];
-        if (RestirMatch(h, prevPos, vn, t)) merged = RestirMerge(r, h, pos, n, layer, rng, true);
-    }
-
-    for (int k = 0; k < _RestirSpatial; k++)
-    {
-        float a = Rand(rng) * 6.28318530718;
-        float rad = sqrt(Rand(rng)) * _RestirParams.w;
-        float2 q = pp + float2(cos(a), sin(a)) * rad;
-        if (any(q < 0.0) || any(q >= (float2)dim)) continue;
-        uint4 h = _ReservoirPrev[RestirIndex((uint2)q, dim)];
-        if (RestirMatch(h, prevPos, vn, t)) RestirMerge(r, h, pos, n, layer, rng, false);
-    }
-    return merged;
-}
-
-// Merge reservoir b (its own wSum and M) into a.
-void ReservoirCombine(inout Reservoir a, Reservoir b, float u)
-{
-    a.wSum += b.wSum;
-    a.M += b.M;
-    if (b.wSum > 0.0 && u * a.wSum < b.wSum)
-    {
-        a.light = b.light; a.bary = b.bary; a.pHat = b.pHat;
-        a.c = b.c; a.L = b.L; a.dist = b.dist;
-    }
-}
-
 // ---------------------------------------------------------------- entry points
 
-// The unshadowed counterpart of the last DirectLighting() result (same samples, no visibility). The hybrid composite
-// uses shadowed / unshadowed as its shadow ratio, so it needs no separate loop over every light.
-static float3 g_DirectUnshadowed;
-// The emissive-triangle part of the last DirectLighting() result (shadowed, scaled), for the hybrid's additive term.
-static float3 g_DirectEmissive;
-// The part from lights the game doesn't draw (virtual effect lights, [3].w > 0), shadowed, scaled and weighted.
-static float3 g_DirectAdditive;
-
-float LightHybridWeight(uint i) { return _Lights[i * 4 + 3].w; }
-
-// Hybrid with a per-texel detail normal (docs/materials.md): DirectLighting gets the vertex normal (sampling, reservoirs,
-// the unshadowed denominator: the game lit the surface with it) and the shadowed result is re-shaded with this normal,
-// so the composite's shadowed / unshadowed ratio carries the per-texel shading. Zero = off (every other caller).
-static float3 g_DetailN = 0;
-
-// With g_DetailN: the shadowed direct light at the vertex normal (what DirectLighting returns without detail).
-static float3 g_DirectVertex;
-
-// c (a light's contribution at normal n from direction L) re-shaded with the detail normal.
-float DetailScale(float3 n, float3 L)
+// Direct light at the primary hit.
+float3 DirectLighting(float3 pos, float3 n, uint layer, inout uint rng)
 {
-    if (!any(g_DetailN != 0.0)) return 1.0;
-    return saturate(dot(g_DetailN, L)) / max(dot(n, L), 1e-4);
-}
-
-// Direct light at the primary hit. Writes this pixel's reservoir when temporal reuse is on.
-float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint layer, inout uint rng)
-{
-    g_DirectEmissive = 0;
-    g_DirectAdditive = 0;
-    g_DirectVertex = 0;
     if (_LightSampling <= 0)
     {
-        float3 shadowed = 0, unshadowed = 0;
+        float3 shadowed = 0;
         for (int i = 0; i < _LightCount; i++)
         {
             float3 L, c;
             float dist;
             if (!LightEval((uint)i, pos, n, layer, L, dist, c)) continue;
-            unshadowed += c;
             bool lit = LightUnshadowed((uint)i);
             float3 tint = 1.0;
             if (!lit) { lit = LightVisible((uint)i, pos, n, L, dist); tint = g_ShadowTint; } // not ||: it does not short-circuit
-            if (lit)
-            {
-                c *= tint;
-                float3 cd = c * DetailScale(n, L);
-                g_DirectVertex += c * _LightScale;
-                shadowed += cd;
-                g_DirectAdditive += cd * (LightHybridWeight((uint)i) * _LightScale);
-            }
+            if (lit) shadowed += c * tint;
         }
         float3 emUnshadowed;
         float3 em = EmissiveDirect(pos, n, _EmissiveRefSamples, rng, emUnshadowed);
-        g_DirectEmissive = em * _LightScale;
-        g_DirectUnshadowed = (unshadowed + emUnshadowed) * _LightScale;
-        g_DirectVertex += em * _LightScale;
         return (shadowed + em) * _LightScale;
     }
 
     float3 sum = FillLighting(pos, n, layer);
-    float3 unshadowedSum = sum;
-    float3 vertexSum = sum;
-    if (any(g_DetailN != 0.0)) sum = FillLighting(pos, g_DetailN, layer);
-    VisLoad(dim, pos, n, t);
     Reservoir r = RisCandidates(pos, n, layer, _RisCandidates, rng);
-    bool temporal = _LightSampling >= 2;
-    // A pixel without temporal history (disocclusion, screen edge in motion, first frame) would otherwise show an
-    // 8-candidate RIS sample: give it more candidates (light evaluations only, no extra rays).
-    // Nested ifs: && does not short-circuit (RestirReuse ran in RIS mode too, its result unused).
-    [branch] if (temporal)
-    {
-        if (!RestirReuse(r, dim, pos, n, t, layer, rng) && _RestirFreshCandidates > 0)
-            ReservoirCombine(r, RisCandidates(pos, n, layer, _RestirFreshCandidates, rng), Rand(rng));
-    }
-
     float W = ReservoirW(r);
-    float storedW = W;     // the history keeps the unshadowed W, flagged when occluded (re-tested next frame)
-    bool occludedFinal = false;
 #ifdef ULTRART_MOVERS
     if (W > 0.0 && _UltraRTMoverCount > 0 && MoverCrosses(pos, r.L, r.dist)) g_MoverShadow = true;
 #endif
@@ -1211,16 +780,8 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
 #endif
     if (W > 0.0)
     {
-        unshadowedSum += r.c * W;
-        // With visibility reuse, occluded samples are stored with W = 0 so they stop propagating.
         bool visible = SampleVisible(r, pos, n);
         float3 tint = g_ShadowTint;
-        // Visibility memory: a blocked or clear draw toward this light (not one a moving occluder may have decided).
-        bool observe = true;
-#ifdef ULTRART_MOVERS
-        if (_UltraRTMoverCount > 0 && MoverCrosses(pos, r.L, r.dist)) observe = false;
-#endif
-        if (observe) VisObserve(r.light, visible);
 #ifdef ULTRART_MOVERS
         if (split && visible)
         {
@@ -1243,40 +804,16 @@ float3 DirectLighting(uint2 id, uint2 dim, float3 pos, float3 n, float t, uint l
                 sp.t = 1.0;
                 ULTRART_COUNT_RAY(ULTRART_RAY_PLAYER_SHADOW);
                 TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ULTRART_MASK_PLAYER, 0, 1, 0, pr, sp);
-                if (sp.t >= 0.0) g_PlayerBlocked = r.c * (W * DetailScale(n, r.L) * _LightScale);
+                if (sp.t >= 0.0) g_PlayerBlocked = r.c * (W * _LightScale);
             }
         }
 #endif
-        if (visible)
-        {
-            float3 cd = r.c * tint * (W * DetailScale(n, r.L));
-            vertexSum += r.c * tint * W;
-            sum += cd;
-            if ((r.light & ULTRART_EMISSIVE) != 0u) g_DirectEmissive = cd * _LightScale;
-            else g_DirectAdditive = cd * (_LightScale * LightHybridWeight(r.light));
-        }
-        else { W = 0.0; occludedFinal = true; }
+        if (visible) sum += r.c * tint * W;
     }
 
 #ifdef ULTRART_MOVERS
     if (split) g_ShadowPlayerMask = playerMask;
 #endif
-    if (temporal) _ReservoirCur[RestirIndex(id, dim)] = RestirPack(r, min(r.M, _RestirParams.x),
-        _RestirOccludedRetest != 0 || _RestirVisReuse == 0 ? storedW : W, occludedFinal,
-        g_PrimaryVirtual ? g_PrimaryVirtualN : n, g_PrimaryVirtual ? g_PrimaryVirtualPos : pos);
-    if (g_VisActive) _ReservoirCur[RestirIndex(id, dim) + 1] =
-        VisPack(g_PrimaryVirtual ? g_PrimaryVirtualN : n, g_PrimaryVirtual ? g_PrimaryVirtualPos : pos);
-    g_VisActive = false; // bounce hits and reflections: plain targets
-    if (_VisMemory == 2)
-    {
-        // Debug (ls.visibilityDebug): red = lowest remembered Vbar, green = remembered lights / 3.
-        float lo = 1.0, used = 0.0;
-        [unroll] for (uint k = 0; k < 3; k++)
-            if ((g_VisSlot[k] & 0xFFFFu) != 0xFFFFu) { lo = min(lo, VisEstimate(g_VisSlot[k])); used += 1.0; }
-        return float3(lo, used / 3.0, 0.0);
-    }
-    g_DirectUnshadowed = unshadowedSum * _LightScale;
-    g_DirectVertex = vertexSum * _LightScale;
     return sum * _LightScale;
 }
 

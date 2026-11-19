@@ -24,11 +24,11 @@ namespace UltraRT
     /// <summary>Which radiance cache value matches the denoiser's input (set per frame by the plugin).</summary>
     public enum DenoiserCacheChannel
     {
-        /// <summary>No cache seed (inputs the cache has no equivalent for, e.g. hybrid's direct luminance pair).</summary>
+        /// <summary>No cache seed.</summary>
         None = 0,
         /// <summary>Direct + indirect at the surface (PathTrace _Mode 0: full lighting).</summary>
         Total = 1,
-        /// <summary>Indirect only (PathTrace _Mode 3: hybrid's bounce channel).</summary>
+        /// <summary>Indirect only (unused since the hybrid mode, whose bounce channel it was, went on 2026-11-19).</summary>
         Indirect = 2,
     }
 
@@ -55,8 +55,9 @@ namespace UltraRT
         /// <summary>Frame rate the blend factors (alphaMin, stabilizeAlphaMin) are meant for. At other frame rates they are
         /// rescaled to the same time constant: 1 - (1 - alpha)^(referenceHz * dt). 0 = per frame, whatever the frame rate.</summary>
         public float referenceHz = 360f;
-        /// <summary>The a-trous variance never drops below this x the input's 3x3 spatial variance (0 = plain SVGF). Needed
-        /// for ReSTIR's temporally correlated direct-light noise, which the temporal moments don't see.</summary>
+        /// <summary>The a-trous variance never drops below this x the input's 3x3 spatial variance (0 = plain SVGF). Added
+        /// for ReSTIR's temporally correlated direct-light noise (ReSTIR went on 2026-11-19), which the temporal moments
+        /// don't see; kept at its default, which the measurements since were made with.</summary>
         public float spatialVarianceFloor = 2f;
         /// <summary>A-trous normal weight exponent: pow(max(0, dot(n, nq)), phiNormal).</summary>
         public float phiNormal = 128f;

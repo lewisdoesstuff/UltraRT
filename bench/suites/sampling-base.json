@@ -12,7 +12,6 @@
    "Modes": [
     "off",
     "relight",
-    "relight+ls.occludedHistory=0",
     "relight+lights=ris",
     "relight+lights=ris+ls.candidates=16",
     "relight+lights=ref"
@@ -25,7 +24,6 @@
    "BurstModes": [
     "off",
     "relight+vol=0",
-    "relight+vol=0+ls.occludedHistory=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.candidates=16",
     "relight+vol=0+lights=ref"
@@ -43,7 +41,6 @@
    "Modes": [
     "off",
     "relight",
-    "relight+ls.occludedHistory=0",
     "relight+lights=ris",
     "relight+lights=ris+ls.candidates=16",
     "relight+lights=ref"
@@ -56,7 +53,6 @@
    "BurstModes": [
     "off",
     "relight+vol=0",
-    "relight+vol=0+ls.occludedHistory=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.candidates=16",
     "relight+vol=0+lights=ref"
@@ -73,7 +69,6 @@
    "Modes": [
     "off",
     "relight",
-    "relight+ls.occludedHistory=0",
     "relight+lights=ris",
     "relight+lights=ris+ls.candidates=16",
     "relight+lights=ref"
@@ -86,7 +81,6 @@
    "BurstModes": [
     "off",
     "relight+vol=0",
-    "relight+vol=0+ls.occludedHistory=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.candidates=16",
     "relight+vol=0+lights=ref"
@@ -103,7 +97,6 @@
    "Modes": [
     "off",
     "relight",
-    "relight+ls.occludedHistory=0",
     "relight+lights=ris",
     "relight+lights=ris+ls.candidates=16",
     "relight+lights=ref"
@@ -116,7 +109,6 @@
    "BurstModes": [
     "off",
     "relight+vol=0",
-    "relight+vol=0+ls.occludedHistory=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.candidates=16",
     "relight+vol=0+lights=ref"
@@ -133,7 +125,6 @@
    "Modes": [
     "off",
     "relight",
-    "relight+ls.occludedHistory=0",
     "relight+lights=ris",
     "relight+lights=ris+ls.candidates=16",
     "relight+lights=ref"
@@ -146,7 +137,6 @@
    "BurstModes": [
     "off",
     "relight+vol=0",
-    "relight+vol=0+ls.occludedHistory=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.candidates=16",
     "relight+vol=0+lights=ref"
@@ -164,7 +154,6 @@
    "Modes": [
     "off",
     "relight",
-    "relight+ls.occludedHistory=0",
     "relight+lights=ris",
     "relight+lights=ris+ls.candidates=16",
     "relight+lights=ref"
@@ -177,7 +166,6 @@
    "BurstModes": [
     "off",
     "relight+vol=0",
-    "relight+vol=0+ls.occludedHistory=0",
     "relight+vol=0+lights=ris",
     "relight+vol=0+lights=ris+ls.candidates=16",
     "relight+vol=0+lights=ref"

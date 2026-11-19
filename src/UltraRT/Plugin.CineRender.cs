@@ -145,8 +145,7 @@ namespace UltraRT
                     pt.paths = pt.pathsOwn = Mathf.Clamp(o.paths, 1, 4);
                     pt.bounces = Mathf.Clamp(o.bounces, 1, 4);
                     pt.cacheTail = o.cacheTail;
-                    if (_lightSamplingSettings.mode == LightSamplingMode.ReSTIR) _lightSamplingSettings.mode = LightSamplingMode.Ris;
-                    foreach (var dn in new[] { _denoiser?.Settings, _denoiserDirect?.Settings })
+                    foreach (var dn in new[] { _denoiser?.Settings })
                     {
                         if (dn == null) continue;
                         dn.iterations = 0; dn.alphaMin = 0f; dn.maxHistory = 255; dn.clampHistory = false;
@@ -281,7 +280,6 @@ namespace UltraRT
                         {
                             // A new accumulation: the denoiser, the reflection filter and the light sampler start over.
                             _denoiser?.Reset();
-                            _denoiserDirect?.Reset();
                             _reflFilter?.Reset();
                             _lightSampling?.Reset();
                         }
