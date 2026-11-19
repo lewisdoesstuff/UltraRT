@@ -17,7 +17,7 @@ namespace UltraRT
     /// UltraRT: hardware ray tracing for ULTRAKILL (DX12 only: launch with -force-d3d12).
     ///   Keys, settings and flags: README.md "Controls" and docs/settings.md. Unattended runs: scripts/bench.ps1 (bench/README.md).
     /// </summary>
-    [BepInPlugin("ooo.lew.ultrart", "UltraRT", "0.2.0")]
+    [BepInPlugin("ooo.lew.ultrart", "UltraRT", PluginVersion.Number)] // Version.props (repo root)
     [BepInDependency(PluginConfiguratorGuid, BepInDependency.DependencyFlags.SoftDependency)] // in-game settings menu (SettingsMenu.cs)
     public partial class Plugin : BaseUnityPlugin
     {
@@ -122,6 +122,7 @@ namespace UltraRT
             // plugin; docs/dlss.md), relight elsewhere (pathtrace without RR is the slower fallback denoiser). Set before
             // InitSettings, which remembers the code defaults (the menu's "reset").
             string pluginDir = Path.GetDirectoryName(Info.Location) ?? "";
+            Logger.LogInfo($"UltraRT {PluginVersion.Number} in {pluginDir}");
             bool rrPresent = SystemInfo.graphicsDeviceVendor.IndexOf("NVIDIA", StringComparison.OrdinalIgnoreCase) >= 0
                 && File.Exists(Path.Combine(pluginDir, "nvngx_dlssd.dll")) && File.Exists(Path.Combine(pluginDir, GpuTimer.DllName));
             _mode = Mathf.Max(0, Array.FindIndex(Modes, m => m.name == (rrPresent ? "pathtrace" : "relight")));
@@ -166,13 +167,13 @@ namespace UltraRT
             Directory.CreateDirectory(_outDir);
 
             Logger.LogInfo($"API={SystemInfo.graphicsDeviceType} supportsRayTracing={SystemInfo.supportsRayTracing} colorSpace={QualitySettings.activeColorSpace}");
-            if (!SystemInfo.supportsRayTracing || Environment.GetCommandLineArgs().Any(a => a.Equals("-ultrart-minimal", StringComparison.OrdinalIgnoreCase)))
+            bool minimal = Environment.GetCommandLineArgs().Any(a => a.Equals("-ultrart-minimal", StringComparison.OrdinalIgnoreCase));
+            if (!SystemInfo.supportsRayTracing || minimal)
             {
-                Logger.LogWarning("Ray tracing unavailable (launch with -force-d3d12 on a DXR GPU). UltraRT is idle.");
+                if (minimal) Logger.LogWarning("-ultrart-minimal: UltraRT is idle.");
+                else StayIdle(bundleMissing: false);
                 // Benchmarks can still run game-only ("off" modes) for comparisons, e.g. against DX11.
-                var idleHost = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
-                DontDestroyOnLoad(idleHost);
-                _host = idleHost.AddComponent<CoroutineHost>();
+                if (_host == null) IdleHost();
                 _noScene = true;
                 SceneManager.sceneUnloaded += s => Logger.LogInfo($"sceneUnloaded '{s.name}'");
                 SceneManager.activeSceneChanged += (_, to) => Logger.LogInfo($"Scene -> {to.name} ({SafeCurrentScene()})");
@@ -180,9 +181,9 @@ namespace UltraRT
                 return;
             }
 
-            _bundlePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", "ultrart.shaders");
-            SceneProxies.MaterialOverrideFolders = new[] { Path.GetDirectoryName(Info.Location) ?? "", Paths.ConfigPath };
-            if (!LoadShaders()) return;
+            _bundlePath = Path.Combine(pluginDir, "ultrart.shaders");
+            SceneProxies.MaterialOverrideFolders = new[] { pluginDir, Paths.ConfigPath };
+            if (!LoadShaders()) { StayIdle(bundleMissing: true); return; }
 
             if (_useGpuTimer)
             {
@@ -227,6 +228,28 @@ namespace UltraRT
 
             if (!_noHook) Camera.onPreRender += OnCameraPreRender;
             if (!StartBenchIfRequested() && !string.IsNullOrEmpty(_autoScene)) _host.StartCoroutine(AutoRun());
+        }
+
+        /// <summary>The host object without the RT update loop (UltraRT idle).</summary>
+        private GameObject IdleHost()
+        {
+            var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
+            DontDestroyOnLoad(go);
+            _host = go.AddComponent<CoroutineHost>();
+            return go;
+        }
+
+        /// <summary>UltraRT can't run (no Direct3D 12, no DXR, no shader bundle): say why in the log and, once per launch,
+        /// on screen (StartupNotice.cs; not in bench launches).</summary>
+        private void StayIdle(bool bundleMissing)
+        {
+            var (title, body) = StartupNotice.Reason(bundleMissing, _bundlePath);
+            if (title == null) { title = "UltraRT is off"; body = ""; }
+            Logger.LogWarning($"{title}. UltraRT is idle. {body.Replace("\n\n", " ").Replace('\n', ' ')}");
+            if (_host == null) IdleHost();
+            // -ultrart-startup-notice: show it in a bench launch too (testing the notice itself, docs/release.md).
+            if (!BenchLaunch || Environment.GetCommandLineArgs().Any(a => a.Equals("-ultrart-startup-notice", StringComparison.OrdinalIgnoreCase)))
+                StartupNotice.Show(_host.gameObject, title, body);
         }
 
         private void ParseArgs()

@@ -1,0 +1,38 @@
+{
+ "Name": "release-install",
+ "Note": "Release check of an installed package (docs/release.md, 'Testing a package'): shaders, native DLL, DLSS RR and the detail maps load from a mod-manager layout. Run with -Extra '-ultrart-hdr','on' so the HDR preloader has to find UltraRT.Native.dll too; then check game.log (docs/release.md lists the lines).",
+ "Scenarios": [
+  {
+   "Name": "warm-up",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 8
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Segment": 2
+  },
+  {
+   "Name": "0-1 metal",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 5
+   },
+   "Modes": [
+    "off",
+    "relight",
+    "pathtrace",
+    "pathtrace+mat.enabled=0"
+   ],
+   "Screenshots": [
+    2.5
+   ],
+   "ShotSettle": 1
+  }
+ ]
+}

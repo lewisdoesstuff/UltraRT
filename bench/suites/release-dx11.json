@@ -1,0 +1,20 @@
+{
+ "Name": "release-dx11",
+ "Note": "The startup notice on DirectX 11 (docs/release.md). Run with -Api d3d11 -Extra '-ultrart-startup-notice' (bench launches hide the notice otherwise); the screenshot should show it.",
+ "Scenarios": [
+  {
+   "Name": "0-1 spawn",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "spawn",
+    "Duration": 4
+   },
+   "Modes": [
+    "off"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

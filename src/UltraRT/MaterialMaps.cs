@@ -53,7 +53,8 @@ namespace UltraRT
     /// <summary>
     /// Per-texel normal and roughness maps for the game's textures (docs/materials.md). The maps are generated offline by
     /// tools/materials (PBRify Remix or the procedural generator) into BepInEx/ultrart/materials/&lt;source&gt;/, named after
-    /// the texture: "&lt;name&gt;@&lt;w&gt;x&lt;h&gt;_d.png", plus manifest.json.
+    /// the texture: "&lt;name&gt;@&lt;w&gt;x&lt;h&gt;_d.png", plus manifest.json. Without that local cache, an installed
+    /// detail-map package (BepInEx/plugins/*/ultrart-detailmaps.json, the same layout below it) is used: ResolveDir.
     ///
     /// Each is one RGBA32 "detail" texture (rg normal xy, b roughness minus the texture's mean, a 1), point
     /// sampled at the albedo's uv by the proxy hit shader (Proxy.shader, _DetailTex). Baked StaticSceneOptimizer geometry
@@ -92,16 +93,14 @@ namespace UltraRT
         // Where the load time goes (ms): PNG decode, CPU readback, mip chain build, texture create + upload.
         public static double MsDecode, MsRead, MsMips, MsUpload;
 
-        public MaterialMaps(ManualLogSource log, string root)
+        /// <param name="root">The local cache, BepInEx/ultrart/materials (tools/materials writes there).</param>
+        /// <param name="pluginsRoot">BepInEx/plugins, searched for a detail-map package (<see cref="PackMarker"/>).</param>
+        public MaterialMaps(ManualLogSource log, string root, string pluginsRoot)
         {
             _log = log;
-            _dir = Path.Combine(root, Settings.source);
+            _dir = ResolveDir(log, root, pluginsRoot, Settings.source);
+            if (_dir == null) return;
             var manifest = Path.Combine(_dir, "manifest.json");
-            if (!File.Exists(manifest))
-            {
-                _log.LogInfo($"Material maps: no cache at {manifest} (run tools/materials): per-texel detail off");
-                return;
-            }
             try
             {
                 var m = JsonConvert.DeserializeObject<Dictionary<string, ManifestEntry>>(File.ReadAllText(manifest));
@@ -120,7 +119,86 @@ namespace UltraRT
 
 #pragma warning disable CS0649 // Json.NET
         private sealed class ManifestEntry { public string name; public int w, h; public float rmean; }
+        private sealed class PackInfo { public int format; public string name, version; }
 #pragma warning restore CS0649
+
+        // ---------------------------------------------------------------- where the maps come from
+
+        /// <summary>The marker file of a detail-map package (scripts/package.ps1 -TexturePack, docs/release.md): a folder
+        /// under BepInEx/plugins (r2modman: plugins/&lt;Team&gt;-UltraRT_DetailMaps/) holding this file and one folder per
+        /// source with the same layout as the local cache (&lt;source&gt;/manifest.json, &lt;source&gt;/*_d.png).</summary>
+        public const string PackMarker = "ultrart-detailmaps.json";
+        /// <summary>The marker format this build reads.</summary>
+        public const int PackFormat = 1;
+
+        private static readonly Dictionary<string, string> Resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The folder of a source's maps, or null (maps off): the local cache first (maps generated on this PC by
+        /// tools/materials), else an installed detail-map package. Looked up once per source and session; the choice is
+        /// logged once. With nothing installed it says so in one info line: the maps are optional.
+        /// </summary>
+        private static string ResolveDir(ManualLogSource log, string localRoot, string pluginsRoot, string source)
+        {
+            if (Resolved.TryGetValue(source, out var known)) return known;
+            string dir = null;
+            string local = Path.Combine(localRoot, source);
+            if (File.Exists(Path.Combine(local, "manifest.json")))
+            {
+                dir = local;
+                log.LogInfo($"Material maps ({source}): local cache {local}");
+            }
+            else
+            {
+                var packs = FindPacks(log, pluginsRoot, source);
+                if (packs.Count > 0)
+                {
+                    dir = packs[0].dir;
+                    log.LogInfo($"Material maps ({source}): package {packs[0].label} in {dir}");
+                    if (packs.Count > 1)
+                        log.LogWarning($"Material maps: {packs.Count} detail-map packages have '{source}' ({string.Join(", ", packs.Select(p => p.dir))}): using the newest, {dir}");
+                }
+                else log.LogInfo($"Material maps ({source}): none installed (optional: the UltraRT_DetailMaps package, or tools/materials into {localRoot}): per-texel detail off");
+            }
+            Resolved[source] = dir;
+            return dir;
+        }
+
+        /// <summary>Detail-map packages under BepInEx/plugins with maps for the source, newest marker first.</summary>
+        private static List<(string dir, string label, DateTime stamp)> FindPacks(ManualLogSource log, string pluginsRoot, string source)
+        {
+            var found = new List<(string dir, string label, DateTime stamp)>();
+            if (string.IsNullOrEmpty(pluginsRoot) || !Directory.Exists(pluginsRoot)) return found;
+            var stack = new Stack<(string dir, int depth)>();
+            stack.Push((pluginsRoot, 0));
+            while (stack.Count > 0)
+            {
+                var (d, depth) = stack.Pop();
+                string marker = Path.Combine(d, PackMarker);
+                if (File.Exists(marker))
+                {
+                    try
+                    {
+                        var info = JsonConvert.DeserializeObject<PackInfo>(File.ReadAllText(marker)) ?? new PackInfo();
+                        string mapsDir = Path.Combine(d, source);
+                        if (info.format > PackFormat)
+                            log.LogWarning($"Material maps: {marker} has format {info.format}; this UltraRT reads format {PackFormat} (update UltraRT): skipped");
+                        else if (!File.Exists(Path.Combine(mapsDir, "manifest.json")))
+                            log.LogInfo($"Material maps: package {d} has no '{source}' maps ({source}/manifest.json)");
+                        else
+                            found.Add((mapsDir, $"{info.name ?? Path.GetFileName(d)} {info.version}".Trim(), File.GetLastWriteTimeUtc(marker)));
+                    }
+                    catch (Exception e) { log.LogWarning($"Material maps: {marker} not read: {e.Message}"); }
+                    continue; // a package's own folders hold maps, not more packages
+                }
+                if (depth >= 3) continue;
+                string[] subs;
+                try { subs = Directory.GetDirectories(d); } catch { continue; }
+                foreach (string s in subs) stack.Push((s, depth + 1));
+            }
+            found.Sort((a, b) => b.stamp.CompareTo(a.stamp));
+            return found;
+        }
 
         // ---------------------------------------------------------------- per-class strengths
 

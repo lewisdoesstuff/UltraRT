@@ -26,3 +26,6 @@ __pycache__/
 /stage/
 # Reference assemblies fetched for compiling (scripts/fetch-pluginconfigurator.ps1)
 /lib/
+
+# Release packages (scripts/package.ps1): zips, their staging and build; never committed
+/dist/

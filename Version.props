@@ -1,0 +1,9 @@
+<Project>
+  <!-- UltraRT's version: the single source of truth. The plugin's [BepInPlugin] version (a generated constant,
+       PluginVersion.Number), both assemblies' file versions and the Thunderstore manifest (scripts\package.ps1) all read
+       it. Thunderstore needs Major.Minor.Patch (docs/release.md). -->
+  <PropertyGroup>
+    <UltraRTVersion>0.3.0</UltraRTVersion>
+    <Version>$(UltraRTVersion)</Version>
+  </PropertyGroup>
+</Project>

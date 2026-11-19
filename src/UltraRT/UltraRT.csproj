@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\..\Version.props" />
+
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>UltraRT</AssemblyName>
@@ -59,6 +61,19 @@
   </PropertyGroup>
   <Target Name="WarnNoPluginConfigurator" BeforeTargets="CoreCompile" Condition="'$(PluginConfiguratorDll)' == ''">
     <Warning Text="PluginConfigurator.dll not found: building without the settings menu (scripts\fetch-pluginconfigurator.ps1 downloads it into lib\)." />
+  </Target>
+
+  <!-- PluginVersion.Number, the [BepInPlugin] version, generated from Version.props (a compile-time constant). -->
+  <Target Name="UltraRTVersionFile" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <UltraRTVersionFile>$(IntermediateOutputPath)UltraRTVersion.g.cs</UltraRTVersionFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(UltraRTVersionFile)" Overwrite="true" WriteOnlyWhenDifferent="true"
+      Lines="namespace UltraRT { internal static class PluginVersion { public const string Number = &quot;$(UltraRTVersion)&quot;%3B } }" />
+    <ItemGroup>
+      <Compile Include="$(UltraRTVersionFile)" />
+      <FileWrites Include="$(UltraRTVersionFile)" />
+    </ItemGroup>
   </Target>
 
   <!-- Build without touching the game install: /p:Deploy=false (references still resolve from BepInExDir). -->
