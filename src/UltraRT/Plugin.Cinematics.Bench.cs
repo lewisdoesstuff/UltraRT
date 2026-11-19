@@ -171,6 +171,36 @@ namespace UltraRT
                     };
                 }
 
+                if (spec.Calls != null && spec.Calls.Count > 0)
+                {
+                    // Game events on cue (5-2's lightning): a component's own method at a path second, once per take.
+                    var calls = spec.Calls.OrderBy(c => c.At).ToList();
+                    foreach (var c in calls)
+                    {
+                        var found = FindObjectsOfType<MonoBehaviour>().Where(b => b != null && b.GetType().Name == c.Type).ToList();
+                        Logger.LogInfo($"Benchmark: call {c.Type}.{c.Method} at {c.At:F2}s (index {c.Index}): {found.Count} active component(s)" +
+                                       string.Concat(found.Take(8).Select(b => $"; '{GameControl.PathOf(b.transform)}' at {b.transform.position:F0}")));
+                        if (found.Count == 0) // what the level has instead (lightning, thunder, flash, storm components)
+                            Logger.LogInfo("Benchmark: call: components like it here: " + string.Join(", ", FindObjectsOfType<MonoBehaviour>()
+                                .Where(b => b != null && System.Text.RegularExpressions.Regex.IsMatch(b.GetType().Name, "ightning|hunder|Flash|Storm|Weather"))
+                                .Select(b => b.GetType().Name).Distinct()));
+                    }
+                    var before = _cineOnTime;
+                    int next = 0;
+                    float last = float.MinValue;
+                    _cineOnTime = t =>
+                    {
+                        before?.Invoke(t);
+                        if (t < last - 0.5f) next = 0; // a new take
+                        last = t;
+                        while (next < calls.Count && calls[next].At <= t)
+                        {
+                            if (t - calls[next].At < 0.25f) CineCallNow(calls[next]); // not the ones a late start has passed
+                            next++;
+                        }
+                    };
+                }
+
                 if (spec.Play)
                 {
                     // Real-time playback in the scenario's RT mode, as the player previews it: frame times, a screenshot halfway.
@@ -243,6 +273,26 @@ namespace UltraRT
                     if (lamp != null && lamp.isActiveAndEnabled && !lamp.IsInvoking("Flickering")) lamp.Invoke("Flickering", 0.05f);
                 CineExit();
             }
+        }
+
+        /// <summary>One <see cref="CineCall"/>: the method on the active components of that type (all, or the Index-th
+        /// nearest the camera).</summary>
+        private void CineCallNow(CineCall c)
+        {
+            var cam = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+            var found = FindObjectsOfType<MonoBehaviour>().Where(b => b != null && b.GetType().Name == c.Type)
+                .OrderBy(b => (b.transform.position - cam).sqrMagnitude).ToList();
+            if (c.Index >= 0) found = found.Skip(c.Index).Take(1).ToList();
+            int n = 0;
+            foreach (var b in found)
+            {
+                var m = b.GetType().GetMethod(c.Method, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public |
+                                                        System.Reflection.BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                if (m == null) { Logger.LogWarning($"Benchmark: call: {c.Type} has no parameterless {c.Method}"); return; }
+                try { m.Invoke(b, null); n++; }
+                catch (Exception e) { Logger.LogWarning($"Benchmark: call {c.Type}.{c.Method} on '{b.name}': {e.InnerException?.Message ?? e.Message}"); }
+            }
+            Logger.LogInfo($"Benchmark: called {c.Type}.{c.Method} on {n} component(s) at {c.At:F2}s");
         }
 
         private static CinePathFile RouteAsPath(CameraPath route, string name)

@@ -90,11 +90,12 @@
       }
     },
     {
-      "Name": "8-2 lamp",
-      "Scene": "Level 8-2",
+      "Name": "2-4 tunnel",
+      "Scene": "Level 2-4",
       "Path": {
         "Type": "static",
-        "Approach": "../recordings/8-2-lamp-flicker.json",
+        "Load": "checkpoint",
+        "Approach": "../recordings/u1118-2-4-3.json",
         "Duration": 1
       },
       "Modes": [
@@ -102,7 +103,7 @@
       ],
       "Enemies": "blind",
       "Cinematic": {
-        "File": "../cinematics/final-8-2-lamp.json",
+        "File": "../cinematics/final-2-4-tunnel.json",
         "Mode": "live",
         "Fps": 60.0,
         "Seconds": 4.533,

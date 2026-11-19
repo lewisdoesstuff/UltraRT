@@ -120,5 +120,13 @@
   { "Name": "final-museum-fountain", "Scene": "CreditsMuseum2",
     "Note": "Final trailer: a crane down towards the fountain in the museum's garden, daylight on the water (base = end of bench/recordings/late-museum-fountain.json).",
     "Base": {"Player": [6.32, -6.92, 367.18], "Yaw": -136.2, "Pitch": -15}, "Fov": 85,
-    "Keys": [ [-7.5, 0, 3.2, 0, -4, 4.8, "smooth"], [-3.5, 0.5, 1.7, 5, 0] ] }
+    "Keys": [ [-7.5, 0, 3.2, 0, -4, 4.8, "smooth"], [-3.5, 0.5, 1.7, 5, 0] ] },
+  { "Name": "final-2-1-water", "Scene": "Level 2-1",
+    "Note": "Trailer v4 (user, 2026-11-18): a glide down onto 2-1's water channel towards the door, for the traced reflections of the walls in the water (base = end of bench/recordings/u1118-2-1-1.json; the water is about 2 m under the pose's feet, the channel 3.5 m to its right).",
+    "Base": {"Player": [18.21, -13.54, 351.13], "Yaw": 22.3, "Pitch": -2.9}, "Fov": 85,
+    "Keys": [ [0, 2.5, 0.8, -20, -16, 3.15, "in"], [5, 3.4, -0.7, -8, -8, 3.15, "out"], [10, 3.8, -1.9, 4, -1] ] },
+  { "Name": "final-2-4-tunnel", "Scene": "Level 2-4",
+    "Note": "Trailer v4: a push down 2-4's tunnel towards the red-lit arches, which the game does not light (base = end of bench/recordings/u1118-2-4-3.json, the user's pose 3).",
+    "Base": {"Player": [135.5, -10.5, 701.86], "Yaw": 91.76, "Pitch": -5}, "Fov": 85,
+    "Keys": [ [0, 0, 0, 0, 3, 4.8, "linear"], [20, 0, 0, 0, 5] ] }
 ]

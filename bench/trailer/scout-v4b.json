@@ -1,0 +1,15 @@
+[
+  { "Name": "2-1-low", "Scene": "Level 2-1",
+    "Note": "Trailer v4: low keys over 2-1's water channel (base = end of bench/recordings/u1118-2-1-1.json).",
+    "Base": { "Player": [18.21, -13.54, 351.13], "Yaw": 22.3, "Pitch": -2.9 }, "Fov": 85,
+    "Path": { "Type": "static", "Approach": "../recordings/u1118-2-1-1.json", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [0,3.5,-0.5,0,-5], [0,3.5,-1.2,0,-3], [0,3.5,-1.8,0,0], [6,3.5,-1.2,0,-3], [12,3.5,-1.2,0,0],
+              [-4,3.5,0.5,0,-8], [-8,3.5,1.5,0,-10], [0,3.5,0,180,-5], [3,1,4,0,-30], [3,6,2,-35,-10] ] },
+  { "Name": "2-4-tunnel", "Scene": "Level 2-4",
+    "Note": "Trailer v4: down 2-4's tunnel towards the red-lit arches (base = end of bench/recordings/u1118-2-4-3.json).",
+    "Base": { "Player": [135.5, -10.5, 701.86], "Yaw": 91.76, "Pitch": -5 }, "Fov": 85,
+    "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/u1118-2-4-3.json", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [0,0,0], [6,0,0,0,3], [12,0,0,0,3], [20,0,0,0,5], [0,0,2,0,0], [-4,0,1,0,0] ] }
+]

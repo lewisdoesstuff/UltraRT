@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Name": "final-2-1-water",
+  "Scene": "Level 2-1",
+  "Note": "Trailer v4 (user, 2026-11-18): a glide down onto 2-1's water channel towards the door, for the traced reflections of the walls in the water (base = end of bench/recordings/u1118-2-1-1.json; the water is about 2 m under the pose's feet, the channel 3.5 m to its right).",
+  "Keys": [
+    {"Player": [20.523, -12.74, 350.181], "Yaw": 2.3, "Pitch": -18.9, "Fov": 85, "Duration": 3.15, "Ease": "in"},
+    {"Player": [23.253, -14.24, 354.466], "Yaw": 14.3, "Pitch": -10.9, "Fov": 85, "Duration": 3.15, "Ease": "out"},
+    {"Player": [25.52, -15.44, 358.94], "Yaw": 26.3, "Pitch": -3.9, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

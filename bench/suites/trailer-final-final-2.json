@@ -71,11 +71,19 @@
         "File": "../cinematics/final-5-2-sea.json",
         "Mode": "live",
         "Fps": 60.0,
-        "Seconds": 15,
+        "Seconds": 5.733,
         "OutputScale": 1,
         "TimeScale": 1,
         "Preroll": 90,
-        "Encode": false
+        "Encode": false,
+        "Calls": [
+          {
+            "At": 2.45,
+            "Type": "LightningStrikeDecorative_Animated",
+            "Method": "FlashStart",
+            "Index": 1
+          }
+        ]
       }
     },
     {

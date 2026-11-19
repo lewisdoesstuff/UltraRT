@@ -1,0 +1,63 @@
+{
+  "Name": "trailer-v4-scout2",
+  "Note": "Camera scouting (scripts/trailer-paths.py --scout): one low-sample frame per candidate key.",
+  "Scenarios": [
+    {
+      "Name": "scout-2-1-low",
+      "Scene": "Level 2-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/u1118-2-1-1.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../results/trailer/scout/scout-2-1-low.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 9,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-2-4-tunnel",
+      "Scene": "Level 2-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/u1118-2-4-3.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../results/trailer/scout/scout-2-4-tunnel.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 5,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    }
+  ]
+}

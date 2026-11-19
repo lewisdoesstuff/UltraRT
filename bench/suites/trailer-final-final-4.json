@@ -3,11 +3,11 @@
   "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier final, run 4): do not edit, change the plan.",
   "Scenarios": [
     {
-      "Name": "6-2 hall",
-      "Scene": "Level 6-2",
+      "Name": "2-1 water",
+      "Scene": "Level 2-1",
       "Path": {
         "Type": "static",
-        "Approach": "../recordings/6-2-a.json",
+        "Approach": "../recordings/u1118-2-1-1.json",
         "Duration": 1
       },
       "Modes": [
@@ -15,7 +15,7 @@
       ],
       "Enemies": "blind",
       "Cinematic": {
-        "File": "../cinematics/final-6-2-nave.json",
+        "File": "../cinematics/final-2-1-water.json",
         "Mode": "live",
         "Fps": 60.0,
         "Seconds": 6.033,

@@ -52,8 +52,8 @@
       "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/4-4-v2-chair.json", "Duration": 1 },
       "Caption": { "Text": "Coloured bounce light", "At": 2.25, "For": 3.4 }, "Tag": ["GREED /// CLIMAX", "CLAIR DE SOLEIL"] },
 
-    { "Kind": "beauty", "Name": "5-2 sea", "Scene": "Level 5-2", "File": "final-5-2-sea", "Bars": 3, "Render": 15, "In": 1.2, "TierIn": { "final": 4.85 },
-      "TierCinematic": { "final": { "Seconds": 15 } },
+    { "Kind": "beauty", "Name": "5-2 sea", "Scene": "Level 5-2", "File": "final-5-2-sea", "Bars": 3, "In": 1.2,
+      "Cinematic": { "Calls": [ { "At": 2.45, "Type": "LightningStrikeDecorative_Animated", "Method": "FlashStart", "Index": 1 } ] },
       "Path": { "Type": "static", "Approach": "../recordings/5-2-water-1115.json", "Duration": 1 },
       "Tag": ["WRATH /// SECOND", "WAVES OF THE STARLESS SEA"] },
 
@@ -81,15 +81,16 @@
       "Path": { "Type": "static", "Approach": "../recordings/0-5-approach.json", "Duration": 1 },
       "Tag": ["PRELUDE /// CLIMAX", "CERBERUS"] },
 
-    { "Kind": "switch", "Name": "8-2 lamp", "Scene": "Level 8-2", "File": "final-8-2-lamp", "Bars": 3, "Off": 1.5,
-      "Path": { "Type": "static", "Approach": "../recordings/8-2-lamp-flicker.json", "Duration": 1 } },
+    { "Kind": "switch", "Name": "2-4 tunnel", "Scene": "Level 2-4", "File": "final-2-4-tunnel", "Bars": 3, "Off": 1.5,
+      "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/u1118-2-4-3.json", "Duration": 1 },
+      "Tag": ["LUST /// CLIMAX", "COURT OF THE CORPSE KING"] },
 
     { "Kind": "sweep", "Name": "museum fountain", "Scene": "CreditsMuseum2", "File": "final-museum-fountain", "Bars": 3, "Off": 1.2, "Sweep": 1.5,
       "Path": { "Type": "static", "Approach": "../recordings/late-museum-fountain.json", "Areas": "../recordings/late-museum-fountain-areas.json", "Load": "areas", "Duration": 1 } },
 
-    { "Kind": "sweep", "Name": "6-2 hall", "Scene": "Level 6-2", "File": "final-6-2-nave", "Bars": 4, "Off": 1.5, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
-      "Path": { "Type": "static", "Approach": "../recordings/6-2-a.json", "Duration": 1 },
-      "Tag": ["HERESY /// ACT II CLIMAX", "AESTHETICS OF HATE"] },
+    { "Kind": "sweep", "Name": "2-1 water", "Scene": "Level 2-1", "File": "final-2-1-water", "Bars": 4, "Off": 1.5, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
+      "Path": { "Type": "static", "Approach": "../recordings/u1118-2-1-1.json", "Duration": 1 },
+      "Caption": { "Text": "Reflective water", "Sub": "Ripples that mirror the walls", "At": 2.25, "For": 3.4 }, "Tag": ["LUST /// FIRST", "BRIDGEBURNER"] },
 
     { "Kind": "beauty", "Name": "1-4 lamps", "Scene": "Level 1-4", "File": "final-1-4-lamps", "Bars": 4,
       "Path": { "Type": "static", "Approach": "../recordings/1-4-drift-a.json", "Duration": 1 },

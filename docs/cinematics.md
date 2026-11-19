@@ -253,7 +253,7 @@ from fresh loads; see "Determinism" above.
 
 ### A moving player, third-person shots, lamps
 
-Four more fields of the `Cinematic` block, for shots where V1 itself matters (bench only; `bench/suites/trailer-test3.json`
+More fields of the `Cinematic` block, for shots where V1 itself matters or an event must land on cue (bench only; `bench/suites/trailer-test3.json`
 uses all of them):
 
 | Field | |
@@ -263,6 +263,8 @@ uses all of them):
 | `"ShowPlayer": true` | The camera sees V1's model: a third-person shot. Traced modes: camera rays include V1's instance mask (bit 16 of `_UltraRTPlayerRays`, set only here). `off` takes: the main camera draws layer 30, where the model lives. Default: on when `Player` is a path file. |
 | `"ShopScreensOff": true` | Shop terminals stay dark. A terminal's screen switches on when the player enters its zone, and the shop UI then covers the glass, which is the part that reflects. The zone's trigger is off while the camera is on. |
 | `"Flickers": [ { "Light": "Metro Light/Spot Light", "From": 3.6, "To": 4.95, "On": true }, ... ]` | Lamp timing. `Light` is the end of a light's hierarchy path. A lamp with the game's `Flicker` component (fully on / off at random intervals) is held in that phase with its own `On()` / `Off()` for the stretch of path time and flickers by itself outside the stretches. A steady light is switched (the `Light` component only; its lamp mesh keeps glowing) and put back afterwards. The log lists the level's nearest flickering lamps and what each entry matched. |
+
+| `"Calls": [ { "At": 2.45, "Type": "LightningStrikeDecorative_Animated", "Method": "FlashStart", "Index": 1 } ]` | Game events on cue: at `At` (path seconds, once per take) a parameterless method (public or not) is called on the level's active components of class `Type`: all of them, or with `Index` the Nth nearest the camera. For random events the cut needs at a set time: 5-2's lightning bolts (three `LightningStrikeDecorative_Animated` over the sea; `FlashStart` starts the bolt's build-up and the flash comes 0.3 s later; `Index` 1 is the bolt in frame from the trailer's pier). The log lists what matched and, when nothing does, the level's lightning / thunder / flash components. 5-2 has no `DistantThunder` and no plain `LightningStrikeDecorative`. |
 
 Use `"TimeScale": 1` with a moving player: the walk animation needs game time, and so do flickering lamps. The two
 takes of a pair then differ in whatever the game randomises (particles, untimed flicker), which a hard switch hides and

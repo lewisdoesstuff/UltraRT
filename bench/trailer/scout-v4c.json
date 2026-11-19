@@ -1,0 +1,9 @@
+[
+  { "Name": "6-2-beams", "Scene": "Level 6-2",
+    "Note": "Trailer v4: scouting 6-2's Grand Hall window beams (base = end of bench/recordings/u1118-6-2-1.json, the user's pose 1).",
+    "Base": { "Player": [-0.29, -8.5, 309.02], "Yaw": -50.4, "Pitch": 1.3 }, "Fov": 85,
+    "Path": { "Type": "static", "Approach": "../recordings/u1118-6-2-1.json", "Duration": 1 },
+    "Cinematic": { "Modes": ["off", "pathtrace"] },
+    "Keys": [ [0,0,0], [0,0,0,45,0], [0,0,0,90,0], [0,0,0,135,0], [0,0,0,180,0], [0,0,0,225,0], [0,0,0,270,0], [0,0,0,315,0],
+              [0,0,0,0,20], [0,0,2,0,10], [-6,0,2,0,5], [6,0,0,0,10], [0,0,0,-30,15], [0,0,0,30,15] ] }
+]
