@@ -1,1 +1,0 @@
-{ "Name": "debug-skinned", "Scenarios": [ { "Name": "torch", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-torch-hall.json", "Duration": 4 }, "Modes": ["off", "normals", "albedo", "pt-direct", "pt-indirect"], "Segment": 1.0, "Screenshots": [2] } ] }

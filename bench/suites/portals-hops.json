@@ -1,7 +1,0 @@
-{
-    "Name": "portals-hops",
-    "Scenarios": [
-        { "Name": "8-3 b", "Scene": "Level 8-3", "Path": { "Type": "static", "Approach": "../recordings/8-3-b.json", "Duration": 4 },
-          "Modes": ["off", "relight+plugin._portalHops=1", "relight+plugin._portalHops=2", "relight", "hybrid+plugin._portalHops=1", "hybrid"], "Screenshots": [2] }
-    ]
-}

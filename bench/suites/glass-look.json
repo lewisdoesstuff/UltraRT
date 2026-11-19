@@ -1,9 +1,0 @@
-{
- "Name": "glass-look",
- "Note": "Branch t3/stained-glass: the user's stained-glass poses (playtest 2026-11-18): 1-4 pose 4 windows, 6-2 poses 1 and 2 window god rays.",
- "Scenarios": [
-  { "Name": "1-4 pose 4", "Scene": "Level 1-4", "Path": { "Type": "static", "Approach": "../recordings/u1118-1-4-4.json", "Duration": 4 }, "Modes": [ "off", "relight", "pathtrace" ], "Screenshots": [ 2 ] },
-  { "Name": "6-2 pose 1", "Scene": "Level 6-2", "Path": { "Type": "static", "Approach": "../recordings/u1118-6-2-1.json", "Duration": 4 }, "Modes": [ "off", "relight", "pathtrace" ], "Screenshots": [ 2 ] },
-  { "Name": "6-2 pose 2", "Scene": "Level 6-2", "Path": { "Type": "static", "Approach": "../recordings/u1118-6-2-2.json", "Duration": 4 }, "Modes": [ "off", "relight", "pathtrace" ], "Screenshots": [ 2 ] }
- ]
-}

@@ -1,1 +1,0 @@
-{ "Name": "debug-strip", "Scenarios": [ { "Name": "grass", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-grass-approach.json", "Duration": 4 }, "Modes": ["off", "pt-dn", "emission", "albedo", "pt-direct"], "Screenshots": [2] } ] }
