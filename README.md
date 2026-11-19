@@ -108,7 +108,7 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 | [docs/emissive-lights.md](docs/emissive-lights.md) | Emissive triangles and effect lights as direct light sources |
 | [docs/lighting-overrides.md](docs/lighting-overrides.md) | Per-level light overrides, area lights, the light editor and classifier |
 | [docs/reflections.md](docs/reflections.md) | Materials, ray-traced reflections, water and glass, V1 in reflections |
-| [docs/materials.md](docs/materials.md) | Per-texel normal and roughness maps, ray-cone LOD, Toksvig roughness |
+| [docs/materials.md](docs/materials.md) | Per-texel normal and roughness maps, ray-cone LOD, Toksvig roughness, lit weights, stained glass and no-fog surfaces |
 | [docs/portals.md](docs/portals.md) | Layer 8 portals and mirrors and how rays follow them |
 | [docs/scene-proxies.md](docs/scene-proxies.md) | How the scene is mirrored into the RT scene: static batches, skinned meshes, displacement, scrolling textures, statue orbs |
 | [docs/volumetrics.md](docs/volumetrics.md) | Light shafts, fog, lamp cones and the 3-1 eye beams |

@@ -26,6 +26,7 @@
     { "material": "MirrorTexture", "reflStrength": 0.85, "note": "the credits museum's bathroom mirrors: a painted reflection, now a real one" },
     { "material": "SkullScreen", "class": "Generic" },
     { "material": "StainedGlassLit", "class": "Generic" },
+    { "material": "StainedGlass*", "transmit": 1, "note": "stained glass: light passes, tinted by the panes; the leading blocks (docs/materials.md, Stained glass; 2026-11-18). Opaque StainedGlassBlue/Red/Big (1-1 to 1-4), transparent StainedGlass1A 10-19, StainedGlassBigTransparent, StainedGlassGabriel1, StainedGlassLit" },
 
     { "material": "Large *", "class": "Generic", "note": "credits portraits tagged MetalThin" },
     { "material": "Small Blank", "class": "Generic" },

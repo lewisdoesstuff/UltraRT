@@ -241,7 +241,7 @@ namespace UltraRT
             {
                 // Submesh flags are fixed at AddInstance; material changes alone are picked up with the shader table.
                 Rtas.RemoveInstance(d.Proxy);
-                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
             }
             d.MatGen++;
             NoteDynamicChange(d);

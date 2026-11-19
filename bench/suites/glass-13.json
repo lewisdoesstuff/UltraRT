@@ -1,0 +1,102 @@
+{
+ "Name": "glass-13",
+ "Note": "Branch t3/stained-glass: 1-3's Water Hall (StainedGlassBig windows, sun 1-1.5) in four directions, stained glass off vs on.",
+ "Scenarios": [
+  {
+   "Name": "1-3 hall y0",
+   "Scene": "Level 1-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-3-start-water.json",
+    "Position": [
+     0.036,
+     -8.5,
+     307.166
+    ],
+    "Yaw": 0,
+    "Pitch": -15,
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "pathtrace+glass.enabled=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-3 hall y90",
+   "Scene": "Level 1-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-3-start-water.json",
+    "Position": [
+     0.036,
+     -8.5,
+     307.166
+    ],
+    "Yaw": 90,
+    "Pitch": -15,
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "pathtrace+glass.enabled=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-3 hall y270",
+   "Scene": "Level 1-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-3-start-water.json",
+    "Position": [
+     0.036,
+     -8.5,
+     307.166
+    ],
+    "Yaw": 270,
+    "Pitch": -15,
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "pathtrace+glass.enabled=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-3 hall y180",
+   "Scene": "Level 1-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/1-3-start-water.json",
+    "Position": [
+     0.036,
+     -8.5,
+     307.166
+    ],
+    "Yaw": 180,
+    "Pitch": -15,
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "pathtrace+glass.enabled=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

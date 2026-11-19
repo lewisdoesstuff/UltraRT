@@ -147,7 +147,9 @@ in ULTRAKILL (not in the depth buffer): drawn over the glowing air they stood ou
 user). After the transparents, grates, water, glass and the game's own light-shaft meshes get the glow of the air
 behind them. The price of that order: an alpha-blended effect close to the camera (smoke, a sprite) gets the glow of
 the whole ray behind it rather than of the air in front of it (additive effects are unaffected: addition commutes).
-The game's fog still applies to transparents as the game draws them.
+The game's fog still applies to transparents as the game draws them. Materials the game draws without fog (`_FOG_OFF`, 1-4's stained glass) are skipped by
+pass 0 since 2026-11-19 (docs/materials.md, "Stained glass"; `vol.noFogSurfaces`). Stained glass tints the in-scatter
+of light that crosses it (`g_VolTint`, same section).
 
 ## Settings
 

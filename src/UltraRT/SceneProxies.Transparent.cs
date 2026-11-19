@@ -80,6 +80,7 @@ namespace UltraRT
             var proxy = CreateMeshProxy($"{r.name} (transparent) [UltraRT]", r.transform, mesh, proxyMats);
             bool twoSided = mats.Any(m => TransparentSource(m) && SourceTwoSided(m));
             AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: twoSided);
+            _dynamic[_dynamic.Count - 1].ShadowMask = GlassShadowBit(flags, proxyMats); // stained glass (SceneProxies.Glass.cs)
             if (kind == TransparentKind.Water) { _transparentWater++; _waterSources.Add(r); }
             if (kind == TransparentKind.Blood)
             {
@@ -193,6 +194,7 @@ namespace UltraRT
                 _log.LogInfo(System.FormattableString.Invariant($"Transparent proxy: water '{src.name}' colour {(src.HasProperty("_Color") ? src.GetColor("_Color") : Color.white)}, opacity {opacity:F2}, texture '{(m.mainTexture != null ? m.mainTexture.name : "-")}', {(src.IsKeywordEnabled("VERTEX_LIGHTING") ? "vertex lit" : "fullbright")}, keywords [{string.Join(" ", src.shaderKeywords)}]"));
             MaterialParams.Apply(m, TransparentClassifier.Params(kind, Transparents), null);
             m.SetFloat("_Transparent", (float)(int)kind); // pathtrace: paths reflect off it or pass through, tinted
+            ApplyTransmit(src, m); // stained glass tints shadow rays (SceneProxies.Glass.cs)
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
             _transparentCache[src] = m;
             return m;

@@ -75,7 +75,7 @@ void ParticleLightRayGen()
     float3 direct = 0;
     Reservoir r = RisCandidates(p, n0, 0u, max((int)_PLParams.x, 1), rng);
     float W = ReservoirW(r);
-    [branch] if (W > 0.0) { if (SampleVisible(r, p, n0)) direct = r.c * W * _LightScale; } // nested: && does not short-circuit
+    [branch] if (W > 0.0) { if (SampleVisible(r, p, n0)) direct = r.c * g_ShadowTint * W * _LightScale; } // nested: && does not short-circuit
 
     // Indirect: everything else arriving from a uniform direction (the average radiance around the point).
     float3 indirect = 0;

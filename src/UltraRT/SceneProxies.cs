@@ -58,7 +58,7 @@ namespace UltraRT
 
         private readonly MaterialClassifier _classifier;
         private readonly HashSet<Material> _atlasProxies = new HashSet<Material>();
-        private readonly Dictionary<(Material, MaterialParams, MaterialParams?, bool, int, bool), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?, bool, int, bool), Material>();
+        private readonly Dictionary<(Material, MaterialParams, MaterialParams?, bool, int, bool, int), Material> _atlasVariants = new Dictionary<(Material, MaterialParams, MaterialParams?, bool, int, bool, int), Material>();
         private int _atlasSlotsHook, _atlasSlotsFootstep, _atlasSlotsUnknown;
 
         private readonly ManualLogSource _log;
@@ -103,6 +103,7 @@ namespace UltraRT
             public int CreatedFrame;
             public bool EverAdded, NewMesh; // QueueReAdd
             public bool Cutout;             // an enabled submesh is alpha-tested (SceneProxies.CutoutPass.cs)
+            public uint ShadowMask;         // extra instance-mask bits: GeometryMask on transparent stained glass (SceneProxies.Glass.cs)
 
             // Motion vectors (MotionVectors.cs). CurM / PrevM: the matrix that drives the instance this frame and last
             // frame (rigid: the proxy's localToWorld; skinned: the root bone's position and rotation).
@@ -170,6 +171,7 @@ namespace UltraRT
             _cameraMask = cameraCullingMask & ~ExcludedLayers;
             _disabledMaterial = new Material(proxyShader) { name = "UltraRT Disabled" };
             _classifier = new MaterialClassifier(log, MaterialOverrideFolders);
+            MaterialClassifier.Current = _classifier;
             Maps = new MaterialMaps(log, System.IO.Path.Combine(BepInEx.Paths.BepInExRootPath, "ultrart", "materials"));
         }
 
@@ -314,6 +316,7 @@ namespace UltraRT
                          (OrbFixtures.Count > 0 ? ": " + string.Join(", ", OrbFixtures.Keys.Take(8).Select(o => o != null ? GameControlPath(o.transform) : "-")) : ""));
             LogMaterialClasses();
             _log.LogInfo(UnlitSummary());
+            _log.LogInfo(GlassSummary());
             LogDisplacementInventory();
             LogScrolling();
             LogVeils();
@@ -370,13 +373,15 @@ namespace UltraRT
             // A "lit" rule on the original (SceneProxies.Unlit.cs): the slot's lit weight is lerp(rule, 1, vertex alpha).
             float lit = AtlasLitOf(original);
             bool noFog = NoFog(original); // 1-4's stained glass windows are atlas slots
-            if (!DumpMaterialClasses && !alphaTest && lit < 0f && !noFog && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
+            float transmit = Glass.enabled ? _classifier.TransmitOf(original) : 0f;
+            if (!DumpMaterialClasses && !alphaTest && lit < 0f && !noFog && transmit <= 0f && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
 
-            var key = (atlasProxy, p, secondary, alphaTest, Mathf.RoundToInt(lit * 255f), noFog);
+            var key = (atlasProxy, p, secondary, alphaTest, Mathf.RoundToInt(lit * 255f), noFog, Mathf.RoundToInt(transmit * 100f));
             if (_atlasVariants.TryGetValue(key, out var v)) return v;
             v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}{(lit >= 0f ? $" / lit {lit:0.##}" : "")}{(noFog ? " / no fog" : "")}" };
             MaterialParams.Apply(v, p, secondary);
             if (noFog) v.SetFloat(IdNoFog, 1f);
+            if (transmit > 0f) { v.SetFloat(IdTransmit, transmit); v.name += $" / transmit {transmit:0.##}"; GlassAtlasSlots++; }
             if (lit >= 0f) { v.SetFloat(IdLitOverride, lit); _atlasLit[v] = lit; }
             if (alphaTest)
             {
@@ -782,7 +787,7 @@ namespace UltraRT
                         if (flipped)
                         {
                             Rtas.RemoveInstance(d.Proxy);
-                            Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                            Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
                         }
                         else Rtas.UpdateInstanceTransform(d.Proxy);
                         SkinnedTransformUpdateCount++;
@@ -883,7 +888,7 @@ namespace UltraRT
                 var d = _reAddQueue.Dequeue().d;
                 if (!d.Visible || d.Proxy == null) continue; // left the RTAS meanwhile: its next add is a plain one
                 Rtas.RemoveInstance(d.Proxy);
-                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
                 NewInstancesReAdded++;
                 if (d.NewMesh) NewMeshInstancesReAdded++;
             }
@@ -897,7 +902,7 @@ namespace UltraRT
             {
                 if (d.Proxy == null) continue;
                 Rtas.RemoveInstance(d.Proxy);
-                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
                 n++;
             }
             return n;
@@ -937,7 +942,7 @@ namespace UltraRT
                              $"source visible {d.Source.isVisible}, mesh {(d.Proxy != null && d.Proxy.GetComponent<MeshFilter>() is MeshFilter tmf && tmf.sharedMesh != null ? tmf.sharedMesh.GetInstanceID().ToString() : "-")}");
             if (visible)
             {
-                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask, id: d.Id);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
                 QueueReAdd(d); // first add of a rigid instance: add it again in 2 frames (NewInstanceReAdd)
                 d.SourceTransform.hasChanged = false;
                 _active.Add(d);
@@ -1103,7 +1108,7 @@ namespace UltraRT
         /// not be flagged opaque (ClosestHitOnly). Works on source or proxy materials.
         /// </summary>
         internal static RayTracingSubMeshFlags SubmeshOn(Material m) =>
-            RayTracingSubMeshFlags.Enabled | (IsAlphaTested(m) ? 0 : RayTracingSubMeshFlags.ClosestHitOnly);
+            RayTracingSubMeshFlags.Enabled | (IsAlphaTested(m) || Transmits(m) ? 0 : RayTracingSubMeshFlags.ClosestHitOnly);
 
         private static bool IsAlphaTested(Material m)
         {
@@ -1392,6 +1397,8 @@ namespace UltraRT
             ApplyLitWeight(src, m);
             // The game draws it without its distance fog: so does the fog pass (VolumetricsComposite.shader, ULTRART_FLAG_NOFOG).
             if (NoFog(src)) m.SetFloat(IdNoFog, 1f);
+            // Stained glass: shadow rays pass, tinted (SceneProxies.Glass.cs).
+            ApplyTransmit(src, m);
             // BLOOD_FILLER (7-3's tree): the noise for the fill edge; the fill itself comes from the renderer's property block.
             if (src.IsKeywordEnabled("BLOOD_FILLER") && src.HasProperty("_BloodNoiseTex") && Tex2D(src, "_BloodNoiseTex") is Texture noise)
                 m.SetTexture("_BloodNoiseTex", noise);

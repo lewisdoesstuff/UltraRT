@@ -61,6 +61,13 @@ namespace UltraRT
                     case "-ultrart-enemy-lit": u.enemy = F(u.enemy); break;
                     case "-ultrart-enemy-types": u.enemyTypes = Next(); break;
                     case "-ultrart-lit-rules": u.rules = Next() != "off"; break;
+                    case "-ultrart-glass-gain": SceneProxies.Glass.gain = F(SceneProxies.Glass.gain); break;
+                    case "-ultrart-glass-extra":
+                    {
+                        var g = Next();
+                        MaterialClassifier.TransmitExtra = new System.Text.RegularExpressions.Regex("^" + System.Text.RegularExpressions.Regex.Escape(g).Replace("\\*", ".*") + "$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        break;
+                    }
                     case "-ultrart-lit-probe":
                     {
                         var g = Next();
@@ -70,7 +77,14 @@ namespace UltraRT
                 }
             }
             Logger.LogInfo($"Material maps: {s}");
+            var glass = SceneProxies.Glass;
+            glass.enabled = Config.Bind("Materials", "StainedGlass", true,
+                "Light passes stained glass, tinted by the panes; the leading casts shadows (docs/materials.md, \"Stained glass\"). " +
+                "Off: opaque stained glass blocks light, transparent stained glass casts no shadow. Overridden by -ultrart-glass on|off.").Value;
+            for (int i = 0; i + 1 < args.Length; i++)
+                if (args[i].ToLowerInvariant() == "-ultrart-glass") glass.enabled = args[i + 1] != "off";
             Logger.LogInfo($"Lit weights: {u}");
+            Logger.LogInfo($"Stained glass: {glass}");
         }
 
         private void MaterialsUpdate()
@@ -93,6 +107,7 @@ namespace UltraRT
             // that becomes roughness (0 with LOD off), y the cone spread a diffuse bounce adds.
             Shader.SetGlobalVector(MaterialMaps.LodId, new Vector4(s.lod ? 1f : 0f, s.lodBias, s.lodAniso, s.lod && s.albedoLod ? 1f : 0f));
             Shader.SetGlobalVector(MaterialMaps.Lod2Id, new Vector4(s.lod ? s.toksvig : 0f, s.lodDiffuse, 0f, 0f));
+            SceneProxies.SetGlassGlobals(); // stained glass: shadow rays pass, tinted (SceneProxies.Glass.cs)
         }
     }
 }

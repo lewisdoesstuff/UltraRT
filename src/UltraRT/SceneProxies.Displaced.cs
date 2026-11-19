@@ -87,7 +87,7 @@ namespace UltraRT
             if (d.Visible)
             {
                 Rtas.RemoveInstance(d.Proxy);
-                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: FrontCounterClockwise, mask: d.Mask, id: d.Id);
+                Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: FrontCounterClockwise, mask: d.Mask | d.ShadowMask, id: d.Id);
             }
             DisplaceSwitches++;
         }
