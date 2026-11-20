@@ -27,8 +27,9 @@
 //   gradient in the image. Neutral colours and anything below k of its room are bit-identical to curve 0.
 //   Highlight hue (opt-in, docs/relight.md "Highlight hue"): see UltraRTFilmWarm.
 
-// Highlight hue strength, x 0..1 (0 = off: the rolloff is bit-identical to the curve without it). A global float4, set by
-// Plugin.Exposure.cs next to _UltraRTTonemapParams; the only one this file reads.
+// Highlight hue strength, x 0..1 (0 = off: the rolloff is bit-identical to the curve without it); y the HDR display's
+// saturation return (UltraRTHdrGain, -ultrart-hdr-saturation). A global float4, set by Plugin.Exposure.cs next to
+// _UltraRTTonemapParams; the only one this file reads.
 float4 _UltraRTTonemapHue;
 
 // Highlight hue: the rolloff pulls a red highlight straight towards its luminance, and red plus white reads as pink or
@@ -183,8 +184,10 @@ float4 UltraRTHdrGain(float3 hdr, float3 shown, float scale, float white, float4
         // different hue, not only more saturation: 0-3's hot orange walls came out red-orange and, with blue at the SDR
         // rolloff's level, salmon, while the SDR image (and the game) show them amber. So the HDR colour keeps the SDR
         // colour's hue (in linear light, around its luminance; the highlight hue's warm turn included) and takes the
-        // HDR colour's luminance and saturation: the SDR colour, brighter and as saturated as the display has room for.
-        // Where the SDR colour is near neutral (a highlight that went to white) its hue says little: the HDR colour's.
+        // HDR colour's luminance, and back a share (_UltraRTTonemapHue.y, 0.3) of the saturation the SDR rolloff took and
+        // the HDR curve keeps. All of it made 3-1's beam-lit bone floor, cream in SDR and beige in the game, strong yellow
+        // (the user picked 0.3 from 0 / 0.3 / 0.6 / 1). Where the SDR colour is near neutral (a highlight that went to
+        // white) its hue says little: the HDR colour's.
         const float3 Y = float3(0.2126, 0.7152, 0.0722);
         float ls = dot(sl, Y), lh = dot(hl, Y);
         if (ls > 1e-4 && lh > 1e-4)
@@ -196,9 +199,9 @@ float4 UltraRTHdrGain(float3 hdr, float3 shown, float scale, float white, float4
             if (md > 1e-4)
             {
                 d /= md;
-                // As saturated as the HDR colour (never less than the SDR colour), inside the gamut (no channel below 0)
-                // and under the peak.
-                float m = max(mh, ms), tl = pow(top, 2.2) / lh;
+                // Between the SDR colour's saturation and the HDR colour's (never less than the SDR colour's), inside
+                // the gamut (no channel below 0) and under the peak.
+                float m = lerp(ms, max(mh, ms), _UltraRTTonemapHue.y), tl = pow(top, 2.2) / lh;
                 [unroll] for (int k = 0; k < 3; k++)
                 {
                     if (d[k] < -1e-4) m = min(m, -1.0 / d[k]);

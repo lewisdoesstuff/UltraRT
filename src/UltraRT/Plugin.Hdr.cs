@@ -13,7 +13,7 @@ namespace UltraRT
     /// preloader patcher (src/UltraRT.Preload) presents the game as HDR10. This file is the plugin's side:
     ///   - settings: [Display] HDR (read by the patcher: needs a restart), HDRPaperWhite, HDRPeak, HDRHighlights, and
     ///     -ultrart-hdr [on|off|force], -ultrart-hdr-paperwhite N, -ultrart-hdr-peak N, -ultrart-hdr-highlights on|off,
-    ///     -ultrart-hdr-emissive X, -ultrart-hdr-lava X, -ultrart-hdr-sky X, -ultrart-hdr-effects X, -ultrart-hdr-bloom X, -ultrart-hdr-white X, -ultrart-hdr-hue sdr|channel|floor, -ultrart-hdr-boost X, -ultrart-hdr-gamma srgb|2.2, -ultrart-hdr-debug,
+    ///     -ultrart-hdr-emissive X, -ultrart-hdr-lava X, -ultrart-hdr-sky X, -ultrart-hdr-effects X, -ultrart-hdr-bloom X, -ultrart-hdr-white X, -ultrart-hdr-hue sdr|channel|floor, -ultrart-hdr-saturation X, -ultrart-hdr-boost X, -ultrart-hdr-gamma srgb|2.2, -ultrart-hdr-debug,
     ///     -ultrart-hdr-capture [raw]
     ///   - the gain map: the composite (Denoise.compute Composite, RayReconstruction.compute Finish) writes, per pixel, what
     ///     an HDR display should show over what the SDR image shows; the native present pass multiplies it in.
@@ -76,6 +76,7 @@ namespace UltraRT
         private IntPtr _hdrLatePtr;
         private float _hdrWhite = 0f;                          // composite value that reaches the peak (0 = the SDR white point)
         private float _hdrGainMax = 16f, _hdrSdrBoost = 0f;
+        private float _hdrSaturation = 0.3f;                   // highlight colour sdr: share of the saturation the SDR rolloff took that HDR gives back (0 = the SDR colour's, 1 = the HDR curve's)
         private float _hdrGainMode = 0f;                       // highlight colour (UltraRTHdrGain mode): 0 = SDR hue, HDR luminance and saturation; 1 = per channel, gain >= 1 (before 2026-11-20); 2 = per channel
         private bool _hdrGamma22 = true, _hdrDebug;
         private int _hdrCaptureMode;                           // bench: 1 = log statistics of the HDR frame at each screenshot, 2 = + raw frame
@@ -146,6 +147,7 @@ namespace UltraRT
                     case "-ultrart-hdr-boost": if (F(out var bo)) _hdrSdrBoost = bo; break;
                     case "-ultrart-hdr-gamma": _hdrGamma22 = (Next() ?? "2.2").ToLowerInvariant() != "srgb"; break;
                     case "-ultrart-hdr-debug": _hdrDebug = true; break;
+                    case "-ultrart-hdr-saturation": if (F(out var sa)) _hdrSaturation = Mathf.Clamp01(sa); break;
                     case "-ultrart-hdr-hue":
                     {
                         var v = (Next() ?? "sdr").ToLowerInvariant();

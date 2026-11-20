@@ -31,6 +31,7 @@ See also: [relight.md](relight.md) ("HDR displays": why Unity itself can't do it
 | `HDRHighlights` | `-ultrart-hdr-highlights on\|off` | true | the gain map as a whole; off = the SDR image at paper white |
 | | `-ultrart-hdr-white X` | 0 | composite value (display gamma, 1 = SDR white) that reaches the peak; 0 = the tone curve's white point (3). Lower = harsher |
 | | `-ultrart-hdr-hue sdr\|channel\|floor` | sdr | colour of the composite's highlights: `sdr` = the SDR image's hue at the HDR curve's luminance and saturation (since 2026-11-20, "Highlight colour"); `channel` = the HDR curve's colour per channel; `floor` = per channel with no gain below 1 (before 2026-11-20). Bench `plugin._hdrGainMode=0\|2\|1` |
+| | `-ultrart-hdr-saturation X` | 0.3 | with `sdr`: share of the saturation the SDR rolloff took that HDR gives back (0 = the SDR colour's, just brighter; 1 = the HDR curve's). Bench `plugin._hdrSaturation` |
 | | `-ultrart-hdr-gamma srgb\|2.2` | 2.2 | how the SDR image is decoded |
 | | `-ultrart-hdr-boost X` | 0 | frames without a gain map (off, menus): highlights above 0.7 scaled up to 1 + X |
 | | `-ultrart-hdr-debug` | | tints the pixels that got gain magenta |
@@ -219,9 +220,14 @@ moves it by under a degree.
 
 **Change** (`UltraRTToneCurve.hlsl` `UltraRTHdrGain`, `Hdr.cpp` present pass; the SDR image is unchanged):
 - The HDR colour keeps the SDR colour's hue (linear light, around its luminance; the highlight hue's warm turn included)
-  and takes the HDR curve's luminance and saturation (its chroma, never less than the SDR colour's), inside the gamut and
-  under the peak. Where the SDR colour is near neutral (a highlight that went to white) the HDR colour's own hue is used.
-  Below the knee the two are the same colour, so nothing changes there.
+  and takes the HDR curve's luminance, plus a share (`-ultrart-hdr-saturation`, 0.3) of the saturation the SDR rolloff
+  took and the HDR curve keeps (chroma around luminance, between the SDR colour's and the HDR colour's), inside the gamut
+  and under the peak. Where the SDR colour is near neutral (a highlight that went to white) the HDR colour's own hue is
+  used. Below the knee the two are the same colour, so nothing changes there.
+- The share: all of it (first version, commit 0e8f410) made 0-3's walls rich amber but turned 3-1's beam-lit bone floor,
+  cream in SDR and beige in the game, strong yellow (user). The two can't be told apart by a rule: their SDR colours are
+  equally saturated (0.58 / 0.56) and HDR lifts them alike (luminance x2.1 / x1.5). The user picked 0.3 from 0 / 0.3 /
+  0.6 / 1 (`bench/results/20261120-212849_hcf-s_alt`, sheets `review/hdr-color-fix/saturation-ab_*.png`).
 - The composite's gain may go below 1 per channel (down to 0), and the late map's result counts only where it has gain.
   HUD, gun and smoke still fail the colour test and stay SDR.
 - No brightness limit: the HDR luminance is the curve's, as before (wall panel p50 / p90 387 / 706 nits before and after).
@@ -231,18 +237,22 @@ moves it by under a degree.
 noted; before = `plugin._hdrGainMode=1` in the same launch, `bench/results/20261120-211806_hcf-v_alt`, `channel` from
 `-211413_hcf-a_alt`; stills `bench/results/review/hdr-color-fix/`). Hot half of each region, mean HDR colour:
 
-| 0-3 region | Game (`off`) | SDR image | HDR before | HDR `channel` | HDR `sdr` (default) |
-|---|---|---|---|---|---|
-| user view, upper-left wall panel | hue 30.6, sat 1.00 | hue 33.0, sat 0.58 | 1133 / 496 / 167 nits, hue 19.6, sat 0.85 | 1133 / 496 / 125, hue 21.4, sat 0.89 | 1004 / 540 / 111, hue 28.7, sat 0.89 |
-| user view, upper-right panel | 31.3 | 32.9 | hue 20.8 | 22.2 | 29.4 |
-| user view, upper-left panel, `relight` | | 33.0 | | | 980 / 543 / 114, hue 29.7 |
-| mid room, upper-left panel | | 31.8, sat 0.61 | 1145 / 491 / 147, hue 19.8 | | 1028 / 531 / 67, hue 28.8, sat 0.93 |
-| mid room, light-strip band | | 24.2 | hue 12.3 | | hue 24.0 |
+| Region | Game (`off`) | SDR image | HDR before | HDR `channel` | HDR `sdr`, saturation 1 | HDR `sdr`, 0.3 (default) |
+|---|---|---|---|---|---|---|
+| 0-3 user view, upper-left wall panel | hue 30.6, sat 1.00 | hue 33.0, sat 0.58 | 1133 / 496 / 167 nits, hue 19.6, sat 0.85 | 1133 / 496 / 125, hue 21.4, sat 0.89 | 1004 / 540 / 111, hue 28.7, sat 0.89 | 852 / 559 / 234, hue 31.7, sat 0.73 |
+| 0-3 user view, upper-right panel | 31.3 | 32.9 | hue 20.8 | 22.2 | 29.4 | 32.0, sat 0.71 |
+| 0-3 user view, upper-left panel, `relight` | | 33.0 | | | 980 / 543 / 114, hue 29.7 | |
+| 0-3 mid room, upper-left panel | | 31.8, sat 0.61 | 1145 / 491 / 147, hue 19.8 | | 1028 / 531 / 67, hue 28.8, sat 0.93 | 873 / 552 / 215, hue 30.8, sat 0.75 |
+| 0-3 mid room, light-strip band | | 24.2 | hue 12.3 | | hue 24.0 | hue 24.2 |
+| 3-1 eye beams, bone floor (lit) | | hue 30.6, sat 0.55 | 738 / 315 / 177, hue 13.6 (pink) | | 621 / 348 / 59, hue 30.9, sat 0.90 | 544 / 359 / 159, hue 31.4, sat 0.71 (0: 0.55, 0.6: 0.84) |
 
-The frames' "above paper white" shares move by under a point (0-3 user view 18.4 -> 17.7 %, mid room 22.9 -> 22.2 %,
-back wall 43.4 -> 43.2 %); 1-4 lamps, 6-2 pose 1 and 3-1 eye beams by under 0.1. The pillars over the hot wall band stay
+The HDR luminance is the same in every column (3-1 floor 384-385 nits; 0-3 panel p50 380-387).
+
+The frames' "above paper white" shares move by under a point (0-3 user view 18.4 -> 17.7 %, 17.6 % at saturation 0.3;
+mid room 22.9 -> 22.2 / 22.0 %; back wall 43.4 -> 43.2 %); 1-4 lamps, 6-2 pose 1 and 3-1 eye beams by under 0.1 (the
+regression poses, the back wall and 1-1 fire were checked at saturation 1; 0.3 lies between that and the SDR colour). The pillars over the hot wall band stay
 solid at the peak (back wall: as before). 3-1's bone bridge floor in front of the eye beam was pink in HDR and is now
-yellow, as the beam lights it. The HUD's pixels are as before (paper white). 1-1 fire: the effect's own gain is
+a light cream like the SDR image. The HUD's pixels are as before (paper white). 1-1 fire: the effect's own gain is
 unchanged (x3 over the flame); the composite's emissive strips lose the light the floor added (x2.6 -> x2.2 in
 luminance), which was the floor's error, not the curve's.
 
@@ -367,8 +377,8 @@ with HDR off.
 
 ## Known gaps
 - 0-3's coral walls: fixed 2026-11-20 ("Highlight colour"). An earlier try that kept the SDR hue but raised saturation
-  only part of the way towards the HDR colour's was "very bright, but rather pale"; the fix takes the HDR saturation in
-  full. How bright hot walls get (a fifth of 0-3's frame above paper white) is the curve's and was not changed: the user
+  only part of the way towards the HDR colour's was "very bright, but rather pale" (paper white 250 then); the fix
+  takes the hue in linear light and 0.3 of the saturation, picked against 3-1's floor. How bright hot walls get (a fifth of 0-3's frame above paper white) is the curve's and was not changed: the user
   asked for no brightness cap. Not yet judged on the display.
 - 3-1 (the eye-beam staircase, 2026-11-20) is too bright against the game in SDR as well, so it is not an HDR matter. It
   is the same in a 30522b5 build, and flesh scatter, the highlight hue and RR's front emitters change nothing there.
