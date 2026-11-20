@@ -120,6 +120,58 @@ bool   LinearLight() { return _SkyLight.x > 0.5; }
 float3 ToLight(float3 g) { return LinearLight() ? pow(max(g, 0.0), 2.2) : g; }
 float3 LightToDisplay(float3 l) { return LinearLight() ? pow(max(l, 0.0), 1.0 / 2.2) : l; }
 
+// ---------------------------------------------------------------- flesh subsurface (docs/materials.md, "Flesh subsurface")
+
+// Light that enters thick tissue comes out again a little further on, reddened (blood absorbs green and blue): a wrap
+// term around the terminator, tinted crimson, from each light's own (shadowed) sample. No constant term, no extra ray:
+// where no light arrives, nothing is added, and a light behind a wall stays blocked by its shadow ray.
+// Global (Plugin.Materials.cs): x strength (0 = off), y wrap (how far past the terminator, in cosine), z rim strength
+// (view-dependent backlit scatter at grazing light), w unused.
+float4 _UltraRTFleshSss;
+// Set by the ray generation shader around the primary hit's direct light only (FleshSssBegin / FleshSssEnd): bounce,
+// reflection, cache and particle evaluations keep the plain Lambert term.
+static float  g_SssWrap = 0.0;  // > 0: the surface being lit is flesh
+static float3 g_SssTint = 0;    // crimson scatter colour in lighting space, x 2 x strength
+static float3 g_SssView = 0;    // towards the eye
+static float  g_SssRim = 0.0;
+
+// The scatter added to Lambert's max(nl, 0) for a light along L (n: shading normal, nl = dot(n, L)): wrapped diffuse
+// minus Lambert, which is 0 where the surface faces the light, w / (1 + w) at the terminator and 0 again at nl = -w;
+// plus a backlit rim where the eye looks past the surface towards the light. Per channel it never takes the total over
+// 1 (what the light gives a surface facing it): a strong scatter flattens the red shading, but no grazing face near a
+// light comes out brighter than the face turned to it (strength 8 without the cap lit a pillar edge flat red).
+float3 FleshScatter(float3 n, float3 L, float nl)
+{
+    float w = g_SssWrap;
+    float lambert = saturate(nl);
+    float s = max(0.0, saturate((nl + w) / (1.0 + w)) - lambert);
+    float t = saturate(dot(g_SssView, -L + n * 0.4));
+    s += g_SssRim * (t * t * t) * (1.0 - lambert);
+    return min(g_SssTint * s, 1.0 - lambert);
+}
+
+// The lowest cosine a light may have and still light the surface: 0 (Lambert), or -wrap on flesh.
+float SssNdlMin() { return -g_SssWrap; }
+
+#ifdef ULTRART_MATERIAL_INCLUDED
+// cls: the hit's class (payload flags); v: towards the eye.
+void FleshSssBegin(uint cls, float3 v)
+{
+    g_SssWrap = 0.0;
+    [branch] if (cls == ULTRART_CLASS_FLESH && _UltraRTFleshSss.x > 0.0)
+    {
+        g_SssWrap = clamp(_UltraRTFleshSss.y, 0.01, 1.0);
+        // Deep blood red (display space), converted like a light colour so linear transport shows the same hue at the
+        // terminator, where the scatter is most of the light.
+        // Strength 1 = twice the plain wrap (the plain wrap on red alone was invisible next to the frame's noise).
+        g_SssTint = ToLight(float3(1.0, 0.14, 0.06)) * (2.0 * _UltraRTFleshSss.x);
+        g_SssView = v;
+        g_SssRim = max(_UltraRTFleshSss.z, 0.0);
+    }
+}
+void FleshSssEnd() { g_SssWrap = 0.0; }
+#endif
+
 // Extra instance mask for every shadow ray: ULTRART_MASK_PLAYER where V1's third-person model casts shadows (PathTrace sets
 // it from _UltraRTPlayerRays; the radiance cache keeps 0, so its world-space cells never hold the moving player's shadow).
 // Set by each ray-generation shader, like g_ShadowRng.
@@ -282,7 +334,7 @@ uint LightShadowSetup(uint i, float3 p, float3 n, inout float3 L, inout float di
         if (dist < 1e-4) return 1u;
         L = d / dist;
 #ifndef ULTRART_LIGHT_ISOTROPIC
-        if (dot(L, n) <= 0.0) return 0u;
+        if (dot(L, n) <= SssNdlMin()) return 0u; // flesh: past the terminator (FleshScatter)
 #endif
     }
     else
@@ -305,7 +357,7 @@ uint LightShadowSetup(uint i, float3 p, float3 n, inout float3 L, inout float di
             float3 b = cross(L, t);
             L = normalize(t * (sinT * cos(phi)) + b * (sinT * sin(phi)) + L * cosT);
 #ifndef ULTRART_LIGHT_ISOTROPIC
-            if (dot(L, n) <= 0.0) return 0u;
+            if (dot(L, n) <= SssNdlMin()) return 0u; // flesh: past the terminator (FleshScatter)
 #endif
         }
         else if (radius > 0.0 && dist < 1.0e3)
@@ -322,7 +374,7 @@ uint LightShadowSetup(uint i, float3 p, float3 n, inout float3 L, inout float di
             dist = length(d);
             L = d / max(dist, 1e-4);
 #ifndef ULTRART_LIGHT_ISOTROPIC
-            if (dot(L, n) <= 0.0) return 0u;
+            if (dot(L, n) <= SssNdlMin()) return 0u; // flesh: past the terminator (FleshScatter)
 #endif
         }
     }
@@ -412,9 +464,11 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
 #ifdef ULTRART_LIGHT_ISOTROPIC
     float ndl = emit; // a point in the air (lit particles): no surface orientation
 #else
-    float ndl = dot(n, L);
-    if (ndl <= 0.0) return false;
-    ndl *= emit;
+    float nl = dot(n, L);
+    // Flesh (FleshSssBegin): lights a little behind the terminator still scatter in, but only lights with a shadow ray
+    // (an unshadowed fill light there would reach through the wall it sits behind).
+    if (nl <= (l3.z > 0.5 ? 0.0 : SssNdlMin())) return false;
+    float ndl = max(nl, 0.0) * emit;
 #endif
 
     float atten = 1.0;
@@ -479,7 +533,11 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
     // docs/viewmodel.md, "Player lights on the gun").
     if (lin && LightPlayerFlag(l1.w) > 0.75) ndl = pow(ndl, ULTRART_PLAYER_LIGHT_NDL_POW);
 #endif
-    c = ToLight(l1.rgb * scale) * (atten * ndl);
+    float3 shape = ndl;
+#ifndef ULTRART_LIGHT_ISOTROPIC
+    [branch] if (g_SssWrap > 0.0) shape += FleshScatter(n, L, nl) * emit;
+#endif
+    c = ToLight(l1.rgb * scale) * (atten * shape);
     return true;
 }
 
@@ -564,8 +622,10 @@ bool EmissiveEval(uint tri, uint bary, float3 p, float3 n, out float3 L, out flo
 #ifdef ULTRART_LIGHT_ISOTROPIC
     float cosS = 1.0;
 #else
-    float cosS = dot(n, L);
-    if (cosS <= 1e-4) return false;
+    float nlS = dot(n, L);
+    if (nlS <= (g_SssWrap > 0.0 ? -g_SssWrap : 1e-4)) return false; // flesh: a little past the terminator (FleshScatter)
+    float3 cosS = max(nlS, 0.0);
+    [branch] if (g_SssWrap > 0.0) cosS += FleshScatter(n, L, nlS);
 #endif
     float cosL = -dot(nl, L);
     if ((flags & 1u) != 0u) cosL = abs(cosL);

@@ -22,6 +22,8 @@
 #define ULTRART_METAL_F0_MIN 0.5 // minimum luminance of a metal's albedo-tinted f0 (SpecularTerms)
 
 #define ULTRART_CLASS_COUNT 23u // 0-20 ULTRAKILL SurfaceType, 21 other/unknown, 22 mirror (name allow-list)
+#define ULTRART_CLASS_FLESH 2u  // SurfaceClass.Flesh (MaterialClasses.cs): subsurface wrap light (UltraRTLights.hlsl, FleshSssBegin)
+#define ULTRART_CLASS_WET   13u // SurfaceClass.Wet: water (ripple normals on the transparent ray)
 
 struct SurfaceMaterial
 {

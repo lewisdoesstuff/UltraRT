@@ -1,0 +1,24 @@
+{
+  "Name": "flesh-sss",
+  "Note": "Flesh subsurface (docs/materials.md 'Flesh subsurface'): the crimson wrap light on SurfaceType Flesh, mat.fleshSss=0 against the default (and 2), relight and pathtrace. Teleport-menu stops with lit flesh in view: 3-2 First Room and Heart Chamber (the dark-room check), 3-1 Uphill Battle (stop 5); 0-1 metal has no flesh and must not change beyond the frame-to-frame noise.",
+  "Scenarios": [
+    {
+      "Name": "3-2 tour", "Scene": "Level 3-2", "Path": { "Type": "tour" },
+      "Tour": { "Views": 2, "Max": 2 },
+      "Modes": [ "off", "relight+mat.fleshSss=0", "relight", "relight+mat.fleshSss=2", "pathtrace+mat.fleshSss=0", "pathtrace" ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "3-1 tour", "Scene": "Level 3-1", "Path": { "Type": "tour" },
+      "Tour": { "Views": 2, "Max": 0, "Only": [ 5 ] },
+      "Modes": [ "off", "relight+mat.fleshSss=0", "relight", "relight+mat.fleshSss=2", "pathtrace+mat.fleshSss=0", "pathtrace" ],
+      "ShotSettle": 1
+    },
+    {
+      "Name": "0-1 metal", "Scene": "Level 0-1",
+      "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 4 },
+      "Modes": [ "off", "relight+mat.fleshSss=0", "relight", "pathtrace+mat.fleshSss=0", "pathtrace" ],
+      "Screenshots": [ 2 ], "ShotSettle": 1
+    }
+  ]
+}
