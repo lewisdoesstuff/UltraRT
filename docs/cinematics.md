@@ -102,6 +102,15 @@ shadow and reflection would hang where the player stands), unless "V1's reflecti
 default off; bench `"TracePlayer": true` in the `Cinematic` block): for a mirror shot, stand the player in front of the
 mirror and put the camera ahead of it, so V1 shows only in the reflection (camera rays never see V1's model itself:
 docs/reflections.md, section 13; a bench scenario can ask for it, see "A moving player, third-person shots, lamps").
+Kept out of the traced scene also means out of the game's own image: since 2026-11-20 V1's third-person model (the
+renderers under `PlayerAnimations`, `Player/GroundCheck/v1_combined`, layer 30; not layer 13) is switched off while the
+camera is free and V1 is neither traced (`TracePlayer` off) nor shown (`ShowPlayer`). The main camera never draws layer
+30, but the game's portal and mirror views do (`PortalRenderV2`), so V1 stood in them where the player was parked:
+in the v6 trailer draft, 8-2's supermarket arch showed V1 in the RT-off take and not in the traced one (the scenario's
+`LookAt` parks the player 6 m in front of the arch's other side on the island). `CineHidePlayerModel`
+(`Plugin.Cinematics.cs`) keeps this in step with `TracePlayer`, `ShowPlayer` and the bench's player routes (`Player`,
+replays), and leaving the camera puts every renderer back (log: `V1's model hidden from the game's views (N renderer(s))`
+/ `shown again`).
 "Enemies ignore the player" (menu, default on) makes enemies
 blind and the player invincible by swapping only the cheats' static state (not the cheat menu: nothing is saved and
 the level is not marked as cheated). "Game speed during playback / render" (default 1) slows or freezes the world (0 =

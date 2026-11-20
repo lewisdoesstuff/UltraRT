@@ -4,8 +4,8 @@
   "Scene": "Level 5-2",
   "Note": "Final trailer: out along 5-2's pier towards the storm (base = end of bench/recordings/5-2-water-1115.json).",
   "Keys": [
-    {"Player": [-1.09, -8.46, 350.74], "Yaw": 7.4, "Pitch": -4, "Fov": 85, "Duration": 7.5, "Ease": "smooth"},
-    {"Player": [0.069, -7.46, 359.665], "Yaw": 7.4, "Pitch": -7, "Fov": 85, "Duration": 7.5, "Ease": "smooth"},
+    {"Player": [-1.09, -8.46, 350.74], "Yaw": 7.4, "Pitch": -4, "Fov": 85, "Duration": 7.5, "Ease": "linear"},
+    {"Player": [0.069, -7.46, 359.665], "Yaw": 7.4, "Pitch": -7, "Fov": 85, "Duration": 7.5, "Ease": "linear"},
     {"Player": [0.713, -6.86, 364.623], "Yaw": 7.4, "Pitch": -8, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
   ]
 }

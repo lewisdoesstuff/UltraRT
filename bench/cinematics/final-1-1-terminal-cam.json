@@ -4,7 +4,7 @@
   "Scene": "Level 1-1",
   "Note": "Final trailer, camera for final-1-1-terminal-walk: behind and left of V1's route, a slow push towards the terminal.",
   "Keys": [
-    {"Player": [3.3, 0.4, 258.5], "Yaw": 24.89, "Pitch": -6.9, "Fov": 65, "Duration": 6.5, "Ease": "smooth"},
+    {"Player": [3.3, 0.4, 258.5], "Yaw": 24.89, "Pitch": -6.9, "Fov": 65, "Duration": 6.5, "Ease": "linear"},
     {"Player": [4.28, -0.05, 261.4], "Yaw": 28.52, "Pitch": -6.0, "Fov": 65, "Duration": 2.0, "Ease": "linear"}
   ]
 }

@@ -124,6 +124,8 @@ namespace UltraRT
         private float _cinePlayerLastT = float.MaxValue;
         private readonly List<Collider> _cineShopTriggers = new List<Collider>();
         private readonly List<GameObject> _cineShopCanvases = new List<GameObject>();
+        // V1's third-person renderers switched off while the cinematic keeps V1 out of the shot (CineHidePlayerModel).
+        private readonly List<Renderer> _cineHiddenPlayerRenderers = new List<Renderer>();
         private Animator _cinePlayerAnimator;
         private const int PlayerModelLayer = 30;
 
@@ -165,7 +167,7 @@ namespace UltraRT
             m.Bool("Cinematics", "TracePlayer", "V1's reflection and shadow stay while the camera is free", () => _cine.tracePlayer, v =>
             {
                 _cine.tracePlayer = v;
-                if (_cineState != CineState.Off) SceneProxies.TracePlayerModel = v && _cineSavedPlayerModel;
+                if (_cineState != CineState.Off) { SceneProxies.TracePlayerModel = v && _cineSavedPlayerModel; CineSyncPlayerModel(); }
             });
             m.Action("Cinematic camera on / off  [Home]", () => { if (_cineState == CineState.Off) CineEnter(); else if (_cineState != CineState.Render) CineExit(); });
             m.Action("Cinematic: play the path  [P]", () => CinePlay(0f));
@@ -214,6 +216,7 @@ namespace UltraRT
             // unless the shot wants it there (TracePlayer: a mirror shot with the player standing in front of the mirror).
             _cineSavedPlayerModel = SceneProxies.TracePlayerModel;
             SceneProxies.TracePlayerModel = _cine.tracePlayer && _cineSavedPlayerModel;
+            CineHidePlayerModel(!SceneProxies.TracePlayerModel && !_cineShowPlayer); // and out of the game's portal views
             _cineSavedVm = _vmEnabled;
             _vmEnabled = false;
             CineHideHud(true);
@@ -256,6 +259,7 @@ namespace UltraRT
             if (_cineOwnsControl) { GameControl.ReleaseControl(); _cineOwnsControl = false; }
             SceneProxies.TracePlayerModel = _cineSavedPlayerModel;
             CineShowPlayer(false);
+            CineHidePlayerModel(false);
             CineShopScreensOff(false);
             _cinePlayerDriven = false;
             _cinePlayerLastT = float.MaxValue;
@@ -281,6 +285,7 @@ namespace UltraRT
             if (_cineState != CineState.Off) { Logger.LogInfo("Cinematic camera: level changed, restoring"); CineExit(); }
             _cineCanvases.Clear();
             _cineCanvasesHidden = false;
+            _cineHiddenPlayerRenderers.Clear(); // the old level's renderers are gone
             _cineSavedHudMask = int.MinValue;
             _cineHudCam = null;
             _cineSpeedSet = false;
@@ -380,11 +385,44 @@ namespace UltraRT
         private void CineShowPlayer(bool show)
         {
             _cineShowPlayer = show;
+            CineSyncPlayerModel();
             var cc = GameControl.Cam;
             var cam = cc != null ? cc.cam : null;
             if (cam == null) { _cineShowPlayerMask = false; return; }
             if (show && (cam.cullingMask & (1 << PlayerModelLayer)) == 0) { cam.cullingMask |= 1 << PlayerModelLayer; _cineShowPlayerMask = true; }
             else if (!show && _cineShowPlayerMask) { cam.cullingMask &= ~(1 << PlayerModelLayer); _cineShowPlayerMask = false; }
+        }
+
+        /// <summary>V1 out of the shot means out of every image: with the camera free and V1 neither traced (TracePlayer
+        /// off) nor shown (third-person shots), its layer-30 model would still be drawn by the game's own portal and mirror
+        /// views (PortalRenderV2 draws layer 30), standing where the player was parked: 8-2's supermarket arch showed V1 in
+        /// the RT-off take but not in the traced one. Called whenever TracePlayerModel or _cineShowPlayer changes.</summary>
+        private void CineSyncPlayerModel() =>
+            CineHidePlayerModel(_cineState != CineState.Off && !SceneProxies.TracePlayerModel && !_cineShowPlayer);
+
+        /// <summary>Switches V1's third-person renderers (PlayerAnimations' children, not layer 13) off and remembers
+        /// them, or puts back the ones it switched off. Safe to call repeatedly.</summary>
+        private void CineHidePlayerModel(bool hide)
+        {
+            if (!hide)
+            {
+                if (_cineHiddenPlayerRenderers.Count == 0) return;
+                foreach (var r in _cineHiddenPlayerRenderers) if (r != null) r.enabled = true;
+                Logger.LogInfo($"Cinematic camera: V1's model shown again ({_cineHiddenPlayerRenderers.Count} renderer(s))");
+                _cineHiddenPlayerRenderers.Clear();
+                return;
+            }
+            if (_cineHiddenPlayerRenderers.Count > 0) return;
+            try
+            {
+                var anims = MonoSingleton.GetInstance(typeof(PlayerAnimations)) as PlayerAnimations; // never creates one
+                if (anims == null) anims = FindObjectsByType<PlayerAnimations>(FindObjectsInactive.Include, FindObjectsSortMode.None).FirstOrDefault();
+                if (anims == null) return;
+                foreach (var r in anims.GetComponentsInChildren<Renderer>(true))
+                    if (r.enabled && r.gameObject.layer != 13) { r.enabled = false; _cineHiddenPlayerRenderers.Add(r); }
+                Logger.LogInfo($"Cinematic camera: V1's model hidden from the game's views ({_cineHiddenPlayerRenderers.Count} renderer(s))");
+            }
+            catch (Exception e) { Logger.LogWarning($"Cinematic camera: hiding V1's model failed: {e.Message}"); }
         }
 
         /// <summary>Shop terminals stay dark (bench "ShopScreensOff"): ShopZone switches its world-space canvas on when the
