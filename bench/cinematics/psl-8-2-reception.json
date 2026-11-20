@@ -1,0 +1,32 @@
+{
+  "Version": 1,
+  "Name": "psl-8-2-reception",
+  "Scene": "Level 8-2",
+  "Note": "Portal scene lights (docs/portals.md, 'Scene lights through portals'): a held pose for frozen-time A/B takes. 8-2 pose 4: the Reception portal into the lit hallway.",
+  "Keys": [
+    {
+      "Player": [
+        331.9428,
+        -8.5,
+        431.2957
+      ],
+      "Yaw": 89.16,
+      "Pitch": -10.6,
+      "Fov": 0,
+      "Duration": 1.0,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        331.9428,
+        -8.5,
+        431.2957
+      ],
+      "Yaw": 89.16,
+      "Pitch": -10.6,
+      "Fov": 0,
+      "Duration": 1.0,
+      "Ease": "linear"
+    }
+  ]
+}

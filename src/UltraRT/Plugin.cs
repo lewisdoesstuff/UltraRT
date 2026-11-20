@@ -319,6 +319,7 @@ namespace UltraRT
                     case "-ultrart-noportallayer": SceneProxies.TracePortalLayer = false; break;
                     case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
                     case "-ultrart-rtmirrors": _rtMirrors = true; break;
+                    case "-ultrart-portal-lights": { var v = (Next() ?? "").ToLowerInvariant(); _portalLights = v != "off" && v != "0" && v != "false"; break; } // Plugin.PortalLights.cs
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
                     case "-ultrart-v1-unlit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.PlayerModelUnlit); break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
@@ -660,7 +661,7 @@ namespace UltraRT
             AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
             AppendEnemyGlowLights(); // Plugin.EnemyGlow.cs: the glowing parts of skinned enemies
-            AppendPortalLightImages(); // Plugin.PortalLights.cs: the player's own lights imaged through portals
+            AppendPortalLightImages(); // Plugin.PortalLights.cs: lights imaged through portals (they light the room behind the exit)
             // Lights [0, _surfLightCount) light surfaces (every surface pass binds that count); the ones after it only
             // the air (the volumetric pass takes _lightCount). docs/lighting-overrides.md, "Classes and rules".
             _surfLightCount = _lightCount;

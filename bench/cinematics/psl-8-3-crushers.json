@@ -1,0 +1,32 @@
+{
+  "Version": 1,
+  "Name": "psl-8-3-crushers",
+  "Scene": "Level 8-3",
+  "Note": "Portal scene lights (docs/portals.md, 'Scene lights through portals'): a held pose for frozen-time A/B takes. 8-3's Clockwork Crushers between the two sideways loop portals (the loop guard).",
+  "Keys": [
+    {
+      "Player": [
+        181.5,
+        165.0,
+        674.0
+      ],
+      "Yaw": 235,
+      "Pitch": -2,
+      "Fov": 0,
+      "Duration": 1.0,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        181.5,
+        165.0,
+        674.0
+      ],
+      "Yaw": 235,
+      "Pitch": -2,
+      "Fov": 0,
+      "Duration": 1.0,
+      "Ease": "linear"
+    }
+  ]
+}

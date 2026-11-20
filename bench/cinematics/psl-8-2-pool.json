@@ -1,0 +1,32 @@
+{
+  "Version": 1,
+  "Name": "psl-8-2-pool",
+  "Scene": "Level 8-2",
+  "Note": "Portal scene lights (docs/portals.md, 'Scene lights through portals'): a held pose for frozen-time A/B takes. 8-2's starting pool, a floor portal into a copy of the street (the mirror guard).",
+  "Keys": [
+    {
+      "Player": [
+        3.2086,
+        -8.5,
+        305.9155
+      ],
+      "Yaw": -7.88,
+      "Pitch": -3.0,
+      "Fov": 0,
+      "Duration": 1.0,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        3.2086,
+        -8.5,
+        305.9155
+      ],
+      "Yaw": -7.88,
+      "Pitch": -3.0,
+      "Fov": 0,
+      "Duration": 1.0,
+      "Ease": "linear"
+    }
+  ]
+}

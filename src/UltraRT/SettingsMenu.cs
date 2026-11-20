@@ -151,6 +151,7 @@ namespace UltraRT
                 _lightSampling?.Reset(); _denoiser?.Reset();
             }, "-ultrart-noemissive");
             m.Float("Lighting", "EmissiveScale", "Emissive brightness", 0f, 8f, 2, () => _emissiveSettings.lightScale, v => _emissiveSettings.lightScale = v, "-ultrart-emissive-scale");
+            m.Bool("Lighting", "PortalLights", "Lights shine through portals (layer 8)", () => _portalLights, v => _portalLights = v, "-ultrart-portal-lights");
 
             m.Group = "Auto exposure";
             m.Bool("Relight", "AutoExposure", "Auto exposure  [Ctrl+F4]", () => _aeSettings.enabled, v => { _aeSettings.enabled = v; _autoExposure?.Reset(); }, "-ultrart-relight-autoexposure").Legacy();

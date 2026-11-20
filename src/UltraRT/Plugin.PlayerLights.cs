@@ -88,6 +88,7 @@ namespace UltraRT
             {
                 var l0 = _lightData[i * 4];
                 if (l0.w == 0f) continue; // directional
+                if (_lightData[i * 4 + 3].w < -0.5f) continue; // a portal image: its source's flag (Plugin.PortalLights.cs)
                 bool owned = PlayerOwnedLight(i);
                 var l = _packedLights[i];
                 float flag = owned ? 1f : 0f;

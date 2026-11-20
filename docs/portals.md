@@ -7,7 +7,9 @@ Files:
 - `unity/.../Portal.shader`: the portal quads' hit shader.
 - `unity/.../UltraRTPortals.hlsl`: `TraceScene`, the portal-following `TraceRay` used by every camera, bounce, reflection and cache ray.
 - `unity/.../PathTrace.raytrace`, `CacheUpdate.raytrace`, `DebugView.raytrace`: use `TraceScene`.
-- `unity/.../UltraRTLights.hlsl`: portal-aware light importance (ReSTIR also reprojected through portals until it was removed on 2026-11-19).
+- `unity/.../UltraRTLights.hlsl`: portal-aware light importance (ReSTIR also reprojected through portals until it was removed on 2026-11-19); lights imaged through portals (section 15).
+- `unity/.../UltraRTPortalBuffers.hlsl`: the sides' travel and quad buffers, shared by the portal and light includes.
+- `src/UltraRT/Plugin.PortalLights.cs`: scene lights imaged through portals (section 15).
 - `unity/.../Composite.shader`: the depth test at portal pixels.
 - `unity/.../Upsample.compute`: the temporal upsampler of the replace modes, same depth rule, reprojects through portals.
 - `src/UltraRT/SceneProxies.cs`: layer-30 renderers get their own instance mask.
@@ -76,7 +78,7 @@ Where it is used:
 - **Reflection rays**: a mirror sees through portals; the reported hit distance is the full path length.
 - **Water and glass** (the transparent pass at the end of RayGen): along the camera ray up to the opaque hit or the first portal, whichever is nearer; water seen through a portal gets no RT reflection overlay (the overlay is drawn by the main camera only). Since 2026-11-20 the camera ray also collects the water and glass on every segment past a portal and lays them over the hit (section 13).
 - **Layer 30**: renderers on the "Portal" layer are traced with instance mask `SceneProxies.PortalLayerMask` = 0x40. `TraceScene` drops 0x40 from the first segment and adds it back after a hop through a side whose `canSeePortalLayer` is set (the hit reports it in `p.material` bit 0), which is the game's per-view culling mask. This is what puts the chandeliers into 8-3's Shifting Arena. Static-batched layer-30 renderers are not traced (none seen). `-ultrart-noportallayer` turns it off (at scene build).
-- **Not shadow rays**: light sampling is in world space, so a surface is lit by the lights of the room it really is in. Lights shining through a portal into another space are not modelled yet (see Limits).
+- **Not shadow rays**: light sampling is in world space, so a surface is lit by the lights of the room it really is in. Lights shining through a portal into another space are their images (section 15, since 2026-11-20): an image's shadow ray runs in two segments, one per side.
 
 **The G-buffer stays in camera space.** Because the travel matrices are rigid, the far side seen through a portal is a rigid copy of it in front of the camera (the "virtual" scene). Primary hits write the virtual view: `_NormalDepth` = (rotation^-1 * normal, full path length), the motion in `_InstanceId.y` rotated the same way. The denoiser, the reflection filter and ReSTIR rebuild positions as `camPos + dir * t`, so they reproject surfaces behind a portal like any other: static portals need no special case. ReSTIR's reuse (`UltraRTLights.hlsl`, `g_PrimaryVirtual*`) reprojects and stores the reservoir plane with the virtual point and normal and evaluates lights at the real one.
 
@@ -101,6 +103,8 @@ Where it is used:
 | `SceneProxies.PortalAddDelay` | 2 frames before a new portal quad goes into the RTAS |
 | bench `trans.portalGlass=0`, `trans.portalGlassStrength`, `trans.portalGlassHits` | water and glass behind portals (section 13): off / blend alpha x (1) / surfaces per segment (2, max 2) |
 | `SceneProxies.MaxPortalSides` | 1024 |
+| `-ultrart-portal-lights on\|off`, bench `plugin._portalLights=0\|1`, settings menu Advanced > Lighting "Lights shine through portals" (`[Lighting] PortalLights`) | scene lights imaged through portals (section 15; on) |
+| bench `plugin._portalLightMax=N`, `plugin._portalLightLoopSpan=M`, `plugin._portalLightGuards=0` | images per frame (16), the loop guard's span (100 m), all guards off (diagnostic) |
 
 `-ultrart-compdebug 5` (portal depth diagnostic) and `6` (game / RT albedo alignment overlay) were views of the hybrid
 mode's ratio composite and went with it on 2026-11-19, as did `portals-align.json` and `perf-8-3-portals.json` (whose
@@ -147,7 +151,7 @@ The far side is now as calm as the near side. "Side 2" has a flickering lamp in 
 - **The player in mirrors**: V1's third-person model (layer 30) now has its own instance mask, 0x80; camera rays add it after a hop through a `canSeePortalLayer` portal, as the game's views do (docs/reflections.md, section 13). The `8-3 mirror` pose is awkward: the CeilingSegment mirror hangs about 10 m above the floor, so V1 is half inside the ceiling there; use `Secret/Mirror` (`bench/suites/self-reflection-8-3.json`).
 - **Sliding door**: the false-start doorway's slab slides on wall-clock time, so at some moments it covers the whole doorway and `compdebug 5` has no portal pixels there. That is correct, not a miss; check the raw RT image or another moment.
 - **Bounce and reflection rays from a surface seen through a portal** start a fresh path: they don't see layer-30 props.
-- **Lights through portals**: a light in room A does not light room B through a portal between them, and shadow rays ignore portals. The game fakes this for `PortalAwareLight`s (up to 16 transformed copies, clipped by the far plane). Doing it in RT means virtual lights (a light's image through each nearby portal, sampled with a plane clip and a shadow ray that is teleported back) in the light list.
+- **Lights through portals**: built on 2026-11-20 (section 15): images of the scene lights, one hop, clipped to the exit's opening, shadowed on both sides. Bounce light through a doorway was already right (bounce rays follow portals); emitters (glowing surfaces) are not imaged.
 - **Per-portal overrides** the game applies to a portal view are not applied to rays: `overrideSkyboxEnter/Exit`, `canSeeItself`, per-portal `maxRecursions` (one global limit of 3 instead), the fog-end distance cull, and `supportInfiniteRecursion`'s fake textures. `appearsInRecursions` and `canSeePortalLayer` are honoured. Fog overrides (and the level's fog behind a portal) are applied by the veil pass since 2026-11-18, for the first portal on a camera ray (docs/scene-proxies.md, "Blended veils").
 - **Moving portals and crossing a portal** had no temporal handling until 2026-11-18: see section 8.
 - **The game's own cubemap reflection** (`GameCubeTerm`; for pattern cubes since hybrid went on 2026-11-19) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
@@ -258,7 +262,7 @@ not explained yet (open).
 
 **Not portal-aware yet** (from the audit, by value): volumetrics (the froxel march and its composite stop at the
 portal plane), the sky (one global sky; a portal into another sky shows the camera's), hybrid's game cube term (eye
-position; moot since hybrid went on 2026-11-19), the player light and muzzle flash (not imaged through portals; built off by default in section 11), the backdrop exclusion by player position
+position; moot since hybrid went on 2026-11-19), the player light and muzzle flash (imaged through portals since 2026-11-20 with every other light, section 15), the backdrop exclusion by player position
 at scene build.
 
 ## 10. Edges of a moving portal (2026-11-18, `t3/door-brightness`)
@@ -301,6 +305,9 @@ stair-stepped edges along the doorway and the light panel inside it, on the shot
 portal is not clearly worse than outside it on single shots; the 16-frame burst on 8-2 pose 4 gives sigma 0.57-0.60
 over the whole frame (region 0: 2.08-2.20), the same as section 9's. The walls behind the portal are darker than the
 game's (a general colour/brightness difference, not a portal one).
+
+*2026-11-20: superseded by section 15. Every scene light, the player's included, is imaged, on by default, clipped to the
+exact opening and shadowed; the cone-only, unshadowed copies below are gone.*
 
 **The player's light through portals** (`Plugin.PortalLights.cs`, `SceneProxies.PortalImages`; **off by default**,
 bench `plugin._portalLights=1`). The player's own lights (the eye light, muzzle flashes: `PlayerOwnedLight`, the test of
@@ -410,3 +417,95 @@ island through the arch as the trace does (`bench/suites/trailer-light-fixes.jso
 `20261120-132549_trailer-light-fixes_alt`: arch region mean 0.9 -> 36 in the game's image at the aisle's end, 42 -> 46
 traced; 8-3's Clockwork Crushers take unchanged in character). In play the camera is at the player's eye, so play was never
 affected; any bench cinematic in a portal level was (the trailer's 8-2 and 8-3 shots).
+
+## 15. Scene lights through portals (2026-11-20, `t3/portal-scene-lights`)
+
+**Before.** Camera, bounce and reflection rays follow portals, but light sampling is in world space and shadow rays
+ignore portals. A lamp in room A lit room B through the doorway between them only by bounce light; a bright room did
+not spill onto a dark one across a portal doorway. Section 11's player-light copies were off and unshadowed.
+
+**Now** (`Plugin.PortalLights.cs`, `SceneProxies.PortalImages`, `UltraRTLights.hlsl` "Portal images"; on by default).
+Every packed point, spot and area light (not the sun, not fill lights, not an image itself; the player's own lights
+included) that shines at an active non-mirror portal side gets an **image**: the light carried through the side's
+travel matrix. "Shines at": from the side's back half-space (the game's rule), within 2 x range of the opening's
+rectangle, the opening's bounding circle inside a spot's cone, a corner of the opening in front of a one-sided area
+emitter. The image's spot axis, area normal and area tangent are rotated with it; it keeps the light's colour, range,
+masks, shadow flags and the player flag. `l3.w = -(side + 1)` marks it (enemy glow lights already used `l3.w = 1`, so
+the mark is negative).
+
+The shader treats an image as two things:
+- **The opening clips it** (`LightEval`): the line from a receiver to the image, carried back through the side's
+  travel matrix, must cross the side's rectangle (`PortalSegmentThrough`, the moving-portal edge test's function, now in
+  `UltraRTPortalBuffers.hlsl`). Light through a rectangular doorway lands as a rectangle, sharp, with no cone.
+  Because the clip is in `LightEval`, RIS gives a clipped receiver a zero weight (no wasted candidates), and fill
+  lights, the radiance cache, the viewmodel and lit particles all get the same clip.
+- **The shadow runs on both sides** (`LightRayVisible`, one `TraceRay` site in a 2-step loop): receiver to 2 cm before
+  the exit's plane on the receiving side, then from the matching point of the side's opening (2 cm past its plane) to
+  the light on the light's side. A soft-shadow ray jittered outside the opening counts as blocked. Portal quads are
+  mask 0x20, never in a shadow mask (0x05), so neither segment hits them. The player's spot-light eye clip is skipped
+  for images (its plane would be on the camera's side). Regular lights pay one compare in `LightEval` and one in the
+  shadow setup.
+
+**Guards** (`plugin._portalLightGuards=0` turns them off, for diagnostics):
+
+| Guard | Rule | What it catches (2026-11-20 logs) |
+|---|---|---|
+| one hop | images are never imaged again (packed after every source) | feedback through 8-3's loops |
+| same place | the image within 1 m of the light | a pair that leads back to itself |
+| mirror | the light makes a U-turn (the exit faces the way the entrance does: `dot(T f, f) < -0.5`), or the portal's path contains "Mirror" | 8-2's starting pool (a floor portal into a copy of the street, 300 m away), `MirrorBig` (into a mirrored copy of the hub room), the island's `Mirror`, the storage room's ceiling portal. The copy behind has its own copies of the lights, as behind the game's real mirrors (never imaged) |
+| loop | an exit within `_portalLightLoopSpan` (100 m) that opens into the light's own room (the light is on the side of the exit's plane the image lights), or a local portal (exit within 100 m of its entrance) whose exit the light sees straight through the level (`Physics.Raycast` on the game's Environment colliders, cached per pair for a second) | 8-3's Clockwork Crushers: the sideways loops (22 m) by the first rule, Portals A/B at the hall's ends (23 m) by the second; the Escher TV; 8-2's looping entrance hall `Portal Left` (80 m) and Black Lodge corridor (45 m). 8-2's BigDoors (2.75 x 6 m double doors) are as local but open into another room behind a wall: they keep their images |
+| contiguous | the exit opening within the light's reach in world space | shadow rays ignore portals, so the real light already reaches what lies behind the exit straight through the world: 8-3's Shifting Hallway (doorways 10-12 m apart along one hall), 8-2's garage (20 m) |
+
+**Budget.** Pairs are scored by luminance x (0.05 + (1 - distance to the opening / reach)^2), divided by
+1 + (how far the exit is from the camera or its nearest portal viewpoint, beyond the light's reach, / 30 m)^2; exits more
+than 150 m beyond reach are dropped; last frame's pairs get x1.5 so the set doesn't flip at the cap. At most 4 sides per
+light and `_portalLightMax` = 16 images per frame, with 8 slots of `MaxLights` (256) kept for the air-only lights
+packed after them. Images light no air (`_lightMedium` 0): the volumetric march stops at the portal plane. Logs:
+`Portal light: '<light>' (reach R m) through <side>: image|skipped, <guard> ...` once per pair (80 per level),
+`Portal light set (N): <light> -> <side> (score); ...` when the set changes (30), and
+`Portal light images: N of M candidates (cap 16); guards skipped A mirror, B loop, C contiguous` when the count changes.
+
+**Results** (`bench/suites/portal-scene-lights.json`; frozen-time cinematic takes, `TimeScale` 0, so every take shows
+the same instant (8-3's door slab slides on its own, which made plain screenshots useless for an A/B); 1280x720, last
+of 30 frames per take; run `bench/results/20261120-184035_portal-scene-lights_alt`, the final build). Mean change per
+pixel (0-255) with images on vs `plugin._portalLights=0`, and over the pixels darker than 40 in the "before" frame
+(`punch.py`'s dark-pixel question: does anything dark that the images can't reach get lifted?):
+
+| Pose | pathtrace mean / dark | relight mean / dark | guards off (pathtrace) mean / dark / p99 |
+|---|---|---|---|
+| 8-2 reception (hallway through the Reception portal) | -0.12 / -0.01 | -0.21 / +0.01 | |
+| 8-2 arch (supermarket aisle, island arch) | -2.25 / -0.52 | -1.11 / -0.14 | |
+| 8-2 pool (starting pool: mirror guard) | +0.01 / +0.01 | -0.02 / 0.00 | +0.16 / +0.08 / +2.7 |
+| 8-3 doorway (false start, the Shifting Hallway's door) | -0.22 / -0.13 | -0.08 / +0.05 | +0.87 / +0.68 / +4.3 |
+| 8-3 crushers (between the sideways loops) | +0.96 / +0.28 | -0.02 / +0.03 | **+2.14 / +1.30 / +18** |
+
+- **No global lift**: dark pixels move by at most 0.3/255 except at the arch, where the whole frame is 1-3 % darker
+  (region ratios 0.97-0.99 everywhere, +1 % on the floor right at the arch): the auto exposure answering the lit arch at
+  the frame's centre, not a lighting change. No exceptions in any run (5-1's explosion near water with the water
+  ripples and combat lights included: the ripple rings were logged, the frames are clean).
+- **The guards matter**: in the Clockwork Crushers, guards off lifts the hall's walls and floor visibly (its own lamps
+  imaged through the sideways loops); with them, four weak images remain (Portals A/B, scores 0.06-0.25: the light's
+  line to the exit is blocked, by the crushers' colliders presumably, so the line-of-sight rule keeps them), +1/255 in
+  pathtrace, nothing in relight. The pool's images (scored highest of the 8-2 hub's, 9.1) would light the hallway and
+  the street copy from below.
+- **Visible gain is small on these poses**: what the images reach here is already lit by its own lamps (the Reception
+  hallway, the island), dark carpet, or (8-3) skipped as contiguous because the real light already arrives straight
+  through the world. The case it is for, a dark room beside a bright portal doorway, is in none of the bench's poses.
+  An earlier run (`20261120-182135`, before the loop guard's last form) gave the same picture.
+
+**Cost** (RTX 5070 Ti, 1440p, GPU timer, plugin CPU; `-Perf` under an exclusive hold, alternating 1.5 s segments,
+off -> on; run `bench/results/20261120-183849_tmp-portal-scene-lights-perf_alt`):
+
+| Pose (images) | pathtrace GPU total / dispatch | relight GPU total / dispatch | plugin CPU "lights" pathtrace / relight |
+|---|---|---|---|
+| 8-2 reception (9-16) | 5.97 -> 6.10 / 1.96 -> 2.04 | 5.63 -> 5.74 / 2.66 -> 2.69 | 0.26 -> 0.42 / 0.38 -> 0.42 ms |
+| 8-2 arch (16) | 5.76 -> 5.78 / 2.24 -> 2.28 | 6.22 -> 6.32 / 3.62 -> 3.68 | 0.32 -> 0.67 / 0.38 -> 0.63 ms |
+| 8-3 doorway (10-14) | 6.12 -> 6.01 / 2.20 -> 2.22 | 6.29 -> 6.10 / 3.27 -> 3.26 | 0.47 -> 0.45 / 0.34 -> 0.40 ms |
+
+GPU: up to 0.08 ms of dispatch and 0.13 ms in total; the totals' run-to-run spread is about as large. Images only
+add work where they light something (the clip zeroes them in RIS elsewhere), plus one compare per regular light. CPU:
+up to 0.35 ms, at the arch (island lights with a 500 m reach pass the side tests for most of the level's sides). The
+first version cost 1.2 ms there: per light x side it compared Unity objects to null (native calls) and inverted the
+travel matrix; the sides are now cached once per frame, with an exit-to-view cull and scalar first tests. Outside
+layer 8 nothing runs (no portal sides). The 10-14 ms "lights" spikes in the table's worst frames occur with images
+off as well (periodic, older).
