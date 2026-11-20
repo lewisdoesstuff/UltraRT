@@ -9,7 +9,9 @@ is the clip's first frame. Kinds:
   switch  the game's image, then a hard switch to the path-traced one "Off" seconds in
   sweep   the game's image for "Off" seconds, then one sweep of the divider ("Sweep" seconds), then path traced
   beauty  path traced only
-  title   a card (the edit list's title clip fields)
+  title   a card (the edit list's title clip fields); also a placeholder mid-trailer
+  video   a video file ("Source", e.g. a gameplay recording; "shot" with a Source and no File is the same): no bench
+          scenario, the clip plays the file from "In" for the shot's bars
 Lengths are "Bars" of the music; the first clip may add "Lead" seconds so that every later cut falls on a bar.
 Comparison shots are rendered as paired captures (docs/cinematics.md): the world runs, both images show the same
 world state in every frame, and each image is only rendered for the stretch the edit uses.
@@ -44,6 +46,19 @@ def main():
             if kind in ("title", "end"):
                 c = {"Type": "title", "Name": sh["Name"], "Duration": dur}
                 c.update(sh.get("Card", {}))
+                clips.append(c)
+                t += dur
+                continue
+            if kind == "video" or (kind == "shot" and sh.get("Source") and not sh.get("File")):
+                # A video file instead of a bench render: nothing to render, the edit list plays it from In for the
+                # shot's bars (at Speed). Swapping a title placeholder for the recording is one line of the plan.
+                t_in, speed = float(sh.get("In", 0)), float(sh.get("Speed", 1))
+                c = {"Type": "shot", "Name": sh["Name"], "Source": sh["Source"], "In": t_in, "Out": round(t_in + dur * speed, 4)}
+                if speed != 1:
+                    c["Speed"] = speed
+                for k in ("Caption", "Tag", "TagAt", "FadeIn", "FadeOut", "Transition", "Labels"):
+                    if k in sh:
+                        c[k] = sh[k]
                 clips.append(c)
                 t += dur
                 continue

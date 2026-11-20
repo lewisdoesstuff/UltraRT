@@ -206,14 +206,20 @@ class Builder:
             args.extend(["-framerate", num(fps), "-i", r["pattern"]])
             items.append((first_input + len(items), int(x), int(y), t0))
 
-        bx, by = W * 0.028, H * 0.035
+        # The badge is open from a clip's first frame to its last (a cut swaps it in place); only a change of state
+        # mid-clip snaps it open again and flashes it (pop).
+        bx, by = W * g.BADGE_X, H * g.BADGE_Y
         if labels and switch_at is not None:
-            if switch_at > 0.3 and labels[0]:
+            early = switch_at <= 0.3 or not labels[0]  # no "before" badge: the "after" one covers the whole clip
+            if not early:
                 add(g.badge(self.gfx_dir(), H, fps, switch_at, labels[0], False), bx, by, 0.0)
             if dur - switch_at > 0.3 and len(labels) > 1 and labels[1]:
-                add(g.badge(self.gfx_dir(), H, fps, dur - switch_at, labels[1], True, pop=switch_at > 0.3), bx, by, switch_at)
+                if early:
+                    add(g.badge(self.gfx_dir(), H, fps, dur, labels[1], True), bx, by, 0.0)
+                else:
+                    add(g.badge(self.gfx_dir(), H, fps, dur - switch_at, labels[1], True, pop=True), bx, by, switch_at)
         elif beauty and labels and len(labels) > 1 and labels[1]:
-            add(g.badge(self.gfx_dir(), H, fps, dur, labels[1], True, pop=False), bx, by, 0.0)
+            add(g.badge(self.gfx_dir(), H, fps, dur, labels[1], True), bx, by, 0.0)
         cap = c.get("Caption")
         if cap:
             cs = cap if isinstance(cap, dict) else {"Text": cap}
@@ -351,6 +357,10 @@ class Builder:
         if flip:
             keys = [[t, 1 - float(p)] for t, p in keys]
         line = float(w.get("Line", 2.0)) * self.H / 720.0
+        # "Border": a dark edge either side of the white line (720p pixels; the picture under it at "Shade" of its
+        # brightness), so the line stays visible over white and yellow walls (4-4's window hall, the museum).
+        border = float(w.get("Border", 1.5)) * self.H / 720.0
+        shade = float(w.get("Shade", 0.3))
         labels = c.get("Labels", ["RT OFF", "PATH TRACED"])
         y = f"{int(self.H * 0.06)}"
         left_x, right_x = f"{int(self.W * 0.04)}", f"w-text_w-{int(self.W * 0.04)}"
@@ -379,7 +389,14 @@ class Builder:
         pos = self.wipe_position(keys, slant).replace("T", f"(T+{num(ta)})")
         # D < 0: left of the divider. gbrp: every plane is full size, so one expression draws the white line in all three.
         d = f"(X-W*({pos})-(Y-H/2)*{num(slant)})"
-        blend = f"blend=all_expr='if(lt(abs({d}),{num(line)}),255,if(lt({d},0),{'B' if flip else 'A'},{'A' if flip else 'B'}))'"
+        # Most pixels are far from the divider: the first test sends them to their side at the cost of the old
+        # expression (D twice); only the line and its border evaluate D more often.
+        side = f"if(lt({d},0),{'B' if flip else 'A'},{'A' if flip else 'B'})"
+        if border > 0 and shade < 1:
+            blend = (f"blend=all_expr='if(gte(abs({d}),{num(line + border)}),{side},"
+                     f"if(lt(abs({d}),{num(line)}),255,{side}*{num(shade)}))'")
+        else:
+            blend = f"blend=all_expr='if(lt(abs({d}),{num(line)}),255,{side})'"
         parts, segs = [], []
         # Each picture is split only into the parts that use it (a hard switch uses each picture once): no idle
         # nullsink branches in the graph.
