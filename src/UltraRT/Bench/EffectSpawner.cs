@@ -311,8 +311,116 @@ namespace UltraRT.Bench
                     // it hits (Torch.HitWith / HitSurface), e.g. 4-3's brazier that opens the door.
                     BenchWhiplash.Press(BenchWhiplash.Action.Punch, 0.05f);
                     break;
+                case "parry":
+                    // The parry light burst alone (CombatLights.cs), ~1.2 m ahead: the game's own parry would freeze the
+                    // capture (0.25 s hit-stop) and white it out (the screen flash, with Options > parry flash on).
+                    UltraRT.CombatLights.TriggerParry();
+                    break;
+                case "parrygame":
+                {
+                    // The game's own parry flash (TimeController.ParryFlash: its light at the player, the hit-stop, the white
+                    // screen flash): the Harmony hook's path. Capture at least 0.4 s later to miss the white frame.
+                    var tc = MonoSingleton<TimeController>.Instance;
+                    if (tc == null) throw new InvalidOperationException("no TimeController");
+                    tc.ParryFlash();
+                    if (_parryLogs++ < 2)
+                    {
+                        var target = MonoSingleton<PlayerTracker>.Instance != null ? MonoSingleton<PlayerTracker>.Instance.GetTarget() : null;
+                        var sb = new System.Text.StringBuilder("EffectSpawner: parry flash; lights at the player:");
+                        if (target != null)
+                            foreach (var l in target.GetComponentsInChildren<Light>(true))
+                                sb.Append($" '{l.name}' {l.type} I {l.intensity:F1} range {l.range:F1} colour ({l.color.r:F2}, {l.color.g:F2}, {l.color.b:F2}) on {l.isActiveAndEnabled};");
+                        Log?.LogInfo(sb.ToString());
+                    }
+                    break;
+                }
+                case "lightning":
+                case "boltlight":
+                {
+                    // 5-2's decorative bolts: the one most in front of the camera. "lightning" starts it as the game does
+                    // (FlashStart: the build-up, then the strike and the game's flash light buildupTime later, and the
+                    // bolt light with it); "boltlight" only starts the bolt light, at once.
+                    LightningStrikeDecorative_Animated best = null;
+                    float bestDot = -2f;
+                    foreach (var l in UnityEngine.Object.FindObjectsOfType<LightningStrikeDecorative_Animated>())
+                    {
+                        if (l == null) continue;
+                        float dot = Vector3.Dot((l.transform.position - cam.position).normalized, cam.forward);
+                        if (dot > bestDot) { bestDot = dot; best = l; }
+                    }
+                    if (best == null) throw new InvalidOperationException("no LightningStrikeDecorative_Animated in this level");
+                    if (kind == "boltlight") UltraRT.CombatLights.ForcedBolts.Add(best);
+                    else
+                    {
+                        if (FlashStart == null) throw new InvalidOperationException("LightningStrikeDecorative_Animated.FlashStart not found");
+                        FlashStart.Invoke(best, null);
+                    }
+                    if (_boltLogs++ < 3)
+                        Log?.LogInfo($"EffectSpawner: {kind} on '{GameControl.PathOf(best.transform)}' ({Vector3.Distance(best.transform.position, cam.position):F0} m, in front {bestDot:F2}), build-up {(BuildupTime != null ? BuildupTime.GetValue(best) : "?")} s");
+                    break;
+                }
+                case "beamchain":
+                {
+                    // A revolver shot that bounces twice, built as the game builds ricochets and coin shots: one beam object
+                    // per segment (RevolverBeam.fake: drawn and lit, no damage), from the gun to the wall ahead and off it.
+                    Revolver rev = null;
+                    foreach (var r in UnityEngine.Object.FindObjectsOfType<Revolver>(true))
+                        if (r != null && r.revolverBeam != null) { rev = r; if (r.isActiveAndEnabled) break; }
+                    if (rev == null) throw new InvalidOperationException("no Revolver with a beam prefab");
+                    var p0 = cam.position + cam.right * 0.35f - cam.up * 0.3f + cam.forward * 0.6f;
+                    var dir = cam.forward;
+                    int mask = LayerMaskDefaults.Get(LMD.Environment);
+                    var start = cam.position;
+                    for (int seg = 0; seg < 3; seg++)
+                    {
+                        Vector3 p1;
+                        Vector3 normal = Vector3.zero;
+                        if (Physics.Raycast(start, dir, out var hit, seg == 0 ? 80f : 40f, mask, QueryTriggerInteraction.Ignore)) { p1 = hit.point; normal = hit.normal; }
+                        else p1 = start + dir * (seg == 0 ? 80f : 40f);
+                        FakeBeam(rev.revolverBeam, rev.gameObject, p0, p1);
+                        if (normal == Vector3.zero) break;
+                        dir = Vector3.Reflect(dir, normal);
+                        p0 = p1;
+                        start = p1 + normal * 0.05f;
+                    }
+                    break;
+                }
+                case "railbeam":
+                {
+                    // The railcannon's beam (its prefab, RevolverBeam type Railgun) as a fake shot from the gun to the wall ahead.
+                    GameObject prefab = null, src = null;
+                    foreach (var r in UnityEngine.Object.FindObjectsOfType<Railcannon>(true))
+                        if (r != null && r.beam != null) { prefab = r.beam; src = r.gameObject; break; }
+                    if (prefab == null) throw new InvalidOperationException("no Railcannon with a beam prefab (none in the save?)");
+                    var p0 = cam.position + cam.right * 0.35f - cam.up * 0.3f + cam.forward * 0.6f;
+                    var p1 = Physics.Raycast(cam.position, cam.forward, out var hit, 120f, LayerMaskDefaults.Get(LMD.Environment), QueryTriggerInteraction.Ignore)
+                        ? hit.point : cam.position + cam.forward * 120f;
+                    FakeBeam(prefab, src, p0, p1);
+                    break;
+                }
                 default: throw new ArgumentException("unknown effect kind");
             }
+        }
+
+        private static int _parryLogs, _boltLogs;
+        private static readonly System.Reflection.MethodInfo FlashStart =
+            typeof(LightningStrikeDecorative_Animated).GetMethod("FlashStart", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+        private static readonly System.Reflection.FieldInfo BuildupTime =
+            typeof(LightningStrikeDecorative_Animated).GetField("buildupTime", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+        /// <summary>One beam segment as Coin.SpawnBeam makes them: the beam prefab, its line set from a to b. fake = true:
+        /// RevolverBeam.Start skips Shoot (no hit, no damage) and fades the line out as a real shot's.</summary>
+        private static void FakeBeam(GameObject prefab, GameObject source, Vector3 a, Vector3 b)
+        {
+            var go = UnityEngine.Object.Instantiate(prefab, a, Quaternion.LookRotation(b - a));
+            var rb = go.GetComponent<RevolverBeam>();
+            if (rb == null) { UnityEngine.Object.Destroy(go); throw new InvalidOperationException($"'{prefab.name}' has no RevolverBeam"); }
+            rb.fake = true;
+            rb.sourceWeapon = source;
+            var lr = go.GetComponent<LineRenderer>();
+            if (lr == null) throw new InvalidOperationException($"'{prefab.name}' has no LineRenderer");
+            lr.SetPosition(0, a);
+            lr.SetPosition(1, b);
         }
 
         private static readonly System.Collections.Generic.Dictionary<string, GameObject> _benchEnemies = new System.Collections.Generic.Dictionary<string, GameObject>();

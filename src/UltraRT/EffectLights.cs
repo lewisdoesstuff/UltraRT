@@ -53,6 +53,44 @@ namespace UltraRT
         public float flameGain = 0.5f;
         /// <summary>The flicker range of a flame-driven light (flickerRange for the others).</summary>
         public float flameFlickerRange = 0.5f;
+
+        // ---- Combat lights (CombatLights.cs; docs/emissive-lights.md, "Combat lights")
+
+        /// <summary>Beam lights: a chain of point lights along every revolver / coin / railcannon / enemy beam segment.
+        /// A strength: 0 = off, 1 = default (-ultrart-beam-lights, menu Effects > Combat beam lights).</summary>
+        public float beamLights = 1f;
+        /// <summary>Intensity of one beam light at full strength (the game's revolver beam light: 20 at the gun, range 5);
+        /// the railcannon x2.5, Malicious Face x2, enemy beams x1.2, charged shots x1.4.</summary>
+        public float beamIntensity = 2f;
+        /// <summary>Range of a beam light (m; at least 1.2 x the spacing of the chain), and the spacing (3 to 6 lights per
+        /// segment, fewer on a segment shorter than 3 m).</summary>
+        public float beamRange = 6f, beamSpacing = 5f;
+        /// <summary>Game seconds from full to dark (a RevolverBeam's line stays about 0.33 s; its light fades in 0.2 s).</summary>
+        public float beamFade = 0.15f;
+        /// <summary>At most this many beam lights per frame (newest beams first; flashes and effect lights come before).</summary>
+        public int beamMaxLights = 24;
+        /// <summary>Parry burst: a light ~1.2 m in front of the camera at every parry, on real time (the game's hit-stop
+        /// freezes game time). A strength: 0 = off (-ultrart-parry-light).</summary>
+        public float parryLight = 1f;
+        public float parryIntensity = 4f, parryRange = 8f;
+        /// <summary>Real seconds at full strength (the game's parry hit-stop lasts 0.25 s), then an exponential fade over
+        /// parryFade (about 5% left at its end).</summary>
+        public float parryHold = 0.15f, parryFade = 0.15f;
+        public float parryColorR = 1f, parryColorG = 0.93f, parryColorB = 0.8f;
+        /// <summary>Lightning flash: a blue-white light along 5-2's bolts and explosive strikes, ~0.2 s with re-strikes.
+        /// A strength: 0 = off (-ultrart-lightning-flash).</summary>
+        public float lightningFlash = 1f;
+        /// <summary>Total intensity of a bolt (three lights along it). Its range is lightningRangePerDistance x the
+        /// bolt's distance to the camera (at least lightningMinRange), so the light at the camera is the same near or far.</summary>
+        public float lightningIntensity = 12f, lightningRangePerDistance = 2f, lightningMinRange = 30f;
+        /// <summary>Game seconds of the main decay (re-strikes at ~0.06 and ~0.13 s).</summary>
+        public float lightningFade = 0.18f;
+        /// <summary>Weight of each kind in the air (volumetrics, LightPolicy.Medium).</summary>
+        public float beamMedium = 0.5f, parryMedium = 0.2f, lightningMedium = 0.25f;
+        /// <summary>Auto exposure holds still while a beam, parry or bolt flash lights the frame and for this many real
+        /// seconds after (at most 1 s at a time), so brief flashes don't pump the exposure.</summary>
+        public bool flashHoldsExposure = true;
+        public float exposureHoldTail = 0.15f;
     }
 
     /// <summary>

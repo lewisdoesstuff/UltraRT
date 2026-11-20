@@ -112,6 +112,11 @@ against the game's frames (docs/lighting-overrides.md, "Scoreboard").
 | `holdtorch` | puts the level's nearest `Torch` in the player's hand (`Punch.ForceHold`, as picking it up does); no-op while one is held. Recordings keep the camera path only, not items |
 | `whiplash` | presses the whiplash (R) for `EffectSpawner.WhiplashHold` (0.25 s) of game time through the game's `InputActionState`: with a held item (the torch) it flies out on the hook and back |
 | `lightbrazier` | burns the nearest `Flammable` within 6 m (not the held item), once, as the held torch does when it hits it (`Flammable.Burn(4)`): 4-3's brazier opens the door ahead |
+| `beamchain` | a revolver shot that bounces twice off the walls ahead, built as the game builds ricochets and coin shots: one fake `RevolverBeam` per segment (drawn and lit, no damage). For the combat beam lights (docs/emissive-lights.md, "Combat lights") |
+| `railbeam` | the railcannon's beam prefab as a fake shot to the wall ahead (needs a railcannon in the save; the alt save has none) |
+| `parry` | the parry light burst alone (CombatLights), 1.2 m ahead: the game's own parry would freeze the capture (0.25 s hit-stop) and white it out |
+| `parrygame` | the game's own `TimeController.ParryFlash` (its light, the hit-stop, the white flash): the hook's path. Capture 0.4 s or more later to miss the white frame |
+| `lightning`, `boltlight` | 5-2's decorative bolt most in front of the camera: `lightning` starts it as the game does (`FlashStart`; the strike and its flash 0.3 s later, so `ShotDelay` ~0.36), `boltlight` only the bolt light, at once |
 
 `"Weapon": N` (scenario) holds weapon slot N (1 = revolver) from the take-over on (`GunControl.SwitchWeapon`, then 1 s for the draw animation); `"WeaponVariant"` picks the variant in that slot by the start of its object's name (`"Shotgun Grenade"`, `"Hammer Pump"`, `"Revolver Twirl"`, ...; the log lists the `Guns/` objects), otherwise the save's last variant is held (the alt install's slot 2 is the impact hammer). Both installs' saves hold the rocket launcher, so `revolver` effects need `"Weapon": 1` to fire the revolver itself. `"GunBob": 1` swings the gun as walking does (see "Motion noise").
 

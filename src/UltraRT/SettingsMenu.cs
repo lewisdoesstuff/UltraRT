@@ -180,6 +180,9 @@ namespace UltraRT
             m.Bool("Effects", "EffectLights", "Effect lights",
                 () => _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker,
                 v => _effectSettings.spawnedLights = _effectSettings.virtualLights = _effectSettings.flicker = v);
+            m.Float("Effects", "BeamLights", "Combat beam lights (strength, 0 = off)", 0f, 3f, 2, () => _effectSettings.beamLights, v => _effectSettings.beamLights = Mathf.Max(v, 0f), "-ultrart-beam-lights");
+            m.Float("Effects", "ParryLight", "Parry light burst (strength, 0 = off)", 0f, 3f, 2, () => _effectSettings.parryLight, v => _effectSettings.parryLight = Mathf.Max(v, 0f), "-ultrart-parry-light");
+            m.Float("Effects", "LightningFlash", "Lightning flash (strength, 0 = off)", 0f, 3f, 2, () => _effectSettings.lightningFlash, v => _effectSettings.lightningFlash = Mathf.Max(v, 0f), "-ultrart-lightning-flash");
             m.Bool("Effects", "EffectReflections", "Fire and explosions in reflections", () => _fxgSettings.enabled, v => _fxgSettings.enabled = v, "-ultrart-noeffectgeometry");
             m.Bool("Effects", "Lava", "Ray-traced lava and acid", () => LavaCfg.active, v => LavaCfg.active = v, "-ultrart-nolava");
             m.Float("Effects", "Caustics", "Water caustics (strength, 0 = off)", 0f, 3f, 2, () => SceneProxies.Caustics.strength, v => SceneProxies.Caustics.strength = Mathf.Max(v, 0f), "-ultrart-caustics");
