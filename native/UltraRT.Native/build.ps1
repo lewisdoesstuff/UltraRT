@@ -35,7 +35,17 @@ if (-not (Test-Path $vcvars)) {
 if (-not (Test-Path $vcvars)) { throw "vcvars64.bat not found (pass -VsDir)" }
 if (-not (Test-Path (Join-Path $PluginApi 'IUnityGraphicsD3D12.h'))) { throw "Unity PluginAPI headers not found at $PluginApi (pass -PluginApi)" }
 
-$cflags = "/nologo /c /O2 /MT /EHsc /W4 /permissive- /std:c++17 /DUNICODE /D_UNICODE /DNDEBUG /Zi /Brepro /I`"$PluginApi`" /Fo`"$obj\\`" /Fd`"$obj\\vc.pdb`""
+# UltraRT's version (Version.props, the repo's one version): NGX's engine version string in Dlss.cpp. A bare
+# Major.Minor.Patch, stringised by the preprocessor, so no quotes have to survive cmd. Missing or odd: Dlss.cpp says "dev".
+$versionDefine = ''
+$versionProps = Join-Path (Split-Path (Split-Path $src -Parent) -Parent) 'Version.props'
+if (Test-Path $versionProps) {
+    $m = [regex]::Match((Get-Content $versionProps -Raw), '<UltraRTVersion>\s*(\d+\.\d+\.\d+)\s*</UltraRTVersion>')
+    if ($m.Success) { $versionDefine = "/DULTRART_VERSION=$($m.Groups[1].Value)" }
+    else { Write-Warning "No Major.Minor.Patch UltraRTVersion in $versionProps`: NGX engine version 'UltraRT-dev'" }
+}
+
+$cflags = "/nologo /c /O2 /MT /EHsc /W4 /permissive- /std:c++17 /DUNICODE /D_UNICODE /DNDEBUG $versionDefine /Zi /Brepro /I`"$PluginApi`" /Fo`"$obj\\`" /Fd`"$obj\\vc.pdb`""
 $dll = Join-Path $OutDir 'UltraRT.Native.dll'
 # DLSS Ray Reconstruction (docs/dlss.md): needs NVIDIA's SDK in lib\dlss (scripts\fetch-dlss.ps1, never committed).
 # Without it the stub is built and RR reports itself unavailable.
@@ -58,6 +68,7 @@ $stamp = Join-Path $OutDir 'inputs.sha256'
 $inputFiles = @(Get-ChildItem $src -File -Include *.cpp, *.h, build.ps1 -Recurse | Where-Object { $_.FullName -notlike "$obj*" -and $_.FullName -notlike "$OutDir*" } | Sort-Object FullName)
 $inputText = ($inputFiles | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash + ' ' + $_.Name }) -join "`n"
 $inputText += "`nsdk=$(Test-Path $ngxLib)"
+$inputText += "`nversion=$versionDefine"
 $inputHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($inputText))).Replace('-', '')
 if ($Adopt) {
     if (-not (Test-Path $dll)) { throw "Nothing to adopt: $dll is missing" }

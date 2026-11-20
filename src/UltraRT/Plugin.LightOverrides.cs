@@ -292,7 +292,7 @@ namespace UltraRT
         private void LightEditorUpdate()
         {
             if (_editSaveAt > 0f && Time.realtimeSinceStartup >= _editSaveAt) SaveLightEdits(false);
-            if (BenchSafety.Active) return;
+            if (BenchSafety.Active || !_keysLive) return; // no keys while the console or a text field has the keyboard
             if (KeyPressed(KeyCode.Insert) && !CtrlHeld()) SetLightEditor(!_editorOn); // Ctrl+Insert: the classifier
             if (!_editorOn || _camera == null) return;
             if (_lightOv == null) return;

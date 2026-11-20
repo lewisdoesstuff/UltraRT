@@ -161,7 +161,7 @@ What the logs showed:
 | native DLL + DLSS RR | `NGXInitContext ... called from module UltraRT.Native.dll at ...\Author-UltraRT`, `Ray Reconstruction feature 854x480 -> 2562x1440 ... (state 2, 7 evaluations)` | ok, pathtrace frame 6.2 ms (shared GPU: not a perf number) |
 | detail maps from the package | `Material maps (ai): package UltraRT_DetailMaps 0.3.0 in ...\Author-UltraRT_DetailMaps\ai`, `1955 textures` | ok; the pathtrace shot with maps differs visibly from `mat.enabled=0` on the 0-1 walls |
 | local cache wins | `Material maps (ai): local cache ...\BepInEx\ultrart\materials\ai` (package still installed) | ok |
-| settings page | `Settings menu: PluginConfigurator page created (104 settings: 17 main, 87 advanced)` with PluginConfigurator 1.10.3 | created; the header and credits were not looked at in the menu (a bench can't open it) |
+| settings page | `Settings menu: PluginConfigurator page created (104 settings: 17 main, 87 advanced)` with PluginConfigurator 1.10.3 | created; the header and credits were not looked at in the menu (a bench can't open it). 106 settings (89 advanced) since 2026-11-20 |
 | DX11 notice | warning line `UltraRT is off: the game is running on DirectX 11 ...`; the screenshot shows the box | ok |
 
 Not tested: a real r2modman install (the layout was reproduced from r2modman's source), a GPU without DXR, a missing
@@ -210,5 +210,26 @@ bundle (the code path is the same notice), Steam's own launch options combined w
    objects.
 5. **Upload**: thunderstore.io > Upload, community ULTRAKILL, the zip from `dist\`; categories by hand. Check the
    dependency versions first (table above).
-6. Optional: the native DLL initialises NGX with the engine version string `UltraRT-0.1` (`Dlss.cpp`); harmless
-   metadata, could follow `Version.props`.
+6. Done 2026-11-20: the native DLL initialises NGX with the engine version string `UltraRT-<Version.props>`
+   (`UltraRT-0.3.0`; it said `UltraRT-0.1` before). `native\UltraRT.Native\build.ps1` reads `UltraRTVersion` and passes
+   `/DULTRART_VERSION=0.3.0`, which `Dlss.cpp` stringises; a build without the define (an IDE) says `UltraRT-dev`. The
+   version is part of the native build's input hash, so a version bump rebuilds the DLL. The stub (`DlssStub.cpp`, no
+   `lib\dlss`) gets the define too and ignores it.
+
+## Player-facing defaults (2026-11-20)
+
+`t3/release-ux-polish`, so a Thunderstore player doesn't trip over developer tools ([settings.md](settings.md),
+"Hotkeys for players and developers"):
+- Page Up / Page Down cycle `pathtrace`, `relight`, `pt-dn` only; the 24 debug views join with Advanced > Debug views
+  (`[View] DebugModes`).
+- F2, F3 (all variants), F6, F9, F10, F11 need Advanced > Developer hotkeys (`[View] DevHotkeys`). No hotkey is read
+  while ULTRAKILL's console or a text field has the keyboard.
+- The shader bundle's hot reload (a file poll twice a second) runs only with Developer hotkeys.
+- The settings menu refreshes at 4 Hz in play instead of every frame.
+- A GeForce **GTX** (the device name says GTX and not RTX: 10 and 16 series and older) starts in `relight`, not
+  `pathtrace`: it has no RT cores and no DLSS, so pathtrace would compile `RayGenPT` (up to ~30 s) at startup only to
+  run with UltraRT's slower denoiser. The log says `<GPU>: no RTX, so no DLSS Ray Reconstruction; the default view mode
+  is relight`. RTX and unrecognised NVIDIA names keep `pathtrace` when `nvngx_dlssd.dll` is there; the 2026-11-17
+  relight -> pathtrace config migration skips GTX cards too. Not tested on a GTX card (none here): checked by build only.
+
+Bench launches keep every developer behaviour, so suites and `bench.ps1 -KeepOpen` work as before.

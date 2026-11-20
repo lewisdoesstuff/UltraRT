@@ -141,7 +141,7 @@ traced one alike (the trailer plan sets it for every shot; docs/ultrakill-render
 scenario gets the command line's `-ultrart-enemy-outlines on|off` (default on, as the game). No pref is written.
 
 ## Recording a path
-1. Launch normally (`-force-d3d12`), load a level and play or fly around.
+1. Launch normally (`-force-d3d12`), load a level and play or fly around. F10 and F11 are developer keys since 2026-11-20: turn on **Developer hotkeys** first (settings menu, Advanced settings > View, saved as `[View] DevHotkeys`; or launch with `-ultrart-dev-hotkeys`). Without it the first press shows a toast and does nothing ([docs/settings.md](../docs/settings.md), "Hotkeys for players and developers").
 2. Press **F10** to start and **F10** again to stop. Recordings are saved to `BepInEx\ultrart\recordings\<level>_<time>.json` in the game folder.
 3. Copy the file into `bench/recordings/` and reference it from a suite:
    ```json
@@ -197,7 +197,7 @@ matches, also switched-off ones (`Benchmark: LookAt ...`). Many props sit in roo
 player: approach with a route that ends next to the object (a truncated copy works, e.g. `recordings/unlit-6-1-ghost.json`).
 
 ### Saving a pose
-Press **F11** in normal play. It appends the pose to `BepInEx\ultrart\poses.jsonl` and saves two files next to the recordings: the route walked since the level loaded (`approach_*.json`) and the area diff (`areas_*.json`). The route also records every checkpoint you activated, so the benchmark knows exactly where to jump. Older routes have no checkpoint list; for those the last checkpoint the route passed through is used.
+Press **F11** in normal play (with Developer hotkeys on, as for F10 above). It appends the pose to `BepInEx\ultrart\poses.jsonl` and saves two files next to the recordings: the route walked since the level loaded (`approach_*.json`) and the area diff (`areas_*.json`). The route also records every checkpoint you activated, so the benchmark knows exactly where to jump. Older routes have no checkpoint list; for those the last checkpoint the route passed through is used.
 
 Copy the approach file into `bench/recordings/` and use it:
 ```json

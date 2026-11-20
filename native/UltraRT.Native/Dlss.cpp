@@ -38,6 +38,16 @@
 #include "nvsdk_ngx_helpers.h"
 #include "nvsdk_ngx_helpers_dlssd_d3d.h"
 
+// NGX's engine version string follows Version.props: build.ps1 passes /DULTRART_VERSION=<Major.Minor.Patch> (a bare
+// pp-number, stringised here, so no quotes have to survive cmd). A build without it (an IDE, a hand cl) says "dev".
+#define ULTRART_STR2(x) #x
+#define ULTRART_STR(x) ULTRART_STR2(x)
+#ifdef ULTRART_VERSION
+#define ULTRART_ENGINE_VERSION "UltraRT-" ULTRART_STR(ULTRART_VERSION)
+#else
+#define ULTRART_ENGINE_VERSION "UltraRT-dev"
+#endif
+
 #define ULTRART_API extern "C" __declspec(dllexport)
 
 namespace
@@ -260,7 +270,7 @@ namespace
         double t0 = NowMs();
         // A project id (GUID format) and engine type CUSTOM: the documented route for apps without an NVIDIA app id.
         NVSDK_NGX_Result r = NVSDK_NGX_D3D12_Init_with_ProjectID("6d1e8a4b-2f3c-4b7e-9a51-0c2d7e9f4a18",
-            NVSDK_NGX_ENGINE_TYPE_CUSTOM, "UltraRT-0.1", data, s_Device, &info, NVSDK_NGX_Version_API);
+            NVSDK_NGX_ENGINE_TYPE_CUSTOM, ULTRART_ENGINE_VERSION, data, s_Device, &info, NVSDK_NGX_Version_API);
         if (NVSDK_NGX_FAILED(r)) { SetStatus("NVSDK_NGX_D3D12_Init_with_ProjectID failed: %s", ResultText(r)); InterlockedExchange(&s_State, -1); return false; }
         s_NgxInit = true;
 

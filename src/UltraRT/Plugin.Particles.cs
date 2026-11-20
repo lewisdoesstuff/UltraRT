@@ -91,7 +91,7 @@ namespace UltraRT
                 try { _particleSurvey.Update(_camera != null ? _camera : Camera.main); }
                 catch (Exception e) { Logger.LogWarning($"particle survey: {e.Message}"); }
             }
-            if (Input.GetKeyDown(KeyCode.F7) && ShiftHeld() && !CtrlHeld()) // Shift+F7 (Ctrl+F7 is the viewmodel pass)
+            if (_keysLive && Input.GetKeyDown(KeyCode.F7) && ShiftHeld() && !CtrlHeld()) // Shift+F7 (Ctrl+F7 is the viewmodel pass)
             {
                 _particleSettings.enabled = !_particleSettings.enabled;
                 _particleLight?.Reset();

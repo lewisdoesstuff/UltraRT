@@ -113,18 +113,29 @@ namespace UltraRT
         /// mode; Plugin.Hdr.cs: the HDR defaults). Bound once in Awake.</summary>
         private BepInEx.Configuration.ConfigEntry<int> _configVersion;
         /// <summary>Launched by the bench (any -ultrart-bench* flag): migrations never run then, so a bench never changes
-        /// the user's settings.</summary>
-        private static bool BenchLaunch => Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
+        /// the user's settings. Read once (the hotkey and hot-reload checks ask every frame).</summary>
+        private static readonly bool BenchLaunch = Environment.GetCommandLineArgs().Any(x => x.StartsWith("-ultrart-bench", StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>A GeForce GTX (10 / 16 series and older): DXR runs, but there are no RT cores and no DLSS. The name has to
+        /// say GTX and not RTX; an unknown NVIDIA name counts as RTX.</summary>
+        internal static bool IsNonRtxNvidia(string deviceName) =>
+            !string.IsNullOrEmpty(deviceName)
+            && deviceName.IndexOf("GTX", StringComparison.OrdinalIgnoreCase) >= 0
+            && deviceName.IndexOf("RTX", StringComparison.OrdinalIgnoreCase) < 0;
 
         private void Awake()
         {
             // The default mode is pathtrace where DLSS Ray Reconstruction can run (an NVIDIA GPU and nvngx_dlssd.dll beside the
             // plugin; docs/dlss.md), relight elsewhere (pathtrace without RR is the slower fallback denoiser). Set before
-            // InitSettings, which remembers the code defaults (the menu's "reset").
+            // InitSettings, which remembers the code defaults (the menu's "reset"). A GeForce GTX (no RT cores, no RR) gets
+            // relight: pathtrace there would compile RayGenPT (up to ~30 s) at startup only to run without RR (since 2026-11-20).
             string pluginDir = Path.GetDirectoryName(Info.Location) ?? "";
             Logger.LogInfo($"UltraRT {PluginVersion.Number} in {pluginDir}");
-            bool rrPresent = SystemInfo.graphicsDeviceVendor.IndexOf("NVIDIA", StringComparison.OrdinalIgnoreCase) >= 0
+            bool nvidia = SystemInfo.graphicsDeviceVendor.IndexOf("NVIDIA", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool nonRtx = nvidia && IsNonRtxNvidia(SystemInfo.graphicsDeviceName);
+            bool rrPresent = nvidia && !nonRtx
                 && File.Exists(Path.Combine(pluginDir, "nvngx_dlssd.dll")) && File.Exists(Path.Combine(pluginDir, GpuTimer.DllName));
+            if (nonRtx) Logger.LogInfo($"{SystemInfo.graphicsDeviceName}: no RTX, so no DLSS Ray Reconstruction; the default view mode is relight");
             _mode = Mathf.Max(0, Array.FindIndex(Modes, m => m.name == (rrPresent ? "pathtrace" : "relight")));
             InitSettings(); // SettingsMenu.cs: register the settings and remember the code defaults before any entry or flag changes them
             // Starting view mode: BepInEx/config/ooo.lew.ultrart.cfg ([View] DefaultMode), overridden by -ultrart-view.
@@ -147,6 +158,7 @@ namespace UltraRT
             int dm = ModeIndex(defaultMode);
             if (dm >= 0) _mode = dm;
             ParseArgs();
+            ParseHotkeyArgs(); // -ultrart-debug-modes, -ultrart-dev-hotkeys (Plugin.Hotkeys.cs)
             ParseCacheArgs();
             ParseExposureArgs();
             ParseDlssArgs(); // DLSS Ray Reconstruction (Plugin.Dlss.cs)
@@ -449,6 +461,7 @@ namespace UltraRT
 
         private void OnUpdate()
         {
+            UpdateHotkeyGuard(); // _keysLive: no hotkeys while the console or a text field has the keyboard (Plugin.Hotkeys.cs)
             UpdateRecorder();
             CineUpdate(); // cinematic camera: Home, then its keys (Plugin.Cinematics.cs)
             UpdateEffects();
@@ -460,27 +473,7 @@ namespace UltraRT
             MsaaProbeUpdate(); // measurement probe, bench plugin._msaaProbe only (Plugin.MsaaProbe.cs)
             try
             {
-                if (Input.GetKeyDown(KeyCode.F7) && !CtrlHeld() && !ShiftHeld()) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
-                ExposureHotkeys(); // Ctrl+F4
-                if (Input.GetKeyDown(KeyCode.F4) && !CtrlHeld()) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
-                SkyHotkeys(); // Ctrl+F5
-                if (Input.GetKeyDown(KeyCode.F5) && !CtrlHeld()) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
-                VolumetricsHotkeys(); // Ctrl+F6
-                ViewmodelHotkeys(); // Ctrl+F7
-                VfxHotkeys(); // Ctrl+F2, Shift+F2
-                if (Input.GetKeyDown(KeyCode.F6) && !CtrlHeld()) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 2); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
-                // Page Up / Page Down cycle view modes (F8 opens ULTRAKILL's console).
-                if (Input.GetKeyDown(KeyCode.PageDown)) { _mode = (_mode + 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
-                if (Input.GetKeyDown(KeyCode.PageUp)) { _mode = (_mode + Modes.Length - 1) % Modes.Length; Logger.LogInfo($"Mode: {Modes[_mode].name}"); Toast($"UltraRT mode: {Modes[_mode].name}"); }
-                if (Input.GetKeyDown(KeyCode.F9)) ReloadShaders();
-                if (Input.GetKeyDown(KeyCode.F2) && !CtrlHeld() && !ShiftHeld() && _upsampler != null)
-                {
-                    _upsampler.Settings.enabled = !_upsampler.Settings.enabled;
-                    string on = _upsampler.Settings.enabled ? "on" : "off (2x2 depth-guided)";
-                    Logger.LogInfo($"Temporal upsampling: {on}");
-                    Toast($"Temporal upsampling {on} (F2)");
-                }
-                CacheHotkeys();
+                if (_keysLive) PlayerAndDevHotkeys();
                 LightEditorUpdate(); // Insert + numpad (Plugin.LightOverrides.cs)
                 LightClassifierUpdate(); // -ultrart-classify-lights, Ctrl+Insert (Plugin.LightClassifier.cs)
                 DlssUpdate(); // Ctrl+F8, native RR log (Plugin.Dlss.cs)
@@ -488,7 +481,9 @@ namespace UltraRT
             catch (InvalidOperationException) { /* legacy input disabled */ }
             _menu?.Update(); // the settings menu follows what the hotkeys changed
 
-            if (Time.realtimeSinceStartup >= _nextBundleCheck)
+            // Shader hot reload: a 0.5 s poll of the bundle's write time. Bench launches (bench.ps1 -KeepOpen iterations) and
+            // [View] DevHotkeys only; players skip the file system call (F9 and the menu's Reload shaders still work).
+            if (DevHotkeysActive && Time.realtimeSinceStartup >= _nextBundleCheck)
             {
                 _nextBundleCheck = Time.realtimeSinceStartup + 0.5f;
                 try
@@ -499,6 +494,32 @@ namespace UltraRT
                 }
                 catch (IOException) { }
             }
+        }
+
+        /// <summary>OnUpdate's hotkeys, while _keysLive. Developer / bench keys go through DevKey (Plugin.Hotkeys.cs).</summary>
+        private void PlayerAndDevHotkeys()
+        {
+            if (Input.GetKeyDown(KeyCode.F7) && !CtrlHeld() && !ShiftHeld()) { _viewEnabled = !_viewEnabled; _denoiser?.Reset(); _lightSampling?.Reset(); _reflFilter?.Reset(); Logger.LogInfo($"View {(_viewEnabled ? "on" : "off")}"); }
+            ExposureHotkeys(); // Ctrl+F4
+            if (Input.GetKeyDown(KeyCode.F4) && !CtrlHeld()) { _reflSettings.enabled = !_reflSettings.enabled; _reflFilter?.Reset(); Logger.LogInfo($"Reflections: {(_reflSettings.enabled ? "on" : "off")}"); Toast($"Reflections {(_reflSettings.enabled ? "on" : "off")} (F4)"); }
+            SkyHotkeys(); // Ctrl+F5
+            if (Input.GetKeyDown(KeyCode.F5) && !CtrlHeld()) { _emissiveSettings.enabled = !_emissiveSettings.enabled; _lightSampling?.Reset(); _denoiser?.Reset(); Logger.LogInfo($"Emissive lights: {(_emissiveSettings.enabled ? "on" : "off")}"); }
+            VolumetricsHotkeys(); // Ctrl+F6
+            ViewmodelHotkeys(); // Ctrl+F7
+            VfxHotkeys(); // Ctrl+F2, Shift+F2
+            if (DevKey(Input.GetKeyDown(KeyCode.F6) && !CtrlHeld(), "F6")) { _lightSamplingSettings.mode = (LightSamplingMode)(((int)_lightSamplingSettings.mode + 1) % 2); _lightSampling?.Reset(); Logger.LogInfo($"Light sampling: {_lightSamplingSettings.mode}"); }
+            // Page Up / Page Down cycle view modes (F8 opens ULTRAKILL's console); the debug views only with DebugModes.
+            if (Input.GetKeyDown(KeyCode.PageDown)) CycleMode(+1);
+            if (Input.GetKeyDown(KeyCode.PageUp)) CycleMode(-1);
+            if (DevKey(Input.GetKeyDown(KeyCode.F9), "F9")) ReloadShaders(); // the menu's "Reload shaders" button works regardless
+            if (DevKey(Input.GetKeyDown(KeyCode.F2) && !CtrlHeld() && !ShiftHeld(), "F2") && _upsampler != null)
+            {
+                _upsampler.Settings.enabled = !_upsampler.Settings.enabled;
+                string on = _upsampler.Settings.enabled ? "on" : "off (2x2 depth-guided)";
+                Logger.LogInfo($"Temporal upsampling: {on}");
+                Toast($"Temporal upsampling {on} (F2)");
+            }
+            CacheHotkeys(); // F3, Shift+F3, Ctrl+F3 (developer keys)
         }
 
         // ---------------------------------------------------------------- scene

@@ -44,7 +44,7 @@ section "RR for path tracing" is what changed for the `pathtrace` mode, where it
 
 - **Device.** We use Unity's `ID3D12Device` from `IUnityGraphicsD3D12v7` (GpuTimer.cpp already registers the DLL with
   Unity, see [gpu-timer.md](gpu-timer.md)). NGX starts on a worker thread when the game starts (see "Warm-up"; without
-  the warm-up, lazily on the first evaluate on the render thread): `NVSDK_NGX_D3D12_Init_with_ProjectID` with a made-up project GUID and engine type CUSTOM. `PathListInfo` points at the
+  the warm-up, lazily on the first evaluate on the render thread): `NVSDK_NGX_D3D12_Init_with_ProjectID` with a made-up project GUID, engine type CUSTOM and engine version `UltraRT-<Version.props>` (since 2026-11-20; `UltraRT-0.1` before; [release.md](release.md)). `PathListInfo` points at the
   plugin folder, so NGX finds `nvngx_dlssd.dll` next to our DLL, and the log callback is set. Next come
   `GetCapabilityParameters` (`SuperSamplingDenoising.Available`) and `AllocateParameters`.
 - **Feature.** `NGX_D3D12_CREATE_DLSSD_EXT` with render size = the visible trace (guard band cropped) and output size =
