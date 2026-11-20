@@ -97,13 +97,14 @@ namespace UltraRT
             if (BenchSafety.Active || _recorder == null) return;
             try
             {
-                if (Input.GetKeyDown(KeyCode.F10))
+                // Developer keys ([View] DevHotkeys; Plugin.Hotkeys.cs). F10 always stops a recording that is running.
+                if (_keysLive && Input.GetKeyDown(KeyCode.F10) && (_recorder.IsRecording || DevKey(true, "F10")))
                 {
                     bool was = _recorder.IsRecording;
                     _recorder.Toggle();
                     if (was && !_recorder.IsRecording) Toast($"Recording saved ({_recorder.LastSavedName})");
                 }
-                if (Input.GetKeyDown(KeyCode.F11)) SavePose();
+                if (_keysLive && DevKey(Input.GetKeyDown(KeyCode.F11), "F11")) SavePose();
             }
             catch (InvalidOperationException) { }
             _recorder.Update();

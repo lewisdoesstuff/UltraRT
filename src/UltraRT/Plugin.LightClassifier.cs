@@ -37,7 +37,7 @@ namespace UltraRT
         {
             if (_proxies == null || _emissive == null) return;
             bool hot = false;
-            try { hot = Input.GetKeyDown(KeyCode.Insert) && CtrlHeld(); } catch (InvalidOperationException) { }
+            try { hot = _keysLive && Input.GetKeyDown(KeyCode.Insert) && CtrlHeld(); } catch (InvalidOperationException) { }
             string scene = SafeCurrentScene();
             if (hot || (_classifyLights && _classifiedScene != scene && _proxies.DeferredCount == 0 && Time.timeSinceLevelLoad > 4f))
             {

@@ -11,3 +11,4 @@ First Thunderstore release.
 - Installs anywhere under `BepInEx/plugins` (mod-manager folders such as `<Team>-UltraRT` work), and finds the optional UltraRT_DetailMaps package by itself.
 - On DirectX 11, or on a GPU without ray tracing, an in-game message explains what to change and the mod stays off.
 - HDR10 display output (prototype, off by default).
+- Player-safe hotkeys: none while the console is open; Page Up / Page Down cycle the three view modes (debug views and developer keys are switches under Advanced settings > View). GeForce GTX cards start in relight.

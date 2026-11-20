@@ -581,7 +581,7 @@ namespace UltraRT
             {
                 if (_cineState == CineState.Off)
                 {
-                    if (!BenchSafety.Active && KeyPressed(KeyCode.Home) && !CineGamePaused()) CineEnter();
+                    if (!BenchSafety.Active && _keysLive && KeyPressed(KeyCode.Home) && !CineGamePaused()) CineEnter();
                     return;
                 }
                 if (!CineInLevel()) { CineExit(); return; }

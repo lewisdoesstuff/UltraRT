@@ -52,11 +52,10 @@ View modes:
 | Ctrl+F6 | volumetric light and fog |
 | Ctrl+F1 | surface detail maps (needs the optional detail-map package) |
 | Ctrl+F8 | DLSS Ray Reconstruction in relight and pt-dn |
-| F9 | reload shaders |
 | Insert, then numpad | light editor (5 select the light at the crosshair, 4 / 6 cycle, 8 / 2 parameter, + / - change, Enter save) |
 | Home | free camera; then K add a key, P play the path, Ctrl+S save, End render it offline |
 
-Hotkeys change things for the session only; the settings page saves them. The settings page's **Keybinds** page lists all keys.
+Hotkeys change things for the session only; the settings page saves them. They are ignored while the console (F8) is open. The settings page's **Keybinds** page lists all keys. The debug views and the developer keys (F2, F3, F6, F9, F10, F11) are off unless turned on under **Advanced settings > View**.
 
 ## Optional: surface detail maps
 

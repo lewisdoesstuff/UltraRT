@@ -72,6 +72,10 @@ namespace UltraRT
                     _ => modeOf.TryGetValue(v, out int i) ? Modes[i].name : v.ToString(),
                 }, "-ultrart-view").Legacy().Basic();
             m.Bool("View", "GameDither", "The game's screen dither while ray traced", () => _gameDither, v => _gameDither = v, "-ultrart-game-dither").Basic();
+            // Player-safe hotkeys (Plugin.Hotkeys.cs, docs/settings.md "Hotkeys for players and developers"). Both are always on in
+            // a bench launch, whatever these say.
+            m.Bool("View", "DebugModes", "Debug views in the Page Up / Page Down cycle", () => _debugModes, v => _debugModes = v, "-ultrart-debug-modes");
+            m.Bool("View", "DevHotkeys", "Developer hotkeys (F2, F3, F6, F9, F10, F11) and shader hot reload", () => _devHotkeys, v => _devHotkeys = v, "-ultrart-dev-hotkeys");
 
             m.Group = "Quality and performance";
             m.Choice("Quality", "TraceScale", "Trace resolution",
@@ -216,14 +220,20 @@ namespace UltraRT
             CineSettingsMenu(m); // cinematic camera and offline render (Plugin.Cinematics.cs)
 
             m.Action("Reload shaders  [F9]", ReloadShaders);
+            // One row per key (combination), matching the code: Plugin.cs PlayerAndDevHotkeys and the *Hotkeys / *Update methods.
             m.Keybinds = new[]
             {
-                "Page Up / Page Down|previous / next view mode", "F7|ray tracing on / off", "F2|temporal upsampler",
-                "F3|radiance cache mode (Shift: debug view)", "Ctrl+F3|denoiser preset", "F4|reflections", "Ctrl+F4|auto exposure",
-                "F5|glowing surfaces as lights", "Ctrl+F5|sky light and linear transport", "F6|light sampling", "Ctrl+F6|volumetrics",
-                "Ctrl+F1|surface detail maps", "Ctrl+F2|screen effects (bloom, heat haze, shockwaves, underwater)", "Shift+F2|bloom", "Ctrl+F8|DLSS Ray Reconstruction (relight)", "F9|reload shaders",
-                "Ctrl+F7|viewmodel pass (the gun and arms traced)", "Shift+F7|lit particles", "F10|record a camera path (bench)", "F11|save the current pose (bench)","F10|record", "F11|save pose",
+                "Page Up / Page Down|previous / next view mode (pathtrace, relight, pt-dn; the debug views too with Advanced > Debug views)",
+                "F7|ray tracing on / off", "F4|reflections", "Ctrl+F4|auto exposure",
+                "F5|glowing surfaces as lights", "Ctrl+F5|sky light and linear transport", "Ctrl+F6|volumetrics",
+                "Ctrl+F1|surface detail maps", "Ctrl+F2|screen effects (bloom, heat haze, shockwaves, underwater)", "Shift+F2|bloom",
+                "Ctrl+F7|viewmodel pass (the gun and arms traced)", "Shift+F7|lit particles", "Ctrl+F8|DLSS Ray Reconstruction (relight, pt-dn)",
                 "Insert|light editor (then numpad: 5 aim-select, 4/6 cycle, 8/2 parameter, +/- change, Enter save; docs/lighting-overrides.md)",
+                "Ctrl+Insert|light classifier (docs/lighting-overrides.md)",
+                "Developer keys|only with Advanced > Developer hotkeys (always in bench launches):",
+                "F2|temporal upsampler", "F3|radiance cache mode (Shift+F3: its debug view)", "Ctrl+F3|denoiser preset",
+                "F6|light sampling (RIS / reference)", "F9|reload shaders (the Reload shaders button works without the developer keys)",
+                "F10|record a camera path (bench)", "F11|save the current pose (bench)",
             }.Concat(CineKeybinds).ToArray();
             m.Capture();
         }
@@ -405,7 +415,7 @@ namespace UltraRT
         public string[] Keybinds = Array.Empty<string>();
         public string Group;
         private bool _dirty;
-        private float _saveAt;
+        private float _saveAt, _nextRefresh;
 
         public SettingsMenu(ManualLogSource log, ConfigFile cfg) { _log = log; _cfg = cfg; }
 
@@ -455,16 +465,29 @@ namespace UltraRT
 
         public void MarkDirty() { _dirty = true; _saveAt = Time.realtimeSinceStartup + 0.75f; }
 
-        /// <summary>Every frame: the menu follows hotkeys, and the config is saved shortly after the last change.</summary>
+        /// <summary>Every frame: the menu follows hotkeys, and the config is saved shortly after the last change. The full
+        /// refresh (every setting's getter) runs every frame while a menu can be open (the cursor is free or the game is
+        /// paused), and at 4 Hz in play, where nobody sees the page (since 2026-11-20; it was every frame).</summary>
         public void Update()
         {
-            foreach (var s in All) s.Refresh();
-            if (_dirty && Time.realtimeSinceStartup >= _saveAt)
+            float now = Time.realtimeSinceStartup;
+            if (MenuMayBeOpen() || now >= _nextRefresh)
+            {
+                _nextRefresh = now + 0.25f;
+                foreach (var s in All) s.Refresh();
+            }
+            if (_dirty && now >= _saveAt)
             {
                 _dirty = false;
                 try { _cfg.Save(); }
                 catch (Exception e) { _log.LogWarning($"Settings: could not save the config: {e.Message}"); }
             }
+        }
+
+        private static bool MenuMayBeOpen()
+        {
+            try { return Cursor.visible || Cursor.lockState != CursorLockMode.Locked || Time.timeScale == 0f; }
+            catch (Exception) { return true; }
         }
 
         public void ResetAll()

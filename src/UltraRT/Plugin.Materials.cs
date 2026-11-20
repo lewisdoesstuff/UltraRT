@@ -90,7 +90,7 @@ namespace UltraRT
             var s = MaterialMaps.Settings;
             try
             {
-                if (Input.GetKeyDown(KeyCode.F1) && CtrlHeld())
+                if (_keysLive && Input.GetKeyDown(KeyCode.F1) && CtrlHeld())
                 {
                     s.enabled = !s.enabled;
                     Logger.LogInfo($"Material maps: {(s.enabled ? "on" : "off")}");

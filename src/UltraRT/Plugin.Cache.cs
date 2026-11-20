@@ -121,8 +121,10 @@ namespace UltraRT
             _guardActive = p == DenoiserPreset.Full || p == DenoiserPreset.Static;
         }
 
+        /// <summary>F3, Shift+F3, Ctrl+F3: developer keys ([View] DevHotkeys or a bench launch; Plugin.Hotkeys.cs).</summary>
         private void CacheHotkeys()
         {
+            if (!DevKey(Input.GetKeyDown(KeyCode.F3), "F3")) return;
             if (DenoiserStabilityHotkey()) return;
             if (!Input.GetKeyDown(KeyCode.F3) || _radianceCache == null) return;
             var s = _cacheSettings;

@@ -8,14 +8,14 @@ Created in [T3 Code](https://t3.codes).
 
 ## View modes
 
-Cycle them in game with **Page Up / Page Down**, pick one in the settings menu, or set the startup mode (`[View] DefaultMode` in `BepInEx/config/ooo.lew.ultrart.cfg`). The default is `pathtrace` where DLSS Ray Reconstruction can run (an NVIDIA GPU and `nvngx_dlssd.dll` beside the plugin), `relight` elsewhere. A config written before 2026-11-17 that still holds the old default (`relight`) is moved to `pathtrace` once; choosing `relight` again afterwards sticks.
+Cycle them in game with **Page Up / Page Down**, pick one in the settings menu, or set the startup mode (`[View] DefaultMode` in `BepInEx/config/ooo.lew.ultrart.cfg`). The default is `pathtrace` where DLSS Ray Reconstruction can run (an NVIDIA RTX GPU and `nvngx_dlssd.dll` beside the plugin), `relight` elsewhere, including GeForce GTX cards (since 2026-11-20, [docs/release.md](docs/release.md)). A config written before 2026-11-17 that still holds the old default (`relight`) is moved to `pathtrace` once; choosing `relight` again afterwards sticks.
 
 | Mode | What it is |
 |---|---|
 | `relight` (default without DLSS RR) | Full ray tracing with a physical light model: inverse-square falloff, soft shadows from every light, sky and sun, one bounce of global illumination from a radiance cache, ray-traced reflections, auto exposure, volumetrics. Calibrated against the game's brightness and colour; see [docs/relight.md](docs/relight.md). |
 | `pathtrace` (default with DLSS RR) | Real multi-bounce path tracing with the same look as relight. [DLSS Ray Reconstruction](docs/dlss.md) denoises and upscales it when it is available (NVIDIA RTX GPU, the DLSS SDK runtime fetched by `scripts/fetch-dlss.ps1`); otherwise UltraRT's own denoiser runs at a lower trace resolution with exact-texel remodulation. See [docs/path-tracing.md](docs/path-tracing.md). |
 | `pt-dn` | Ray traced with the game's own light model (its falloff and flat ambient) and the denoiser. |
-| debug views | `dn-lighting`, `dn-variance`, `normals`, `albedo`, `depth`, `refl`, `cache`, `motion`, and others at the end of the Page Up / Page Down cycle. |
+| debug views | `dn-lighting`, `dn-variance`, `normals`, `albedo`, `depth`, `refl`, `cache`, `motion`, and others: in the settings menu's mode list and `-ultrart-view`; in the Page Up / Page Down cycle with Advanced > Debug views (`[View] DebugModes`) or in a bench launch (since 2026-11-20). |
 
 The `hybrid` mode (the game's own image with ray-traced lighting ratios on top) was removed on 2026-11-19, together with ReSTIR light sampling ([docs/cleanup-audit-2026-11-19.md](docs/cleanup-audit-2026-11-19.md)). A config, flag (`-ultrart-view hybrid`) or bench mode that still names it gets `relight`, with a warning in the log; `-ultrart-lights restir` and `LightSampler = ReSTIR` get RIS the same way. `-ultrart-view` takes a mode name or an index; the indices after the old `hybrid` slot moved down by one.
 
@@ -67,21 +67,28 @@ Without `lib\dlss` the native DLL builds as a stub and DLSS Ray Reconstruction i
 
 | Key | Action |
 |---|---|
-| Page Up / Page Down | previous / next view mode |
+| Page Up / Page Down | previous / next view mode (pathtrace, relight, pt-dn; the debug views too with Advanced > Debug views) |
 | F7 | ray tracing on / off |
-| F2, Ctrl+F2, Shift+F2 | temporal upsampler; screen effects; bloom |
-| F3, Shift+F3, Ctrl+F3 | radiance cache mode; its debug view; denoiser preset |
+| Ctrl+F2, Shift+F2 | screen effects; bloom |
 | F4, Ctrl+F4 | reflections; auto exposure |
 | F5, Ctrl+F5 | emissive surfaces as lights; sky light and linear light transport |
-| F6, Ctrl+F6 | light sampling (reference, RIS); volumetrics |
+| Ctrl+F6 | volumetrics |
 | Ctrl+F1, Ctrl+F7, Shift+F7 | surface detail maps; viewmodel pass; lit particles |
 | Ctrl+F8 | DLSS Ray Reconstruction in relight and pt-dn (pathtrace chooses its own) |
-| F9 | reload shaders |
-| Insert, then numpad | light editor: 5 aim-select, 4 / 6 cycle, 8 / 2 parameter, + / - change, Enter save ([docs/lighting-overrides.md](docs/lighting-overrides.md)) |
+| Insert, then numpad | light editor: 5 aim-select, 4 / 6 cycle, 8 / 2 parameter, + / - change, Enter save; Ctrl+Insert: light classifier ([docs/lighting-overrides.md](docs/lighting-overrides.md)) |
 | Home | cinematic free camera on / off; then K add key, P play, Ctrl+S save, End render ([docs/cinematics.md](docs/cinematics.md)) |
+
+Developer keys, only with Advanced > **Developer hotkeys** (`[View] DevHotkeys`, `-ultrart-dev-hotkeys`) or in a bench launch (since 2026-11-20; the same switch turns on the shader bundle's hot reload):
+
+| Key | Action |
+|---|---|
+| F2 | temporal upsampler |
+| F3, Shift+F3, Ctrl+F3 | radiance cache mode; its debug view; denoiser preset |
+| F6 | light sampling (reference, RIS) |
+| F9 | reload shaders (the settings menu's Reload shaders button works without the switch) |
 | F10, F11 | record a camera path; save the current pose (for benchmarks, [bench/README.md](bench/README.md)) |
 
-Hotkeys last for the session. Everything else is in the pause menu (**Options > Plugin Config > UltraRT**, needs PluginConfigurator), saved to `BepInEx/config/ooo.lew.ultrart.cfg`, or set with `-ultrart-*` command-line flags, which win over the config. The menu's **Keybinds** page lists the keys in game. See [docs/settings.md](docs/settings.md).
+No hotkey is read while ULTRAKILL's console (F8) or a text field has the keyboard. Hotkeys last for the session. Everything else is in the pause menu (**Options > Plugin Config > UltraRT**, needs PluginConfigurator), saved to `BepInEx/config/ooo.lew.ultrart.cfg`, or set with `-ultrart-*` command-line flags, which win over the config. The menu's **Keybinds** page lists the keys in game. See [docs/settings.md](docs/settings.md).
 
 ## Benchmarking
 

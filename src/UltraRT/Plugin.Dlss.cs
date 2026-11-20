@@ -91,7 +91,7 @@ namespace UltraRT
         {
             try
             {
-                if (Input.GetKeyDown(KeyCode.F8) && CtrlHeld())
+                if (_keysLive && Input.GetKeyDown(KeyCode.F8) && CtrlHeld())
                 {
                     _rrEnabled = !_rrEnabled;
                     string state = _rrEnabled ? (EnsureRR() ? "on" : "unavailable: " + (_rr?.Status ?? "see log")) : "off (UltraRT denoiser)";
