@@ -230,6 +230,28 @@ float WaterRippleCaustic(float2 uv, float depth, float slope, float gain, float 
     return sqrt(1.0 + eps * eps) * rsqrt(det * det + eps * eps) / (1.0 - 0.0115 * d6);
 }
 
+// WaterRippleCaustic's map run backwards: the shift (in WaterPlaneUV's frame) from a receiver depth metres under the
+// surface point uv to the surface point whose refracted light lands there, x - uv. The same q, the same two fixed-point
+// steps and the same interactive rings, so a pattern looked up through it (the stained-glass projection under water,
+// UltraRTStainedGlass.hlsl) wobbles with the caustic lines the albedo factor draws on the same floor.
+float2 WaterRippleSourceShift(float2 uv, float depth, float slope, float gain, float footprint, float waterY)
+{
+    float q = 0.248 * 0.06 * 8.0 * tanh(depth * gain * slope * 0.125);
+    float qi = 0.248 * depth * gain;
+    bool rings = _UltraRTWaterImpulse.x > 0.5;
+    float3 t = float3(1, 0, 0), b = float3(0, 0, -1), none = 0;
+    float2 x = uv, g;
+    float3 hess;
+    [unroll] for (int it = 0; it < 2; it++)
+    {
+        WaterRippleField(x, footprint, g, hess);
+        float2 gs = 0;
+        [branch] if (rings) WaterImpulseField(x, t, b, waterY, 6.0 * footprint, qi, false, gs, none);
+        x = uv - q * g - gs;
+    }
+    return x - uv;
+}
+
 float SchlickFresnel(float f0, float NdotV)
 {
     float x = 1.0 - saturate(NdotV);

@@ -232,8 +232,10 @@ namespace UltraRT
         /// global _UltraRTWaterPlanes, as horizontal planes from their renderer bounds: the top is the surface; a thin plane
         /// lights receivers down to the deepest receiver depth, a water box (taller than 1 m) only inside itself. None while
         /// the camera is in water: the underwater screen effect draws its own caustics there (docs/vfx.md).
+        /// forStainedGlass: the planes are wanted even with ripple caustics off (stained-glass light under water,
+        /// docs/materials.md section 14); _UltraRTRipple.x stays 0 then, which skips the caustics.
         /// </summary>
-        public void UpdateRippleCaustics(Vector3 cam, float fadeDistance)
+        public void UpdateRippleCaustics(Vector3 cam, float fadeDistance, bool forStainedGlass = false)
         {
             if (_rippleBuffer == null)
             {
@@ -242,7 +244,7 @@ namespace UltraRT
             }
             var s = Caustics;
             int n = 0, cap = Mathf.Clamp(s.ripplePlanes, 0, MaxRipplePlanes);
-            if (s.ripple > 0f && cap > 0 && _rippleWater.Count > 0 && !InsideWater(cam))
+            if ((s.ripple > 0f || forStainedGlass) && cap > 0 && _rippleWater.Count > 0 && !InsideWater(cam))
             {
                 float reach = fadeDistance + 5f;
                 foreach (var r in _rippleWater)
@@ -285,7 +287,7 @@ namespace UltraRT
             }
             _rippleCount = n;
             Shader.SetGlobalBuffer(IdWaterPlanes, _rippleBuffer);
-            Shader.SetGlobalVector(IdRipple, new Vector4(n > 0 ? s.ripple : 0f, n, Mathf.Max(s.rippleGain, 0f), Mathf.Max(s.rippleDepth, 0.5f)));
+            Shader.SetGlobalVector(IdRipple, new Vector4(n > 0 ? Mathf.Max(s.ripple, 0f) : 0f, n, Mathf.Max(s.rippleGain, 0f), Mathf.Max(s.rippleDepth, 0.5f)));
         }
 
         // ---------------------------------------------------------------- interactive ripples (Plugin.WaterRipples.cs)

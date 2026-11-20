@@ -107,7 +107,6 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 #include "UltraRTSky.hlsl"   // sky radiance and sky light sampling (SRVs only)
 #include "UltraRTEffects.hlsl" // glowing effects along a specular ray (EffectsAlong)
 #include "UltraRTStains.hlsl"  // blood stains at reflection hits (StainTint)
-#include "UltraRTStainedGlass.hlsl" // stained-glass windows project their mosaic into the room (StainedGlassLight)
 
 // ---------------------------------------------------------------- reflections
 
@@ -268,6 +267,10 @@ float RippleCausticAt(float3 pos, float3 nv, float viewDist, float footprint)
     return m;
 }
 
+// Stained-glass windows project their mosaic into the room (StainedGlassLight); after the water planes and ripples,
+// which bend and dim it under water.
+#include "UltraRTStainedGlass.hlsl"
+
 // Texture LOD (docs/materials.md, "Texture LOD"; Plugin.Materials.cs): _UltraRTTexLod2.y = the spread angle a diffuse
 // bounce adds to the ray cone (its sample stands for a wide lobe: the hit's albedo is averaged accordingly).
 float4 _UltraRTTexLod2;
@@ -387,7 +390,8 @@ void RayGenBody(bool full)
         if (full) PtMoreDirect(direct, pos, n, layer, rng); // pathtrace: more light samples per pixel (RIS)
         FleshSssEnd();
         // Stained-glass windows: their mosaic projected into the room, one shadow ray (UltraRTStainedGlass.hlsl).
-        [branch] if (_UltraRTStainedGlassCount > 0) direct += StainedGlassLight(pos, n, nv, rng);
+        [branch] if (_UltraRTStainedGlassCount > 0)
+            direct += StainedGlassLight(pos, n, nv, tTotal * pixelAngle / max(abs(dot(nv, ray.Direction)), 0.2), rng);
 
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
         // Radiance cache (docs/radiance-cache.md): mode 2 reads the indirect light at the primary hit and skips the bounce
@@ -478,7 +482,7 @@ void RayGenBody(bool full)
             }
         }
         // Ripple caustics under water planes (fullbright surfaces ignore light, so they get none).
-        [branch] if (_UltraRTRipple.y > 0.5 && p.alpha > 0.0)
+        [branch] if (_UltraRTRipple.y > 0.5 && _UltraRTRipple.x > 0.0 && p.alpha > 0.0) // planes also bound for stained glass alone
         {
             float fp = tTotal * pixelAngle / max(abs(dot(nv, ray.Direction)), 0.2); // this texel on the surface (m)
             albedo *= lerp(1.0, RippleCausticAt(pos, nv, tTotal, fp), p.alpha);
