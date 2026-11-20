@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "cand-8-3-crushers-glass",
+  "Scene": "Level 8-3",
+  "Note": "v5c candidate: 8-3's Clockwork Crushers, a push down the glass-walled hall.",
+  "Keys": [
+    {"Player": [180.0, 165, 672.0], "Yaw": 0, "Pitch": 1, "Fov": 85, "Duration": 6.0, "Ease": "smooth"},
+    {"Player": [180.0, 165, 683.0], "Yaw": 0, "Pitch": -1, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

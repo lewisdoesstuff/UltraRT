@@ -1,0 +1,37 @@
+{
+ "Version": 1,
+ "Scene": "Level 4-4",
+ "Created": "2026-11-19T23:30:00",
+ "Note": "Synthetic route for trailer v5c: stand at the Boss Entrance checkpoint (Load: checkpoint jumps there). The Window Hallway behind it is switched on with LookActivate.",
+ "SampleRate": 30.0,
+ "Samples": [
+  [
+   0.0,
+   117.5,
+   665.0,
+   335.0,
+   0.0,
+   0.0
+  ],
+  [
+   0.5,
+   117.5,
+   665.0,
+   335.0,
+   0.0,
+   0.0
+  ]
+ ],
+ "Arenas": [],
+ "Checkpoints": [
+  {
+   "Time": 0.0,
+   "Path": "Checkpoint",
+   "Position": [
+    117.5,
+    663.5,
+    335.0
+   ]
+  }
+ ]
+}

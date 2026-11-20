@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "cand-8-2-market-front",
+  "Scene": "Level 8-2",
+  "Note": "v5c candidate: across the supermarket's front, the fridges and the end-of-aisle displays.",
+  "Keys": [
+    {"Player": [-170.0, -5, 188.0], "Yaw": 170, "Pitch": 0, "Fov": 85, "Duration": 6.0, "Ease": "smooth"},
+    {"Player": [-182.0, -5, 188.0], "Yaw": 190, "Pitch": 0, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}
