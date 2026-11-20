@@ -1,0 +1,45 @@
+{
+ "Name": "stained-glass-perf",
+ "Note": "Stained-glass projection cost (docs/materials.md): sg.strength=0 vs the default, frame times only (-Perf, exclusive lock). 1-4's V2 arena, where 2-3 windows are bound and their beams fill the view, and the user's pose 4.",
+ "Scenarios": [
+  {
+   "Name": "1-4 arena west",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 8,
+    "Load": "checkpoint",
+    "Position": [
+     -8.0,
+     -16.54,
+     590.0
+    ],
+    "Yaw": -25.0,
+    "Pitch": -14.0
+   },
+   "Modes": [
+    "relight+sg.strength=0",
+    "relight",
+    "pathtrace+sg.strength=0",
+    "pathtrace"
+   ]
+  },
+  {
+   "Name": "1-4 pose 4",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 8,
+    "Load": "checkpoint"
+   },
+   "Modes": [
+    "relight+sg.strength=0",
+    "relight",
+    "pathtrace+sg.strength=0",
+    "pathtrace"
+   ]
+  }
+ ]
+}

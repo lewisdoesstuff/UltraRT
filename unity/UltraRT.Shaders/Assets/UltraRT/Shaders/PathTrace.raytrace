@@ -107,6 +107,7 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 #include "UltraRTSky.hlsl"   // sky radiance and sky light sampling (SRVs only)
 #include "UltraRTEffects.hlsl" // glowing effects along a specular ray (EffectsAlong)
 #include "UltraRTStains.hlsl"  // blood stains at reflection hits (StainTint)
+#include "UltraRTStainedGlass.hlsl" // stained-glass windows project their mosaic into the room (StainedGlassLight)
 
 // ---------------------------------------------------------------- reflections
 
@@ -382,6 +383,8 @@ void RayGenBody(bool full)
 
         float3 direct = DirectLighting(pos, n, layer, rng);
         if (full) PtMoreDirect(direct, pos, n, layer, rng); // pathtrace: more light samples per pixel (RIS)
+        // Stained-glass windows: their mosaic projected into the room, one shadow ray (UltraRTStainedGlass.hlsl).
+        [branch] if (_UltraRTStainedGlassCount > 0) direct += StainedGlassLight(pos, n, nv, rng);
 
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
         // Radiance cache (docs/radiance-cache.md): mode 2 reads the indirect light at the primary hit and skips the bounce

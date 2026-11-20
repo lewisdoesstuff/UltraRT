@@ -73,6 +73,7 @@ namespace UltraRT
             yield return new KeyValuePair<string, object>("veil", SceneProxies.Veils); // blended veils behind portals, e.g. veil.gain=1.2
             yield return new KeyValuePair<string, object>("unlit", SceneProxies.Unlit); // lit weights, e.g. unlit.enemy=0.8 (docs/materials.md)
             yield return new KeyValuePair<string, object>("glass", SceneProxies.Glass); // stained glass, e.g. glass.gain=2 (docs/materials.md)
+            yield return new KeyValuePair<string, object>("sg", _sgSettings); // stained-glass projection, e.g. sg.strength=0 (docs/materials.md)
         }
 
         /// <summary>Original values of Plugin fields changed by "plugin.&lt;field&gt;=value" variants.</summary>

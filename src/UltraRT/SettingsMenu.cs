@@ -168,6 +168,7 @@ namespace UltraRT
             m.Bool("Materials", "Enabled", "Surface detail maps  [Ctrl+F1]", () => MaterialMaps.Settings.enabled, v => MaterialMaps.Settings.enabled = v, "-ultrart-materials").Legacy();
             m.Float("Materials", "NormalStrength", "Detail strength (relight, pt-dn)", 0f, 4f, 2, () => MaterialMaps.Settings.normalStrength, v => MaterialMaps.Settings.normalStrength = v, "-ultrart-materials-normal").Legacy();
             m.Float("Materials", "Roughness", "Roughness variation", 0f, 2f, 2, () => MaterialMaps.Settings.roughness, v => MaterialMaps.Settings.roughness = v, "-ultrart-materials-roughness").Legacy();
+            m.Float("Effects", "StainedGlassProjection", "Stained-glass light on floors and walls (strength, 0 = off)", 0f, 8f, 2, () => _sgSettings.strength, v => _sgSettings.strength = Mathf.Max(0f, v), "-ultrart-stained-glass");
             m.Bool("Reflections", "Enabled", "Reflections  [F4]", () => _reflSettings.enabled, v => { _reflSettings.enabled = v; _reflFilter?.Reset(); }, "-ultrart-noreflections").Basic();
             m.Float("Reflections", "Strength", "Reflection strength", 0f, 2f, 2, () => _reflSettings.reflStrength, v => _reflSettings.reflStrength = v, "-ultrart-refl-strength");
             m.Bool("Reflections", "PlayerInReflections", "V1 in reflections", () => _playerRays != 0, v => _playerRays = v ? 15 : 0, "-ultrart-player-rays", "-ultrart-noplayer").Basic();

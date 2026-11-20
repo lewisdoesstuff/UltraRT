@@ -53,6 +53,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/CutoutTrace.raytrace",
                     "Assets/UltraRT/Shaders/RayReconstruction.compute",
                     "Assets/UltraRT/Shaders/StainGrid.compute",
+                    "Assets/UltraRT/Shaders/StainedGlassBake.shader",
                     "Assets/UltraRT/Shaders/SkyConvert.shader",
                     "Assets/UltraRT/Shaders/Reflections.compute",
                     "Assets/UltraRT/Shaders/TransparentOverlay.shader",

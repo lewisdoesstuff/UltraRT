@@ -635,3 +635,84 @@ The proc set was installed in the alt install for this (`BepInEx\ultrart\materia
   and variance from `Color32[]`) and to the atlas composition (which also wants the CPU pixels). Estimate: tens to
   ~150 ms per level load, in the range of today's 65-140 ms PNG decode, and a disk cache keyed by `<name>@<w>x<h>`
   (the same keys) would make it a one-time cost. Nothing game-derived would ship. Not implemented.
+
+## 14. Stained-glass projection (2026-11-20, `t3/stained-glass-projection`)
+
+Section 12's transmission only shows where a light stands behind the glass, and ULTRAKILL's stained glass sits on solid
+walls with nothing behind it. The user asked for the panes' colours on the floor and walls, the dark leading drawing
+crisp lines in them, without a sun. So every stained-glass window now sends its own collimated beam into the room.
+
+Code: `src/UltraRT/Plugin.StainedGlass.cs` (discovery, bake, per-frame upload), `StainedGlassBake.shader` (the bake),
+`UltraRTStainedGlass.hlsl` (`StainedGlassLight`, called once in `PathTrace.raytrace` after `DirectLighting`, so relight
+and pathtrace both get it at primary hits). Suites `bench/suites/stained-glass.json` (look) and
+`stained-glass-perf.json` (`-Perf`).
+
+**How it works**
+
+- **Discovery** (first traced frame of an RT scene, and again when a window renderer is destroyed, e.g. a checkpoint
+  restore): every `MeshRenderer` (inactive ones too; UltraRT's own proxies skipped) with an opaque material matching
+  `sg.materials` (default `StainedGlass*,GothicWindow*`; StaticSceneOptimizer's atlas slots by their original material,
+  sliced by the original submesh's index count). Transparent stained glass (`StainedGlass1A`, render queue >= 2450) is
+  left out: it stands free in rooms (1-4's railings and arches) and keeps section 12's shadow tint only. The slot's
+  triangles (GPU readback) are grouped into flat connected pieces (coplanar within 5 cm, gaps under 0.3 m); a piece over
+  1.2 m both ways is a window (the 0.5-1 m edges of glass slabs are not). Frame: U horizontal, V up the pane.
+- **Plain textures are not windows**: a texture whose 32 x 32 copy is nearly grey (mean chroma under `sg.minChroma`,
+  0.08) and flat (luma spread under 0.08) is skipped before it takes a slice; atlas slots are judged on their baked
+  slice. 6-2's and P-2's `GothicWindow` is the grey `smoothgrid` texture (chroma 0.00, spread 0.02) on 10 x 20 m wall
+  faces, UV 0-1, `_Color` white: their arched windows are red because the rooms' lights are. Nothing to project there
+  (18 of 18 slices in 6-2, all 313 renderers in P-2 dropped). P-2 has no `StainedGlass*` material at all.
+- **Bake**: each window's own triangles (a compact copy of the source vertices, every attribute) are drawn flat into
+  one slice of a 256 x 256 `Texture2DArray` (RGBA8, point): the vertex shader places a vertex by its world position in
+  the window frame; the pixel shader samples the texture with the material's tiling and `_Color`, or the atlas rect
+  (TEXCOORD1, `frac(uv0)`) x vertex colour, as Proxy.shader does. Off-plane triangles are discarded. Identical windows
+  (the inactive copies checkpoints keep of a room) share a slice; at most 96 slices, the biggest windows first. No mips:
+  `GenerateMips` on a 2D-array render texture crashed D3D12 here ("could not create a compute pipeline state object").
+  1-4: 40 slices, upright panes with their leading, tiled where the game tiles them (`sg.dump=1` or
+  `-ultrart-stained-glass-dump 1` writes them to `BepInEx/ultrart/stained-glass/<scene>_<slice>.png`; game-derived,
+  never commit).
+- **Room side**, decided the first frame a window is live (at the scene build its room's colliders often do not exist
+  yet: 1-4's arena raycasts all missed and half the windows faced the void): not the side with a wall within 1 m, and
+  the side where 6 rays fanned around the beam hit the level within its reach (a room) rather than escape; ties go to
+  the side the faces show. A one-sided face whose front looks away from the room (the outer face of 1-4's 0.5 m glass
+  slabs) and a pane facing up are dropped. The log lists each decision (`Stained-glass windows live:`).
+- **Beam**: the inward normal tilted down to `sg.tilt` (40 deg; 6-2's game beams fall 27 deg, but at 30 deg the high
+  windows of 1-4 and the P-2 hall land beyond the floor), reach `sg.reach` 80 m. Per frame the 16 live windows whose
+  beam segments pass nearest the camera (or a portal view) go to `_UltraRTStainedGlass` (5 float4 each).
+- **Shader**: per primary hit, each window: the ray back along the beam meets the pane at (u, v); outside [0, 1], behind
+  the pane or facing away: nothing. Else the slice is point sampled; gamma colour below `sg.leadFloor` (0.12) passes
+  nothing (the leading), above it is stretched back to 1 and saturated (`sg.saturation` 1.3); light =
+  `ToLight(colour x strength x relight exposure) x cos`. Where beams overlap, one is picked by brightness (exact where
+  one reaches, which is nearly everywhere); one shadow ray (`VisibleMasked`, mask 0x05 plus V1) stops 0.15 m short of
+  the pane: pillars, the planters, enemies and V1 cut the mosaic, and the stone around a pane that sits behind the wall
+  surface blocks the rest (1-4's panes are 10 x 20 m faces of which about 5 x 9 m show through the opening).
+
+**Switches**: `-ultrart-stained-glass F` (0 or off = off), `-ultrart-stained-glass-tilt F`, config
+`[Effects] StainedGlassProjection` (Advanced > Effects), bench `sg.strength=0`, `sg.tilt`, `sg.reach`, `sg.leadFloor`,
+`sg.saturation`, `sg.maxWindows`, `sg.minChroma` (the build-time fields `tilt`, `reach`, `resolution`, `materials`
+rebuild the windows when changed; `minChroma` applies at the next build). Diagnostics: `sg.debug=1` no shadow ray,
+`2` white wherever a beam reaches, `3` bright magenta there (no cosine, no texture), `4`-`6` staged tests of the
+shader's checks (any window bound / faces a beam / within reach), with a CPU probe of the same math at the crosshair in
+the log (`SG probe`); `sg.noShadow`, `sg.bake=0`.
+
+**Look** (alt, 2560 x 1440, `bench/results/20261120-175513_stained-glass_alt`; strength 3): 1-4's V2 arena, looking at
+the pool in front of the west window: the dove and flame panes land on the landing beside the pillar (warm) and on the
+pool floor (violet and blue, the leading as dark lines), seen through the water; the pillar and planter shadows cut
+them. 7 % of the frame brighter by more than 8 of 255 in both modes; pathtrace (DLSS RR) a little crisper than relight
+(the UltraRT denoiser), both keep the leading lines. The user's pose 4 view barely sees the lit floor (the beams land
+behind the pool). 6-2 pose 1 and P-2's hall: no window projects (see above); their A/B differences are noise (P-2's
+lights shift quickly: pathtrace mean +9.9 of 255 with no window bound). Strength 1 (the first default) was too faint in
+linear transport (dark pane colours ^2.2); 3 reads as coloured light without lifting the room.
+
+**Dark pixels** (`tools/lights/punch.py` on the same run; mean luma of the pixels the game leaves dark, RT minus game):
+1-4 west +18.5 -> +18.6 (relight), +17.9 -> +18.0 (pathtrace); 1-4 pose 4 +15.5 -> +15.5, +15.0 -> +15.0. Unchanged:
+only the beams' footprints get light.
+
+**Cost** (exclusive `-Perf`, main install, 1440p, `bench/results/20261120-175809_stained-glass-perf`, GPU total /
+dispatch ms, `sg.strength=0` -> default): 1-4 arena west relight 4.32 / 2.31 -> 4.41 / 2.40, pathtrace 4.63 / 1.66 ->
+4.70 / 1.72; 1-4 pose 4 relight 4.08 / 2.11 -> 4.13 / 2.17, pathtrace 4.45 / 1.53 -> 4.48 / 1.56. About +0.05-0.1 ms
+where windows are bound; nothing where none is (a count of 0 skips the call). CPU: the build is one frame of 50-150 ms
+per level (1-4 54 ms, P-2 148 ms with 313 renderers read back); the per-frame upload is negligible. VRAM: 256 KB per
+slice, 10 MB in 1-4, 25 MB at the 96-slice cap.
+
+**Not done**: 1-1 to 1-3 use the same `StainedGlassBig/Blue/Red` materials and should work unchanged (not checked). No
+volumetric beam (the haze stays the game's) and no bounce light from the coloured pools (primary hits only).
