@@ -1,0 +1,61 @@
+{
+    "Name": "0-3-beams-others",
+    "Note": "2026-11-20 HDR beam/hue fix: additive-heavy scenes that must not regress (1-4 lamps glow sprites, 3-1 eye beams LightPillar, 6-2 window beams). Run on main with -ultrart-hdr-capture raw.",
+    "Scenarios": [
+        {
+            "Name": "1-4 pose 1 lamps",
+            "Scene": "Level 1-4",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/u1118-1-4-1.json",
+                "Duration": 4
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace"
+            ],
+            "Screenshots": [
+                2
+            ],
+            "ShotSettle": 0.5
+        },
+        {
+            "Name": "3-1 eye beams",
+            "Scene": "Level 3-1",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/1115-3-1-eye-beams.json",
+                "Duration": 4,
+                "Load": "checkpoint"
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace"
+            ],
+            "Screenshots": [
+                2
+            ],
+            "ShotSettle": 0.5
+        },
+        {
+            "Name": "6-2 pose 1",
+            "Scene": "Level 6-2",
+            "Path": {
+                "Type": "static",
+                "Approach": "../recordings/u1118-6-2-1.json",
+                "Duration": 5
+            },
+            "Modes": [
+                "off",
+                "relight",
+                "pathtrace"
+            ],
+            "Screenshots": [
+                2
+            ],
+            "ShotSettle": 0.5
+        }
+    ]
+}

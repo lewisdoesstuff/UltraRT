@@ -81,6 +81,24 @@ Shader "UltraRT/Vfx"
             float MaxC(float3 c) { return max(c.r, max(c.g, c.b)); }
             float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
             float3 ToLinear(float3 c) { return pow(max(c, 0.0), 2.2); }
+            // HDR late map: how much of a pixel's light the game's transparents made (docs/hdr.md "Effects and bloom"). The share of
+            // the light they added (luminance, linear). Where the image under the effect was near white the effect clipped,
+            // and that share says nothing of its strength: 0-3's light pillars crossing the hot wall band got a third of the
+            // gain they got elsewhere and read see-through in HDR (2026-11-20, "Effects over bright surfaces"). There the
+            // share of the room left above the pixel that the effect filled counts, in the channel where it filled most (a beam
+            // fills most of it; a faint glow adds a step or two and gets little).
+            float EffectShare(float3 late, float3 pre)
+            {
+                float ll = Luma(ToLinear(late));
+                float share = saturate((ll - Luma(ToLinear(pre))) / max(ll, 1e-3));
+                float3 d = late - pre;
+                float3 fc = saturate(d / max(1.0 - pre, 1e-3)) * smoothstep(0.01, 0.04, d) * step(0.02, 1.0 - pre);
+                return max(share, max(fc.r, max(fc.g, fc.b)) * smoothstep(0.5, 0.85, MaxC(pre)));
+            }
+            float EffectShareAt(float2 uv)
+            {
+                return EffectShare(_VfxLate.SampleLevel(my_point_clamp_sampler, uv, 0).rgb, _VfxPre.SampleLevel(my_point_clamp_sampler, uv, 0).rgb);
+            }
             float3 ToDisplay(float3 c) { return pow(max(c, 0.0), 1.0 / 2.2); }
 
             // ---------------------------------------------------------------- bloom
@@ -419,8 +437,28 @@ Shader "UltraRT/Vfx"
                     // of the pixel's light the transparents added keeps a dim glow over a bright wall from lifting the wall.
                     float3 late = _VfxLate.SampleLevel(my_point_clamp_sampler, uv + offset, 0).rgb;
                     float3 pre = _VfxPre.SampleLevel(my_point_clamp_sampler, uv + offset, 0).rgb;
-                    float ll = Luma(ToLinear(late));
-                    float share = saturate((ll - Luma(ToLinear(pre))) / max(ll, 1e-3));
+                    float share = EffectShare(late, pre);
+                    if (share < 0.6 && MaxC(pre) > 0.85 && MaxC(late) > 0.9)
+                    {
+                        // Blind pixels: under the effect the image was so near white in the channels the effect adds to that
+                        // nothing of it shows (a yellow beam over a white-hot strip changes no channel). With the effect on
+                        // both sides of the pixel along some axis, it is inside the effect: it takes the weaker side's share.
+                        // A wall pixel beside a beam has it on one side only and keeps its own. 3 radii x 4 axes.
+                        float w, h;
+                        _VfxLate.GetDimensions(w, h);
+                        float best = 0.0;
+                        [unroll] for (int ri = 0; ri < 3; ri++)
+                        {
+                            float r = h * (ri == 0 ? 0.008 : (ri == 1 ? 0.022 : 0.05));
+                            [unroll] for (int ai = 0; ai < 4; ai++)
+                            {
+                                float2 dir = ai == 0 ? float2(1.0, 0.0) : (ai == 1 ? float2(0.0, 1.0) : (ai == 2 ? float2(0.7071, 0.7071) : float2(0.7071, -0.7071)));
+                                float2 o = dir * r / float2(w, h);
+                                best = max(best, min(EffectShareAt(uv + offset + o), EffectShareAt(uv + offset - o)));
+                            }
+                        }
+                        share = max(share, best);
+                    }
                     float t = smoothstep(_VfxHdrFx.y, _VfxHdrFx.z, MaxC(late));
                     gain = 1.0 + _VfxHdrFx.x * share * t * t;
                 }
