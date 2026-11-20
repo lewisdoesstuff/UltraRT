@@ -569,16 +569,27 @@ void RayCountsWrite()
     _Radiance[id] = float4(g_RayCount[4], g_RayCount[5], g_RayCount[6], g_RayCount[7]);
 }
 [shader("raygeneration")]
-void RayGen() { RayCountsBegin(); RayGenBody(false); RayCountsWrite(); }
+void RayGen() { g_PortalImages = false; RayCountsBegin(); RayGenBody(false); RayCountsWrite(); }
 [shader("raygeneration")]
-void RayGenPT() { RayCountsBegin(); RayGenBody(true); RayCountsWrite(); }
+void RayGenPT() { g_PortalImages = false; RayCountsBegin(); RayGenBody(true); RayCountsWrite(); }
+[shader("raygeneration")]
+void RayGenImg() { RayCountsBegin(); RayGenBody(false); RayCountsWrite(); }
+[shader("raygeneration")]
+void RayGenPTImg() { RayCountsBegin(); RayGenBody(true); RayCountsWrite(); }
 #else
+// Frames without scene lights imaged through portals (UltraRTLights.hlsl, g_PortalImages): that code compiled out.
 [shader("raygeneration")]
-void RayGen() { RayGenBody(false); }
+void RayGen() { g_PortalImages = false; RayGenBody(false); }
 
 // The pathtrace mode (docs/path-tracing.md). Same bindings, same outputs.
 [shader("raygeneration")]
-void RayGenPT() { RayGenBody(true); }
+void RayGenPT() { g_PortalImages = false; RayGenBody(true); }
+
+// The same with portal images packed (Plugin.cs picks these while any are; prewarmed on loading a level with portals).
+[shader("raygeneration")]
+void RayGenImg() { RayGenBody(false); }
+[shader("raygeneration")]
+void RayGenPTImg() { RayGenBody(true); }
 #endif
 
 [shader("miss")]

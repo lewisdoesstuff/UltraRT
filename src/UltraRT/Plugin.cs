@@ -104,6 +104,10 @@ namespace UltraRT
         private int _tracedFrames;
         private bool _ptPrewarmed, _ptPrewarmWanted;
         private int _ptPrewarmFrame = -10;
+        /// <summary>RayGenImg (1) / RayGenPTImg (2) dispatched once this session (Trace: their pipelines are warmed ahead of the
+        /// first portal image); _imgPrewarmFirst until the session's first lit trace.</summary>
+        private int _imgPrewarmed;
+        private bool _imgPrewarmFirst = true;
 
         private string _autoScene;
         private bool _capture, _quit;
@@ -1508,9 +1512,32 @@ namespace UltraRT
                 _cmd.DispatchRays(shader, "RayGenPT", 1, 1, 1);
             }
             else if (full) _ptPrewarmed = true;
+            // Lights imaged through portals (Plugin.PortalLights.cs) have their own ray generations, RayGenImg / RayGenPTImg:
+            // compiled into RayGen / RayGenPT, that code cost ~0.1 ms of dispatch in every scene without any
+            // (docs/performance.md, "2026-11-20 batch"). Their pipelines compile on first dispatch too: warmed at one pixel
+            // on the session's first trace (the main menu) and on the first frame of a level with portal sides, for the
+            // mode in use, so the first image doesn't stall the frame it appears in.
+            bool imgEntry = pt && PortalLightImages > 0;
+            if (pt && _ptSettings.prewarm && _portalLights)
+            {
+                int bit = full ? 2 : 1;
+                bool want = (_imgPrewarmed & bit) == 0 && (_imgPrewarmFirst || (_proxies != null && _proxies.PortalSideCount > 0));
+                if (!full && _imgPrewarmFirst && _ptPrewarmWanted && (_imgPrewarmed & 2) == 0)
+                {
+                    _imgPrewarmed |= 2;
+                    _cmd.DispatchRays(shader, "RayGenPTImg", 1, 1, 1);
+                }
+                _imgPrewarmFirst = false;
+                if (want && !imgEntry)
+                {
+                    _imgPrewarmed |= bit;
+                    _cmd.DispatchRays(shader, full ? "RayGenPTImg" : "RayGenImg", 1, 1, 1);
+                }
+                else if (imgEntry) _imgPrewarmed |= bit;
+            }
             _cmd.BeginSample(SampleTrace);
             _gpu?.Begin(_cmd, SlotDispatch);
-            _cmd.DispatchRays(shader, pt && full ? "RayGenPT" : "RayGen", (uint)w, (uint)h, 1);
+            _cmd.DispatchRays(shader, pt && full ? (imgEntry ? "RayGenPTImg" : "RayGenPT") : imgEntry ? "RayGenImg" : "RayGen", (uint)w, (uint)h, 1);
             _rtTracedFrame = Time.frameCount; // white orb shells follow it (SceneProxies.OrbShells.cs)
             RequestRayCounts(pt, w, h, (full ? "pathtrace" : kind == Kind.Denoised ? "relight/pt-dn" : kind.ToString()) + (_transRect ? "" : ", transRect off")); // plugin._rayCounts=1 (Plugin.RayCounts.cs)
             _gpu?.End(_cmd, SlotDispatch);

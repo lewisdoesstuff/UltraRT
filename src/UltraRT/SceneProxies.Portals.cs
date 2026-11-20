@@ -70,6 +70,11 @@ namespace UltraRT
         private static readonly int IdPortalQuads = Shader.PropertyToID("_UltraRTPortalQuads"), IdPortalEdge = Shader.PropertyToID("_UltraRTPortalEdge");
         private ComputeBuffer _portalQuadBuffer;
         private Vector4[] _portalQuadRows = new Vector4[3 * 16];
+        // Per side: world on the exit's side -> the side's quad space (the quad rows after the inverse travel), so a light
+        // imaged through the side tests its opening without carrying points back (UltraRTPortalBuffers.hlsl, PortalImageSegmentThrough).
+        private static readonly int IdPortalImageQuads = Shader.PropertyToID("_UltraRTPortalImageQuads");
+        private ComputeBuffer _portalImageQuadBuffer;
+        private Vector4[] _portalImageQuadRows = new Vector4[3 * 16];
         /// <summary>What slides into view at a moving portal's edge starts without history (bench plugin._portalEdges=0: off).</summary>
         public static bool MovingPortalEdges = true;
         private Mesh _portalQuad;
@@ -542,6 +547,7 @@ namespace UltraRT
             Shader.SetGlobalBuffer(IdPortalsPrev, MovingPortalMotion ? _portalPrevBuffer : _portalBuffer);
             // World -> quad space per side, for the moving-portal edge test (UltraRTPortals.hlsl, PortalSegmentThrough).
             if (_portalQuadRows.Length < _portalRows.Length) _portalQuadRows = new Vector4[_portalRows.Length];
+            if (_portalImageQuadRows.Length < _portalRows.Length) _portalImageQuadRows = new Vector4[_portalRows.Length];
             foreach (var s in _portalSideList)
             {
                 if (s.Index * 3 + 2 >= _portalQuadRows.Length) continue;
@@ -549,6 +555,11 @@ namespace UltraRT
                 _portalQuadRows[s.Index * 3] = inv.GetRow(0);
                 _portalQuadRows[s.Index * 3 + 1] = inv.GetRow(1);
                 _portalQuadRows[s.Index * 3 + 2] = inv.GetRow(2);
+                // The same quad seen from the exit: a point there, carried back through the travel, then into quad space.
+                var img = s.Travel == default(Matrix4x4) ? inv : inv * s.Travel.inverse;
+                _portalImageQuadRows[s.Index * 3] = img.GetRow(0);
+                _portalImageQuadRows[s.Index * 3 + 1] = img.GetRow(1);
+                _portalImageQuadRows[s.Index * 3 + 2] = img.GetRow(2);
             }
             if (_portalQuadBuffer == null || _portalQuadBuffer.count < _portalQuadRows.Length)
             {
@@ -557,6 +568,13 @@ namespace UltraRT
             }
             _portalQuadBuffer.SetData(_portalQuadRows);
             Shader.SetGlobalBuffer(IdPortalQuads, _portalQuadBuffer);
+            if (_portalImageQuadBuffer == null || _portalImageQuadBuffer.count < _portalImageQuadRows.Length)
+            {
+                _portalImageQuadBuffer?.Release();
+                _portalImageQuadBuffer = new ComputeBuffer(_portalImageQuadRows.Length, 16, ComputeBufferType.Structured) { name = "UltraRT Portal Image Quads" };
+            }
+            _portalImageQuadBuffer.SetData(_portalImageQuadRows);
+            Shader.SetGlobalBuffer(IdPortalImageQuads, _portalImageQuadBuffer);
             Shader.SetGlobalInt(IdPortalEdge, MovingPortalMotion && MovingPortalEdges ? 1 : 0);
             Shader.SetGlobalInt(IdPortalHops, Mathf.Clamp(PortalHops, 0, 8));
             Shader.SetGlobalInt(IdMirrors, TraceMirrors ? 1 : 0);
@@ -583,6 +601,8 @@ namespace UltraRT
             _portalBuffer = null;
             _portalQuadBuffer?.Release();
             _portalQuadBuffer = null;
+            _portalImageQuadBuffer?.Release();
+            _portalImageQuadBuffer = null;
             _portalPrevBuffer?.Release();
             _portalPrevBuffer = null;
             _portalPrevStale = _portalPrevDirty = true;

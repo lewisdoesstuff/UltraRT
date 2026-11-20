@@ -1,0 +1,24 @@
+{
+    "Name": "perf-1120",
+    "Note": "2026-11-20 perf batch (t3/perf-batch-1120): merge-bisect-1120's poses, GPU dispatch and 6-2 render thread against 30522b5.",
+    "Scenarios": [
+        {
+            "Name": "0-1 metal",
+            "Scene": "Level 0-1",
+            "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 8 },
+            "Modes": [ "relight", "pathtrace" ]
+        },
+        {
+            "Name": "0-3 ghosts",
+            "Scene": "Level 0-3",
+            "Path": { "Type": "static", "Approach": "../recordings/0-3-ghosts.json", "Duration": 8 },
+            "Modes": [ "relight" ]
+        },
+        {
+            "Name": "6-2 start",
+            "Scene": "Level 6-2",
+            "Path": { "Type": "static", "Approach": "../recordings/6-2-start.json", "Duration": 8 },
+            "Modes": [ "relight", "pathtrace" ]
+        }
+    ]
+}

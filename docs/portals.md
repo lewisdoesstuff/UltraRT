@@ -445,6 +445,11 @@ The shader treats an image as two things:
   mask 0x20, never in a shadow mask (0x05), so neither segment hits them. The player's spot-light eye clip is skipped
   for images (its plane would be on the camera's side). Regular lights pay one compare in `LightEval` and one in the
   shadow setup.
+- **Cost** (2026-11-20, [performance.md](performance.md), "2026-11-20 batch"): compiled into PathTrace's ray generation,
+  this code cost ~0.1 ms of relight dispatch in every scene, also without portals. PathTrace now has `RayGen` /
+  `RayGenPT` without it and `RayGenImg` / `RayGenPTImg` with it, dispatched on frames that pack images (pipelines warmed
+  ahead). Both tests run on composed rows (`_UltraRTPortalImageQuads`: the side's quad rows after its inverse travel,
+  `PortalImageSegmentThrough`), so only the second shadow segment is carried back through the travel matrix.
 
 **Guards** (`plugin._portalLightGuards=0` turns them off, for diagnostics):
 

@@ -419,6 +419,79 @@ transparent-mask ray that misses costs less than a scene ray, so expect a fracti
 measured 0.1 ms; a general scheduler has nothing else to schedule yet (the particle volume cannot be, volumetrics are
 in screen space). C4 (fewer shader-table records in 8-x) stays the open render-thread item; it needs exclusive perf runs.
 
+## 2026-11-20 batch (branch `t3/perf-batch-1120`)
+
+The lead's merge-regress of the 2026-11-20 batch (master 269c60f against 30522b5) reported two regressions: (1) every RT
+mode +0.2-0.3 ms of trace dispatch in every scene, also scenes without the batch's features, the largest step at the
+portal-scene-lights merge (`plugin._portalLights=0` did not help: a compile-time cost); (2) 6-2 pathtrace +0.6-1.0 ms of
+main-thread render from the Gabriel's-swords merge on, where 6-2's emissive triangle table doubled (8,456 -> 16,784
+triangles: the `GabrielSword(Splendor|Justice)` emitter rule).
+
+All numbers below: `bench/suites/perf-1120.json` (merge-bisect-1120's poses), `-Perf`, exclusive lock, main slot (HDR
+on), 2560x1440, trace scale 0.5, RTX 5070 Ti; builds compared in one hold by deploying stages
+(`build.ps1 -StageDir`), bundle-only variants hot-reloaded. Trace dispatch, ms (0-1 metal / 0-3 ghosts / 6-2 start):
+
+| Build (hold 3, `bench/results/20261120-1951*` to `-2000*`) | relight | pathtrace (0-1 / 6-2) |
+|---|---|---|
+| 30522b5 (before the batch) | 2.735 / 2.673 / 2.452 | 2.439 / 1.761 |
+| 269c60f (the batch) | 2.997 / 2.876 / 2.646 | 2.681 / 1.922 |
+| **this branch** (two runs) | **2.860-2.868 / 2.736-2.738 / 2.517-2.525** | **2.647-2.654 / 1.813-1.820** |
+| this branch, flesh compiled out (diagnostic) | 2.816 / 2.644 / 2.478 | 2.640 / 1.782 |
+| this branch, stained glass + ripple caustics compiled out (diagnostic) | 2.867 / 2.730 / 2.498 | 2.674 / 1.788 |
+
+Relight recovers 0.13-0.14 ms of the 0.19-0.26 ms. What is left: flesh subsurface (0.05-0.10 ms, measured by compiling
+it out), the stained-glass and ripple-caustic branches (0.02-0.04) and small steps in the merges before them. Pathtrace
+in 0-1 is within 0.05 ms of the batch (its dispatch varies by 0.3 ms between runs anyway); 6-2 recovers 0.1.
+
+**What the static cost was.** Variants of the 269c60f bundle, each with one thing compiled out (hold 1,
+`bench/results/20261120-1924*` to `-1935*`; relight dispatch; 269c60f measured 3.01-3.02 / 2.90 / 2.67 in that hold):
+
+| Compiled out | relight |
+|---|---|
+| portal image clip in `LightEval` | 2.957 / 2.806 / 2.607 |
+| two-segment portal-image shadow (`LightRayVisible` = `VisibleRaw`) | 2.994 / 2.824 / 2.654 |
+| both (= 4888591's light code) | 2.895 / 2.750 / 2.576 |
+| flesh subsurface | 3.005 / 2.818 / 2.618 |
+| stained-glass projection + ripple caustics branches | 3.005 / 2.875 / 2.636 |
+| the reference light sampler's branches (6,500 DXIL instructions, 8 `TraceRay` sites) | 3.032 / 2.893 / 2.659 |
+
+None of this code runs in these poses (no portals, no flesh in view, no windows), and removing a large never-run block
+(the reference sampler) gains nothing, so it is not code size. What costs is state kept live through the hot loops (the
+RIS candidate loop, the shadow trace), which code that never runs still forces on the register allocator: the portal
+image clip kept the light's position and l3 alive across the falloff evaluation of every RIS candidate, and the
+two-segment shadow kept its second segment's ray across the first trace. The SDK's dxc (`lib_6_3 -HV 2018 -O3`, as
+Unity compiles) shows RayGen growing 18,956 -> 23,849 DXIL instructions over the batch (29 -> 30 `TraceRay` sites); the
+counts only locate the code, the dispatch times above are what the driver made of it.
+
+**Changes.** Looks unchanged: `bench/suites/look-1120.json` (3-2 flesh, 8-2 arch with portal images, 1-4 west stained
+glass, 6-2 organ swords, 0-3 beams), `bench/results/20261120-200130_look-1120` against `-200330` (269c60f): every shot
+within run-to-run noise; 8-2 arch's frozen-time takes differ by +0.36 / +0.005 of 255 in pathtrace / relight, with no
+structure in the difference image.
+- **Ray generations without portal images.** `PathTrace.raytrace` has `RayGen` / `RayGenPT` with `g_PortalImages =
+  false` (the clip and the second shadow segment drop out at compile time: RayGen is 21,588 DXIL instructions, 4888591
+  had 21,537) and `RayGenImg` / `RayGenPTImg` with them. `Plugin.cs` dispatches the Img entries on frames with portal
+  images packed (`PortalLightImages > 0`) and warms their pipelines with a 1x1 dispatch on the session's first trace
+  (the mode in use, and RayGenPTImg when pathtrace is wanted, like `ptx.prewarm`) and on the first frame with portal
+  sides, so the first image doesn't stall its frame ([path-tracing.md](path-tracing.md), "Warm-up"). Other shaders
+  that include `UltraRTLights.hlsl` keep the code on.
+- **The image clip on composed rows** (`_UltraRTPortalImageQuads`, `SceneProxies.BindPortalBuffer`: each side's quad
+  rows times its inverse travel): three loads and no matrix instead of six loads and a travel matrix
+  (`PortalImageSegmentThrough`), and the second shadow segment is only set up after the first got through. With the
+  flesh change below and before the entry split, this recovered 0.03-0.07 ms (hold 2, `bench/results/20261120-1941*`
+  to `-1945*`); the entry split did the rest.
+- **Flesh's per-hit state** is the wrap and the view only; the tint and rim are read from `_UltraRTFleshSss` where used.
+  Flesh can't get its own entry like portal images: `GibsLit` is Flesh, so it is on screen in every fight.
+
+**The 6-2 render-thread regression did not reproduce.** In one hold, 6-2 start pathtrace main-thread render was
+4.59 ms on 30522b5 and 4.25 on 269c60f (`bench/results/20261120-192402_perf-1120`, `-192517`), in another 3.72 / 4.10
+(`-195315`, `-195424`); within one build it moves between 3.6 and 6.6 ms from run to run (hot-reloaded bundles read
+high). The lead's 3.20 for 30522b5 was a low outlier of that spread. Toggled in one pass
+(`bench/suites/perf-1120-62.json`, `bench/results/20261120-192517_perf-1120-62`, render ms): pathtrace 4.38,
+`emissive=0` 4.69, `plugin._rrFrontEmitters=0` 4.08, `eg.enabled=0` 4.25: no toggle moves it beyond the noise. The
+doubled triangle table is real (the swords' meshes are in it), but emitters whose renderer is off are already left out
+of sampling (`EmissiveLights.Update`, `TracedSubmesh.Visible`) and the table's size costs no render time; all emitters
+off saves 0.13 ms of GPU dispatch in 6-2 (1.925 -> 1.790).
+
 ## How these were measured (and traps)
 
 - Suites: `perf-1440p` (seven poses, relight + pathtrace interleaved, 8-2/8-3 with `off`), `perf-1440p-short`,

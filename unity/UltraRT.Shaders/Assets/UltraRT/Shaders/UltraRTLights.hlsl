@@ -131,10 +131,15 @@ float3 LightToDisplay(float3 l) { return LinearLight() ? pow(max(l, 0.0), 1.0 / 
 float4 _UltraRTFleshSss;
 // Set by the ray generation shader around the primary hit's direct light only (FleshSssBegin / FleshSssEnd): bounce,
 // reflection, cache and particle evaluations keep the plain Lambert term.
+// Only the wrap and the view are per-hit state; the tint and rim are read from the uniform where they are used, so the
+// light-sampling loops keep four values fewer live (docs/performance.md, "2026-11-20 batch").
 static float  g_SssWrap = 0.0;  // > 0: the surface being lit is flesh
-static float3 g_SssTint = 0;    // crimson scatter colour in lighting space, x 2 x strength
 static float3 g_SssView = 0;    // towards the eye
-static float  g_SssRim = 0.0;
+
+// Crimson scatter colour in lighting space, x 2 x strength. Deep blood red (display space), converted like a light colour
+// so linear transport shows the same hue at the terminator, where the scatter is most of the light. Strength 1 = twice the
+// plain wrap (the plain wrap on red alone was invisible next to the frame's noise).
+float3 FleshSssTint() { return ToLight(float3(1.0, 0.14, 0.06)) * (2.0 * _UltraRTFleshSss.x); }
 
 // The scatter added to Lambert's max(nl, 0) for a light along L (n: shading normal, nl = dot(n, L)): wrapped diffuse
 // minus Lambert, which is 0 where the surface faces the light, w / (1 + w) at the terminator and 0 again at nl = -w;
@@ -147,8 +152,8 @@ float3 FleshScatter(float3 n, float3 L, float nl)
     float lambert = saturate(nl);
     float s = max(0.0, saturate((nl + w) / (1.0 + w)) - lambert);
     float t = saturate(dot(g_SssView, -L + n * 0.4));
-    s += g_SssRim * (t * t * t) * (1.0 - lambert);
-    return min(g_SssTint * s, 1.0 - lambert);
+    s += max(_UltraRTFleshSss.z, 0.0) * (t * t * t) * (1.0 - lambert);
+    return min(FleshSssTint() * s, 1.0 - lambert);
 }
 
 // The lowest cosine a light may have and still light the surface: 0 (Lambert), or -wrap on flesh.
@@ -162,12 +167,7 @@ void FleshSssBegin(uint cls, float3 v)
     [branch] if (cls == ULTRART_CLASS_FLESH && _UltraRTFleshSss.x > 0.0)
     {
         g_SssWrap = clamp(_UltraRTFleshSss.y, 0.01, 1.0);
-        // Deep blood red (display space), converted like a light colour so linear transport shows the same hue at the
-        // terminator, where the scatter is most of the light.
-        // Strength 1 = twice the plain wrap (the plain wrap on red alone was invisible next to the frame's noise).
-        g_SssTint = ToLight(float3(1.0, 0.14, 0.06)) * (2.0 * _UltraRTFleshSss.x);
         g_SssView = v;
-        g_SssRim = max(_UltraRTFleshSss.z, 0.0);
     }
 }
 void FleshSssEnd() { g_SssWrap = 0.0; }
@@ -225,53 +225,59 @@ bool Visible(float3 p, float3 n, float3 dir, float dist) { return VisibleMasked(
 // receiver to the opening on the receiving side, then from the matching point of the side's opening to the light on
 // the light's side (LightRayVisible). Regular lights pay one compare.
 bool LightIsPortalImage(float4 l3) { return l3.w < -0.5; }
+// False in PathTrace's ray generations for frames without portal images (RayGen, RayGenPT; Plugin.cs picks RayGenImg /
+// RayGenPTImg while any are packed): the code below then drops out at compile time. Code that never runs still cost
+// ~0.1 ms of relight dispatch in every scene (docs/performance.md, "2026-11-20 batch"). Other shaders keep it on.
+static bool g_PortalImages = true;
 uint LightPortalSide(float4 l3) { return (uint)(-l3.w - 0.5); }
 
-// Does the image (virtual position v) of a light through side s reach p through the opening?
-bool PortalImageReaches(uint s, float3 p, float3 v)
-{
-    float3x3 m;
-    float3 t;
-    PortalTravel(s, m, t);
-    return PortalSegmentThrough(s, PortalBackPoint(m, t, p), PortalBackPoint(m, t, v));
-}
+// Does the image (virtual position v) of a light through side s reach p through the opening? On the side's composed
+// quad rows (PortalImageSegmentThrough): this sits in every light evaluation's code, inside the light-sampling loops,
+// so it is kept small even though regular lights never run it (docs/performance.md, "2026-11-20 batch").
+bool PortalImageReaches(uint s, float3 p, float3 v) { return PortalImageSegmentThrough(s, p, v); }
 
 // Visibility along (L, dist) from p, for a light whose l3.w is lw: VisibleRaw, or for a portal image both segments (one
 // TraceRay site in a loop). The ray must pass through the opening (a jittered soft-shadow ray may miss it: blocked).
 // The portal quads themselves are never in a shadow mask (0x20 vs 0x05), so they don't block either segment.
+// Kept lean for regular lights, which share its code (2026-11-20, docs/performance.md "2026-11-20 batch"): the opening
+// test runs on the composed quad rows in the receiver's world, and the light's-side segment is only set up after the
+// first segment got through, so little extra state stays live across the trace.
 bool LightRayVisible(float lw, float3 p, float3 n, float3 L, float dist, uint mask)
 {
-    float3 o2 = 0, L2 = 0;
-    float len1 = dist, len2 = 0.0;
-    [branch] if (lw < -0.5)
+    float len = dist, tP = 0.0;
+    bool second = false;
+    [branch] if (g_PortalImages && lw < -0.5)
     {
-        uint s = (uint)(-lw - 0.5);
+        uint k = (uint)(-lw - 0.5) * 3u;
+        float4 q2 = _UltraRTPortalImageQuads[k + 2u];
+        float za = dot(q2, float4(p, 1.0)); // the receiver, carried back: beyond the side's plane (quad z > 0)
+        float dz = dot(q2.xyz, L);          // quad z per metre along the ray: < 0 toward the light
+        if (za <= 0.0 || dz >= -1e-6) return false;
+        tP = za / -dz;
+        float4 h = float4(p + L * tP, 1.0); // where the ray crosses the exit's opening (the side's, carried back)
+        if (abs(dot(_UltraRTPortalImageQuads[k], h)) > 0.5) return false;
+        if (abs(dot(_UltraRTPortalImageQuads[k + 1u], h)) > 0.5) return false;
+        // The receiving side's segment ends 2 cm before the exit's plane (whatever the exit is set in stays out of it);
+        // the light's side starts 2 cm past the side's plane (VisibleRaw's offset along n = the carried direction).
+        if (tP < dist) { len = tP + 0.03; second = dist - tP > 0.07; }
+    }
+    float3 o = p, on = n, d = L;
+    float3 tint = 1.0;
+    bool vis = true;
+    [loop] for (uint seg = 0u; seg < 2u; seg++)
+    {
+        vis = VisibleRaw(o, on, d, len, mask);
+        tint *= g_ShadowTint;
+        if (!vis || !second) break;
+        // The light's side: from the matching point of the side's opening, carried back through the travel.
+        second = false;
         float3x3 m;
         float3 t;
-        PortalTravel(s, m, t);
-        float3 pa = PortalBackPoint(m, t, p); // the receiver, carried back: beyond the side's plane (quad z > 0)
-        float3 La = PortalBackDir(m, L);
-        uint k = s * 3u;
-        float4 q0 = _UltraRTPortalQuads[k], q1 = _UltraRTPortalQuads[k + 1u], q2 = _UltraRTPortalQuads[k + 2u];
-        float za = dot(q2, float4(pa, 1.0));
-        float dz = dot(q2.xyz, La); // quad z per metre along the ray: < 0 toward the light
-        if (za <= 0.0 || dz >= -1e-6) return false;
-        float tP = za / -dz;
-        float3 h = pa + La * tP; // where the ray crosses the side's opening, on the light's side
-        if (abs(dot(q0, float4(h, 1.0))) > 0.5 || abs(dot(q1, float4(h, 1.0))) > 0.5) return false;
-        // The receiving side's segment ends 2 cm before the exit's plane (whatever the exit is set in stays out of it);
-        // the light's side starts 2 cm past the side's plane (VisibleRaw's offset along n = L2).
-        if (tP < dist) { len1 = tP + 0.03; o2 = h; L2 = La; len2 = dist - tP; }
-    }
-    bool vis = true;
-    float3 tint = 1.0;
-    uint segs = len2 > 0.07 ? 2u : 1u;
-    [loop] for (uint k2 = 0u; k2 < segs; k2++)
-    {
-        bool second = k2 > 0u;
-        vis = VisibleRaw(second ? o2 : p, second ? L2 : n, second ? L2 : L, second ? len2 : len1, mask);
-        tint *= g_ShadowTint;
-        if (!vis) break;
+        PortalTravel((uint)(-lw - 0.5), m, t);
+        d = PortalBackDir(m, L);
+        o = PortalBackPoint(m, t, p) + d * tP;
+        on = d;
+        len = dist - tP;
     }
     g_ShadowTint = tint;
     return vis;
@@ -614,7 +620,7 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
     float4 l0 = _Lights[i * 4], l3 = _Lights[i * 4 + 3];
     bool lit = LightEvalRaw(l0, _Lights[i * 4 + 1], _Lights[i * 4 + 2], l3, p, n, L, dist, c);
     // A portal image lights only what sees it through the exit's opening (crisp: the opening is the image's shape).
-    [branch] if (lit && LightIsPortalImage(l3))
+    [branch] if (g_PortalImages && lit && LightIsPortalImage(l3))
     {
         if (!PortalImageReaches(LightPortalSide(l3), p, l0.xyz)) { c = 0; lit = false; }
     }

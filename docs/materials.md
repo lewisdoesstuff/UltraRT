@@ -854,3 +854,8 @@ the only flesh is gibs, is unchanged within the noise.
 
 No measurable cost: the differences go both ways and are within the run's noise (frame averages 5.1-5.8 ms either
 way). That is expected: a branch per light evaluation, a few multiply-adds on flesh, no ray.
+
+That A/B switched the strength at run time, so it could not see a compile-time cost. Compiled out entirely, flesh is
+0.05-0.10 ms of relight dispatch in scenes with no flesh at all (0-1, 0-3, 6-2; 2026-11-20, [performance.md](performance.md),
+"2026-11-20 batch"), from the state it keeps live through the light-sampling loop. Since then that state is the wrap
+and the view only (the tint and rim come from `_UltraRTFleshSss` where used); most of the cost remains.
