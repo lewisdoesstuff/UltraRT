@@ -220,6 +220,8 @@ namespace UltraRT
                 Logger.LogInfo(Patches.GenericInstantiateHooked ? "Instantiate hooks installed (incl. generic Instantiate<T>)"
                     : $"Instantiate hooks installed; generic Instantiate<T> not hooked ({Patches.GenericInstantiateError}), the periodic rescan covers it");
                 Logger.LogInfo(Patches.PortalClonesHooked ? "Portal clone hook installed (PortalAwareRenderer.CreateClone)" : $"Portal clones not hooked: {Patches.PortalClonesError}");
+                // Native float HDR (Plugin.Hdr.cs): only when the HDR swapchain hooks are in, so an SDR game is never patched.
+                if (_hdrInstalled) HdrGameTarget.Patch(new HarmonyLib.Harmony(Info.Metadata.GUID + ".hdr"), Logger);
             }
             _cmd = new CommandBuffer { name = "UltraRT" };
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
@@ -416,6 +418,8 @@ namespace UltraRT
             var settings = _denoiser?.Settings;
             _denoiser?.Dispose();
             _denoiser = new Denoiser(denoise);
+            _hdrSceneCs = denoise; // native float HDR's finished frame (Plugin.Hdr.cs)
+            _hdrSceneKernel = denoise.HasKernel("HdrScene") ? denoise.FindKernel("HdrScene") : -1;
             var upsample = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Upsample");
             var upSettings = _upsampler?.Settings;
             _upsampler?.Dispose();
@@ -945,8 +949,14 @@ namespace UltraRT
         {
             if (cam == null || _cmd == null) return;
             Shader.SetGlobalVector(SoftParticlesId, Vector4.zero); // soft particles: only while the main camera draws (set again in Trace)
-            if (cam.name != "Main Camera") { ViewmodelPreRender(cam); return; } // the HUD camera: viewmodel pass (Plugin.Viewmodel.cs)
+            if (cam.name != "Main Camera")
+            {
+                ViewmodelPreRender(cam); // the HUD camera: viewmodel pass (Plugin.Viewmodel.cs)
+                if (_hdrNativeFrame == Time.frameCount) HdrScenePreRender(cam, MonoSingleton<PostProcessV2_Handler>.Instance); // the virtual camera: native float HDR frame (Plugin.Hdr.cs)
+                return;
+            }
             if (_recordedFrame == Time.frameCount && cam == _attachedCam) return; // rendered twice in a frame: keep the recording
+            Shader.SetGlobalVector(HdrNativeId, Vector4.zero); // native float HDR: set again by HdrPrepare when this frame has it
             _recordedFrame = Time.frameCount;
             _camera = cam;
             var ev = InjectEventFor(cam);
@@ -1567,10 +1577,12 @@ namespace UltraRT
             }
             if (denoised)
             {
-                if (_denoised == null || _denoised.width != w || _denoised.height != h)
+                // Native float HDR (Plugin.Hdr.cs): the composite writes colour above 1, so its output is float.
+                var denoisedFormat = HdrNativeLive ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32;
+                if (_denoised == null || _denoised.width != w || _denoised.height != h || _denoised.format != denoisedFormat)
                 {
                     if (_denoised != null) _denoised.Release();
-                    _denoised = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
+                    _denoised = new RenderTexture(w, h, 0, denoisedFormat, RenderTextureReadWrite.Linear)
                         { enableRandomWrite = true, filterMode = FilterMode.Point, name = "UltraRT Denoised" };
                     _denoised.Create();
                 }
@@ -1616,6 +1628,7 @@ namespace UltraRT
                 if (remod) _cmd.SetGlobalTexture(UltraRTUpsampledId, RemodUpsample(new Vector2Int(gxPx, gyPx), reset));
                 else
                 {
+                    _upsampler.Unclamped = _hdrNativeNow; // native float HDR: the image goes above 1 (Plugin.Hdr.cs)
                     _upsampler.Execute(_cmd, _camera, _denoised, _gNormalDepth, _gInstanceId, _depthCopy,
                         new Vector2Int(gxPx, gyPx), _guardScale, _jitter, reset);
                     _cmd.SetGlobalTexture(UltraRTUpsampledId, _upsampler.Output);

@@ -28,6 +28,7 @@ Shader "UltraRT/Composite"
             Texture2D _UltraRTUpsampled;    // temporal upsampler output (Upsample.compute): screen res, a = 0 where there is no RT surface
             SamplerState my_point_clamp_sampler;
             float _UltraRTFlipY;
+            float4 _UltraRTHdrNative;       // x 1 = native float HDR (UltraRTToneCurve.hlsl): an upsampled a of -1 is a game pixel with HDR gain
 
             struct v2f
             {
@@ -78,7 +79,9 @@ Shader "UltraRT/Composite"
                 {
                     // Replace modes with the temporal upsampler: it already matched the game's depth per screen pixel.
                     float4 up = _UltraRTUpsampled.Sample(my_point_clamp_sampler, screenUV);
-                    if (up.a <= 0.0) discard;
+                    // a < 0 (native float HDR only, RayReconstruction.compute Finish): the game's own pixel (lava, sky) with
+                    // its bright part scaled for the HDR display.
+                    if (up.a <= 0.0 && (up.a > -0.5 || _UltraRTHdrNative.x < 0.5)) discard;
                     return float4(UltraRTOutputDither(up.rgb, i.pos.xy, 0.0), 1.0);
                 }
                 // RT buffers may cover a slightly wider view than the screen (guard band): screen uv -> trace uv.

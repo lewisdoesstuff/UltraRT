@@ -56,7 +56,8 @@ Shader "UltraRT/ViewmodelComposite"
 
             float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
-            float4 frag(v2f i) : SV_Target
+            // native (a compile-time constant per pass): the scene value for native float HDR (pass 2), else the SDR colour.
+            float4 VmFrag(v2f i, bool native)
             {
                 uint2 q = (uint2)i.pos.xy;
                 float4 g2 = _VMGB2[q];
@@ -142,9 +143,12 @@ Shader "UltraRT/ViewmodelComposite"
                     if (x > 0.0 && !isinf(x)) e = lerp(1.0, x, lit);
                 }
                 float3 c = (albedo * l * keep + specW * refl) * e + emission;
+                if (native) return float4(UltraRTHdrScene(c, UltraRTHdrEmissive(emission, c, _VMHdrEm), _UltraRTTonemapWhite, _UltraRTTonemapParams), 0.0);
                 c = UltraRTToneCurve(c, _UltraRTTonemapWhite, _UltraRTTonemapParams);
                 return float4(saturate(c), 0.0);
             }
+
+            float4 frag(v2f i) : SV_Target { return VmFrag(i, false); }
 
             // Pass 1: frag (unchanged, so pass 0 compiles as before), then the gain of the gun's glowing parts.
             float4 fragHdr(v2f i) : SV_Target
@@ -159,6 +163,10 @@ Shader "UltraRT/ViewmodelComposite"
                 _VMHdrGain[q] = float4(clamp(g, 1.0, max(_VMHdrTop.y, 1.0)), UltraRTHdrPack(shown));
                 return r;
             }
+
+            // Pass 2: native float HDR (docs/hdr.md): the gun's scene value (its glowing parts HDREmissive brighter); the display
+            // transform at the end of the frame maps it with everything else.
+            float4 fragNative(v2f i) : SV_Target { return VmFrag(i, true); }
         ENDHLSL
 
         Pass // 0: replace (relight, pt-dn)
@@ -175,6 +183,14 @@ Shader "UltraRT/ViewmodelComposite"
             #pragma vertex vert
             #pragma fragment fragHdr
             #pragma target 5.0
+            ENDHLSL
+        }
+        Pass // 2: replace, native float HDR
+        {
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragNative
+            #pragma target 4.5
             ENDHLSL
         }
     }

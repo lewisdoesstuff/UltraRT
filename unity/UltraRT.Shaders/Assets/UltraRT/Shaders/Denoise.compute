@@ -12,6 +12,7 @@
 //              low-frequency flicker the spatial filter leaves (correlated ReSTIR / radiance cache noise) averages out.
 //   Composite  albedo * lighting * keep + emission + specular (or a debug view) into the output.
 //   Classify   bench only (Plugin.MotionNoise.cs): per-pixel class bits for the motion-noise breakdown.
+//   HdrScene   native float HDR (Plugin.Hdr.cs): the finished float frame, sanitised, for the HDR present pass.
 
 #pragma kernel Temporal
 #pragma kernel Atrous3
@@ -19,6 +20,7 @@
 #pragma kernel Stabilize
 #pragma kernel Composite
 #pragma kernel Classify
+#pragma kernel HdrScene
 
 // ---------------------------------------------------------------- shared
 
@@ -792,12 +794,41 @@ void Composite(uint3 id : SV_DispatchThreadID)
             float3 b = excess * _BloomParams.x + pow(em, 2.2) * (ew * _BloomParams.y);
             _BloomOut[id.xy] = float4(any(isnan(b)) || any(isinf(b)) ? 0.0 : min(b, 64.0), 1.0);
         }
+        if (_HdrParams.x > 1.5)
+        {
+            // Native float HDR (docs/hdr.md): _Output is ARGBHalf and holds the scene value (display units, toe only; the
+            // display transform comes at the end of the frame), not the SDR colour and a gain map.
+            _Output[id.xy] = float4(UltraRTHdrScene(hdr, UltraRTHdrEmissive(max(_Emission[s].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams), 1.0);
+            return;
+        }
         if (_HdrParams.x > 0.5)
             _HdrOut[id.xy] = UltraRTHdrGain(hdr, saturate(c), UltraRTHdrEmissive(max(_Emission[s].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams, _HdrParams, _HdrEmissive.w);
     }
     // _Output is ARGB32 (the denoised image the upsampler and composite read): dithered to its 8 bits while the game's dither
     // is off (UltraRTDither.hlsl; debug views too, where half a step does not matter).
     _Output[id.xy] = float4(saturate(UltraRTOutputDither(c, id.xy, 3.0)), 1.0);
+}
+
+// ---------------------------------------------------------------- native float HDR: the finished frame (docs/hdr.md)
+
+// Plugin.Hdr.cs, right before the game's final pass: the game's float colour target (PostProcessV2_Handler.mainTex,
+// ARGBHalf, scene values) with NaN / infinity / negative values removed and through the display transform, into a
+// texture the HDR present pass reads (and that is copied back, so the game's final pass reads the same). _HdrSceneDim = 0: writes nothing (binds the texture as a UAV again
+// after that copy, the state the present pass expects it in).
+Texture2D<float4>   _HdrSceneSrc;
+RWTexture2D<float4> _HdrSceneOut;
+float4 _HdrSceneDim;  // x, y size
+float4 _HdrSceneTone; // UltraRTHdrDisplay: x knee, y display peak, z scene value that reaches it (display units), w mode
+
+[numthreads(8, 8, 1)]
+void HdrScene(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_HdrSceneDim.xy)) return;
+    float4 v = _HdrSceneSrc[id.xy];
+    // min / max return the other operand for a NaN on D3D (an isnan test may be compiled out); infinity ends at 64. Then
+    // the display transform: the frame becomes display-referred (up to the peak) for the present pass and the game's
+    // final pass alike.
+    _HdrSceneOut[id.xy] = float4(UltraRTHdrDisplay(min(max(v.rgb, 0.0), 64.0), _HdrSceneTone), saturate(v.a));
 }
 
 // ---------------------------------------------------------------- bench: motion-noise classes

@@ -133,6 +133,8 @@ namespace UltraRT
             _cmd.SetGlobalFloat(UltraRTAutoExposureId, ae ? 1f : 0f);
             bool tonemap = _relightActive || ae;
             _cmd.SetGlobalFloat("_UltraRTTonemapWhite", tonemap ? _relightWhite : 0f);
+            _hdrToneWhite = tonemap ? _relightWhite : 0f; // native float HDR's display transform (Plugin.Hdr.cs)
+            _hdrToneKnee = _tonemapKnee;
             _cmd.SetGlobalVector(UltraRTTonemapParamsId, new Vector4(_tonemapCurve > 1.5f ? 2f + Mathf.Clamp(_tonemapSat, 0.05f, 0.98f) : _tonemapCurve, _tonemapKnee, _tonemapToe, Mathf.Min(_tonemapToeEnd, _tonemapKnee)));
             _cmd.SetGlobalVector(UltraRTTonemapHueId, new Vector4(_tonemapCurve > 1.5f ? Mathf.Clamp01(_tonemapHue) : 0f, Mathf.Clamp01(_hdrSaturation), 0f, 0f));
         }

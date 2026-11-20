@@ -13,6 +13,9 @@
 //                     brighter than the SDR result an HDR display shows it. Bright pixels the game's transparents made
 //                     (fire, explosions, beams, coins) get HDREffects; glow the SDR shoulder squeezed under white gets
 //                     HDRBloom more room. Written through a UAV, so the SDR colour target and pass 3 stay as they were.
+//   5 FinalNative     pass 3 for native float HDR (docs/hdr.md, "Native float HDR"): the target is ARGBHalf and nothing
+//                     clips at 1, so what the game's transparents added (late - pre) is exact; its top range is expanded by
+//                     HDREffects (display units) in the target itself, and bloom adds in linear light (no shoulder).
 // Distortion is anchored in the world: the noise is evaluated at the point where the view ray crosses the hot air, the
 // amplitude is a world-space length projected to the screen, and a displaced sample is rejected when it lands on
 // something in front of the hot air (so foreground edges never smear).
@@ -60,6 +63,7 @@ Shader "UltraRT/Vfx"
             RWTexture2D<float4> _VfxHdrGain : register(u1); // pass 4: rgb gain (linear, >= 1), a = the SDR colour packed
             float4 _VfxHdrFx;                  // x effects: gain - 1 in linear light, y / z brightest channel where it starts / is full, w bloom room (display units)
             float4 _VfxHdrTop;                 // x display peak over paper white (display units), y largest gain
+                                               // (pass 5: _VfxHdrFx.x = HDREffects - 1 in display units; _VfxHdrTop.x the same peak)
 
             struct v2f
             {
@@ -498,6 +502,77 @@ Shader "UltraRT/Vfx"
                 _VfxHdrGain[uint2(i.pos.xy)] = float4(clamp(gain, 1.0, max(_VfxHdrTop.y, 1.0)), UltraRTHdrPack(c));
                 return float4(UltraRTOutputDither(c, i.pos.xy, 2.0), 1.0);
             }
+
+            // Pass 5: native float HDR. A copy of fragFinal's distortion and underwater code (keep the three in step); the
+            // target holds display-gamma float colour above 1 (docs/hdr.md, "Native float HDR"), so nothing is saturated.
+            float4 fragFinalNative(v2f i) : SV_Target
+            {
+                float2 uv = i.uv;
+                float3 ro = _VfxCamPos.xyz;
+                float3 rd = _VfxRayZ.xyz;
+                float dist = 0;
+                bool water = _VfxWater.x > 0.5;
+                bool warp = _VfxCounts.w > 0.5;
+                float2 offset = 0;
+                if (warp || water)
+                {
+                    dist = SceneDistance(uv, rd);
+                    if (warp)
+                    {
+                        float3 d = Distortion(uv, ro, rd, dist);
+                        offset = d.xy;
+                        if (dot(offset, offset) > 0.0)
+                        {
+                            float3 rd2;
+                            float dist2 = SceneDistance(uv + offset, rd2);
+                            if (dist2 < d.z - 0.05) offset = 0;
+                        }
+                    }
+                    if (water)
+                    {
+                        float t = _VfxCamPos.w;
+                        float2 wob = float2(sin(uv.y * 31.0 + t * 2.3) + sin(uv.y * 13.0 - t * 1.1), cos(uv.x * 27.0 + t * 1.9) + cos(uv.x * 11.0 - t * 1.3));
+                        offset += wob * _VfxWater.z * saturate(dist * 0.25);
+                    }
+                }
+                if (_VfxDebug > 1.5) return float4(0.5 + offset * 100.0, 0.0, 1.0);
+                float3 c;
+                if (dot(offset, offset) > 0.0)
+                {
+                    c = _VfxScene.SampleLevel(my_point_clamp_sampler, uv + offset, 0).rgb;
+                    if (water) dist = SceneDistance(uv + offset, rd);
+                }
+                else c = _VfxScene.SampleLevel(my_point_clamp_sampler, uv, 0).rgb;
+                c = min(max(c, 0.0), 64.0); // no NaN (min / max drop it on D3D), no infinity
+                if (water) c = Underwater(c, uv, i.pos.xy, ro, rd, dist);
+
+                if (_VfxHdrFx.x > 0.0)
+                {
+                    // Effects (HDREffects): the game's transparents are authored for SDR, where their brightest part is
+                    // white. In the float target what they added (late - pre) is exact, whatever lies behind it, so their
+                    // top range is expanded where it is (an inverse tone map of the effect, not of the pixel): the part of
+                    // what they added whose brightest channel lies above _VfxHdrFx.y (fully from .z, squared) becomes
+                    // HDREffects as bright in display gamma (_VfxHdrFx.x = HDREffects - 1). A faint glow, smoke and dust
+                    // are left as drawn; nothing is saturated, and the output transform at present rolls it to the peak.
+                    float3 late = min(max(_VfxLate.SampleLevel(my_point_clamp_sampler, uv + offset, 0).rgb, 0.0), 64.0);
+                    float3 pre = min(max(_VfxPre.SampleLevel(my_point_clamp_sampler, uv + offset, 0).rgb, 0.0), 64.0);
+                    float3 d = max(late - pre, 0.0);
+                    float t = smoothstep(_VfxHdrFx.y, _VfxHdrFx.z, MaxC(d));
+                    c += d * (_VfxHdrFx.x * t * t);
+                }
+
+                if (_VfxBloomParams.x > 0.0)
+                {
+                    // Bloom: the glow adds in linear light, nothing more. The float target has no white to stay under, and
+                    // the display transform at the end of the frame rolls it towards the peak with everything else.
+                    // (Less of it on pixels that are already bright, as pass 3: the glow goes around a light.)
+                    float3 b = _VfxBloom.SampleLevel(my_linear_clamp_sampler, uv + offset, 0).rgb * _VfxBloomParams.x;
+                    if (_VfxDebug > 0.5) return float4(ToDisplay(b), 1.0);
+                    b *= 1.0 - _VfxBloomParams2.w * smoothstep(0.35, 0.95, MaxC(c));
+                    c = ToDisplay(ToLinear(c) + b);
+                }
+                return float4(min(max(c, 0.0), 64.0), 1.0);
+            }
         ENDHLSL
 
         Pass // 0 prefilter
@@ -544,6 +619,15 @@ Shader "UltraRT/Vfx"
             #pragma vertex vert
             #pragma fragment fragFinalHdr
             #pragma target 5.0
+            ENDHLSL
+        }
+        Pass // 5 final, native float HDR
+        {
+            ZTest Always ZWrite Off Cull Off
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragFinalNative
+            #pragma target 4.5
             ENDHLSL
         }
     }

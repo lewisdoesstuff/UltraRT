@@ -149,6 +149,9 @@ namespace UltraRT
         /// <summary>The game's frame before the composite (screen size), or null: the expected colour of the pixels the game draws itself.</summary>
         public RenderTexture HdrGameColor;
         public bool HdrWritten { get; private set; }
+        /// <summary>Native float HDR (docs/hdr.md): Finish writes the HDR colour itself (HdrParams.x = 2) and the game's own
+        /// bright pixels scaled by HdrGame (display units), and no gain map.</summary>
+        public bool HdrNative;
         private RenderTexture _bloomDummy;
         public int State => _disposed ? -1 : _getState();
         public long Evaluations => _evalCount();
@@ -548,12 +551,14 @@ namespace UltraRT
             cmd.SetComputeFloatParam(cs, "_BloomOn", bloom ? 1f : 0f);
             BloomWritten = bloom;
             // HDR display gain map (docs/hdr.md; Plugin.Hdr.cs), screen resolution.
-            bool hdr = HdrTarget != null && HdrTarget.width == Ws && HdrTarget.height == Hs;
+            bool hdr = !HdrNative && HdrTarget != null && HdrTarget.width == Ws && HdrTarget.height == Hs;
+            bool native = HdrNative;
             cmd.SetComputeTextureParam(cs, k, "_HdrOut", hdr ? HdrTarget : _bloomDummy);
-            cmd.SetComputeVectorParam(cs, "_HdrParams", hdr ? HdrParams : Vector4.zero);
+            cmd.SetComputeVectorParam(cs, "_HdrParams", hdr || native ? HdrParams : Vector4.zero);
             cmd.SetComputeVectorParam(cs, "_HdrEmissive", HdrEmissive);
             cmd.SetComputeVectorParam(cs, "_HdrGame", HdrGame);
-            cmd.SetComputeTextureParam(cs, k, "_HdrGameColor", hdr && HdrGameColor != null ? (Texture)HdrGameColor : Texture2D.blackTexture);
+            bool gameColor = (hdr || native) && HdrGameColor != null && HdrGameColor.width == Ws && HdrGameColor.height == Hs;
+            cmd.SetComputeTextureParam(cs, k, "_HdrGameColor", gameColor ? (Texture)HdrGameColor : Texture2D.blackTexture);
             HdrWritten = hdr;
             BindExposure(cmd, k, i);
             cmd.DispatchCompute(cs, k, Mathf.CeilToInt(Ws / 8f), Mathf.CeilToInt(Hs / 8f), 1);

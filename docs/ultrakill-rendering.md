@@ -12,6 +12,9 @@ See also: [portals.md](portals.md) (layer 8's portals and mirrors), [relight.md]
 - Cameras: `Main Camera` (world), `HUD Camera` (viewmodel/HUD, layer 13, FOV 90, clears depth, same colour/depth buffers; see [viewmodel.md](viewmodel.md)), `Virtual Camera`.
 - Command buffers on `Main Camera`: `Reset Clip Plane` @BeforeDepthTexture, `Blood and Oil` @BeforeForwardAlpha, `Outlines` @AfterEverything.
 - Final composite: `ULTRAKILL/PostProcessV2` reads a `Main` render texture at screen resolution (and dithers it: see "Final post-process: dither").
+  The `Virtual Camera` (depth 1; main -1, HUD 0) draws that pass to the back buffer; Screen Space - Overlay UI draws after
+  it. With UltraRT's native float HDR ([hdr.md](hdr.md), "Native float HDR") `mainTex` and `reusableBufferB` are created
+  `ARGBHalf` (a transpiler on `PostProcessV2_Handler.SetupRTs`); everything else here stays as described.
 - Lighting: a handful of realtime point lights (toggled per room), no shadows, no lightmaps, vertex lighting.
 
 ## Final post-process: dither

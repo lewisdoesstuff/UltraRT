@@ -38,7 +38,8 @@ namespace UltraRT
         {
             float g = Shader.GetGlobalFloat(DitherStrengthId);
             bool hold = traced && !_gameDither;
-            Shader.SetGlobalVector(OutDitherId, new Vector4(hold && _outputDither ? 1f : 0f, Time.frameCount & 63, 0f, 0f));
+            // Native float HDR (Plugin.Hdr.cs): the passes write float colour into a float target, nothing to dither.
+            Shader.SetGlobalVector(OutDitherId, new Vector4(hold && _outputDither && !HdrNativeLive ? 1f : 0f, Time.frameCount & 63, 0f, 0f));
             if (hold)
             {
                 if (g == DitherMarker) return;

@@ -109,6 +109,8 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
                 // Pre-haze RT luminance against the game's colour (its own lighting, display units).
                 float3 colRT = _Albedo[p].rgb * lit * sp.a + sp.rgb;
                 float3 colGame = _GameColor[(uint2)(uv * float2(gw, gh))].rgb;
+                // The game's target is ARGBHalf with native float HDR (docs/hdr.md): no NaN, nothing outside the 8-bit range.
+                colGame = saturate(colGame); // saturate turns NaN into 0
                 float lumRT = Luma(colRT);
                 float lumGame = Luma(colGame);
                 if (_Params6.x > 0.0 || _Params6.w > 0.5) // colour match, or the light fit's display means

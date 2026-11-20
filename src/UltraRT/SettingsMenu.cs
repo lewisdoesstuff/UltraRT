@@ -225,6 +225,8 @@ namespace UltraRT
             m.Float("Display", "HDREffects", "Effects: fire, explosions, beams (x their SDR brightness)", 1f, 4f, 2, () => _hdrEffects, v => _hdrEffects = v, "-ultrart-hdr-effects").Legacy();
             m.Float("Display", "HDRBloom", "Bloom above white (room, display units)", 0f, 4f, 2, () => _hdrBloom, v => _hdrBloom = v, "-ultrart-hdr-bloom").Legacy();
             m.Bool("Display", "HDRHighlights", "Ray-traced highlights above white", () => _hdrHighlights, v => _hdrHighlights = v, "-ultrart-hdr-highlights").Legacy();
+            // Native float HDR (docs/hdr.md, "Native float HDR"); off = the gain maps. A change rebuilds the game's render targets.
+            m.Bool("Display", "HDRNative", "Native float HDR (off = the older gain map)", () => _hdrNative, v => _hdrNative = v, "-ultrart-hdr-native");
 
             LightEditorSettings(m); // per-level light overrides and the light editor (Plugin.LightOverrides.cs)
             CineSettingsMenu(m); // cinematic camera and offline render (Plugin.Cinematics.cs)

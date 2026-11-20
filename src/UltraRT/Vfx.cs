@@ -117,6 +117,7 @@ namespace UltraRT
         public RenderTexture hdrGain; // HDR display: the late gain map to write (null: none; docs/hdr.md "Effects and bloom")
         public Vector4 hdrFx;         // x effects gain - 1 (linear), y / z brightest channel where it starts / is full, w bloom room (display units)
         public Vector4 hdrTop;        // x display peak over paper white (display units), y largest gain
+        public bool native;           // native float HDR (docs/hdr.md): pass 5 instead of 3 / 4; hdrFx.x = HDREffects - 1 in display units
         public float time;            // seconds, the game's clock (pauses with it)
         public bool underwater;
         public float waterSurface;    // world height of the surface the camera is under
@@ -312,6 +313,7 @@ namespace UltraRT
             var s = Settings;
             if (!s.enabled) return false;
             if (f.hdrGain != null) return true;
+            if (f.native && f.hdrFx.x > 0f) return true;
             if (s.bloom && s.bloomStrength > 0f) return true;
             if (s.underwater && f.underwater) return true;
             if (s.heatHaze && (_boxCount > 0 || _pointCount > 0)) return true;
@@ -378,7 +380,8 @@ namespace UltraRT
             m.SetVector(IdBloomParams2, new Vector4(f.hdr != null ? 1f : 0f, Mathf.Max(0.1f, s.bloomClamp), Mathf.Max(0f, s.bloomMaxAdd), Mathf.Clamp01(s.bloomProtect)));
             m.SetVector(IdHdrScale, new Vector4(f.hdrScale.x, f.hdrScale.y, 0, 0));
             bool hdr = f.hdrGain != null && f.pre != null;
-            if (bloom || hdr)
+            bool native = f.native && f.pre != null;
+            if (bloom || hdr || native)
             {
                 cmd.SetGlobalTexture(IdPre, f.pre);
                 cmd.SetGlobalTexture(IdLate, f.preHaze != null ? f.preHaze : _scene);
@@ -407,7 +410,14 @@ namespace UltraRT
             }
             else cmd.SetGlobalTexture(IdBloom, Texture2D.blackTexture);
             cmd.SetRenderTarget(new RenderTargetIdentifier(target));
-            if (hdr)
+            if (native)
+            {
+                // Native float HDR (docs/hdr.md): effects and bloom above white in the float target itself.
+                m.SetVector(IdHdrFx, f.hdrFx);
+                m.SetVector(IdHdrTop, f.hdrTop);
+                cmd.DrawProcedural(Matrix4x4.identity, m, 5, MeshTopology.Triangles, 3);
+            }
+            else if (hdr)
             {
                 // The same pass, plus the HDR late gain map through a UAV (u1): the colour target is unchanged.
                 m.SetVector(IdHdrFx, f.hdrFx);

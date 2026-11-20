@@ -377,6 +377,9 @@ namespace UltraRT
         public RenderTexture HdrTarget;
         public Vector4 HdrParams, HdrEmissive;
         public bool HdrWritten { get; private set; }
+        /// <summary>Native float HDR (docs/hdr.md): the Composite writes the HDR colour itself into the (ARGBHalf) output,
+        /// with HdrParams.x = 2, and no gain map.</summary>
+        public bool HdrNative;
         private RenderTexture _bloomDummy;
         /// <summary>Set before Execute (both or neither): the Composite kernel also writes the composite before the tone curve divided
         /// by <see cref="RemodDemod"/> (the demodulation colour) into <see cref="RemodTarget"/> (ARGBHalf, output size), for the
@@ -552,9 +555,10 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, IdBloomParams, BloomParams);
             cmd.SetComputeFloatParam(cs, IdBloomOn, BloomTarget != null ? 1f : 0f);
             // HDR display gain map (docs/hdr.md; Plugin.Hdr.cs), the size of the output.
-            bool hdr = HdrTarget != null && HdrTarget.width == output.width && HdrTarget.height == output.height;
+            bool hdr = !HdrNative && HdrTarget != null && HdrTarget.width == output.width && HdrTarget.height == output.height;
+            bool native = HdrNative && output.format == RenderTextureFormat.ARGBHalf;
             cmd.SetComputeTextureParam(cs, _kComposite, "_HdrOut", hdr ? HdrTarget : _bloomDummy);
-            cmd.SetComputeVectorParam(cs, "_HdrParams", hdr ? HdrParams : Vector4.zero);
+            cmd.SetComputeVectorParam(cs, "_HdrParams", hdr || native ? HdrParams : Vector4.zero);
             cmd.SetComputeVectorParam(cs, "_HdrEmissive", HdrEmissive);
             HdrWritten = hdr;
             bool remod = RemodTarget != null && RemodDemod != null;

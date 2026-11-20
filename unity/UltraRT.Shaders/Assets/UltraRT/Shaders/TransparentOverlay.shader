@@ -198,7 +198,11 @@ Shader "UltraRT/TransparentOverlay"
         // roll off like the surfaces around them.
         float3 Tonemap(float3 c)
         {
-            return saturate(UltraRTToneCurve(c, _UltraRTTransParams.z, _UltraRTTonemapParams));
+            float3 s = saturate(UltraRTToneCurve(c, _UltraRTTransParams.z, _UltraRTTonemapParams));
+            // Native float HDR (docs/hdr.md): the scene value, as the composite writes it for the surfaces around.
+            float3 o = s;
+            if (_UltraRTHdrNative.x > 0.5) o = UltraRTHdrScene(c, 1.0, _UltraRTTransParams.z, _UltraRTTonemapParams);
+            return o;
         }
 
         // Screen-space refraction (water): (1 - a) (B(uv') - B(uv)), uv' = where the rippled refracted ray meets the
