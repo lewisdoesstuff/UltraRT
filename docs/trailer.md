@@ -279,6 +279,34 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## v5c light fixes (2026-11-20, branch `t3/trailer-light-fixes`)
+
+The user's two lighting questions on v5c. Suite `bench/suites/trailer-light-fixes.json` (paired off / traced takes of the
+whole paths at 1280x720, 30 fps; `-Extra -ultrart-log-light-toggles` logs lights switching on and off and the exposure of
+every cinematic frame) and `bench/suites/trailer-light-fixes-diag.json` (the 8-2 arch push with debug views, 7-3 with and
+without the fix). Sheets in the main checkout's `bench\results\review\trailer-light-fixes\`.
+
+- **7-3 tree: a light switches on half way.** Not a game event and not exposure: the game's own image stays flat
+  (game-match -3.12 log2 throughout) while the trace jumped at 5.3 s. It was the game's head-mounted flashlight, which hangs
+  10 m behind the camera: shadow rays to it were blocked by the walls and canopy behind the camera until the orbit moved it
+  clear. Fixed in the renderer (docs/relight.md, "Player lights end at the eye"); `7-3-tree-eye-clip.jpg` (game / before /
+  after at 3.0, 5.0, 5.5, 6.7 s). Then, the user's decision: **no flashlight in this shot**. The plan holds it off for the
+  whole take (`"Cinematic": { "Flickers": [ { "Light": "Main Camera/Flashlight", "On": false } ] }`: a steady light named in
+  `Flickers` is switched off for the stretch, in both images, and put back after; docs/cinematics.md), so the tree and its
+  red light are the only light; `7-3-tree-no-flashlight.jpg` (run `20261120-132839_tmp-tlf73_alt`: frame mean game 19-21,
+  traced 19-24, no jump). The trunk stays red without the flashlight.
+- **8-2 market aisle: the arch is black with RT off, light with RT on.** The arch is a portal to the island
+  (`12 - Island/12 Nonstuff/2/12 -> 12B Entrance`). The game does render it; the black was a bench artifact: the game picked
+  its portal views from the frozen player's eye (at the Island checkpoint), not from the cinematic camera, so the arch's
+  view was never rendered in the RT-off images. Fixed by re-running the game's portal setup from the posed camera
+  (docs/portals.md, section 13). Now both halves show the island through the arch (`8-2-market-arch.jpg`, run
+  `20261120-132549_trailer-light-fixes_alt`; the traced view is warmer and its sky darker than the game's). So the RT-off
+  half of the v5c 8-2 and 8-3 shots was not the game as played; a re-render is needed for both halves to match. Nothing was
+  made darker: the game shows the island there in play too.
+- `LookAt "12B - Supermarket Entrance/12B Nonstuff/Entrance"` in the 8-2 market scenarios has never matched
+  (`0 matches` in every log since the v5c scout), so `LookActivate` switched nothing on; the supermarket is on at the Island
+  checkpoint by itself. Left in the plan (harmless); the claim above that it switches the supermarket on is wrong.
+
 ## The final trailer, v5c (2026-11-20, `trailer-final-v5c`)
 
 **User notes on v5c (2026-11-20), fixed on `t3/water-portal-glass`, not re-rendered:** 2-1's water showed 6-2's old

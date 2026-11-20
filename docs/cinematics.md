@@ -107,6 +107,16 @@ blind and the player invincible by swapping only the cheats' static state (not t
 the level is not marked as cheated). "Game speed during playback / render" (default 1) slows or freezes the world (0 =
 frozen: animations, particles, enemies and effects stop, the camera still moves); it applies while the camera is on.
 
+**Portals.** The game decides which portal views it renders in `PortalManagerV2.LateUpdate` (`PortalRenderV2.Setup`:
+which sides are on screen, from the main camera's pose and projection at that moment). The free camera is posed later, in
+`onBeforeRender`, so the game used to pick its portal views from the frozen player's eye: a side that only the camera
+sees was never rendered, and its quad pasted an empty (black) buffer into the game's image. 8-2's supermarket arch (the
+exit of the island's `12 -> 12B Entrance`) was black that way in the v5c trailer's RT-off half while the trace showed the
+island through it (docs/trailer.md, "v5c light fixes"). `CinePortalSetup` (`Plugin.Cinematics.cs`) now runs the game's own
+`Setup` again right after posing, from the camera (only when the manager is initialised, as its LateUpdate requires);
+bench `plugin._cinePortalSetup=0` turns it off. Traced images never depended on it (UltraRT reads the portal set, not the
+game's on-screen list).
+
 ## Offline render
 
 **End** (or the menu's "render" button, or a bench scenario) renders the whole path, or `Seconds` of it from `Start`.

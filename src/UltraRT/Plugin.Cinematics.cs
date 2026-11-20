@@ -8,6 +8,7 @@ using HarmonyLib;
 using UltraRT.Bench;
 using UltraRT.Cinematics;
 using ULTRAKILL.Cheats;
+using ULTRAKILL.Portal;
 using UnityEngine;
 
 namespace UltraRT
@@ -527,6 +528,7 @@ namespace UltraRT
                 _cineProjSet = true;
             }
             else if (_cineProjSet) { cam.ResetProjectionMatrix(); _cineProjSet = false; }
+            CinePortalSetup(cam);
             if (_cinePlayerDriven) CineAnimatePlayer();
             foreach (var g in _cineShopCanvases) if (g != null && g.activeSelf) g.SetActive(false);
             if (_cineState == CineState.Play)
@@ -536,6 +538,38 @@ namespace UltraRT
             }
             _cinePrevPos = s.Position;
             _cinePrevRot = s.Rotation;
+        }
+
+        /// <summary>The game's portal views from the posed camera (docs/cinematics.md, "Portals"; bench
+        /// plugin._cinePortalSetup=0 turns it off).</summary>
+        private bool _cinePortalSetup = true;
+        private static FieldInfo _portalMgrInitialized;
+        private bool _cinePortalSetupFailed;
+
+        /// <summary>
+        /// The game picks the portal views it renders in PortalManagerV2.LateUpdate (PortalRenderV2.Setup: which sides are on
+        /// screen from the main camera's pose and projection at that moment), before this pose: from the frozen player's
+        /// eye. Its views were then of the wrong place, and a side on screen only from the camera was never rendered:
+        /// 8-2's supermarket arch (the exit of the island's '12 -> 12B Entrance') showed black in the game's image of the
+        /// trailer's aisle shot while the trace showed the island through it. Setup runs again here, from the posed camera.
+        /// </summary>
+        private void CinePortalSetup(Camera cam)
+        {
+            if (!_cinePortalSetup || _cinePortalSetupFailed) return;
+            try
+            {
+                var mgr = MonoSingleton.GetInstance(typeof(PortalManagerV2)) as PortalManagerV2; // never auto-creates one
+                if (mgr == null || mgr.render == null || mgr.Scene == null || mgr.mainCamera != cam || mgr.portalCamera == null) return;
+                if (_portalMgrInitialized == null)
+                    _portalMgrInitialized = typeof(PortalManagerV2).GetField("initialized", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (_portalMgrInitialized == null || !(bool)_portalMgrInitialized.GetValue(mgr)) return; // as its LateUpdate
+                mgr.render.Setup(mgr.Scene, mgr.mainCamera, mgr.portalCamera);
+            }
+            catch (Exception e)
+            {
+                _cinePortalSetupFailed = true;
+                Logger.LogWarning($"Cinematics: portal views from the camera failed, left to the game ({e.GetType().Name}: {e.Message})");
+            }
         }
 
         // ---------------------------------------------------------------- per frame (OnUpdate)

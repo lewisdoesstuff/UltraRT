@@ -132,6 +132,9 @@ static uint g_ShadowPlayerMask;
 float4 _UltraRTPlayerBoxMin, _UltraRTPlayerBoxMax;
 
 bool InPlayerBox(float3 e) { return all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz); }
+// The camera (xyz) and w = 1 while the player's own spot lights clip their shadow rays at the eye (LightShadowSetup;
+// Plugin.cs, -ultrart-noeyeclip / bench plugin._playerLightEyeClip=0).
+float4 _UltraRTPlayerEye;
 
 // The transmittance of the last visibility ray that got through (VisibleRaw): 1, or the colour of the stained glass it
 // crossed (Proxy.shader any-hit, docs/materials.md "Stained glass"). Read it right after a test that returned true.
@@ -321,6 +324,21 @@ uint LightShadowSetup(uint i, float3 p, float3 n, inout float3 L, inout float di
 #ifndef ULTRART_LIGHT_ISOTROPIC
             if (dot(L, n) <= 0.0) return 0u;
 #endif
+        }
+    }
+    // The player's own spot lights end their shadow rays at the plane through the eye, square to the beam. 7-3's
+    // head-mounted flashlight (Player/Main Camera/Flashlight) hangs about 10 m behind and 1.5 m above the eye so its cone
+    // is wide where the player looks; a ray all the way to it was blocked by whatever stood behind the player (a wall,
+    // the tree's canopy) and the whole pool switched on and off as the camera moved (docs/relight.md, "Player lights end
+    // at the eye"). What stands in front of the player still shadows it.
+    [branch] if (_UltraRTPlayerEye.w > 0.5 && al3.x > -0.999 && dist < 1.0e3 && LightPlayerFlag(_Lights[i * 4 + 1].w) > 0.75)
+    {
+        float3 f = _Lights[i * 4 + 2].xyz; // the spot's forward
+        float den = dot(L, f);             // < 0: the ray runs back up the beam
+        if (den < -0.05)
+        {
+            float t = dot(_UltraRTPlayerEye.xyz - p, f) / den;
+            if (t > 0.0 && t < dist) dist = t;
         }
     }
     dist -= min(kLightFixtureClearance, 0.5 * dist);

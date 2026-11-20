@@ -324,6 +324,7 @@ namespace UltraRT
                             subframes++;
                         }
                     }
+                    if (_logLightToggles) Logger.LogInfo($"Cinematic frame {f} (t {t0 + f * fdt:F3}, game t {Time.time:F2}): {ExposureSummary()}");
                     if (f % 10 == 9 || f == frames - 1)
                         Logger.LogInfo($"Cinematic render: frame {f + 1}/{frames}, {loop.Elapsed.TotalSeconds / (f + 1):F3} s/frame, {loop.Elapsed.TotalMilliseconds / Math.Max(1, subframes):F2} ms/subframe, writer {sink.Written} written, {sink.Pending} pending");
                 }

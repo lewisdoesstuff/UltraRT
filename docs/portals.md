@@ -395,3 +395,18 @@ they see the hall repeat further and more clearly than the game's single recursi
 not by their own light; the sky behind a pane is the game's pixel anyway (sky pixels are left to the game). Cost: up
 to 2 transparent rays per segment past a hop, at portal pixels only; not measured with the GPU timer (the live takes'
 wall time is bound by the PNG writer: 61.4 vs 60.7 ms per frame with and without).
+
+## 14. The game's portal views under a cinematic camera (2026-11-20, `t3/trailer-light-fixes`)
+
+The v5c trailer's 8-2 supermarket aisle: with RT off the arch at the end of the aisle was black, traced it showed the
+island, lit. The arch is the exit side of `12 - Island/12 Nonstuff/2/12 -> 12B Entrance` (10 x 10 m at (-180, 0, 196),
+facing +z; its enter side is on the island at (-607, 1421, 555)). The game renders both sides (`renderSettings` Enter |
+Exit; looking through the exit, the view uses the exit side's fog override, which is off). No game rule hides it: the
+black came from the cinematic camera. `PortalRenderV2.Setup` picks the sides on screen in `PortalManagerV2.LateUpdate` from
+the main camera's pose then, and the cinematic camera is posed afterwards (`onBeforeRender`), so the game picked from the
+frozen player's eye at the island checkpoint; the arch side was never rendered and its quad pasted the empty composite.
+Fixed by running `Setup` again from the posed camera (docs/cinematics.md, "Portals"). With it the game's image shows the
+island through the arch as the trace does (`bench/suites/trailer-light-fixes.json`, run
+`20261120-132549_trailer-light-fixes_alt`: arch region mean 0.9 -> 36 in the game's image at the aisle's end, 42 -> 46
+traced; 8-3's Clockwork Crushers take unchanged in character). In play the camera is at the player's eye, so play was never
+affected; any bench cinematic in a portal level was (the trailer's 8-2 and 8-3 shots).

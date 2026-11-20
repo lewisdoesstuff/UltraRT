@@ -300,6 +300,8 @@ namespace UltraRT
                     case "-ultrart-enemy-survey": _enemySurvey = true; break;        // bench: enemies_<scene>.txt per level (Plugin.EnemySurvey.cs)
                     case "-ultrart-light-census": _lightCensus = true; break;        // bench: lights_<scene>.json per level (Plugin.LightClasses.cs)
                     case "-ultrart-logfixtures": _logFixtures = true; break;
+                    case "-ultrart-noeyeclip": _playerLightEyeClip = false; break; // player spot lights: shadow rays to the light itself
+                    case "-ultrart-log-light-toggles": _logLightToggles = true; break; // diagnostics: lights switching on/off, per-frame cine exposure
                     case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-noportals": _portals = false; break;
                     case "-ultrart-noportallayer": SceneProxies.TracePortalLayer = false; break;
@@ -592,6 +594,7 @@ namespace UltraRT
                 _activeLightsVersion++;
                 foreach (var l in _proxies.Lights)
                     if (l != null && l.isActiveAndEnabled) _activeLights.Add(l);
+                if (_logLightToggles) LogLightToggles();
             }
             // Layout must match PathTrace.raytrace: 4 x float4 per light (see the comment on _Lights there).
             UpdateFixtureLifts();
@@ -738,6 +741,28 @@ namespace UltraRT
         private bool _readdDynamic;
         private readonly bool[] _lightPlaced = new bool[MaxLights]; // packed light i is placed by a light override (offset / shape)
         private bool _logFixtures;        // -ultrart-logfixtures
+        private bool _logLightToggles;    // -ultrart-log-light-toggles
+        private readonly HashSet<Light> _loggedOn = new HashSet<Light>();
+        private readonly List<Light> _loggedOff = new List<Light>();
+
+        /// <summary>Diagnostics (-ultrart-log-light-toggles): which lights switched on or off since the last rebuild of
+        /// _activeLights (4 Hz), with game time and the distance to the camera.</summary>
+        private void LogLightToggles()
+        {
+            var cam = _camera != null ? _camera.transform.position : Vector3.zero;
+            _loggedOff.Clear();
+            foreach (var l in _loggedOn) if (l == null || !_activeLights.Contains(l)) _loggedOff.Add(l);
+            foreach (var l in _loggedOff)
+            {
+                _loggedOn.Remove(l);
+                Logger.LogInfo(l == null ? $"light off (destroyed) at t {Time.time:F2}" : FormattableString.Invariant(
+                    $"light off at t {Time.time:F2}: '{Bench.GameControl.PathOf(l.transform)}' {l.type} I {l.intensity:F2} range {l.range:F0} dist {(l.transform.position - cam).magnitude:F1}"));
+            }
+            foreach (var l in _activeLights)
+                if (_loggedOn.Add(l))
+                    Logger.LogInfo(FormattableString.Invariant(
+                        $"light on at t {Time.time:F2}: '{Bench.GameControl.PathOf(l.transform)}' {l.type} col {l.color} I {l.intensity:F2} range {l.range:F0} dist {(l.transform.position - cam).magnitude:F1} mask 0x{l.cullingMask:X8}"));
+        }
         private float _nextLightDump;
         private const float EnclosedLightRadius = 0.03f; // soft-shadow radius of lights inside a static lamp housing / shade
         private const float FixtureLiftAbove = 0.15f, FixtureLiftMax = 1.5f, FixtureRadiusMin = 0.08f, FixtureRadiusMax = 0.75f;
@@ -872,6 +897,10 @@ namespace UltraRT
         private int _playerRays = 15;
         private static readonly int PlayerRaysId = Shader.PropertyToID("_UltraRTPlayerRays");
         private static readonly int PlayerBoxMinId = Shader.PropertyToID("_UltraRTPlayerBoxMin"), PlayerBoxMaxId = Shader.PropertyToID("_UltraRTPlayerBoxMax");
+        private static readonly int PlayerEyeId = Shader.PropertyToID("_UltraRTPlayerEye");
+        /// <summary>The player's own spot lights (7-3's flashlight, 10 m behind the eye) end their shadow rays at the eye
+        /// plane, so nothing behind the player shadows them (-ultrart-noeyeclip, bench plugin._playerLightEyeClip=0).</summary>
+        private bool _playerLightEyeClip = true;
         private bool _flipY;
         private int _recordedFrame = -1;
         private int _camSwitchLogs;
@@ -1294,6 +1323,8 @@ namespace UltraRT
             PortalCrossingRemap(); // the camera went through a portal: histories follow it (Plugin.PortalTemporal.cs)
             PortalViews(); // the camera's images through portals: light importance, emitter importance, cache cell size
             Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? (_playerRays & 15) | (_cineShowPlayer ? 16 : 0) : 0); // 16: third-person cinematic shots
+            var eye = _camera.transform.position; // the player's own spot lights end their shadow rays here (UltraRTLights.hlsl)
+            Shader.SetGlobalVector(PlayerEyeId, new Vector4(eye.x, eye.y, eye.z, _playerLightEyeClip ? 1f : 0f));
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))
             {
                 Shader.SetGlobalVector(PlayerBoxMinId, playerBox.min);
