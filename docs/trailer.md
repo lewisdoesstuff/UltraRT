@@ -279,7 +279,82 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
-## The final trailer, v5d (2026-11-20, `trailer-final-v5d`)
+## Trailer v6 draft (2026-11-20, branch `t3/trailer-v6-paths`)
+
+New camera paths, constant-speed easing, a combat footage slot at the battle drop and hard switches in the battle half,
+on master aa7ad54 + 1f8c96c (Gabriel's glowing swords, enemy outlines off, `HighlightHue` 0.5, water absorption and
+ripple caustics, P-2's rain rings, and the v6 graphics). Draft tier only (1280x720, 30 fps, RR at a third): every shot is
+a new take. Output: `bench\results\trailer\trailer-v6-draft\` in the branch worktree (`trailer-final-draft.mp4`, 117.84 s,
+44 MB; `clips\`; `contact-v5d-v6draft.jpg`: per shot v5d final | v6 draft at 15 % and 85 % of the clip; `timing.txt`:
+the frame check), copied to the main checkout's `bench\results\trailer\trailer-v6-draft\`. Takes:
+`20261120-161454_trailer-final-draft-1..4_alt` (one alt launch, 0 failures, RR `854x480 -> 2562x1440`).
+
+Paths (`bench/trailer/paths.json`; scout `bench/trailer/scout-v6.json`, suite `trailer-v6-scout`, game | path traced per
+key, run `20261120-161145_trailer-v6-scout_alt`):
+- **4-4 Window Hallway**: no longer a centred push down the stairs. A low diagonal glide along the hall's west half
+  (z 418 -> 436, x 114 -> 117, feet 649), turned 48 -> 32 degrees towards the slatted window, so the striped light on the
+  floor and the window wall sweeps across the frame; the west wall's torches pass on the left. At x 112 and less the
+  ledge by the west wall comes into the bottom left, so the glide starts at x 114.
+- **Museum gallery**: an angled diagonal glide instead of the centred push: from left of the centre path (z 803) across to
+  its right (z 808.5) while moving 13 m down the gallery, turned 24 -> 14 degrees towards the -z wall, so the
+  portraits and the checkerboard slide sideways. The pedestal rows begin about 7 m either side of z 805, so the glide
+  stays over the centre path.
+- **8-3 Clockwork Crushers**: v5d's wipe changed room mid-sweep because v5d looked at the opening at the hall's end
+  (`Portals A`): through it, and through the side glass's sideways loop portals, the game's portal views and the trace
+  show different rooms (the game an orange crusher room, the trace a blue office), so the RT-off half showed one room
+  and the traced half another. The scout showed that looking back at the entrance door (yaw 180), both images show the
+  same hall, door and frosted glass. v6 is a slow pull-back from the door (z 674 -> 683, 1.8 m/s, a small drift and a
+  turn of 8 -> -5 degrees off the axis) with the world frozen (`TimeScale` 0: the crushers moving in the side rooms at
+  the end of v5d's take are gone). The opening stays behind the camera. It is a quieter shot than v5d's: the traced side
+  adds the pink glow of the lit panel above the door on the ceiling and floor and the far panes in the side glass.
+- **Constant speed on the short shots**: `final-0-3-beams`, `final-4-4-window-hall`, `final-8-2-market-aisle`,
+  `final-8-3-crushers`, `final-museum-gallery`, `final-1-4-hall`, `final-8-2-street`, `final-1-1-terminal-cam` and
+  `final-5-2-sea` go from `"smooth"` (a stop at each end) to `"linear"`. Every one of those paths is longer than its
+  clip, so the camera is moving on the first frame and still moving at the cut. The multi-key arcs (1-1 hallway, 7-3,
+  P-2 hall, 0-1, 2-1, 6-2 organ) keep their `in` / `linear` / `out` keys. 2-4's tunnel was already linear.
+
+Plan (`bench/trailer/final-plan.json`):
+- **Out: 6-2's entry** (4 bars). **In: a 4-bar combat footage slot** (`"Kind": "title"`, "COMBAT FOOTAGE" /
+  "PLACEHOLDER - 4 BARS (6.0 S)") right at the battle layer's step up (63.34 s), before P-2's street. The battle layer is
+  still exactly 32 bars (4 + 5 + 4 + 3 + 3 + 3 + 3 + 3 + 4), ending on its loop point at 111.34 s. To swap in the
+  recording, replace that line with a `video` shot of the same bars (above, "Plan fields").
+- **Hard switches in the battle half**: 4-4 and 8-2's market are `switch` at 1.5 s (the bar), like 2-4's tunnel. The
+  sweeps left in the battle half alternate: 8-3 from the right, the museum from the left, 1-4 from the right (it was
+  from the left: the museum's direction changed).
+- **End card**: ULTRART, then "FREE MOD FOR ULTRAKILL  ///  THUNDERSTORE", and as small print "CAPTURED LIVE WITH
+  REAL-TIME PATH TRACING AND NVIDIA DLSS RAY RECONSTRUCTION" / "UNOFFICIAL MOD - NOT AFFILIATED WITH NEW BLOOD
+  INTERACTIVE OR ARSI "HAKITA" PATALA". **The game's font has no em dash**: "—" draws as an empty box, so the cards use
+  "-".
+
+| # | Start | s | Shot | Treatment |
+|---|---|---|---|---|
+| 1-10 | 0:00.0 | 63.34 | title, 0-3, 6-2 organ, 1-1 hallway, 0-1, 7-3, P-2 hall, 8-2 street, 2-1, 5-2 (as in v5d) | calm layer, 42 bars |
+| 11 | 1:03.3 | 6.0 | combat footage slot (placeholder card) | card |
+| 12 | 1:09.3 | 7.5 | P-2 street, through the arch into the tunnel | beauty |
+| 13 | 1:16.8 | 6.0 | 4-4 Window Hallway, diagonal glide | switch at 1.5 s |
+| 14 | 1:22.8 | 4.5 | 1-1 terminal | beauty |
+| 15 | 1:27.3 | 4.5 | 8-2 supermarket aisle | switch at 1.5 s |
+| 16 | 1:31.8 | 4.5 | 8-3 Clockwork Crushers, pull-back from the door | sweep from the right |
+| 17 | 1:36.3 | 4.5 | 2-4 tunnel | switch at 1.5 s |
+| 18 | 1:40.8 | 4.5 | museum gallery, diagonal glide | sweep |
+| 19 | 1:45.3 | 6.0 | 1-4 hall | sweep from the right, fade out |
+| 20 | 1:51.3 | 6.5 | end card with the tagline and small print | card |
+
+Total 1:57.8, as v5d. Staged events, re-measured on the new takes: 0-3's light pillars come on at frame 92 (3.067 s, the
+same as v5d), so `In` stays 1.567. The organ hall turns red at frame 328 of the draft take (10.933 s; mean 14 -> 64),
+0.25 s later than in v5d's final take (frame 641 at 60 fps, 10.68 s), so the draft tier's `In` is 6.433
+(`"TierIn": { "draft": 6.433 }`). The final tier keeps 6.183 until its own take is measured. In the cut the pillars
+land on clip frame 45 (1.500 s) and the red flip on clip frame 135 (4.500 s), both on the bar.
+
+Frame check (`timing.txt`): every clip has its planned length, and the master is the 20 clips joined (3535 frames). Each
+clip frame is matched against its take frames (+-4) on a central crop. 9 of 17 shots match frame for frame. In 7 more,
+1 to 9 frames match the neighbouring take frame about as well as the expected one (0-3's dark room before the
+pillars, the organ hall before the flip, 0-1's frozen room, single frames in the 1-1 hallway, 8-2 street, 2-1 and 2-4).
+1-4's flags are its 0.6 s fade into the end card, where the fade decides the match, not the take. No hold or jump.
+
+Assembly 3 min 20 s. Seen in the draft: Gabriel's sword glows with no outline (6-2), 2-1's water reflects the green
+ring and the walls in its ripples under the blue absorption tint, and the v6 level titles sit above the subjects.
+
 
 The user's notes on v5c, on branch `t3/trailer-v5d` from master 30522b5 (with `t3/water-portal-glass` and
 `t3/trailer-light-fixes` merged). Output: `bench\results\trailer\trailer-final-v5d\` (`trailer-final-final.mp4`, 2560x1440,
@@ -864,7 +939,7 @@ the mod is unofficial and not affiliated with the game's developers.
 plays from its start under the title and the first nine shots (42 bars, to 63.34 s; v5-v5c: 44 bars, to 66.34 s; v4: 40
 bars and eight shots, to 60.34 s); the battle layer (`0-1`) comes in there from its step up at 36.34 s of the song and
 runs 32 bars to its loop point (111.34 s of the trailer; v5c 114.34); the calm layer returns under the end card and fades
-over 4.5 s. The battle layer is always exactly 32 bars (step up on the cut into P-2's street, loop point on the end
+over 4.5 s. The battle layer is always exactly 32 bars (step up on the cut into P-2's street, since the v6 draft into the combat footage slot before it; loop point on the end
 card), so a battle-layer shot can only grow by taking bars from another one; the calm layer can be any length (the
 plan's `Music.Tracks` `At` / `Until` move with it). Every cut, switch and
 gunshot (half bars) is on the grid, and so are v5's two staged events: 0-3's light pillars come on and 6-2's organ hall
@@ -873,7 +948,7 @@ the red flip); 1-4's hall closes the battle layer.
 
 ### Shot list
 
-The cut as of v5d (2026-11-20; "The final trailer, v5d" above has what changed).
+The cut as of v5d (2026-11-20; "The final trailer, v5d" above has what changed). The v6 draft changes the battle half: "Trailer v6 draft" above.
 
 All comparisons are paired live takes (the game's image / real-time path tracing with RR); "beauty" is one traced take.
 No captions since v5c; level titles stay.
