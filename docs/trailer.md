@@ -321,10 +321,11 @@ Plan (`bench/trailer/final-plan.json`):
 - **Hard switches in the battle half**: 4-4 and 8-2's market are `switch` at 1.5 s (the bar), like 2-4's tunnel. The
   sweeps left in the battle half alternate: 8-3 from the right, the museum from the left, 1-4 from the right (it was
   from the left: the museum's direction changed).
-- **End card**: ULTRART, then "FREE MOD FOR ULTRAKILL  ///  THUNDERSTORE", and as small print "CAPTURED LIVE WITH
-  REAL-TIME PATH TRACING AND NVIDIA DLSS RAY RECONSTRUCTION" / "UNOFFICIAL MOD - NOT AFFILIATED WITH NEW BLOOD
-  INTERACTIVE OR ARSI "HAKITA" PATALA". **The game's font has no em dash**: "—" draws as an empty box, so the cards use
-  "-".
+- **End card**: ULTRART, then "A RAY TRACING MOD FOR ULTRAKILL", and as small print "CAPTURED LIVE WITH REAL-TIME PATH
+  TRACING AND NVIDIA DLSS RAY RECONSTRUCTION" (the user, 2026-11-20). The first v6 draft had "FREE MOD FOR ULTRAKILL  ///
+  THUNDERSTORE" and a second small-print line, "UNOFFICIAL MOD - NOT AFFILIATED WITH NEW BLOOD INTERACTIVE OR ARSI
+  "HAKITA" PATALA". **The game's font has no em dash**: "—" draws as an empty box, so the cards use "-" (the combat
+  slot's sub line).
 
 | # | Start | s | Shot | Treatment |
 |---|---|---|---|---|
@@ -338,7 +339,7 @@ Plan (`bench/trailer/final-plan.json`):
 | 17 | 1:36.3 | 4.5 | 2-4 tunnel | switch at 1.5 s |
 | 18 | 1:40.8 | 4.5 | museum gallery, diagonal glide | sweep |
 | 19 | 1:45.3 | 6.0 | 1-4 hall | sweep from the right, fade out |
-| 20 | 1:51.3 | 6.5 | end card with the tagline and small print | card |
+| 20 | 1:51.3 | 6.5 | end card: ULTRART / "A RAY TRACING MOD FOR ULTRAKILL", one line of small print | card |
 
 Total 1:57.8, as v5d. Staged events, re-measured on the new takes: 0-3's light pillars come on at frame 92 (3.067 s, the
 same as v5d), so `In` stays 1.567. The organ hall turns red at frame 328 of the draft take (10.933 s; mean 14 -> 64),
