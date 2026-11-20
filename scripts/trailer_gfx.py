@@ -4,7 +4,8 @@ captions and state badges, drawn frame by frame with Pillow into PNG sequences t
 The style is the game's own HUD, measured from its UI (docs/trailer.md has the numbers):
   - level titles as LevelNamePopup shows them: VCR OSD Mono, white with a hard dark drop shadow, centred near the top,
     the layer line ("PRELUDE /// FIRST") typed out at 100 letters a second, half a second's pause, the level's name
-    typed under it in larger type, a hold, a one-second fade;
+    typed under it in larger type, a hold, a one-second fade; higher than the game has it (level with the state badge,
+    clear of a centred subject) and on a soft dark edge that keeps the white type readable on a bright picture;
   - captions as HUD messages: a rounded black box at 59 % that snaps open (width first, then height: HudOpenEffect)
     low in the middle of the picture, its text typed in with a block cursor;
   - cards: the same typed lines on black.
@@ -19,7 +20,7 @@ import os
 import shutil
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS = [os.environ.get("TRAILER_FONT", ""), os.path.join(ROOT, "bench", "results", "trailer", "fonts", "VCR_OSD_MONO.ttf"),
@@ -30,6 +31,9 @@ BOX = (0, 0, 0, 150)       # the HUD message box: black at 0.588
 LAYER_PX = 26.0 / 720.0    # LevelNamePopup's LayerText and NameText sizes on the game's 720-line canvas
 NAME_PX = 46.0 / 720.0
 TITLE_CPS = 100.0          # LevelNamePopup: a letter every 0.01 s
+BADGE_X, BADGE_Y = 0.028, 0.035  # the state badge's top left corner (fractions of the width and the height)
+BADGE_H = 0.028 + 2 * 0.011      # its box's height (fraction of the height): type + padding, see badge()
+TITLE_Y = BADGE_Y + BADGE_H / 2  # the level title's layer line: on the badge's middle line (0.06 of the height)
 _font_path = None
 
 
@@ -80,6 +84,22 @@ def with_alpha(img, a):
     return out
 
 
+def legible(layer, H, tight=0.6, wide=0.34):
+    """layer (type on transparent) over a soft dark edge: a tight feathered outline (the type grown by about a pixel at
+    720p, then blurred) and a wide faint shade that follows the words (the type blurred by 2 % of the height). Neither
+    is a box: on a dark picture they vanish, on a bright one (0-3's doorway, 4-4's slats, 8-3's ceiling) the white type
+    keeps an edge."""
+    a = layer.getchannel("A")
+    r = max(1.0, H / 720.0)
+    k = 2 * int(round(r)) + 1
+    edge = a.filter(ImageFilter.MaxFilter(k)).filter(ImageFilter.GaussianBlur(r * 1.2)).point(lambda v: int(v * tight))
+    shade = a.filter(ImageFilter.GaussianBlur(H * 0.02)).point(lambda v: int(min(255, v * 3.0) * wide))
+    out = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    out.putalpha(ImageChops.screen(edge, shade))
+    out.alpha_composite(layer)
+    return out
+
+
 def open_effect(t, speed=30.0):
     """HudOpenEffect: from 5 % in both axes, the width runs to full, then the height (rate = (distance + 0.1) * speed)."""
     sx = sy = 0.05
@@ -125,7 +145,11 @@ def card(frames_dir, W, H, fps, dur, title, accent_from=5, sub=None, lines=(), s
     """A full-frame card on black, laid out as a level title: the sub line typed first (the layer line's place), then
     the title under it in large type (the letters from accent_from on in the accent colour: ULTRA + RT), then further
     lines typed one after another, and small print at the bottom. beats: when the sub line, the title and the first
-    further line start (seconds); the defaults follow the game (title half a second after the sub line)."""
+    further line start (seconds); the defaults follow the game (title half a second after the sub line). A title
+    wider than 90 % of the picture (a long placeholder such as "COMBAT FOOTAGE SLOT") is set smaller to fit."""
+    wide = font(H * 0.17 * scale).getlength("M") * len(title)
+    if wide > W * 0.9:
+        scale *= W * 0.9 / wide
     title_f = font(H * 0.17 * scale)
     sub_f = font(H * 0.17 * scale * LAYER_PX / NAME_PX * 0.62)
     line_f = font(H * 0.03)
@@ -158,7 +182,7 @@ def card(frames_dir, W, H, fps, dur, title, accent_from=5, sub=None, lines=(), s
             x0 = cx - adv * n_title / 2  # centred as typed, like the game's titles
             for k in range(n_title):
                 put(frame, (x0 + adv * (k + 0.5), cy), title[k], title_f, (ACCENT if k >= accent_from else WHITE) + (255,))
-            yy = cy + th * 0.62
+            yy = cy + th * 0.62 + H * 0.025  # a clear gap under the title's baseline (v5d's lines touched it)
             for ln in l_now:
                 put(frame, (cx, yy), ln, line_f, (225, 225, 225, 255))
                 yy += H * 0.05
@@ -178,30 +202,43 @@ def card(frames_dir, W, H, fps, dur, title, accent_from=5, sub=None, lines=(), s
 
 # ---------------------------------------------------------------- overlays
 
-def level_title(frames_dir, W, H, fps, dur, layer, name, scale=0.85, hold=3.0):
+def level_title(frames_dir, W, H, fps, dur, layer, name, scale=0.85, hold=3.0, y=TITLE_Y):
     """The level's title as the game shows it on entering a level: a full-width strip for the top of the picture
-    (place it at y = result["y"]). Layer line typed, half a second, name typed, hold, one-second fade."""
+    (place it at y = result["y"]). Layer line typed, half a second, name typed, hold, one-second fade.
+    y: the layer line's middle (fraction of the height). The game has it at 0.16 (245 units above the middle of its
+    720-unit canvas) and the name at 0.21 (210 above), which put the name over the subject of a shot framed on the
+    middle (v5d: Gabriel's wings in 6-2, the tree's trunk in 7-3, 0-3's doorway); since v6 the layer line is level with the state
+    badge (0.06) and the name the game's 35 units under it (0.11)."""
     layer_f, name_f = font(H * LAYER_PX * scale), font(H * NAME_PX * scale)
-    # the game's canvas: layer line 245 and name 210 units above the middle of 720
-    y_layer, y_name = H * (0.5 - 245.0 / 720.0), H * (0.5 - 210.0 / 720.0)
-    top = int(y_layer - H * 0.03)
-    h = int(y_name + H * NAME_PX * scale - top)
+    y_layer = H * y
+    y_name = y_layer + H * 35.0 / 720.0
+    top = max(0, int(y_layer - H * 0.07))  # room above and below for the soft edge (legible)
+    h = int(y_name + H * (NAME_PX * scale / 2 + 0.06)) - top
     shadow = max(1, int(round(H * scale / 420.0)))
     t_layer = 0.0
     t_name = t_layer + type_time(layer, TITLE_CPS) + 0.5
     t_fade = min(t_name + type_time(name, TITLE_CPS) + hold, dur - 1.0)
     seq = Seq(frames_dir, (W, h))
+    full = {}  # the drawn title of the current typed state: the fade only scales it
+
+    def title(a_now, b_now):
+        if (a_now, b_now) not in full:
+            frame = Image.new("RGBA", (W, h), (0, 0, 0, 0))
+            put(frame, (W / 2, y_layer - top), a_now, layer_f, WHITE + (255,), shadow, shadow_alpha=230)
+            put(frame, (W / 2, y_name - top), b_now, name_f, WHITE + (255,), shadow, shadow_alpha=230)
+            full.clear()
+            full[(a_now, b_now)] = legible(frame, H)
+        return full[(a_now, b_now)]
+
     for i in range(int(round(dur * fps))):
         t = i / fps
         a_now, b_now = typed(layer, t, t_layer, TITLE_CPS), typed(name, t, t_name, TITLE_CPS)
         a = 1 - ramp(t, t_fade, 1.0)
 
         def draw():
-            frame = Image.new("RGBA", (W, h), (0, 0, 0, 0))
-            if a > 0:
-                put(frame, (W / 2, y_layer - top), a_now, layer_f, WHITE + (255,), shadow)
-                put(frame, (W / 2, y_name - top), b_now, name_f, WHITE + (255,), shadow)
-            return with_alpha(frame, a)
+            if a <= 0:
+                return Image.new("RGBA", (W, h), (0, 0, 0, 0))
+            return with_alpha(title(a_now, b_now), a)
 
         seq.add((a_now, b_now, round(a, 3)), draw)
     return seq.result(y=top)
@@ -261,9 +298,11 @@ def lower_third(frames_dir, H, fps, dur, text, sub=None):
     return seq.result()
 
 
-def badge(frames_dir, H, fps, dur, text, on, pop=True):
+def badge(frames_dir, H, fps, dur, text, on, pop=False):
     """The state badge (top left): a small HUD box. Off: grey type and a hollow marker. On: white type and the accent
-    marker; with pop the box snaps open again and flashes white as the picture under it changes."""
+    marker. It is open from its first frame and stays to its last, so a cut swaps one badge for the next in place (v5d
+    snapped every clip's badge open from an empty box and faded it out before the cut). pop: the state changes under
+    it mid-clip (the switch, or the divider passing it): the box snaps open (HudOpenEffect) and flashes white."""
     f = font(H * 0.028)
     label = text.upper()
     tw = f.getlength(label)
@@ -277,9 +316,8 @@ def badge(frames_dir, H, fps, dur, text, on, pop=True):
     seq = Seq(frames_dir, (w, h))
     for i in range(int(round(dur * fps))):
         t = i / fps
-        sx, sy = open_effect(t) if (pop or not on) else (1.0, 1.0)
-        fl = max(0.0, 1 - ramp(t, 0.02, 0.3)) ** 2 if on and pop else 0.0
-        out = 1 - ramp(t, dur - 0.15, 0.15)
+        sx, sy = open_effect(t) if pop else (1.0, 1.0)
+        fl = max(0.0, 1 - ramp(t, 0.02, 0.3)) ** 2 if pop else 0.0
         show = sy >= 0.999
 
         def draw():
@@ -292,9 +330,9 @@ def badge(frames_dir, H, fps, dur, text, on, pop=True):
                 else:
                     d.rectangle([x0, y0, x0 + mark, y0 + mark], outline=(160, 160, 160, 255), width=max(1, H // 480))
                 put(frame, (pad_x + mark + gap, h / 2), label, f, (WHITE if on else (170, 170, 170)) + (255,), anchor="lm")
-            return with_alpha(frame, out)
+            return frame
 
-        seq.add((round(sx, 3), round(sy, 3), round(fl, 3), round(out, 3)), draw)
+        seq.add((round(sx, 3), round(sy, 3), round(fl, 3)), draw)
     return seq.result()
 
 
