@@ -101,7 +101,7 @@ The code is in `src/UltraRT/SceneProxies.Displaced.cs` and `Displace.compute`.
   (`UltraRTDisplace.hlsl`, shared with `Displace.compute`): at the rest pose it failed the depth test against the
   game's displaced water and 6-2's blood pools flickered (docs/reflections.md, "Displaced water and the temporal filter").
 - **Not covered:**
-  - Static-batched renderers keep the rest pose, because the static groups merge them into shared meshes. Counts: 3-1 21, 8-3 about 50, 5-S 23, 8-1 10. They are logged as `keeps the rest pose`.
+  - Static-batched renderers keep the rest pose, because the static groups merge them into shared meshes. Counts: 3-1 21, 8-3 about 50, 5-S 23, 8-1 10. They are logged as `keeps the rest pose`. Exception since 2026-11-20: static-batched water, blood and glass with the keyword are lifted out of the groups into displaced dynamic proxies (`StaticGroups.Lifted.cs`; 2-1's channel; docs/reflections.md, "Static-batched displaced water"). The game does displace batched surfaces (its vertex shader works in world space), so the remaining opaque ones (3-1's and 8-3's flesh) are still off by up to the amplitude.
   - Skinned renderers keep the rest pose too. The only one is the `Puppet` prefab.
   - The emitter table (emissive lights, lava) keeps the rest-pose triangles.
   - Material keyword changes at run time are not followed.

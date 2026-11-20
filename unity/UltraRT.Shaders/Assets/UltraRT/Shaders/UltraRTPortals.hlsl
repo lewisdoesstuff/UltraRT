@@ -21,6 +21,10 @@
 // TraceScene request (inFlags, never sent to a hit shader): stop at a portal mirror and report a miss there with
 // path.mirrorT set. Camera rays use it so the composites keep the game's own mirror view (docs/portals.md, "Mirrors").
 #define ULTRART_TRACE_STOP_AT_MIRROR 0x10000000u
+// TraceScene request (never sent to a hit shader): collect the water and glass on every segment after a hop into
+// g_PortalGlass (docs/portals.md, "Water and glass through portals"). The game's portal views draw them; the pixel
+// that replaces such a view has to as well. Camera rays of PathTrace only (ULTRART_PORTAL_GLASS defined).
+#define ULTRART_TRACE_PORTAL_GLASS 0x00400000u
 
 #ifndef ULTRART_PORTALS_DEFINES_ONLY
 
@@ -88,6 +92,36 @@ float3 PortalToVirtual(PortalPath path, float3 d) { return mul(d, path.rot); }
 // ray.Origin, y its spread angle. Each segment's hit gets the width at that segment's origin.
 static float2 g_Cone = 0;
 
+// The water / glass layers behind portals (ULTRART_TRACE_PORTAL_GLASS), front to back: rgb = sum of transmittance so far
+// x blend alpha x albedo (texture x colour), a = the transmittance left for the hit behind them. The game blends each
+// surface as W a + B (1 - a); W (the surface lit) is taken as albedo x the hit's own lighting, so the caller blends
+// albedo -> albedo a_total + rgb and scales emission by a. Reset by a TraceScene that asks for it: read it right after.
+static float4 g_PortalGlass = float4(0, 0, 0, 1);
+#ifdef ULTRART_PORTAL_GLASS
+float4 _UltraRTPortalGlass; // x strength (x the blend alpha; 0 = off), y water/glass hits per segment (max 2)
+// One portal-side segment, origin to tEnd: its nearest one or two transparent surfaces into g_PortalGlass. The hit
+// returns its blend alpha in p.motion for this ray (Proxy.shader; UltraRTCommon.hlsl, ULTRART_PAYLOAD_TRANSPARENT).
+void PortalGlassSegment(RayDesc seg, float tEnd)
+{
+    seg.TMin = 0.0;
+    seg.TMax = max(tEnd, 0.0);
+    uint n = min((uint)_UltraRTPortalGlass.y, 2u);
+    [loop] for (uint k = 0u; k < n && g_PortalGlass.a > 0.02; k++)
+    {
+        RayPayload h = (RayPayload)0;
+        h.t = -1.0;
+        h.flags = ULTRART_PAYLOAD_TRANSPARENT;
+        ULTRART_COUNT_RAY(ULTRART_RAY_TRANSPARENT);
+        TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_TRANSPARENT, 0, 1, 0, seg, h);
+        if (h.t < 0.0) return;
+        float a = saturate(asfloat(h.motion) * _UltraRTPortalGlass.x);
+        g_PortalGlass.rgb += g_PortalGlass.a * a * h.albedo;
+        g_PortalGlass.a *= 1.0 - a;
+        seg.TMin = h.t + 0.01; // the next surface (the hall's other wall)
+    }
+}
+#endif
+
 // TraceRay that follows portals. On return `ray` is the last segment, so the hit point is ray.Origin + ray.Direction * p.t
 // as before, and the full path length is path.travelled + p.t. inFlags: request bits for the hit shader (re-sent each hop).
 void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout RayPayload p, out PortalPath path)
@@ -102,7 +136,11 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     path.hops = 0u;
     path.mirrorT = -1.0;
     bool stopAtMirror = (inFlags & ULTRART_TRACE_STOP_AT_MIRROR) != 0u;
-    inFlags &= ~ULTRART_TRACE_STOP_AT_MIRROR;
+#ifdef ULTRART_PORTAL_GLASS
+    bool portalGlass = (inFlags & ULTRART_TRACE_PORTAL_GLASS) != 0u;
+    if (portalGlass) g_PortalGlass = float4(0, 0, 0, 1);
+#endif
+    inFlags &= ~(ULTRART_TRACE_STOP_AT_MIRROR | ULTRART_TRACE_PORTAL_GLASS);
     uint baseMask = mask & ~(ULTRART_MASK_PORTAL_LAYER | ULTRART_MASK_PLAYER);
     // Past a hop, layer 30 (and V1, which lives on it) shows only through portals that can see that layer.
     uint portalLayerMask = ULTRART_MASK_PORTAL_LAYER | (((mask & ULTRART_MASK_PLAYER) != 0u) ? ULTRART_MASK_PLAYER : PlayerRayMask(ULTRART_PLAYER_PORTAL));
@@ -116,6 +154,12 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         ULTRART_COUNT_TRACE(i);
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
         if (p.t < 0.0) p.albedo = 0; // a miss leaves the cone input there
+#ifdef ULTRART_PORTAL_GLASS
+        // Segments past a hop (on the near side the game draws its own, with the overlay). Not on a segment that ends
+        // at a portal mirror the camera ray stops at: the game's mirror view keeps its own.
+        [branch] if (portalGlass && i > 0u && !(stopAtMirror && (p.flags & ULTRART_FLAG_PORTAL) != 0u && (p.material & 2u) != 0u))
+            PortalGlassSegment(ray, p.t >= 0.0 ? p.t : ray.TMax);
+#endif
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
         if (path.firstT < 0.0) { path.firstT = p.t; path.first = p.instance; } // first segment: travelled is 0
         if (stopAtMirror && (p.material & 2u) != 0u)
@@ -136,6 +180,9 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
             ULTRART_COUNT_TRACE(1u);
             TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
             if (p.t < 0.0) p.albedo = 0;
+#ifdef ULTRART_PORTAL_GLASS
+            [branch] if (portalGlass) PortalGlassSegment(ray, p.t >= 0.0 ? p.t : ray.TMax);
+#endif
             return;
         }
         uint s = p.instance * 3u;

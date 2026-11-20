@@ -270,6 +270,7 @@ namespace UltraRT
                     case "-ultrart-skinned-visible": SceneProxies.SkinnedProxiesVisible = true; break;
                     case "-ultrart-skinned-noupdate": SceneProxies.SkinnedTransformUpdates = false; break;
                     case "-ultrart-nodisplace": SceneProxies.DisplacementBuild = false; break; // VERTEX_DISPLACEMENT geometry keeps its rest pose
+                    case "-ultrart-nostaticlift": SceneProxies.LiftStaticDisplaced = false; break; // static-batched displaced water keeps its rest pose (StaticGroups.Lifted.cs)
                     case "-ultrart-displace-range": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _displaceRange); break; // m; < 0: original meshes (displacement off at run time)
                     case "-ultrart-spawn-test": _spawnTest = true; break;
                     case "-ultrart-gputimer": _useGpuTimer = true; break;

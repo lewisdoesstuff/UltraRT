@@ -8,6 +8,7 @@
 #include "UltraRTMaterial.hlsl"
 
 RaytracingAccelerationStructure _Scene;
+#define ULTRART_PORTAL_GLASS // camera rays collect water and glass behind portals (TraceScene, g_PortalGlass)
 #include "UltraRTPortals.hlsl" // TraceScene: rays follow portals (docs/portals.md)
 // NOTE: Unity ray tracing shaders support at most 8 UAVs; a 9th makes DispatchRays fail silently. This shader binds
 // the 7 below (one slot is free since ReSTIR's _ReservoirCur went, 2026-11-19). Albedo and emission share _Surface.
@@ -288,6 +289,8 @@ void RayGenBody(bool full)
     // Portal mirrors: keep the game's own mirror view (it shows V1 and is sharper than a traced reflection). The ray stops
     // there and the pixel is written like sky, which every composite leaves to the game (docs/portals.md, "Mirrors").
     if (_UltraRTMirrors == 0) inFlags |= ULTRART_TRACE_STOP_AT_MIRROR;
+    // Water and glass behind portals (docs/portals.md, "Water and glass through portals"): collected per segment.
+    if (_UltraRTPortalGlass.x > 0.0) inFlags |= ULTRART_TRACE_PORTAL_GLASS;
     // Through portals the ray continues on the far side (UltraRTPortals.hlsl): from here on `ray` is the last segment, so
     // shading uses the real hit point and direction. The G-buffer gets the camera-side ("virtual") view of the hit: path
     // length, normal and motion as seen through the portals, so the denoiser and the reflection filter reproject
@@ -297,6 +300,7 @@ void RayGenBody(bool full)
     PortalPath path;
     ULTRART_SET_RAY_KIND(ULTRART_RAY_CAMERA);
     TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_CAMERA), inFlags, ray, p, path);
+    float4 portalGlass = (inFlags & ULTRART_TRACE_PORTAL_GLASS) != 0u ? g_PortalGlass : float4(0, 0, 0, 1); // before any other TraceScene
 
     float3 c, lighting, albedo, emission;
     if (p.t < 0.0)
@@ -441,6 +445,12 @@ void RayGenBody(bool full)
         emission = PayloadEmission(p) * _EmissionScale;
         if ((p.flags & ULTRART_FLAG_CAUSTIC) != 0u) emission += CausticShadowed(p, pos, nv) * _EmissionScale;
         if (_StainParams.x > 1.5) { float sw; if (StainAt(pos, n, sw) > 0.0) emission += float3(0.0, 2.0, 0.0); } // debug: the lookup at camera hits (green), to line up with the game's decals
+        // Water and glass behind portals (docs/portals.md, "Water and glass through portals"): the game's portal view
+        // shows them, but this pixel replaces that view and the overlay covers the near side only. TraceScene collected
+        // them (g_PortalGlass); they go over the hit as layers, the game's blend W a + B (1 - a) with W lit like the hit
+        // behind: albedo and emission are blended here, so every composite, the denoisers and DLSS RR take them.
+        albedo = albedo * portalGlass.a + portalGlass.rgb;
+        emission *= portalGlass.a;
         float3 shown = LightToDisplay(lighting); // = lighting unless linear transport (_Radiance keeps lighting space)
         c = albedo * shown + emission;
 

@@ -1,0 +1,40 @@
+{
+  "Name": "water-portal-glass",
+  "Note": "Trailer v5c reports (user, 2026-11-20): 2-1's static-batched channel water ('Water 3', VERTEX_DISPLACEMENT) showed 6-2's old triangle patchwork, and 8-3's Clockwork Crushers lost its glass behind the portal. The trailer's own poses and cinematics, half-second live takes at 60 fps per variant. 2-1: pt-rest = the traced copy at the rest pose (plugin._displace=0, what static-batched water had before the lift), pt-flat = trace and overlay both at the rest pose (if the game displaces the batched water, this clips too). 8-3: pt-noglass = no far-side glass layer (before). docs/reflections.md 'Static-batched displaced water', docs/portals.md 'Water and glass through portals'.",
+  "Scenarios": [
+    {
+      "Name": "2-1 water",
+      "Scene": "Level 2-1",
+      "Path": { "Type": "static", "Approach": "../recordings/u1118-2-1-1.json", "Duration": 1 },
+      "Modes": [ "pathtrace+ptx.scaleRR=1" ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-2-1-water.json",
+        "Fps": 60.0, "TimeScale": 1, "Preroll": 90, "OutputScale": 0.5, "Encode": false, "Render": false,
+        "Takes": [
+          { "Name": "off", "Mode": "off", "Start": 6.0, "Seconds": 0.5 },
+          { "Name": "pt", "Mode": "live", "Start": 6.0, "Seconds": 0.5, "View": "pathtrace+ptx.scaleRR=1" },
+          { "Name": "pt-rest", "Mode": "live", "Start": 6.0, "Seconds": 0.5, "View": "pathtrace+ptx.scaleRR=1+plugin._displace=0" },
+          { "Name": "pt-flat", "Mode": "live", "Start": 6.0, "Seconds": 0.5, "View": "pathtrace+ptx.scaleRR=1+plugin._displace=0+trans.overlayDisplace=0" }
+        ]
+      }
+    },
+    {
+      "Name": "8-3 crushers",
+      "Scene": "Level 8-3",
+      "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/v5c-8-3-crushers.json", "Duration": 1 },
+      "Modes": [ "pathtrace+ptx.scaleRR=1" ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-8-3-crushers.json",
+        "Fps": 60.0, "TimeScale": 1, "Preroll": 90, "OutputScale": 0.5, "Encode": false, "Render": false,
+        "Takes": [
+          { "Name": "off", "Mode": "off", "Start": 3.0, "Seconds": 0.5 },
+          { "Name": "pt", "Mode": "live", "Start": 3.0, "Seconds": 0.5, "View": "pathtrace+ptx.scaleRR=1" },
+          { "Name": "pt-noglass", "Mode": "live", "Start": 3.0, "Seconds": 0.5, "View": "pathtrace+ptx.scaleRR=1+trans.portalGlass=0" },
+          { "Name": "relight", "Mode": "live", "Start": 3.0, "Seconds": 0.5, "View": "relight" }
+        ]
+      }
+    }
+  ]
+}
