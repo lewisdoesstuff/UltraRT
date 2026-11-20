@@ -97,6 +97,12 @@
       "intensity": 1.5,
       "range": 1.5,
       "note": "Gabriel's own light (6-2's intro: blue, x5, range 10) reaches the floor under him and the organ wall behind, as his wings suggest (user, playtest 2026-11-18). x1.5 lights the wall about as the game's frame does."
+    },
+    "fixture:eye": {
+      "reach": 0,
+      "intensity": 1.0,
+      "medium": 1.0,
+      "note": "The giant eyes' spot lights (rule 'eye beam lights'): at the game's strength, as a room's key light, not the punch's x2.5 (as fixture:orb they lifted 3-1's Stairways 2.65 EV over the game; 2026-11-20, t3/3-1-staircase-brightness). medium 1: the haze range weight decides their air (a level can raise it: Level 3-1.json)."
     }
   },
   "rules": [
@@ -368,6 +374,13 @@
         "lifted"
       ],
       "class": "fixture:torch"
+    },
+    {
+      "name": "eye beam lights",
+      "path": "(^|/)(EyeWithSocket|EyeballParent)[^/]*/Eyeball/Spot Light$",
+      "type": "spot",
+      "class": "fixture:eye",
+      "note": "The giant eyes' spot lights (3-1's circular arena, bridge arena and Stairways; 3-2's opening eye). The eyeball counts as an orb fixture, so 'statue orb' below took them as fixture:orb at the punch x2.5. Policy: class fixture:eye."
     },
     {
       "name": "statue orb",
