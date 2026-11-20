@@ -12,6 +12,7 @@ everything is derived from each light's colour, intensity and range, plus a few 
 | White point | `-ultrart-relight-white` | 3 | shoulder tone map in the denoiser's composite: values below the knee are untouched, the white point maps to 1, so hotspots roll off instead of clipping |
 | Tone curve | `-ultrart-relight-tonemap` | `film` (was `lum` until 2026-11-18) | `film[,K]`: the luminance shoulder, then a highlight rolloff to white (K 0.8, see "Highlight rolloff"); `lum` scales by luminance alone (the original curve: a saturated colour clips per channel); `max` scales by the largest channel (keeps hue and saturation, never clips below the white point, but dims hot saturated colours such as torch-lit orange walls a little) |
 | Knee | `-ultrart-relight-knee` | 0.75 | where the shoulder starts |
+| Highlight hue | `-ultrart-relight-hue F` (bench `plugin._tonemapHue=F`, Advanced setting `[Relight] HighlightHue`) | 0 (off; opt-in since 2026-11-20) | `film` only: hot red highlights turn up to F x 20 degrees towards orange as the rolloff whitens them, instead of pink; see "Highlight hue" |
 | Toe | `-ultrart-relight-toe S[,END]` | 0.6 (end 0.25) since 2026-11-18 ("punch", docs/lighting-overrides.md; 0 before) | filmic toe below END: luminance v becomes `lerp(v, v^2/END * (2 - v/END), S)` (same value and slope at END, slope 1 - S at black), for deeper shadows. At 0.3 it changed the bench poses' means by under 2%; at 0.6 it takes about a third off the lift of the pixels the game leaves black |
 | Auto exposure | `-ultrart-relight-autoexposure on\|off` | on | see below; config `[Relight] AutoExposure`; **Ctrl+F4** toggles in game |
 | Linear transport | `-ultrart-relight-linear on\|off` | on | light transport on linear values; see "Sky and GI" |
@@ -56,6 +57,43 @@ hot; that is its light level, not the curve.
 Bench: `pathtrace+plugin._tonemapCurve=0` is the old curve, `plugin._tonemapSat=K` moves the rolloff.
 The statue orb lights are scaled x0.5 on top (docs/scene-proxies.md, "Statue orbs"). Not done yet: emissive exposure (a
 hybrid variant was on this list until the hybrid mode went on 2026-11-19). Per-area colour: see "Area colour".
+
+### Highlight hue (opt-in, 2026-11-20, `t3/tone-hue-rain-polish`)
+The `film` rolloff pulls every channel of a hot saturated pixel towards its luminance by one factor. For red that adds
+the same amount of green and blue, and red plus white reads as salmon or pink (6-2's red rooms, 0-3's corridor, the
+hot spots of 0-1's columns and 4-3's torch-lit floor). Fire and over-exposed red film go red -> orange -> white.
+
+`-ultrart-relight-hue F` (0-1, default **0 = off**: the curve is then bit-identical to `film`, the new code sits behind
+`_UltraRTTonemapHue.x > 0`) adds `UltraRTFilmWarm` after the rolloff (`UltraRTToneCurve.hlsl`):
+- only where the rolloff acted (s = e2 / e < 1), and only on red-leading colours: full from -10 to +10 degrees of hue,
+  fading to nothing at -40 (magenta) and +40 (orange-yellow); yellow, green, blue and neutral are untouched;
+- the hue turns by up to F x 20 degrees towards orange, ramping in with the desaturation (full once s <= 0.5);
+- the leading red channel and the luminance are kept exactly: green rises a little, blue falls more (its luminance
+  weight is small). So the colour keeps the saturation the rolloff left it, or gains a little; it never goes towards
+  white, and every channel stays monotonic along a brightening gradient (checked numerically on red, deep red, orange,
+  pink, magenta-red and skin ramps: the largest backward step is 0.007 in blue, where blue reaches 0).
+- The HDR gain map calls the same function with the display peak as the top (docs/hdr.md), so SDR and HDR agree; the
+  water/glass overlay, lit particles and viewmodel share it through `UltraRTToneCurve`.
+
+Measured 2026-11-20 (`bench/suites/tone-hue.json`: 6-2 start, 6-2 pose 3, 0-1 pose 1, 0-3 pose 2, 7-3 tree room, 4-3
+first room x2 views; pathtrace, 1440p, alt; `bench/results/20261120-151427_tone-hue_alt`, sheets in
+`bench/results/review/tone-rain-polish/`: `tone-hue-crops.png` = film / 0.5 / 1 at the most-changed spot of each view,
+`tone-hue-punch.png`, `swatches3.png` = the curve on synthetic ramps). Exposure and the game match were the same in
+all three modes of each view (within 0.01 EV). `tools/lights/punch.py --per-view`, median over the 7 views:
+
+| Mode | hi% (game 1.0) | p95 | sat | chroma | contrast | dark delta |
+|---|---|---|---|---|---|---|
+| film (shipped) | 1.0 | x1.16 | x0.95 | x1.16 | x0.84 | +5.7 |
+| hue 0.5 | 1.0 | x1.17 | x0.96 | x1.16 | x0.84 | +6.6 |
+| hue 1 | 1.0 | x1.17 | x0.96 | x1.16 | x0.85 | +6.8 |
+
+Punch is unchanged (only hue inside highlights moves); saturation is up slightly. The dark delta moves only in 6-2
+start (+5.7 -> +6.6 / +6.8, the view that sets the median): the pixels the game leaves black are not in the rolloff, so
+that is the room changing between captures, not the curve. On the red-hot pixels (R > 200, leading G and B by 30) the
+mean G - B gap (8-bit) goes film / 0.5 / 1: 0-3 pose 2 9.4 / 21.2 / 29.8, 0-1 pose 1 40.3 / 47.3 / 58.6, 4-3 view 0
+42.5 / 61.2 / 78.1, 6-2 pose 3 0.0 / 4.2 / 7.2. By eye: 0.5 turns the salmon cores of 0-3's corridor, 6-2's lit floor
+and 0-1's columns red-orange while they stay saturated; 1 makes 4-3's torch floor and 0-1's columns clearly
+orange-amber. **Proposed for the user's sign-off: 0.5.** It stays off until then (it overlaps the trailer's look).
 
 ## Auto exposure
 Physical falloff plus a sun makes outdoor areas several times brighter than torch-lit rooms (mean scene luminance about

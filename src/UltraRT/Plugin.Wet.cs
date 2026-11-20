@@ -18,6 +18,10 @@ namespace UltraRT
         public float puddleSize = 5f;
         /// <summary>How much the raindrop rings tilt the water surface.</summary>
         public float ripples = 1f;
+        /// <summary>Largest tilt of the ripple normal, about radians (0.12 = 7 degrees; docs/vfx.md "Rain", 2026-11-20).</summary>
+        public float rippleTilt = 0.12f;
+        /// <summary>Bench A/B (wet.ripplesOld=1): the ripples of 2026-11-15, which drew dark stamped rings on P-2's street.</summary>
+        public bool ripplesOld;
         /// <summary>Width of a puddle's edge in units of the puddle noise (0.12 = the hard outline of 2026-11-14).</summary>
         public float puddleEdge = 0.12f;
         /// <summary>A wetter margin around each puddle, this wide in noise units: the floor there is as wet as it gets
@@ -82,6 +86,7 @@ namespace UltraRT
         private readonly WetSettings _wetSettings = new WetSettings();
         private static readonly int WetId = Shader.PropertyToID("_UltraRTWet");
         private static readonly int Wet2Id = Shader.PropertyToID("_UltraRTWet2");
+        private static readonly int Wet3Id = Shader.PropertyToID("_UltraRTWet3");
         private BloodWet _bloodWet;
         private float _bloodNextLog;
 
@@ -138,6 +143,8 @@ namespace UltraRT
             Shader.SetGlobalVector(Wet2Id, s.soft
                 ? new Vector4(0.4f, 0.3f, 0.15f, 1f)
                 : new Vector4(Mathf.Clamp(s.puddleEdge, 0.01f, 1f), Mathf.Clamp01(s.puddleMargin), Mathf.Clamp01(s.wetRoughness), Mathf.Clamp01(s.wetWeight)));
+            // x the 2026-11-15 ripples (A/B), y largest ripple tilt.
+            Shader.SetGlobalVector(Wet3Id, new Vector4(s.ripplesOld ? 1f : 0f, Mathf.Clamp(s.rippleTilt, 0f, 1f), 0f, 0f));
         }
     }
 }

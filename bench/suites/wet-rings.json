@@ -1,0 +1,12 @@
+{
+  "Name": "wet-rings",
+  "Note": "Rain ripples (docs/vfx.md, 'Rain', 2026-11-20): P-2's street and puddle with the 2026-11-15 ripples (wet.ripplesOld=1) and the new ones, rain wetness off for reference; 5-2's storm sea as shipped.",
+  "Scenarios": [
+    { "Name": "P-2 street", "Scene": "Level P-2", "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Duration": 5 },
+      "Modes": [ "off", "pathtrace+wet.ripplesOld=1", "pathtrace", "pathtrace+wet.ripples=0" ], "Screenshots": [ 2.5 ], "ShotSettle": 1 },
+    { "Name": "P-2 puddle", "Scene": "Level P-2", "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Position": [ 6, -18.5, 41.5 ], "Yaw": 32, "Pitch": -22, "Duration": 6 },
+      "Modes": [ "off", "pathtrace+wet.ripplesOld=1", "pathtrace", "pathtrace+wet.ripples=0" ], "Screenshots": [ 3 ], "ShotSettle": 1 },
+    { "Name": "5-2 sea", "Scene": "Level 5-2", "Path": { "Type": "static", "Approach": "../recordings/5-2-water-1115.json", "Duration": 4 },
+      "Modes": [ "off", "pathtrace", "pathtrace+wet.rain=0" ], "Screenshots": [ 2 ], "ShotSettle": 1 }
+  ]
+}

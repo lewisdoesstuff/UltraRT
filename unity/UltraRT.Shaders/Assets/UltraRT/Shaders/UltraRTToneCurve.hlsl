@@ -1,5 +1,6 @@
 // Relight's tone curve (docs/relight.md), shared by the denoiser's Composite (UltraRTExposure.hlsl) and the water/glass
-// reflection overlay (TransparentOverlay.shader) so both always use the same curve. Plain functions, no resources.
+// reflection overlay (TransparentOverlay.shader) so both always use the same curve. Plain functions, no resources (one
+// global float4, _UltraRTTonemapHue, below).
 //
 //   white   luminance (or max channel) that maps to 1; <= 0 = no tone map (values are only saturated by the caller)
 //   params  x curve (0 = luminance shoulder, 1 = max-channel shoulder, 2 + k = film: the luminance shoulder plus the
@@ -24,6 +25,40 @@
 //   is rolled off towards top - L and all three channels are pulled towards L by the same factor. Luminance and hue
 //   are kept, no channel passes top, and the hotter the pixel the whiter it gets, so a gradient in the light stays a
 //   gradient in the image. Neutral colours and anything below k of its room are bit-identical to curve 0.
+//   Highlight hue (opt-in, docs/relight.md "Highlight hue"): see UltraRTFilmWarm.
+
+// Highlight hue strength, x 0..1 (0 = off: the rolloff is bit-identical to the curve without it). A global float4, set by
+// Plugin.Exposure.cs next to _UltraRTTonemapParams; the only one this file reads.
+float4 _UltraRTTonemapHue;
+
+// Highlight hue: the rolloff pulls a red highlight straight towards its luminance, and red plus white reads as pink or
+// salmon. Hot red light on film and on the eye goes red -> orange -> white instead. Here a red-leading colour (hue -40 to
+// 40 degrees, full from -10 to 10) that the rolloff desaturated by 1 - s turns its hue up to `strength` x 20 degrees
+// towards orange (full once s <= 0.5). The leading red channel and the luminance are kept exactly: green rises and blue
+// falls, so the colour stays as saturated as the rolloff left it, or a little more (never washed out towards white), and
+// a gradient stays monotonic in every channel. Nothing changes where the rolloff did not act (s = 1).
+float3 UltraRTFilmWarm(float3 c, float l, float s, float strength)
+{
+    if (c.r < max(c.g, c.b)) return c;
+    float q = (c.g - c.b) / max(c.r - min(c.g, c.b), 1e-6); // signed hue / 60 degrees in the red sector
+    float w = saturate((60.0 * q + 40.0) / 30.0) * saturate((40.0 - 60.0 * q) / 30.0);
+    float dq = strength * (20.0 / 60.0) * w * saturate((1.0 - s) * 2.0);
+    if (dq <= 0.0) return c;
+    float qt = q + dq, lp = l - 0.2126 * c.r, g, b;
+    if (qt >= 0.0)
+    {
+        b = max((lp - 0.7152 * qt * c.r) / (0.7152 * (1.0 - qt) + 0.0722), 0.0);
+        g = b > 0.0 ? b + qt * (c.r - b) : lp / 0.7152;
+    }
+    else
+    {
+        float a = -qt;
+        g = max((lp - 0.0722 * a * c.r) / (0.7152 + 0.0722 * (1.0 - a)), 0.0);
+        b = g > 0.0 ? g + a * (c.r - g) : lp / 0.0722;
+    }
+    return float3(c.r, clamp(g, 0.0, c.r), clamp(b, 0.0, c.r));
+}
+
 float3 UltraRTFilm(float3 c, float top, float white, float4 params, bool toe)
 {
     float knee = params.y > 0.0 ? params.y : 0.75;
@@ -52,6 +87,7 @@ float3 UltraRTFilm(float3 c, float top, float white, float4 params, bool toe)
         float rest = (1.0 - k) * h, y = e - k * h;
         float e2 = k * h + (rest > 1e-6 ? rest * y / (y + rest) : 0.0);
         c = l + (c - l) * (e2 / e);
+        if (_UltraRTTonemapHue.x > 0.0) c = UltraRTFilmWarm(c, l, e2 / e, _UltraRTTonemapHue.x);
     }
     return c;
 }

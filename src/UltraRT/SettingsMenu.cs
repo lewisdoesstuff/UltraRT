@@ -140,6 +140,7 @@ namespace UltraRT
             m.Bool("Relight", "SkyGI", "Sky + linear light  [Ctrl+F5]", () => _skyGI, v => { _skyGI = v; _denoiser?.Reset(); _lightSampling?.Reset(); });
             m.Bool("Relight", "SkySampling", "Sample the sky directly", () => _skySampling, v => { _skySampling = v; _denoiser?.Reset(); _lightSampling?.Reset(); }, "-ultrart-sky-sampling");
             m.Float("Relight", "SkyScale", "Sky light", 0f, 3f, 2, () => _skyScale, v => _skyScale = v, "-ultrart-sky-scale");
+            m.Float("Relight", "HighlightHue", "Hot reds turn orange, not pink (0 = off)", 0f, 1f, 2, () => _tonemapHue, v => _tonemapHue = Mathf.Clamp01(v), "-ultrart-relight-hue");
             m.Bool("Lighting", "EmissiveLights", "Emissive lighting  [F5]", () => _emissiveSettings.enabled, v =>
             {
                 _emissiveSettings.enabled = v;
