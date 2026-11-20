@@ -387,6 +387,7 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 | bench `trans.overlayDisplace` (the overlay follows the game's vertex displacement) | on |
 | `-ultrart-nostaticlift` (static-batched displaced water stays a rest-pose slot of its static group) | lifted, displaced (since 2026-11-20) |
 | bench `trans.portalGlass`, `trans.portalGlassStrength`, `trans.portalGlassHits` (water and glass behind portals, docs/portals.md section 13) | on, 1, 2 (since 2026-11-20) |
+| `-ultrart-water-absorb X` (bench `trans.waterAbsorb`; Beer-Lambert absorption of what shows through water, per metre; 0 = off) | 0.35 (since 2026-11-20, "Water absorption" below) |
 
 F0 is 0.12 (water) and 0.08 (glass), above the physical 0.02/0.04: the game's water and glass textures are bright and fairly opaque, and at physical strength the reflection only showed at grazing angles. GPU timer slot `prealpha`: the colour copy. The trace itself is part of `dispatch`.
 
@@ -646,6 +647,40 @@ the game's displaced surface lies above the rest plane, which is the evidence th
 water. 2-1 lifts 2 slots (32 and 60 vertices); 8-3 has 2 static-batched water slots without the keyword (nothing to
 lift). Cost: two more small DynamicGeometry BLAS in 2-1 while within 40 m; not measured separately.
 
+### Water absorption (2026-11-20, `t3/water-absorption-caustics`)
+
+The game blends its water colour over the background, `W a + B (1 - a)`, the same at every depth, and our relit floor
+under it is brighter than the game's, so deep pools read as shallow and evenly lit (7-1's pool: the game's floor is
+black, relight's a light grey slab). The overlay's `Absorb` pass (multiplicative, before `Reflect`) now also runs on
+water (`_Kind` 1) as Beer-Lambert absorption over the path to the game's opaque depth:
+
+- path = (scene eye depth - water eye depth) x distance / eye depth (the length of the view ray inside the water, so a
+  grazing look crosses more), capped at 20 m; the water's eye depth is now taken from the **displaced** vertex (the
+  overlay's `o.eye` came from the rest pose before; the refraction passes use it too), so 6-2/2-1's waves don't open
+  gaps against the game's displaced depth;
+- T = lerp(deep, 1, exp(-sigma x path)), deep = floor x hue, hue = the water's average colour (its texture at mip 8 x
+  `_Color`, normalised to its largest channel, `waterAbsorbTint` of the way from white);
+- dst x (1 - k (1 - T)), k = (1 - a) x fog visibility x the LIMBO_WATER_FADE coverage: only the share the game lets
+  through is absorbed, the game's own surface colour stays.
+
+Shallow edges (a few cm) stay clear, deep water darkens and takes the water's hue, and it never brightens, so darks
+stay dark. A deep-water floor of 0.35 stands in for in-scattered light (the water itself lit). Left out: red "water"
+(average colour r > 1.5 x max(g, b): 6-2's blood pools keep their look), blood (`_Kind` 2, its own absorption above),
+glass, water seen from below (the game's underwater look), portal glass (it is a layer of the traced hit, docs/portals.md
+section 13). At 8-2's pool the game's depth at portal pixels is the portal plane 0.2 m below, so the upside-down street
+dims only slightly (about 0.5 m of path at an oblique view).
+
+| Setting | Default |
+|---|---|
+| Strength: sigma per metre of path (`[Effects] WaterAbsorption`, Advanced page; `-ultrart-water-absorb X`; bench `trans.waterAbsorb=X`; 0 = off, as before) | 0.35 |
+| bench `trans.waterAbsorbFloor` (transmittance of very deep water), `trans.waterAbsorbTint` (how much of the water's hue), `trans.waterAbsorbMaxPath` (m) | 0.35, 0.6, 20 |
+
+Measured (runs of docs/caustics.md section 6; mean 0-255 over the water, pathtrace / relight, off -> on): 7-1 pool from
+above 19.9 -> 16.4 / 63.4 -> 58.9 (the game: 15.6), 2-1 channel 29.1 -> 26.9 / 29.5 -> 29.0, 1-3 water hall 131.5 ->
+120.5 / 131.6 -> 121.1. The 2-1 channel reads a little deeper and bluer, its shallow sides unchanged (`crop_2-1.jpg`).
+Cost: one more fragment pass on visible water (it shares the `Absorb` pass); with the ripple caustics, under 0.06 ms
+GPU total at the three poses measured (docs/caustics.md section 6, "Cost").
+
 ### Limits
 
 - **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF then, 0x6F now: `ULTRART_MASK_SCENE`) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.
@@ -653,7 +688,7 @@ lift). Cost: two more small DynamicGeometry BLAS in 2-1 while within 40 m; not m
 - **Game geometry vs. RT mesh**: SCROLLING UVs are not reproduced on water/glass (LIMBO_WATER_FADE is, see above), so the alpha estimate ignores scrolling; opaque scrolling surfaces (5-2's sea) do scroll since 2026-11-15 (docs/scene-proxies.md, "Scrolling textures"). VERTEX_DISPLACEMENT waves are, since 2026-11-15, and on static-batched water and glass since 2026-11-20 ("Static-batched displaced water"; docs/scene-proxies.md, "Vertex displacement"). The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
 - **The game's own cubemap stays** on REFLECTION water (`Water 10A-D`, `1C`, `6 Still/Reflection`, `Limbo Water ... V2Arena`), on top of ours. For opaque materials it is removed (section 7), but here it is baked into the game's transparent draw.
 - **Renderers whose last material slot is not water/glass** get no overlay (logged as `without overlay`). Unity repeats only the last submesh for an extra material.
-- **Total internal reflection, physical caustics, glass thickness**: not done (frosted glass is, see "Late playtest fixes"). Glass is a single mirror-Fresnel surface with no refraction. What refracts where today and the options: [caustics.md](caustics.md). The game's own caustic pattern (5-1) is traced since 2026-11-19 (caustics.md, section 5).
+- **Total internal reflection, glass thickness**: not done (frosted glass is, see "Late playtest fixes"). Glass is a single mirror-Fresnel surface with no refraction. What refracts where today and the options: [caustics.md](caustics.md). The game's own caustic pattern (5-1) is traced since 2026-11-19 (caustics.md, section 5); caustics of our ripples on what lies under water since 2026-11-20 (caustics.md, section 6, an analytic factor, not traced light).
 - **Relight tone mapping** is replicated in the overlay (`Tonemap`, from `Denoise.compute`). If the exposure/tone-mapping work changes that curve, update both.
 - Water/glass are now invisible to shadow, bounce, reflection and cache rays (mask 0xEF at the time, now `ULTRART_MASK_SCENE` 0x6F). Before, they were absent from the RTAS, except the two queue-2999 glass materials, which were traced as opaque cutouts and cast RT shadows. Those no longer do.
 

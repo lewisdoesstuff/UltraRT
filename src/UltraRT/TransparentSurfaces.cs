@@ -64,6 +64,12 @@ namespace UltraRT
         public bool portalGlass = true;
         public float portalGlassStrength = 1f;
         public int portalGlassHits = 2;
+        /// <summary>-ultrart-water-absorb X / bench trans.waterAbsorb: Beer-Lambert absorption of what shows through water
+        /// (overlay pass Absorb), sigma per metre of path to the game's opaque depth; 0 = off (as before 2026-11-20).
+        /// Deep water tends to <see cref="waterAbsorbFloor"/> x the water's hue (<see cref="waterAbsorbTint"/> = how much
+        /// of its hue), paths are capped at <see cref="waterAbsorbMaxPath"/> m (docs/reflections.md, "Water absorption").</summary>
+        public float waterAbsorb = 0.35f;
+        public float waterAbsorbFloor = 0.35f, waterAbsorbTint = 0.6f, waterAbsorbMaxPath = 20f;
     }
 
     /// <summary>

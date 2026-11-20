@@ -17,6 +17,8 @@ namespace UltraRT
     ///   -ultrart-water-refraction X       screen-space refraction strength (default 1, 0 = off)
     ///   -ultrart-caustics X               the game's water caustics in the traced modes (default 2, 0 = off; docs/caustics.md)
     ///   -ultrart-caustics-noshadow        caustics without their shadow ray (as the game draws them)
+    ///   -ultrart-ripple-caustics X        caustics of our water ripples on what lies under water (default 1, 0 = off)
+    ///   -ultrart-water-absorb X           water absorption, sigma per metre of path (default 0.35, 0 = off)
     /// F4 (reflections) switches the pass too.
     /// </summary>
     public partial class Plugin
@@ -30,6 +32,7 @@ namespace UltraRT
         private static readonly int TransFogId = Shader.PropertyToID("_UltraRTFog");
         private static readonly int TransWaterId = Shader.PropertyToID("_UltraRTWater");
         private static readonly int PreAlphaId = Shader.PropertyToID("_UltraRTPreAlpha");
+        private static readonly int WaterAbsorbId = Shader.PropertyToID("_UltraRTWaterAbsorb");
 
         private TransparentSettings TransparentCfg => SceneProxies.Transparents;
         private RenderTexture _preAlpha;
@@ -54,6 +57,8 @@ namespace UltraRT
                     case "-ultrart-water-refraction": s.refraction = F(s.refraction); break;
                     case "-ultrart-caustics": SceneProxies.Caustics.strength = F(SceneProxies.Caustics.strength); break;
                     case "-ultrart-caustics-noshadow": SceneProxies.Caustics.shadows = false; break;
+                    case "-ultrart-ripple-caustics": SceneProxies.Caustics.ripple = F(SceneProxies.Caustics.ripple); break;
+                    case "-ultrart-water-absorb": s.waterAbsorb = F(s.waterAbsorb); break;
                 }
             }
         }
@@ -144,6 +149,8 @@ namespace UltraRT
             _cmd.SetGlobalVector(TransWaterId, _transWater);
             _cmd.SetGlobalFloat(TransDisplaceId, s.overlayDisplace ? 1f : 0f); // overlays on displaced water follow the waves
             _cmd.SetGlobalVector(TransParamsId, new Vector4(s.strength, s.maxWeight, _relightActive ? _relightWhite : 0f, 0f));
+            // Water absorption (overlay pass Absorb; docs/reflections.md, "Water absorption").
+            _cmd.SetGlobalVector(WaterAbsorbId, new Vector4(Mathf.Max(s.waterAbsorb, 0f), Mathf.Clamp01(s.waterAbsorbFloor), Mathf.Clamp01(s.waterAbsorbTint), Mathf.Max(s.waterAbsorbMaxPath, 0.1f)));
             float mode = !RenderSettings.fog ? 0f : RenderSettings.fogMode == FogMode.Linear ? 1f : RenderSettings.fogMode == FogMode.Exponential ? 2f : 3f;
             _cmd.SetGlobalVector(TransFogId, new Vector4(mode, RenderSettings.fogStartDistance, RenderSettings.fogEndDistance, RenderSettings.fogDensity));
             _transTraced = refract;

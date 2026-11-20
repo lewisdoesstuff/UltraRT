@@ -126,7 +126,7 @@ Suites in `bench/suites` play scripted scenarios (static poses, sweeps, recorded
 | [docs/particles.md](docs/particles.md) | Lit smoke, dust, debris and blood spray |
 | [docs/vfx.md](docs/vfx.md) | Bloom, heat haze, shockwaves, soft particles, underwater, rain and wet blood |
 | [docs/lava.md](docs/lava.md) | Lava and acid as ray-traced emitters |
-| [docs/caustics.md](docs/caustics.md) | Water caustics and refraction: how the game draws its caustics (5-1), the traced version of its pattern (shadowed, as emission; settings, cost), options for physical caustics and refraction |
+| [docs/caustics.md](docs/caustics.md) | Water caustics and refraction: how the game draws its caustics (5-1), the traced version of its pattern (shadowed, as emission; settings, cost), options for physical caustics and refraction, ripple caustics under water (analytic, on the albedo) |
 | [docs/viewmodel.md](docs/viewmodel.md) | The first-person gun and arms, lit by the ray tracer |
 | [docs/aliasing.md](docs/aliasing.md) | Aliasing per view mode measured against supersampled references (edges, thin geometry, specular, motion), MSAA probe, which AA would help |
 | [docs/cinematics.md](docs/cinematics.md) | Free camera, camera paths, offline renderer, bench cinematic scenarios |

@@ -1,4 +1,4 @@
-# Water caustics and refraction (research and implementation, 2026-11-19)
+# Water caustics and refraction (research and implementation, 2026-11-19; ripple caustics 2026-11-20)
 
 **Since 2026-11-19 (branch `t3/caustics-volumes-water-check`) the game's caustics are traced**: option (a) below, with
 its shadow ray, in relight and pathtrace; see section 5. Sections 1-4 are the research as it was written (branch
@@ -204,7 +204,8 @@ finds the main root; it misses the extra roots of strongly focusing water, so it
    against `off` with this suite (`off` vs `pathtrace`, mean luma and the frame-difference images).
 2. **Later, for physical water caustics**: (e) with a single seed, or its cheaper cousin (b), as a factor on the light
    that reaches a surface through or off a water plane, starting with underwater floors (1-3, 8-2, 7-1, 2-1). Give the
-   caustic term its own steeper wave set. Do (e) together with traced refraction, since both need light/shadow rays that
+   caustic term its own steeper wave set. (Done for (b) on 2026-11-20, as a factor on the albedo with a gain on the
+   reflection's own waves: section 6.) Do (e) together with traced refraction, since both need light/shadow rays that
    refract at the water surface.
 3. Skip (c) and (d): more dispatches, memory and noise than this game's flat, calm water needs.
 
@@ -332,10 +333,104 @@ bridge) and `caustics-iso.json` (auto exposure off, strength 4, game sequence). 
 Nothing is spent on pixels without a CAUSTICS material (a branch on the proxy's `_Caustics`), and no new dispatch or
 binding (the payload is unchanged at 64 bytes).
 
+## 6. Ripple caustics under water (2026-11-20, `t3/water-absorption-caustics`)
+
+Option (b) of section 3, in its per-pixel form, next to the game's pattern of section 5 (both stay on; they meet only
+where a CAUSTICS wall also lies under a water plane, the 5-1 shaft's pool floor). Files: `UltraRTWater.hlsl`
+(`WaterRippleField`, `WaterRippleCaustic`, the wave table `kWaterWaves` now shared with the reflection normal),
+`PathTrace.raytrace` (`RippleCausticAt`, applied in `RayGenBody`), `SceneProxies.Caustics.cs` (`UpdateRippleCaustics`,
+the water planes), `SceneProxies.Transparent.cs` (registration).
+
+### What is computed
+
+- **Where**: at camera hits under an active water surface. Each frame the plugin packs the nearest 16 active water
+  renderers (dynamic, static-batched and lifted static ones; within the ripples' fade distance + 5 m) into the global
+  `_UltraRTWaterPlanes` as horizontal planes from their renderer bounds: the top is the surface; a thin plane (bounds
+  under 1 m tall) lights receivers down to `rippleDepth` (6 m), a water box only inside itself (bottom - 0.25 m). Red
+  "water" (colour r > 2 x max(g, b): 6-2's blood pools, `Water 5`) is left out; 1-3's pinkish `Water 2` (1, 0.73, 0.73)
+  is kept. Nothing while the camera is in water (`InsideWater`): the underwater screen effect draws its own caustics
+  there (docs/vfx.md, "Underwater"). The loop reads one float4 per plane and the second only inside its rectangle.
+- **The focusing**: light from straight above, refracted (n 1.33) at the ripple height field of the four waves the
+  reflection uses (`kWaterWaves`, same dispersion and clock `_UltraRTWater.y`, scaled by the same ripple strength
+  `_UltraRTWater.x`, so a level's `waterWaves` calms both). A surface point x lands at X = x + q grad h(x), q =
+  depth x (1 - 1/1.33); the irradiance is 1 / |det(I + q H)|. The source point of a receiver is found by two fixed-point
+  steps (single root), and the fold singularity is softened: `sqrt(1 + eps^2) / sqrt(det^2 + eps^2)`, eps = 0.22 +
+  0.04 x depth (a light of finite size blurs the lines with depth) + 4 x the texel's footprint (m). The numerator makes
+  flat water exactly 1 at any eps, so a wide footprint or a steep wall fades the pattern to 1, not darker. Waves shorter
+  than 6 footprints drop out first, as in the reflection's band limit.
+- **Gain**: our ripples are tuned for the reflection (slopes up to ~0.15) and alone would focus only 7 m down (section
+  3). `rippleGain` 4 multiplies the focusing; depth x gain x ripple strength is soft-limited at 8
+  (`8 tanh(z / 8)`), because beyond it the single root shows blobs instead of lines (offline prototype, scratch). The
+  pattern then keeps its line network at any depth and only blurs.
+- **Normalised**: caustics move light, they don't add it. Measured offline (300 m x 300 m of the field, gains 2-6) the
+  factor averages 1.00 shallow and 0.93 at 6 m; it is divided by `1 - 0.0115 x depth`. In game the mean brightness of
+  1-3's water-hall floor changed by 0.8 % with and without (pathtrace 120.5 / 119.6, 0-255).
+- **Weight**: strength x fade in from the surface over 0.15 m x fade out over the last 40 % of `rippleDepth` x the
+  ripples' view fade (60 m) x `saturate(0.35 + n.y)` (floors in full, walls at a third since the projection is vertical,
+  nothing on faces looking down) x the hit's lit weight (fullbright surfaces get none).
+
+### How it is applied: a factor on the albedo
+
+`albedo *= lerp(1, factor, weight)` at the primary hit, before the portal-glass layers and the pack. Like a texture,
+it multiplies whatever light reaches the hit (direct with its shadows, sky, bounce), so a shadowed floor shows the
+pattern only as bright as its light. Both denoisers and DLSS RR demodulate by albedo, so the lines stay sharp and move
+without lag; a factor on the lighting would have been blurred by the UltraRT denoiser's spatial filter and smeared by
+RR's history as it moves (section 3's caveat). No ray, no noise. Approximations: the light is taken as coming straight
+down for every light (oblique lamps would shift the pattern), and ambient and bounce light are focused as well (real
+caustics from a diffuse sky are weaker). The albedo is 8-bit, so a line on an albedo above about 0.5 saturates at 1.
+Only camera hits get it: reflections and bounce rays see the floor without it.
+
+### Settings
+
+| Setting | Default | Where |
+|---|---|---|
+| Strength (`[Effects] RippleCaustics`, `-ultrart-ripple-caustics X`, bench `caustics.ripple=X`) | 1, 0 = off | Advanced page, Effects |
+| Gain, deepest receiver, planes per frame (bench `caustics.rippleGain`, `caustics.rippleDepth`, `caustics.ripplePlanes`) | 4, 6 m, 16 | bench only |
+
+Log: `Ripple caustics: N water plane(s) of M, nearest surface y Y over x .. z .., receivers down to y ..` when the
+count changes.
+
+### Validation (alt, 2560x1440, 2026-11-20)
+
+Suites `bench/suites/water-absorb-caustics.json` (8 scenarios: 1-3 start water, 2-1 channel, 7-1 pool, 8-2 pool, 1-4
+bridge strips, 5-1 shaft; off / both features off / on, in relight and pathtrace, plus each feature alone off) and
+`water-absorb-caustics2.json` (second pass after the fixes below; 7-1 from above; a 6-frame pathtrace sequence on the
+5-1 pool). Runs `bench/results/20261120-151924_water-absorb-caustics_alt` and `20261120-152741_water-absorb-caustics2_alt`;
+sheets (gitignored) in each run's `sheets/`: `<scenario>.jpg` (every mode), `crop_5-1_water.jpg`, `crop_2-1*.jpg`,
+`crop_7-1.jpg`, `crop_1-3.jpg`, `seq_5-1_floor.jpg`, `diff_ripple_*.png` (pathtrace on minus ripple off, x8).
+
+- **5-1 shaft pool** (the clearest case, floor ~1 m under `Water 3 Calm`): a soft network of light lines on the pool
+  floor in relight and pathtrace, none before. Over six pathtrace frames the lines drift with the ripples and stay
+  whole: no sparkle or speckle (`seq_5-1_floor.jpg`). Relight shows them a little stronger than pathtrace (RR softens
+  the moving lines slightly). The game's own wall pattern (section 5) is unchanged (`5-1_shaft_E.jpg`).
+- **2-1 channel**: soft streaks along the channel floor, stretched by the grazing view (`diff_ripple_2-1_water_2.5s.png`).
+  The first build darkened a rim along the shore: steep faces had a wide footprint, so a wide eps, and the old
+  `1 / sqrt(det^2 + eps^2)` fell below 1 even on flat water. Fixed by the `sqrt(1 + eps^2)` numerator (second run: no
+  rim, `crop_2-1_shore.jpg`).
+- **1-3 water hall**: the first build left 1-3 out (its `Water 2` is tinted (1, 0.73, 0.73) and the red filter was
+  r > 1.2 x max(g, b)); with r > 2 x it has caustics, subtle at this pose (the floor is shallow and seen at a distance).
+- **8-2 pool**: the pool's floor is the portal to the upside-down street copy, so there is nothing to receive caustics.
+- **7-1 pool**: 11 m deep box; receivers below 6 m get none (fade).
+
+### Cost (perf hold, main, `bench/suites/water-absorb-caustics-perf.json`, run `20261120-153247_water-absorb-caustics-perf`)
+
+GPU total ms, both features off -> on (alternating 1.5 s segments; includes the water absorption pass of
+docs/reflections.md "Water absorption"):
+
+| Pose | pathtrace (RR) | relight |
+|---|---|---|
+| 5-1 shaft pool (caustic floor fills the lower half) | 4.684 -> 4.694 (+0.01) | 4.424 -> 4.461 (+0.04) |
+| 2-1 channel | 5.857 -> 5.912 (+0.06) | 5.475 -> 5.530 (+0.06) |
+| 7-1 pool from above | 5.121 -> 5.167 (+0.05) | 4.451 -> 4.481 (+0.03) |
+
+So under 0.06 ms with water filling the view, within the 0.2 ms target. No new dispatch, binding beyond one global
+buffer, or UAV.
+
 ## Files and tools
 
 - Suites: `bench/suites/caustics-5-1.json` (8 scenarios, about 1.5 min with one level load), `caustics-rt.json`,
-  `caustics-iso.json`, `caustics-perf.json` (section 5).
+  `caustics-iso.json`, `caustics-perf.json` (section 5); `water-absorb-caustics.json`, `water-absorb-caustics2.json`,
+  `water-absorb-caustics-perf.json` (section 6).
 - Game data was read offline with UnityPy (a scratch venv): materials from `materials.bundle`, scene objects from each
   `campaign_scenes_level*.bundle` (MonoScript names from `monoscript_monoscripts.bundle`), the Master shader's GLCore
   program for keyword set `CAUSTICS VERTEX_LIGHTING _FOG_ON` (platform 15 in the shader's `platforms`; the vertex

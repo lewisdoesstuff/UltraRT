@@ -83,7 +83,7 @@ namespace UltraRT
             bool twoSided = mats.Any(m => TransparentSource(m) && SourceTwoSided(m));
             AddDynamic(r, proxy, flags, mask: TransparentMask, twoSided: twoSided);
             _dynamic[_dynamic.Count - 1].ShadowMask = GlassShadowBit(flags, proxyMats); // stained glass (SceneProxies.Glass.cs)
-            if (kind == TransparentKind.Water) { _transparentWater++; _waterSources.Add(r); }
+            if (kind == TransparentKind.Water) { _transparentWater++; _waterSources.Add(r); NoteRippleWater(r); }
             if (kind == TransparentKind.Blood)
             {
                 _transparentBlood++; _waterSources.Add(r);
@@ -117,6 +117,7 @@ namespace UltraRT
             else if (kind == TransparentKind.Blood) _staticBlood++;
             else _staticGlass++;
             if (kind != TransparentKind.Glass) _waterSources.Add(r);
+            if (kind == TransparentKind.Water) NoteRippleWater(r);
             if (kind == TransparentKind.Blood)
                 foreach (var m in r.sharedMaterials) if (TransparentClassifier.Of(m) == TransparentKind.Blood) _bloodMaterials.Add(m.name);
             if (_overlays == null && OverlayShader != null) _overlays = new TransparentOverlays(OverlayShader, Transparents);
@@ -225,6 +226,7 @@ namespace UltraRT
             foreach (var m in _frostedCache.Values) if (m != null) Object.Destroy(m);
             _frostedCache.Clear();
             _waterSources.Clear();
+            _rippleWater.Clear();
             ActiveTransparent = 0;
         }
 
