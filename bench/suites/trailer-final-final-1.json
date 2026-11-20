@@ -132,7 +132,13 @@
         "Encode": false,
         "Paired": true,
         "OnFrom": 2.0,
-        "OffUntil": 4.0
+        "OffUntil": 4.0,
+        "Flickers": [
+          {
+            "Light": "Main Camera/Flashlight",
+            "On": false
+          }
+        ]
       }
     }
   ]

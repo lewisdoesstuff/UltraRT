@@ -498,3 +498,26 @@ level lights (no fixture, no lamp shade, not placed by an override, not a statue
 above its head skip V1's shadow with a probability rising to 1 at 1.5 m (flag `0 < _Lights[i*4+1].w <= 0.5`;
 `UltraRTLights.hlsl LightSkipsPlayer`; the player's own lights keep flag 1). It also removed the V1 shadow under 0-2's
 first-room light (0.9 m from the eye, the `0-2 v1 shadow a` pose), which an earlier change keeps on purpose, so it is left off.
+
+## Player lights end at the eye (2026-11-20, `t3/trailer-light-fixes`)
+
+The v5c trailer's 7-3 tree orbit (`final-7-3-tree`): about half way through, a white pool of light switched on on the wall
+behind the tree (frame mean 23 -> 50 in a third of a second, then the auto exposure pulled it back to 36). Not a game event:
+the game's own image (paired off take) stays at 22 and its game-match value at -3.12 log2 through it, while the trace jumps
+from -3.07 to -1.44; no light switched on (`-ultrart-log-light-toggles`). The pool is the game's head-mounted flashlight
+(`Player/Main Camera/Flashlight`, spot, angle 35, range 120, x4 in 7-3), which the cinematic camera carries. It hangs about
+10 m behind and 1.5 m above the eye, and the shadow rays went all the way to it, so the courtyard's walls and the tree's
+canopy *behind the camera* blocked the whole beam until the orbit moved the light clear of them. The game has no shadows:
+its pool is on the wall for the whole shot.
+
+Fix (`UltraRTLights.hlsl`, `LightShadowSetup`): a shadow ray toward one of the player's own spot lights (player-light flag
+1: the light is in the player's or the camera's hierarchy, `Plugin.FlagPlayerLights`) ends where it crosses the plane through
+the eye square to the beam (`_UltraRTPlayerEye`, the camera position, set every frame in `Plugin.Trace`). What stands in front
+of the player still shadows the light (the tree trunk casts its shadow into the pool); nothing behind the head does. Point
+lights (the eye light) and area lights are unchanged. `-ultrart-noeyeclip`, bench `plugin._playerLightEyeClip=0`: the old rays.
+
+Measured (`bench/suites/trailer-light-fixes-diag.json`, run `20261120-131605_trailer-light-fixes-diag`, 1280x720, the
+tree path over 7.8 s): frame mean 20-23 then 45 at 5.3 s without the clip, a steady 24 -> 36 with it. The 7-3 gun shot
+(forest path, the flashlight's pool ahead) is unchanged (22.9-27.2 either way), so the flashlight's x4 from "7-3: brighter"
+(docs/lighting-overrides.md) stands: its pool was dim there for another reason. Cost: one branch per shadow ray to a player
+spot light.

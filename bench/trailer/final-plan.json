@@ -42,7 +42,8 @@
       "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 1 }, "Tag": ["PRELUDE /// FIRST", "INTO THE FIRE"] },
 
     { "Kind": "sweep", "Name": "7-3 tree", "Scene": "Level 7-3", "File": "final-7-3-tree", "Bars": 5, "Off": 2.25, "Sweep": 1.5, "Slant": -0.18, "Flip": true,
-      "Path": { "Type": "static", "Approach": "../recordings/7-3-tree-b.json", "Duration": 1 }, "Tag": ["VIOLENCE /// THIRD", "NO SOUND, NO MEMORY"] },
+      "Path": { "Type": "static", "Approach": "../recordings/7-3-tree-b.json", "Duration": 1 }, "Tag": ["VIOLENCE /// THIRD", "NO SOUND, NO MEMORY"],
+      "Cinematic": { "Flickers": [ { "Light": "Main Camera/Flashlight", "On": false } ] } },
 
     { "Kind": "sweep", "Name": "P-2 hall", "Scene": "Level P-2", "File": "final-p-2-hall", "Bars": 5, "Off": 2.25, "Sweep": 1.5,
       "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Duration": 1 }, "Tag": ["PRIME /// SECOND", "WAIT OF THE WORLD"] },

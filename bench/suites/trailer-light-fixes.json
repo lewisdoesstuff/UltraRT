@@ -1,0 +1,119 @@
+{
+ "Name": "trailer-light-fixes",
+ "Note": "The v5c trailer's two lighting questions (docs/trailer.md, 'v5c light fixes'): 8-2's supermarket aisle (the arch: the game's portal views from the cinematic camera; 'before' = plugin._cinePortalSetup=0). Paired off / pathtrace takes of the whole path at 1280x720, 30 fps; -Extra -ultrart-log-light-toggles logs exposure per frame. '7-3 tree no flashlight': the trailer's 7-3 tree scenario (flashlight held off by the plan) over the whole path; the eye-clip checks are in trailer-light-fixes-diag.json.",
+ "Scenarios": [
+  {
+   "Name": "8-2 market",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Load": "checkpoint",
+    "Approach": "../recordings/v5c-8-2-island.json",
+    "Duration": 1
+   },
+   "Modes": [
+    "pathtrace"
+   ],
+   "Enemies": "blind",
+   "Cinematic": {
+    "File": "../cinematics/final-8-2-market-aisle.json",
+    "Mode": "live",
+    "Fps": 30.0,
+    "Seconds": 7.0,
+    "OutputScale": 0.5,
+    "TimeScale": 1,
+    "Preroll": 90,
+    "Encode": false,
+    "Paired": true,
+    "OnFrom": 0,
+    "OffUntil": 7.0
+   }
+  },
+  {
+   "Name": "8-2 market before",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Load": "checkpoint",
+    "Approach": "../recordings/v5c-8-2-island.json",
+    "Duration": 1
+   },
+   "Modes": [
+    "pathtrace+plugin._cinePortalSetup=0"
+   ],
+   "Enemies": "blind",
+   "Cinematic": {
+    "File": "../cinematics/final-8-2-market-aisle.json",
+    "Mode": "live",
+    "Fps": 30.0,
+    "Seconds": 7.0,
+    "OutputScale": 0.5,
+    "TimeScale": 1,
+    "Preroll": 90,
+    "Encode": false,
+    "Paired": true,
+    "OnFrom": 0,
+    "OffUntil": 7.0
+   }
+  },
+  {
+   "Name": "8-3 crushers",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Load": "checkpoint",
+    "Approach": "../recordings/v5c-8-3-crushers.json",
+    "Duration": 1
+   },
+   "Modes": [
+    "pathtrace"
+   ],
+   "Enemies": "blind",
+   "Cinematic": {
+    "File": "../cinematics/final-8-3-crushers.json",
+    "Mode": "live",
+    "Fps": 30.0,
+    "Seconds": 4.533,
+    "OutputScale": 0.5,
+    "TimeScale": 1,
+    "Preroll": 90,
+    "Encode": false,
+    "Paired": true,
+    "OnFrom": 0,
+    "OffUntil": 4.533
+   }
+  },
+  {
+   "Name": "7-3 tree no flashlight",
+   "Scene": "Level 7-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/7-3-tree-b.json",
+    "Duration": 1
+   },
+   "Modes": [
+    "pathtrace"
+   ],
+   "Enemies": "blind",
+   "Cinematic": {
+    "File": "../cinematics/final-7-3-tree.json",
+    "Mode": "live",
+    "Fps": 30.0,
+    "Seconds": 7.8,
+    "OutputScale": 0.5,
+    "TimeScale": 1,
+    "Preroll": 40,
+    "Encode": false,
+    "Paired": true,
+    "OnFrom": 0,
+    "OffUntil": 7.8,
+    "Flickers": [
+     {
+      "Light": "Main Camera/Flashlight",
+      "On": false
+     }
+    ]
+   }
+  }
+ ]
+}
