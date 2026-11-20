@@ -279,6 +279,50 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## The final trailer, v5c (2026-11-20, `trailer-final-v5c`)
+
+The user's notes on v5b, on branch `t3/trailer-v5c` with master's glints removal, 6-2 blood flicker fix and 1-4 arena
+lamps merged in (ed78e9e). Output: `bench\results\trailer\trailer-final-v5c\` (`trailer-final-final.mp4`, 2560x1440,
+60 fps, 120.84 s, 555 MB; no 1080p copy; `clips\`; `contact-v5b-v5c.jpg`: one frame per shot, v5b | v5c; `timing.txt`:
+the frame check), in the branch worktree and copied to the main checkout's `bench
+the frame check), in the branch worktree and copied to the main checkout's `bench\results\trailer\trailer-final-v5c\`. Every
+shot is a new take on this build.
+
+Changes against v5b:
+- **No captions** at all. The level titles stay.
+- **Out**: 7-3's gunfire shot, 2-2's street, 0-5's lava (10 bars of the battle layer).
+- **In**, the same 10 bars: **4-4's Window Hallway** (`final-4-4-window-hall`, 4 bars, after P-2's street: down the
+  stairs from the boss gate into the hall, the slats' striped light on the floor and walls), **8-2's supermarket aisle**
+  (`final-8-2-market-aisle`, 3 bars, after 6-2's entry: down an aisle of `12B - Supermarket Entrance` towards the arch
+  under the fluorescent tubes; traced, the tubes light the shelves and throw their colour across the floor, where the
+  game's floor is flat yellow) and **8-3's Clockwork Crushers** (`final-8-3-crushers`, 3 bars, before 2-4's tunnel: a push
+  down the glass-walled hall; traced, the glass walls reflect the hall's lights and the sky-blue end of the hall).
+  The wipe directions still alternate.
+- Glints are gone (master); 6-2's organ shot has the blood fix, 1-4's hall the arena street lamps.
+
+Candidates for the two new shots, besides the 4-4 / 8-4 ones below: `bench/trailer/scout-v5c-b.json` (suite
+`trailer-v5c-scout-b`) and `bench/trailer/cand-v5c-b.json` (suite `trailer-v5c-cand-b`): 8-2's supermarket (aisle,
+front with the fridges, the Shutters corridor's mannequins) and 8-3 (Clockwork Crushers' glass hall, the Shifting
+Hallway's portal, the Split Color Door with the eye mural, Space Streets). Stills in the main checkout's
+`bench\results\trailer\v5c-candidates\` (`00-overview-8-2-8-3.jpg`). Both levels need a synthetic checkpoint route
+(`bench/recordings/v5c-8-2-island.json`: the Island checkpoint, then `LookActivate` on
+`12B - Supermarket Entrance/12B Nonstuff/Entrance` switches the supermarket on; `v5c-8-3-crushers.json`: the Clockwork
+Crushers checkpoint, on after the jump).
+
+The staged events moved again: 0-3's light pillars start at frame 182 (3.03 s; v5b 185) and the organ hall turns red at
+frame 641 (10.68 s; v5b 642), so `In` is 1.533 and 6.183 (v5b 1.583 and 6.2). The pillars' first frame is also brighter
+than in v5b (frame mean 109 against 53) and settles to v5b's level within about 5 frames: the room lighting up in the
+take, not an assembly fault.
+
+Render: suites 1-4 in one alt launch (13 minutes, 0 failures, 38 GB of frames in
+`bench\results\20261120-013527_trailer-final-final-*_alt`; delete them once the cut is accepted), assembly 32 minutes in one run, no stalls.
+Frame check (`timing.txt` as for v5b, and `timing-strict.txt`): every clip frame matched against both of its takes
+within +-6 frames (the better-fitting take wins; sweep frames that mix both are only counted) maps to its expected take
+frame, and the master equals the 20 clips joined frame for frame (7250 frames). The motion flags are all events in the
+takes: the pillars and the red flip, P-2 hall's flickering lamps, 5-2's lightning, 2-4's hard switch, the cards' typing.
+Two are new and also in the takes: 8-3's crushers take is almost still for its first 3 frames (50 ms, right after
+the cut) before the push starts, and 2-4's take has a one-frame jump at its second frame.
+
 ## v5c scouting (2026-11-19, branch `t3/trailer-v5c`)
 
 The user's decisions on v5b: no captions (the level titles stay), the 7-3 gunfire shot out, and candidates for two new
