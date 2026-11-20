@@ -299,6 +299,22 @@ namespace UltraRT
                     };
                 }
 
+                _cineFrozen = false;
+                if (spec.FreezeAt.HasValue)
+                {
+                    // Diagnostics: the world stands still from FreezeAt on, the camera keeps moving (object motion off).
+                    float at = spec.FreezeAt.Value;
+                    var before = _cineOnTime;
+                    float last = float.MinValue;
+                    _cineOnTime = t =>
+                    {
+                        before?.Invoke(t);
+                        if (t < last - 0.5f) _cineFrozen = false; // a new take
+                        last = t;
+                        if (t >= at && !_cineFrozen) { _cineFrozen = true; Logger.LogInfo($"Benchmark: world frozen at {t:F2}s (FreezeAt {at:F2})"); }
+                    };
+                }
+
                 if (spec.Probes != null && spec.Probes.Count > 0 && !string.IsNullOrEmpty(spec.ProbeFilter) && _proxies != null)
                 {
                     // Diagnostics (renderers matching ProbeFilter and the outline mask) at path seconds, once per take.
@@ -413,6 +429,7 @@ namespace UltraRT
             finally
             {
                 _cineOnTime = null;
+                _cineFrozen = false;
                 // Lamps a hold stopped flicker by themselves again; steady lights go back to what they were.
                 foreach (var (light, _, was) in steady) if (light != null) light.enabled = was;
                 foreach (var lamp in flickers.Select(f => f.lamp).Distinct())

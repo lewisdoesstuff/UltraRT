@@ -57,6 +57,8 @@ namespace UltraRT
         private string _cineProgress;
         /// <summary>Called with the path time whenever game time is stepped to it (bench recording replays move the player).</summary>
         private Action<float> _cineOnTime;
+        /// <summary>Bench "FreezeAt": the world stands still from that path second on (set by the bench's time hook).</summary>
+        private bool _cineFrozen;
 
         /// <summary>RunExposure: whether to measure this frame and with which clock (offline render only).</summary>
         private bool CineExposureGate(ref float dt)
@@ -292,7 +294,7 @@ namespace UltraRT
                             // The next frame's game step: into the next motion-blur sub-step, or to the next output frame.
                             float next = !last ? 0f : j < J - 1 ? mbStep : fdt - (J - 1) * mbStep;
                             Time.captureDeltaTime = next > 0f ? next : fdt;
-                            Time.timeScale = next > 0f && !(live && offNow) ? g : 0f; // live pair: the off frame follows, held
+                            Time.timeScale = next > 0f && !(live && offNow) ? (_cineFrozen ? 0f : g) : 0f; // live pair: the off frame follows, held
                             float elapsed = (float)loop.Elapsed.TotalSeconds;
                             float perFrame = f > 0 ? elapsed / f : 0f;
                             _cineProgress = $"Render '{name}': frame {f + 1}/{frames}, sample {j * S + s + 1}/{J * S}" +
@@ -313,7 +315,7 @@ namespace UltraRT
                                 subframes++;
                                 _cineHideGui = true;
                                 Time.captureDeltaTime = fdt;
-                                Time.timeScale = g;
+                                Time.timeScale = _cineFrozen ? 0f : g;
                                 yield return new WaitForEndOfFrame();
                                 if (CineGamePaused() || CineRenderAborted(scene)) { _cineCancel = true; _viewEnabled = true; break; }
                                 sinkOff.CaptureSample();

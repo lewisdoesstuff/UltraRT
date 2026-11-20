@@ -129,24 +129,30 @@ and the grip in near-black: the chroma mask lights blade and guard, not the grip
 with a gold trim, and `GabrielSheathText`) have no rule: they stay lit surfaces. Gabriel has lights of the game's, so no
 enemy glow light is added for the swords (`eg.skipLit`); their glow shows in the image (and bounces in the path
 tracer), not as a light on the hall. In the organ shot they now read as bright white-blue lines instead of dark slivers
-(`bench/results/review/gabriel-sword-glow/swords-before-after*.jpg`, not committed: game | before | glow 5 at take frames
-400 / 700 / 850; the glow-5 column is a main-install run, which has `HDR = true`, the others alt). Glow 2.5 / 5 / 10
+(`bench/results/review/gabriel-sword-glow/`, not committed: `swords-before-after*.jpg` game | before | after at take
+frames 400 / 700 / 850, alt install; `swords-fix-on-off.jpg` the see-through fix below, on and off). Glow 2.5 / 5 / 10
 looked alike at draft size (RR at a third smears lines this thin); 5 was judged at full resolution
 (`bench/suites/gabriel-sword-glow.json`, `gabriel-sword-diag.json`).
 
-**Open: the blades look see-through (user, 2026-11-20).** In the traced image the organ behind shows through them, with
-the rule and without. Narrowed down so far (`gabriel-sword-diag.json` and its variants, full resolution):
-- The geometry and material are right: the `albedo` debug view (primary rays, no denoiser, no history) shows both blades
-  solid and opaque (the Justice blade saturated blue, the Splendor one a thin gold edge).
-- The composite uses the traced blades: `plugin._matchDebug=1` paints no kept pixel on them.
-- Not mirrored skinning (docs/scene-proxies.md, "Mirrored skinned meshes"): no bone's skin matrix (bone x bindpose)
-  of the four `GabeSword_*` meshes has a negative determinant (root `Root`, det 24.8, 51 bones).
-- The previous-pose copy is in the expected space (`-ultrart-motion-probe-filter GabeSword`: raw = rootNoScale).
-- DLSS RR and UltraRT's own denoiser (`ptx.denoiser=1`) both blend them with the background, so the cause is in what
-  both share after the primary hit: the motion vectors or history of these thin, fast-moving skinned blades. The
-  `motion` view did not settle it (the runs' timing differs, so the blades are not at the same place).
-Next: freeze a pose with the swords out and compare motion on and off (`-ultrart-nomotion`), and read the motion of a
-blade pixel against Gabriel's hand next to it.
+**See-through blades: fixed (2026-11-20, user: "I can still see the organ behind him through the swords").** With
+and without the rule, the organ showed through the traced blades. Narrowed down (`bench/suites/gabriel-sword-diag.json`,
+full resolution, RR at full res; its variants are listed in the suite's note):
+- The geometry and material are right: the `albedo`, `emission` and `lit` debug views (primary rays, no denoiser) show
+  both blades solid.
+- Not mirrored skinning (docs/scene-proxies.md, "Mirrored skinned meshes"): no bone x bindpose of the four
+  `GabeSword_*` meshes has a negative determinant. Not object motion: with the world frozen (`FreezeAt`, docs/cinematics.md)
+  and the camera moving they still showed through. The previous-pose copy is in the expected space.
+- RR's two factors on their own (`plugin._rrFinishDebug=1` / `2`, docs/dlss.md): RR's lighting X has the blades; the
+  screen-resolution demodulation colour D **has no blades at all**. D is accumulated against the game's depth buffer, and
+  the game's depth lacks the swords (it draws them, near-black, but they are not in the depth the composite reads). So
+  the blade samples, nearer than the game's surface, were rejected, the organ's samples beside them matched the game's
+  depth, and the pixel was RR's lighting x the organ's colour: the organ, through the blade. The kept-pixel view showed
+  nothing because those pixels did match, to the wrong surface.
+
+Fix: DLSS RR's `Finish` takes a glowing trace sample that lies in front of the game's depth (docs/dlss.md, "Emitters in
+front of the game's depth"). The swords glow by the emitter rule, so they qualify; a general "in front" rule is not safe
+(1-3's lava, docs/path-tracing.md, "Nearest-depth fallback"). Measured at the organ shot (`20261120-155041_gabriel-sword-diag_alt`,
+fix against `plugin._rrFrontEmitters=0`): the blades are solid white-blue with a clean edge instead of a faint ghost.
 
 Ruled out on the way, for the next look at "renders in RT, not in the game": culling and occlusion culling, the
 `_PortalClipPlane` clip distance (0 at every draw), stencil (`_StencilComp` Always), depth occluders (none between the

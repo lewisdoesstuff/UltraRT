@@ -152,6 +152,28 @@ screen by a fraction of a trace pixel per side (`Plugin.ExactGridTrace`: `_guard
 RR's output is N x its render size, cropped to the screen by a whole number of pixels in `Finish`. RR itself measured
 quieter on the 9-phase grid than on 72 Halton phases (0-1 metal: masked sigma 0.56 against 0.74).
 
+### Emitters in front of the game's depth (2026-11-20)
+
+`Finish` matches each screen pixel to a trace sample at the game's depth, and the remodulation's D is accumulated
+against that depth too. Something the game draws but leaves out of its depth buffer is then invisible to both: its
+samples lie in front of the game's surface and are rejected, the surface behind matches, and the pixel becomes RR's
+lighting x the colour of what lies behind. Gabriel's swords in 6-2 are such a case: the organ showed through the blades
+(docs/ultrakill-rendering.md, "Gabriel's swords").
+
+Rule (`DlssRR.FrontEmitters`, on; `-ultrart-rr-nofrontemitters`, bench `plugin._rrFrontEmitters=0`; `_RRParams2.z`):
+when the trace sample that covers the pixel emits (any channel above 0.05) and lies nearer than the game's surface by more
+than the match tolerance, the pixel takes that sample and its own D (not the screen-resolution history). Only emitters:
+what the game draws over a traced surface must keep the game's pixel, and a general nearest-depth rule turned 1-3's lava
+yellow (docs/path-tracing.md, "Nearest-depth fallback"). With remodulation only. The covering sample alone is used, so
+the blade does not grow by a trace texel; at the play scale (1/3) such an emitter is blocky by 3x3 screen pixels.
+
+Checked (`bench/suites/front-emitters.json`, pt-quick's 6-2 start, 1-4 lamps, 0-5 lava, 8-2 portal, 7-3 flashlight,
+on against off; `20261120-155041_front-emitters_alt`): no visible change. The pairs differ by 1.2-2.5 mean (0-5: 5.2) from
+capture timing (gun bob, animated lava, particles), not at emitters.
+
+Diagnostics: `plugin._rrFinishDebug=1` shows the screen-resolution D alone (tone mapped), `2` RR's lighting X alone
+(x 0.5, so X = 1 is mid grey); `DlssRR.FinishDebug`, `_Match2.w`.
+
 ### V1's shadow before RR (2026-11-15)
 
 User report (1-1, pathtrace): "strange shifting on things, a slight flicker in the x direction; it depends exactly where

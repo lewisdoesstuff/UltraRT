@@ -55,7 +55,7 @@ float4   _Jitter;       // xy this frame's sample offset (trace px), zw last fra
 int4     _Guard;        // xy guard band (trace px), zw render (visible) size
 float4   _ReflParams;   // ReflectionSettings.ShaderParams (yz = SpecularTerms params)
 int      _UltraRTPlayerSplit; // global (Plugin.Noise.cs): V1's shadow is a factor in _Radiance.a, not in the lighting
-float4   _RRParams2;    // x remodulation on (0/1), y player shadow factor filtered before RR (0/1; PlayerShadowFactor)
+float4   _RRParams2;    // x remodulation on (0/1), y player shadow factor filtered before RR (0/1; PlayerShadowFactor), z emitters in front of the game's depth (Finish)
 Texture2D<float4> _DemodTex;   // trace res: the demodulation colour D (Demod kernel)
 Texture2D<float4> _DemodHi;    // screen res: D accumulated by the temporal upsampler (a = 0: no RT surface)
 RWTexture2D<float4> _DemodOut;
@@ -228,7 +228,7 @@ float4 _OutDim;   // W, H, 1/W, 1/H
 float4 _TraceMap; // xy trace px per screen px, zw guard band (trace px)
 float4 _TraceRay; // xy trace ndc -> view ray slope
 float4 _ZParams;  // eye depth = 1 / (z * raw + w)
-float4 _Match2;   // x: nearest-depth fallback for thin geometry (relative depth tolerance over the 5x5; 0 = off); y: 1 = _Cutout is valid; z: cutout debug; w unused
+float4 _Match2;   // x: nearest-depth fallback for thin geometry (relative depth tolerance over the 5x5; 0 = off); y: 1 = _Cutout is valid; z: cutout debug; w: Finish debug (1 D, 2 X)
 Texture2D<float4> _Cutout; // screen res (CutoutTrace.raytrace): rgb the albedo of the blade a screen-res camera ray found up to the game's depth, a -(its view depth + 8) (> -8: none; -1..-4 why, for the debug view)
 float4 _Match;    // x depth tolerance (relative), y (absolute, m), z plane test: allowed bend of 1/z (relative; 0 = off), w slope tolerance in trace texels (0 = off; also turns on thin geometry from the screen-resolution history)
 float4 _RRMap;    // xy RR output px per screen px (1 unless the bench's 1440p cost probe renders RR larger), zw RR size
@@ -304,6 +304,26 @@ void Finish(uint3 id : SV_DispatchThreadID)
             if (wp > 1e-5 && abs(1.0 / wp - zg) <= tol) { a = 1; kHit = clamp(kn, 0, tdim - 1); }
         }
     }
+    // A glowing surface in front of the game's depth (_RRParams2.z, remodulation only): the trace sample covering this pixel
+    // emits and lies nearer than the game's surface by more than the tolerance. The game draws something there that its
+    // depth buffer lacks (Gabriel's swords: drawn, but not in the depth the composite reads), so the match above found the
+    // wall behind it, and the screen-resolution colour below was the wall's: it showed through the blade. Take this sample,
+    // with its own colour. Only emitters: what the game draws over a traced surface keeps the game's pixel, and a general
+    // "in front" rule turned 1-3's lava yellow (docs/path-tracing.md, "Nearest-depth fallback"). docs/dlss.md, "Emitters
+    // in front of the game's depth".
+    bool frontEm = false;
+    if (_RRParams2.z > 0.5 && Remodulate())
+    {
+        int2 k = clamp(kn, 0, tdim - 1);
+        float t = _NormalDepth[k].w;
+        float3 ek = max(_Emission[k].rgb, 0.0);
+        if (t >= 0.0 && max(ek.r, max(ek.g, ek.b)) > 0.05)
+        {
+            float2 ndc = ((float2)k + 0.5 + _Jitter.xy) * _Dim.zw * 2.0 - 1.0;
+            float z = t / length(float3(ndc * _TraceRay.xy, 1.0));
+            if (z < zg - tol) { a = 1; kHit = k; frontEm = true; }
+        }
+    }
     // Cutout pass: no trace sample matched, but the screen-res camera ray found an alpha-tested surface up to the game's
     // depth (a grass blade, a grate bar the trace missed): a traced pixel with its colour and RR's lighting here.
     bool cutHit = false;
@@ -365,8 +385,15 @@ void Finish(uint3 id : SV_DispatchThreadID)
             }
             if (best <= zg * _Match2.x) { a = 1; kHit = kb; }
         }
-        hdr = Display(RRAt(p)) * (cutHit ? cut.rgb : dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb);
+        hdr = Display(RRAt(p)) * (cutHit ? cut.rgb : frontEm ? _DemodTex[kHit].rgb : dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb);
         c = saturate(UltraRTToneMap(hdr));
+        // Diagnostics (_Match2.w, DlssRR.FinishDebug): the two factors on their own. 1 = D (tone mapped), 2 = RR's X x 0.5.
+        if (_Match2.w > 0.5 && a > 0.0)
+        {
+            float3 dbg = _Match2.w < 1.5 ? saturate(UltraRTToneMap(cutHit ? cut.rgb : frontEm ? _DemodTex[kHit].rgb : dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb)) : saturate(Display(RRAt(p)) * 0.5);
+            _Final[p] = float4(dbg, 1.0);
+            return;
+        }
     }
     if (_BloomOn > 0.5)
     {

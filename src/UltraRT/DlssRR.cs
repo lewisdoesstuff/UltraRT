@@ -22,6 +22,9 @@ namespace UltraRT
         /// <summary>Finish paints the pixels the game keeps by the relative depth of the 5x5's nearest trace sample: red =
         /// behind the game's surface, blue = in front, full at 10 %; green 0.25 = no sample (bench plugin._matchDebug=1).</summary>
         public static bool MatchDebug;
+        /// <summary>Diagnostics (bench plugin._rrFinishDebug): 1 = Finish shows the screen-resolution demodulation colour D alone
+        /// (tone mapped), 2 = RR's lighting X alone (x 0.5: X = 1 is mid grey). Remodulation only.</summary>
+        public static int FinishDebug;
         /// <summary>Finish: a pixel no trace sample of this frame matches is still traced when the screen-resolution
         /// demodulation history has its surface (geometry thinner than a trace texel). Bench plugin._thinMatch=0.</summary>
         public static bool ThinMatch = true;
@@ -127,6 +130,11 @@ namespace UltraRT
         public float DemodSharpness = 30f, DemodMaxWeight = 4f;
         /// <summary>V1's shadow factor gets a 3x3 same-surface filter before RR (RayReconstruction.compute, PlayerShadowFactor).</summary>
         public bool PlayerFilter = true;
+        /// <summary>Finish: a glowing surface the trace finds in front of the game's depth is drawn from its own sample (lighting
+        /// and colour), where the game's depth buffer lacks it. Gabriel's swords: drawn by the game but missing from its depth,
+        /// their screen-resolution colour was the organ behind them, which showed through (docs/dlss.md, "Emitters in front of
+        /// the game's depth"). Bench plugin._rrFrontEmitters=0, -ultrart-rr-nofrontemitters: off.</summary>
+        public bool FrontEmitters = true;
 
         public RenderTexture Final => _final;
         /// <summary>Set before Execute: Finish also writes the HDR bloom source into it (must be the output size; null = not
@@ -382,7 +390,7 @@ namespace UltraRT
 
             int k;
             cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(tw, th, 1f / tw, 1f / th));
-            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, PlayerFilter ? 1f : 0f, 0f, 0f));
+            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, PlayerFilter ? 1f : 0f, FrontEmitters ? 1f : 0f, 0f));
             cmd.SetComputeVectorParam(cs, "_CamPos", cam.transform.position);
             cmd.SetComputeMatrixParam(cs, "_InvViewProj", i.viewProj.inverse);
             cmd.SetComputeVectorParam(cs, "_ReflParams", i.reflParams);
@@ -518,7 +526,7 @@ namespace UltraRT
                 cmd.DispatchRays(rs, "RayGen", (uint)Ws, (uint)Hs, 1);
                 CutoutFrames++;
             }
-            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinMatch ? ThinNear : 0f, cutout ? 1f : 0f, MatchDebug ? 2f : CutoutDebug ? 1f : 0f, 0f));
+            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinMatch ? ThinNear : 0f, cutout ? 1f : 0f, MatchDebug ? 2f : CutoutDebug ? 1f : 0f, FinishDebug));
             cmd.SetComputeTextureParam(cs, k, "_Cutout", cutout ? (Texture)_cutout : Texture2D.blackTexture);
             cmd.SetComputeTextureParam(cs, k, "_RRColor", _out);
             cmd.SetComputeTextureParam(cs, k, "_GameDepth", i.gameDepth, 0, RenderTextureSubElement.Depth);

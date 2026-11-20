@@ -344,8 +344,8 @@ python scripts\trailer.py bench\trailer\trailer-final-final.json --out bench\res
 `clips\` there first (or point `--out` at the v5d folder to replace its master in place).
 
 2026-11-20 (`t3/trailer-v5e-6-2-organ`): the user asked for Gabriel's swords to glow, and then to hold the trailer for
-now. The emitter rule is in (docs/ultrakill-rendering.md, "Gabriel's swords"); the swords still look see-through in
-the traced image (open, same section), so the 6-2 re-take is not done. One take on 6e25dd2 before the rule (outlines off,
+now. The emitter rule is in and the see-through blades are fixed (docs/ultrakill-rendering.md, "Gabriel's swords";
+docs/dlss.md, "Emitters in front of the game's depth"); the 6-2 re-take is not done. One take on 6e25dd2 before the rule (outlines off,
 confirmed by the log) put the red flip at frame 638, not 641: re-measure it in whatever take is used.
 
 ## v5c light fixes (2026-11-20, branch `t3/trailer-light-fixes`)
