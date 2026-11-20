@@ -21,6 +21,13 @@
       "glow": 2,
       "chroma": 0.5,
       "note": "The blade's glow, painted into the unlit sword texture. Skinned: an enemy glow light follows the blade's bone (Plugin.EnemyGlow.cs)."
+    },
+    {
+      "name": "enemy: Gabriel's swords",
+      "material": "^GabrielSword(Splendor|Justice)$",
+      "glow": 5,
+      "chroma": 0.2,
+      "note": "Gabriel's two swords (6-2's intro, his fights). The game draws them near-black: their materials multiply by vertex colours the GabeSword_* meshes do not have (docs/ultrakill-rendering.md, 'Gabriel's swords'). Traced, they glow from their texture (user, 2026-11-20): the chroma mask picks the gold and blue blade and guard, not the dark grip. The sheaths (GabrielSheath, GabrielSheathText) stay lit surfaces."
     }
   ],
   "classes": {

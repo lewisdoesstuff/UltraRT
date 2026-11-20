@@ -212,6 +212,9 @@ namespace UltraRT.Bench
         /// for the next few frames (probe_*.png), each marked traced or off.</summary>
         public List<float> Probes;
         public string ProbeFilter;
+        /// <summary>Diagnostics: from this path second on the world stands still (game speed 0) while the camera keeps
+        /// moving, once per take: object motion off, camera motion on (Gabriel's swords, docs/ultrakill-rendering.md).</summary>
+        public float? FreezeAt;
         /// <summary>auto | locked</summary>
         public string Exposure;
         /// <summary>Takes with their own view mode and sample counts, rendered one after another in this scenario (after

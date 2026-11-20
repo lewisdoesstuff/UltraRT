@@ -358,6 +358,7 @@ The user: "glowing parts on enemies would also be great!" What the enemies have,
 | Mindflayer | skinned, unlit; two of the game's lights | hands | the game's lights kept |
 | virtue, idol | meshes and skinned wings; one of the game's lights | the whole body | the game's light kept |
 | streetcleaner, stalker, sentry, hideous mass | skinned; game lights at the flame / can / eye; sentry, stalker and mass also have glow maps | | the game's lights kept |
+| Gabriel (6-2's intro, his fights) | skinned; swords under `_VertexColors` materials the meshes have no colours for (the game draws them near-black) | the swords' gold and blue blades | **emitter rule** `enemy: Gabriel's swords` (glow 5, chroma 0.2; 2026-11-20, docs/ultrakill-rendering.md "Gabriel's swords"); no glow light: Gabriel has the game's lights |
 
 So of the eleven common enemies two had a glow that nothing carried (the drone's eye, the Swordsmachine's blade); four
 have none; five already carry a light of the game's at the glowing part.
