@@ -208,7 +208,7 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint
     SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
     float3 n = ng;
     // 13 = Wet: water. One texel of this trace covers p.t x pixelAngle across the view and 1 / cos more along it.
-    if (mat.cls == 13u)
+    if (mat.cls == ULTRART_CLASS_WET)
         n = WaterNormalBand(ng, pos, p.t, _UltraRTWaterBand > 0.5 ? p.t * pixelAngle / max(abs(dot(ng, ray.Direction)), 0.05) : 0.0);
     float3 L = reflect(ray.Direction, n);
     if (dot(L, ng) < 0.02) L = reflect(ray.Direction, ng);
@@ -381,8 +381,11 @@ void RayGenBody(bool full)
             motion = PackMotion(g_PrimaryMotion);
         }
 
+        // Flesh subsurface (UltraRTLights.hlsl): crimson wrap light at this hit's direct light only.
+        FleshSssBegin((p.flags >> 24) & 0x1Fu, -ray.Direction);
         float3 direct = DirectLighting(pos, n, layer, rng);
         if (full) PtMoreDirect(direct, pos, n, layer, rng); // pathtrace: more light samples per pixel (RIS)
+        FleshSssEnd();
         // Stained-glass windows: their mosaic projected into the room, one shadow ray (UltraRTStainedGlass.hlsl).
         [branch] if (_UltraRTStainedGlassCount > 0) direct += StainedGlassLight(pos, n, nv, rng);
 

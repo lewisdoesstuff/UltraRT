@@ -193,7 +193,8 @@ secondary set alone.
 | `-ultrart-materials-lod-bias F`, `[Materials] LodBias` | 0 | mips added to the cone's LOD (0 = a traced pixel's footprint) |
 | `-ultrart-materials-toksvig F` | 1 | share of the filtered-away slope variance that becomes roughness (0 = off) |
 | `-ultrart-materials-albedo-lod on\|off` | off | albedo/emission at the cone's mip on secondary hits (the game's textures mostly have no mips) |
-| bench variants (`mat.hybridNormalStrength`, `mat.guidedPick`, `-ultrart-materials-hybrid-normal`, `-ultrart-materials-guided` and `[Materials] HybridNormalStrength` went with hybrid on 2026-11-19) `mat.enabled=0`, `mat.normalStrength=2`, `mat.roughness=0`, `mat.lod=0`, `mat.lodBias=-1.58`, `mat.lodAniso=1`, `mat.toksvig=0`, `mat.albedoLod=1`, `mat.lodDiffuse=0.3` | | e.g. `"relight+mat.enabled=0"` |
+| `-ultrart-flesh-sss F`, `[Materials] FleshSubsurface` (menu, Advanced > Effects) | 1 | crimson subsurface wrap light on flesh (section 15); 0 = off. Shader-side, instant. `-ultrart-flesh-wrap F` (0.45) and `-ultrart-flesh-rim F` (0 = off) are flags only |
+| bench variants (`mat.hybridNormalStrength`, `mat.guidedPick`, `-ultrart-materials-hybrid-normal`, `-ultrart-materials-guided` and `[Materials] HybridNormalStrength` went with hybrid on 2026-11-19) `mat.enabled=0`, `mat.normalStrength=2`, `mat.roughness=0`, `mat.lod=0`, `mat.lodBias=-1.58`, `mat.lodAniso=1`, `mat.toksvig=0`, `mat.albedoLod=1`, `mat.lodDiffuse=0.3`, `mat.fleshSss=0`, `mat.fleshWrap=0.6`, `mat.fleshRim=1` | | e.g. `"relight+mat.enabled=0"` |
 
 Log lines: `Material maps: N textures in ...`, per atlas `Material maps: atlas '' WxH: cells with detail ...`,
 `Material maps: atlas slots mapped per original submesh ..., by dominant material ..., skipped ...`, and after the
@@ -716,3 +717,99 @@ slice, 10 MB in 1-4, 25 MB at the 96-slice cap.
 
 **Not done**: 1-1 to 1-3 use the same `StainedGlassBig/Blue/Red` materials and should work unchanged (not checked). No
 volumetric beam (the haze stays the game's) and no bounce light from the coloured pools (primary hits only).
+
+## 15. Flesh subsurface (2026-11-20, `t3/flesh-subsurface`)
+
+Light that enters thick tissue comes out again a little way on, reddened, because blood absorbs green and blue. On
+flesh this adds a crimson **wrap term** around each light's terminator: the light reaches a little further around
+curved flesh and its shaded side turns deep red, while the side facing the light is unchanged. It is a few ALU
+operations per light evaluation and adds no ray. Code: `UltraRTLights.hlsl` (`FleshScatter`, `FleshSssBegin` /
+`FleshSssEnd`, the wrap in `LightEvalRaw` and `EmissiveEval`, the relaxed below-the-surface test in `LightShadowSetup`),
+`PathTrace.raytrace` (around the primary hit's `DirectLighting` / `PtMoreDirect`), `Plugin.Materials.cs`
+(`_UltraRTFleshSss`), `MaterialMaps.cs` (`MaterialMapSettings.fleshSss`, `fleshWrap`, `fleshRim`). Suites
+`bench/suites/flesh-sss.json` (looks) and `flesh-sss-perf.json` (cost, `-Perf`).
+
+**Which surfaces.** Class `Flesh` (`SurfaceClass.Flesh` = 2, `ULTRART_CLASS_FLESH` in `UltraRTMaterial.hlsl`), which
+is the game's own `_SurfaceType` footstep tag (MaterialClasses.cs). No new rule was needed. The material dumps
+(`-ultrart-matdump`, `BepInEx/ultrart/material-classes-*.tsv` on the alt install) put exactly the fleshy materials
+there: `Flesh1`-`Flesh5` and their `Corpses` / `Mouth` blends, `FleshOriginal`, `FleshPulsatingAll` / `Y`, `Veins*`,
+`Corpses1` / `2`, `Minced*`, `Mouth*Blend` (teeth2a), `Faces`, `GrossHand`, `M_GluttonyLampBase`, `GibsLit` and
+`FleshPanopticon`. Nothing of stone, brick or metal is tagged Flesh. The fullbright ones (`Gibs`, `Florp`) ignore
+lighting anyway. A few fleshy-looking materials keep their own tag and get no scatter: `MouthD` / `MouthE` (teeth,
+Generic), `Corpses` / `CorpsesAlt` (`styxture3`, Generic), `SisyVeins` (unlit), the big eyes (`M_BigEye`: pattern
+cube) and `Organ` (the instrument, Marble). P-1's Flesh Prison was not in a dump (it needs its fight), so its tag was
+not checked. On `VERTEX_BLENDING` materials the scatter follows the blend: the secondary class (Generic) wins where the
+blend weight is under 0.5.
+
+**The term.** For each light, with `nl = dot(n, L)` at the shading normal and wrap `w` (`fleshWrap`, 0.45):
+
+    scatter = min(tint * 2 * strength * (saturate((nl + w) / (1 + w)) - saturate(nl)), 1 - saturate(nl))
+    shape   = saturate(nl) + scatter        (Lambert alone on every other class)
+
+`tint` is (1, 0.14, 0.06) in display space, converted with `ToLight` like a light colour, so under linear transport the
+terminator shows that hue. The scatter is 0 where the surface faces the light, `w / (1 + w)` x tint x 2 x strength at
+the terminator, and 0 again at `nl = -w`. The cap stops any channel from going over 1, the light a face turned to the
+light gets, so a strong scatter flattens the red shading instead of lighting grazing faces brighter than lit ones.
+Without the cap, strength 8 lit a pillar edge beside a light flat red. The optional rim (`fleshRim`, default 0) adds
+`rim x saturate(dot(V, -L + 0.4 n))^3 x (1 - saturate(nl))` inside the same cap.
+- **Light-driven only.** The scatter multiplies each light's own attenuated colour and goes through that light's
+  shadow ray (RIS picks it like any sample: `pHat` includes it). With no light arriving, nothing is added. There is no
+  ambient or emissive term.
+- **Behind the terminator** (`-w < nl <= 0`): such a light is still evaluated, and `LightShadowSetup` lets its
+  jittered direction dip to `-w` below the shading plane. Its shadow ray still starts at `p + n * 0.02`, so on real
+  geometry (a flat wall, a convex fold) the ray runs into the surface and is blocked: a light behind a wall never
+  leaks. In practice this part shows only where the shading normal (per-texel detail, smoothed vertex normals) turns
+  away from a light that the geometry still faces. There the scatter softens normal-map crevices with red, as tissue
+  does. Unshadowed lights (fill lights, `l3.z > 0.5`) keep the plain `nl > 0` test, because they would reach
+  through walls.
+- **Where.** Only the primary hit's direct light: relight's `DirectLighting`, pathtrace's `DirectLighting` +
+  `PtMoreDirect` (`g_SssWrap` is reset right after). Bounce, reflection, radiance-cache and particle evaluations keep
+  plain Lambert. It works the same in relight and pathtrace, with DLSS RR or UltraRT's denoiser (the scatter is part
+  of the demodulated lighting). Vertex displacement and the RTAS are untouched: 3-2's displaced walls (DynamicGeometry)
+  and the static-batched flesh are shaded on the geometry they already have.
+- **Off is exact.** With strength 0, or on any other class, `g_SssWrap` is 0: every test reduces to the old
+  `nl <= 0` / `cosS <= 1e-4` and the shape to `ndl`.
+
+**Tuning (2026-11-20, alt and main slots, 2560x1440, RR at 1/3).** Runs `bench/results/20261120-180326_flesh-sss_alt`
+(recorded poses, first scale), `-180816_flesh-sss-tour_alt` (tour stops, first scale, strength 8) and
+`-181240_flesh-sss-tour` (tour stops, final scale, main slot). The first scale (scatter = tint x strength x the wrap
+difference, no x2, no cap) was right in shape but invisible at strength 1: at full frame and in 2x crops the 3-1 and
+3-2 flesh looked the same as at strength 0, and the change in red was under the frame-to-frame noise. Strength 8 was
+clearly crimson but too strong (the flat red pillar edge). Final: the x2 and the cap. At strength 1 the flesh folds and
+walls at 3-2's First Room and 3-1's Uphill Battle take a deeper crimson along their shading, the terminators soften,
+and black corners stay black. It reads as thick tissue, not a glow. Strength 2 is a step richer and still not neon.
+Mean red in the flesh views goes up by 1.5-3.5 of 255 at strength 1 (2-6 at 2), green and blue stay within 0.5. The
+game colour match ([relight.md](relight.md)) hardly reacts at 1, gain (0.99, 1.03, 1.03) against (1.00, 1.03, 1.03) at
+0; at strength 8 it pulled green up to 1.13 to win back the frame's hue. The rim at 1 added about as much red as
+strength 2 and no distinct rim showed at these poses, so it stays off. The first run's recorded poses were poor flesh
+tests: 3-1's "noisy room" and the eye-beam staircase are mostly bone, and 3-2's moving-walls pose is a dark heart
+room. The suite now uses the tour stops.
+
+`tools/lights/punch.py` over the final run's 10 views (3-1, 3-2 and P-1 tour stops; medians):
+
+| | chroma | contrast | dark delta |
+|---|---|---|---|
+| relight, strength 0 | x0.80 | x0.93 | +2.3 |
+| relight, 1 | x0.86 | x0.91 | +2.6 |
+| relight, 2 | x0.89 | x0.90 | +2.6 |
+| pathtrace, 0 | x0.78 | x0.92 | +2.0 |
+| pathtrace, 1 | x0.82 | x0.89 | +2.9 |
+
+The dark delta moves +0.3 (relight) and +0.9 (pathtrace). Per view, it comes from 3-2 First Room view 0 (+2.3 to +4.6
+relight, +2.0 to +4.0 pathtrace). There the "dark" pixels are dim red walls lit at a grazing angle (luma weights red
+by 0.21, so a wall at R 35 counts as luma 7), which is where the scatter is meant to show. In 3-2's Heart Chamber, the
+dark-room check (95% of the game's pixels at luma <= 24), the delta goes -0.3 to +0.4 and -1.2 to +0.2. Pixels that are
+black in the strength-0 frame (max channel <= 10) gain 2-3 of 255 there, under the noise floor: the same measurement
+between two identical captures of 0-1 metal (no flesh) moves those pixels by 23-30 (gun sway). P-1's start, where
+the only flesh is gibs, is unchanged within the noise.
+
+**GPU cost** (2026-11-20, `bench/results/20261120-181953_flesh-sss-perf`, `-Perf`, exclusive lock, main slot,
+2560x1440, trace scale 0.5, RTX 5070 Ti; strength 0 and 1 alternating every 1.5 s in one pass). Trace dispatch, ms:
+
+| Pose | relight 0 / 1 | pathtrace 0 / 1 |
+|---|---|---|
+| 3-2 moving walls | 2.771 / 2.653 | 1.899 / 1.901 |
+| 3-1 beams user (stairway) | 2.021 / 2.007 | 1.413 / 1.376 |
+
+No measurable cost: the differences go both ways and are within the run's noise (frame averages 5.1-5.8 ms either
+way). That is expected: a branch per light evaluation, a few multiply-adds on flesh, no ray.

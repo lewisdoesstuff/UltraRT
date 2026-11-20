@@ -11,6 +11,7 @@ namespace UltraRT
     ///   -ultrart-materials-normal F, -ultrart-materials-roughness F,
     ///   -ultrart-materials-lod on|off (config [Materials] TextureLod), -ultrart-materials-lod-bias F (config [Materials] LodBias),
     ///   -ultrart-materials-toksvig F, -ultrart-materials-albedo-lod on|off. Ctrl+F1 toggles in game.
+    ///   -ultrart-flesh-sss F (menu [Materials] FleshSubsurface), -ultrart-flesh-wrap F, -ultrart-flesh-rim F: flesh subsurface.
     /// </summary>
     public partial class Plugin
     {
@@ -55,6 +56,9 @@ namespace UltraRT
                     case "-ultrart-materials-lod-bias": s.lodBias = F(s.lodBias); break;
                     case "-ultrart-materials-toksvig": s.toksvig = F(s.toksvig); break;
                     case "-ultrart-materials-albedo-lod": s.albedoLod = On(); break;
+                    case "-ultrart-flesh-sss": s.fleshSss = Mathf.Max(0f, F(s.fleshSss)); break;
+                    case "-ultrart-flesh-wrap": s.fleshWrap = Mathf.Clamp(F(s.fleshWrap), 0.01f, 1f); break;
+                    case "-ultrart-flesh-rim": s.fleshRim = Mathf.Max(0f, F(s.fleshRim)); break;
                     case "-ultrart-lit-unlit": u.fullbright = false; break; // relight unlit materials (the old look)
                     case "-ultrart-enemy-lit": u.enemy = F(u.enemy); break;
                     case "-ultrart-enemy-types": u.enemyTypes = Next(); break;
@@ -105,6 +109,8 @@ namespace UltraRT
             // that becomes roughness (0 with LOD off), y the cone spread a diffuse bounce adds.
             Shader.SetGlobalVector(MaterialMaps.LodId, new Vector4(s.lod ? 1f : 0f, s.lodBias, s.lodAniso, s.lod && s.albedoLod ? 1f : 0f));
             Shader.SetGlobalVector(MaterialMaps.Lod2Id, new Vector4(s.lod ? s.toksvig : 0f, s.lodDiffuse, 0f, 0f));
+            // Flesh subsurface (UltraRTLights.hlsl, FleshSssBegin): x strength (0 = off), y wrap, z rim.
+            Shader.SetGlobalVector(MaterialMaps.FleshSssId, new Vector4(Mathf.Max(s.fleshSss, 0f), Mathf.Clamp(s.fleshWrap, 0.01f, 1f), Mathf.Max(s.fleshRim, 0f), 0f));
             SceneProxies.SetGlassGlobals(_proxies != null && _proxies.HasGlass); // stained glass: shadow rays pass, tinted (SceneProxies.Glass.cs)
         }
     }

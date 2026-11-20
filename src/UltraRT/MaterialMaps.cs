@@ -45,9 +45,17 @@ namespace UltraRT
         /// <summary>Spread angle (radians) a diffuse bounce adds to the ray cone for the albedo LOD at the next hit: one sample
         /// stands for a wide lobe, so its hit's texture is averaged over a matching area.</summary>
         public float lodDiffuse = 0.3f;
+        /// <summary>-ultrart-flesh-sss F ([Materials] FleshSubsurface, bench mat.fleshSss): strength of the crimson
+        /// subsurface wrap light on flesh (SurfaceType Flesh; docs/materials.md, "Flesh subsurface"). 0 = off. Shader-side, instant.</summary>
+        public float fleshSss = 1f;
+        /// <summary>-ultrart-flesh-wrap F (bench mat.fleshWrap): how far past the terminator the scatter reaches (cosine).</summary>
+        public float fleshWrap = 0.45f;
+        /// <summary>-ultrart-flesh-rim F (bench mat.fleshRim): view-dependent backlit scatter at grazing light (0 = off).</summary>
+        public float fleshRim = 0f;
 
         public override string ToString() => $"{(enabled ? "on" : "off")}, source {source}, normal x{normalStrength:0.##}, roughness x{roughness:0.##}, " +
-                                             $"lod {(lod ? "on" : "off")} (bias {lodBias:0.##}, aniso {lodAniso:0.##}, toksvig {toksvig:0.##}, albedo {(albedoLod ? "on" : "off")})";
+                                             $"lod {(lod ? "on" : "off")} (bias {lodBias:0.##}, aniso {lodAniso:0.##}, toksvig {toksvig:0.##}, albedo {(albedoLod ? "on" : "off")}), " +
+                                             $"flesh subsurface {fleshSss:0.##} (wrap {fleshWrap:0.##}, rim {fleshRim:0.##})";
     }
 
     /// <summary>
@@ -70,6 +78,7 @@ namespace UltraRT
         public static readonly int GlobalId = Shader.PropertyToID("_UltraRTDetail");
         public static readonly int LodId = Shader.PropertyToID("_UltraRTTexLod");
         public static readonly int Lod2Id = Shader.PropertyToID("_UltraRTTexLod2");
+        public static readonly int FleshSssId = Shader.PropertyToID("_UltraRTFleshSss");
 
         private sealed class Entry
         {
