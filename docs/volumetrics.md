@@ -87,7 +87,8 @@ lighting is irradiance / pi, since displayed = albedo x lighting; the medium's r
   blue-noise numbers); above that, RIS over `lightCandidates` (8) uniform candidates per sample. The distance along the
   ray is drawn by equiangular sampling (Kulla & Fajardo 2012) over the same clipped segment, which is exactly
   proportional to 1/d^2. One shadow ray per sample, stopping 0.35 m short of the light like surface shadow rays (lights
-  sit inside their fixtures). Falloff and spot cone are relight's (physical inverse square windowed to 2x range, in
+  sit inside their fixtures); a light that skips fixtures (statue orbs, 3-1's eyes in their housing) tests geometry
+  only, as its surface rays do (since 2026-11-20: "The Stairways too bright" below). Falloff and spot cone are relight's (physical inverse square windowed to 2x range, in
   linear light). Directional and fill lights are skipped, and so are **lights attached to the player or the camera**
   (`playerLights` false; those within 2.5 m of the eye, `attachedReach`, 1.5 m before 2026-11-18; also any light within 0.5 m of the eye): the game's player light (range 15, grey, at the eye)
   starts every view ray inside its core. It took 45-72% of the light picks in every pose tested.
@@ -627,6 +628,79 @@ Limits and taste calls:
 - The visibility is the lit fraction along the whole ray inside a hull, at 1/4 resolution: thin shafts narrower than about
   4 screen pixels blur, and a moving camera shows the temporal filter's lag like the haze.
 - Only meshes under a spot light are drawn this way (`parentSpots`); lamp cones (8-2) keep the cone haze.
+
+#### The Stairways too bright: the eye's light and its haze (2026-11-20, branch `t3/3-1-staircase-brightness`)
+
+User: "the 3-1 staircase room is far far too bright ... in sdr, too. i think it's partially related to the much less
+dense haze over stock". The room is this one (the tour's "6 - Stairways", the beams suites' poses). Before the change
+RT surfaces metered 2.65 EV over the game's there (`game match: game -4.10 vs RT -1.45 log2`). Auto exposure held 0 EV:
+the mean, 0.35, is under the key, and the game match's down side is off by default.
+
+**Attribution** (`beams-3-1` user pose, pathtrace, mean luma: game 47.6, shipped 74.2). These changed nothing: haze off
+(`vol=0`) 77.4, screen effects off 72.5, beam channel off 77.5, lit particles off 74.3, auto exposure off 74.3. Every
+level light off: 35.5. The light census (`-ultrart-light-census`) shows two lights in the room: the eye's `Spot Light`
+(range 80, x10, 90 degrees, 62 m above the walkway) and its child `Spot Light/Point Light` (range 30, x10, pointing
+up; class `fill`, x1). The eye's spot was class **`fixture:orb`** (rule `statue orb`): the eyeball is an orb fixture
+around its light, so the punch policy's x2.5 applied to the key light of a 60 m room. With it off: 40.6; at x1 (=
+`lc.light.Eyeball=0.4`): 51.5.
+
+**Fix, part 1: the eye at the game's strength.** A rule ahead of `statue orb` in `data/lights/_rules.json`
+(`eye beam lights`: `(EyeWithSocket|EyeballParent)*/Eyeball/Spot Light`, 3-1's three eyes and 3-2's opening eye) gives
+class `fixture:eye`: x1, `reach` 0, `medium` 1 (docs/lighting-overrides.md, "3-1's eye rooms"). 3-2's eye has its own
+fitted entry (x0.53) and is unchanged by it.
+
+**Darkening was tried and dropped.** `followGame` 1 in `Level 3-1.json` (the 7-1 / 7-3 / 0-S policy) brought the
+room to the game's mean: user pose x0.91, under the eye x0.90, the game's dark pixels +59 -> +6 (pathtrace). The user,
+on the frames: "the eye, and the light beams *look* bright, but the environment is dark. would it not be more sensible
+to fix the issues here with a denser haze? it's fine if the lit areas are brighter than stock". The exposure scales the
+lit surfaces only, and the beam meshes, the haze and the eye's glow keep their brightness, so a -1.6 to -2.2 EV pull
+left bright beams over a dim room. Not shipped.
+
+**Why the room had no haze.** The game's fog is off in the eye rooms (`RenderSettings.fog` false, `NoFog` materials).
+Stock's orange veil is the eye's `LightPillar 1F NoFog` frusta around the camera. Our medium there falls back to clear
+air (0.002/m, albedo 0.25, white), and two things kept the eye out of it:
+
+1. **Haze shadow rays hit the eye's own housing (bug, all housed lights).** `LightSample` in `Volumetrics.raytrace`
+   traced its shadow rays against geometry and fixtures (0x05) for every light. A light that skips fixtures
+   (`_Lights[i*4+3].z` in (0.1, 0.5): statue orbs, the eyes in their 39 m eyeball housing) lights surfaces past its
+   housing, but every one of its haze samples was blocked by it, so its haze was exactly 0. The eye's `medium` at 20
+   or 60 with a 0.005/m medium changed the user pose by 0.1-0.5 luma (`20261120-214159_tmp-31b-haze_alt`). Now such
+   a light tests geometry only (0x01), as its surface shadow rays do. This also gives statue orbs their halo back.
+2. **The haze range weight.** `hazeRange` 20 m weights a range-80 light's air by 1 / (1 + 4^3) = 1/65.
+
+**Fix, part 2: the eye fills its room with haze.** `Level 3-1.json` sets `"classes": { "fixture:eye": { "medium": 650 } }`.
+That is x65 to undo the range weight, times 10 for clear air's scattering (0.002/m x 0.25 against 0.005/m x 1 in 3-1's
+foggy rooms): the eye scatters as in a 0.005/m medium, with traced shadows through the spine and ribs. A level-wide
+clear-air override (density 0.005, albedo 1 where the fog is off; prototyped, not shipped) gave the same eye haze but
+also lit every other light's air: the Bridge Arena's first tour view went x1.90 -> x3.25 with a brown veil where the
+game is black. The eye's own weight leaves that view at x1.90, as before.
+
+Measured (alt, 2560x1440, SDR, pathtrace, mean luma ratio to the game with HUD and viewmodel masked, `tools/lights/score.py`;
+"dark" = the game's dark pixels, game -> RT; master `20261120-213112_tmp-31b-final_alt`, after
+`20261120-215814_tmp-31b-ship_alt`):
+
+| Pose | game | master | after (pathtrace) | after (relight) | dark, master -> after |
+|---|---|---|---|---|---|
+| user pose (`beams-3-1` "user") | 53.2 | x1.59 | x1.38 | x1.39 | +58.8 -> +31.8 |
+| under the eye | 50.9 | x1.38 | x1.32 | x1.33 | +54.2 -> +28.3 |
+| back of the room | 16.1 | x1.47 | x1.57 | x1.58 | +6.3 -> +11.5 |
+| walkway (`floor`) | 46.5 | x1.42 | x1.30 | x1.30 | |
+| 3-1 tour, 18 views (checkpoint views: the Stairways' eye is not lit there) | | x1.36 median, dark +2.9 | x1.35, dark +2.6 | | every view within 0.15 of master |
+
+The look moved from the image's light to the air's: the walkway is no longer near white, the near bones stand dark
+against an orange haze lit through the cone with shafts between the ribs, and the eye keeps its glow. The back view's
+mean rises a little (the lit air under the eye). Lit areas stay brighter than stock, as the user allowed. Review stills:
+`bench/results/review/3-1-brightness/` (main checkout). The haze costs nothing extra: the eye was already sampled,
+and only its weight and a shadow-ray mask changed.
+
+Seen on the way:
+- **3-2's eye ring** (user: "it's got a halo around it"): a thin red octagon around the opening eye, the same on
+  master. Not haze, flesh SSS, rim, screen effects or vertex displacement (`vol=0`, `mat.fleshSss=0`, `mat.fleshRim=0`,
+  `vfx.enabled=0`, `plugin._displaceRange=-1` all keep it). `relight+up.debugView=3` shows the eye red (traced
+  surface behind the game's): the trace goes through the eye's dark octagonal shell (`EyeballParent/Breakable`, flesh
+  `Flesh5` with vertex displacement) and only its rim is left, the "statue rim" pattern of docs/scene-proxies.md. Open.
+- An emitter mask on the eye's material (`lc.glow.M_BigEye=1,0.2`) brought its bright core back under the
+  `followGame` pull (max 160 -> 245, the game's 245); without the pull it is not needed. Not shipped.
 
 #### Window beams (2026-11-18, branch `t3/window-beams`; **off by default**, `shaft.windowBeams`)
 

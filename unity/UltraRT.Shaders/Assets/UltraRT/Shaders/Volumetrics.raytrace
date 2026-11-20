@@ -322,9 +322,13 @@ float3 LightSample(uint i, float w, float uT, float3 o, float3 dir, float tEnd, 
     float dist;
     float3 Li = LocalLight(i, x, L, dist);
     if (!any(Li > 0.0) || !(pdf > 0.0)) return 0;
-    // Stop short of the light like surface shadow rays do (lights sit inside their fixtures).
+    // Stop short of the light like surface shadow rays do (lights sit inside their fixtures). A light that skips fixtures
+    // (l3.z in (0.1, 0.5): statue orbs, 3-1's eyes inside their 39 m eyeball housing; UltraRTLights.hlsl LightSkipsFixtures)
+    // tests geometry only, as its surface shadow rays do: with fixtures in the mask its own housing blocked every sample,
+    // and the eye lit no air at all (2026-11-20, docs/volumetrics.md "Eye beams").
     float clear = min(0.35, 0.5 * dist);
-    if (!Unoccluded(x, L, dist - clear)) return 0;
+    float l3z = _Lights[i * 4 + 3].z;
+    if (!Unoccluded(x, L, dist - clear, (l3z > 0.1 && l3z < 0.5) ? 0x01u : 0x05u)) return 0;
     float trans = exp(-sigmaT * (t + dist));
     return Li * g_VolTint * sigmaS * (trans * PhaseHG(dot(dir, L), _VolParams.z) / pdf) * w;
 }

@@ -383,6 +383,8 @@ Open after these runs:
   the whole room with orange haze (its `LightPillar 1F NoFog` meshes; `RenderSettings.fog` is off) and hides the
   far wall; RT has a brighter pool under the beam (x1.66 at fixed exposure), almost no haze 40 m in (x0.47-0.65) and
   shows the far wall. That is the beam channel's balance (docs/volumetrics.md), work for `t3/window-beams`.
+  (2026-11-20: the eye's light was class `fixture:orb` at the punch x2.5, and it lit no air at all: "3-1's eye
+  rooms" below.)
 - **6-2 Organ Hall**: with the fills down, an orange patch on the wall by the terminal that the game does not have
   (tint error 2-6 -> 9-17 at shipped settings).
 - **0-1 First Room** (the short starting room, not the prefab): one view x0.61-0.65 in every variant: not lights.
@@ -619,6 +621,7 @@ Levels that differ from the global policy, and why:
 | 7-3 | the strengths of 2026-11-17 (fills x0.5, fixtures x0.7, player x0.6); `followGame` 1 | as 7-1: +18.9 without `followGame`, +9.1 with it (before +12.2) |
 | 8-2 | the strengths of 2026-11-17 (fills x0.35, fixtures x0.5) | under the plain policy the offices' dark walls come out lit (storage room dark +82 against +42); kept: +15.1 (before +14.7) |
 | 7-2 | gameplay x0.6, player x0.85 (player back at x1 since "7-3: brighter") | third batch |
+| 3-1 | the eyes (`fixture:eye`, a global class since 2026-11-20) `medium` 650 | the eye fills its room with haze, as the game's beam meshes do; no `followGame` (user: lit areas may be brighter than stock). "3-1's eye rooms" below |
 | P-2 | player x0.6 (back at x1 since "7-3: brighter") | third batch |
 
 **`followGame`** (`"exposure": { "followGame": F }` in a level file, 0-1; `AutoExposureSettings.levelFollowGame`): the
@@ -940,6 +943,27 @@ Final build (`20261119-233340_blood-arena_alt`): pathtrace 36.0 / 20.5, p95 109 
 Shipped: the lamps keep their hot spots on the walls next to them (as the game has them), p95 is the game's, and the
 floor and far walls fall back toward dark; the frame stays x1.4 / x1.9 of the game's mean (relight 36.2 / 20.0), within
 "RT may be brighter, darks stay dark". The garden's lamps keep their rule.
+
+## 3-1's eye rooms (2026-11-20, `t3/3-1-staircase-brightness`)
+
+User: 3-1's staircase room (the Stairways, the eye's room) "far far too bright", in SDR and HDR. RT surfaces metered
+2.65 EV over the game's there, and haze, screen effects, particles, the beam channel and auto exposure changed nothing
+(docs/volumetrics.md, "The Stairways too bright", has the attribution). The light census showed the cause: the eye's
+spot light (range 80, x10) matched the global rule `statue orb` (signal `orb`: the eyeball is an orb fixture around
+its light) and took class `fixture:orb`, so the punch policy's x2.5 lit the whole 60 m room.
+
+- **Rule `eye beam lights`** in `_rules.json`, before `statue orb`: `(^|/)(EyeWithSocket|EyeballParent)[^/]*/Eyeball/Spot Light$`
+  -> class **`fixture:eye`**, global policy x1, `reach` 0, `medium` 1 (a room's key light at the game's strength, as
+  fills are). It covers 3-1's circular arena, bridge arena and Stairways eyes, and 3-2's opening eye (whose own fitted
+  entry, x0.53 and `reach` 0, decides its strength as before). `lc.class.fixture.eye=F` / `lc.set.fixture.eye.FIELD=V`
+  review it.
+- **`Level 3-1.json`**: `"classes": { "fixture:eye": { "medium": 650 } }`, the eye's haze (docs/volumetrics.md: the haze
+  range weight and the clear air of fog-off rooms, and a shadow-ray bug that had kept every housed light out of the air).
+- **Not shipped:** `"exposure": { "followGame": 1 }` matched the game's mean (user pose x1.59 -> x0.91) but darkened
+  the room under its bright beams and eye; the user preferred haze and allows lit areas above stock.
+
+Pathtrace, user pose x1.59 -> x1.38, under the eye x1.38 -> x1.32, the walkway x1.42 -> x1.30; the 3-1 tour median
+x1.36 -> x1.35 (its views are at checkpoints, where the Stairways' eye is not lit yet).
 
 ## Playtest of 2026-11-18: level look and stray lights (`t3/level-look-3`)
 
