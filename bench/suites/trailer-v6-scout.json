@@ -1,0 +1,97 @@
+{
+  "Name": "trailer-v6-scout",
+  "Note": "Camera scouting (scripts/trailer-paths.py --scout): one low-sample frame per candidate key.",
+  "Scenarios": [
+    {
+      "Name": "scout-v6-4-4-window-hall",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-4-4-boss-entrance.json",
+        "Duration": 1,
+        "LookAt": "5 - Window Hallway/Floor",
+        "LookActivate": true,
+        "LookDistance": 6
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../results/trailer/scout/scout-v6-4-4-window-hall.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 7,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v6-museum-gallery",
+      "Scene": "CreditsMuseum2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/late-museum-fountain.json",
+        "Areas": "../recordings/late-museum-fountain-areas.json",
+        "Load": "areas",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../results/trailer/scout/scout-v6-museum-gallery.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 7,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v6-8-3-crushers",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-3-crushers.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../results/trailer/scout/scout-v6-8-3-crushers.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 7,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    }
+  ]
+}

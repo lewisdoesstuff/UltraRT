@@ -4,7 +4,7 @@
   "Scene": "Level 8-3",
   "Note": "Trailer v5c: 8-3's Clockwork Crushers, a push down the glass-walled hall (the traced glass reflects the hall's lights). World frame keys [z, x, feet y, yaw, pitch]; loaded at its checkpoint.",
   "Keys": [
-    {"Player": [180.0, 165, 672.0], "Yaw": 0, "Pitch": 1, "Fov": 85, "Duration": 5.0, "Ease": "smooth"},
-    {"Player": [180.0, 165, 681.0], "Yaw": 0, "Pitch": -1, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+    {"Player": [181.5, 165, 674.0], "Yaw": 188, "Pitch": -2, "Fov": 85, "Duration": 5.0, "Ease": "linear"},
+    {"Player": [179.5, 165, 683.0], "Yaw": 175, "Pitch": -1, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
   ]
 }
