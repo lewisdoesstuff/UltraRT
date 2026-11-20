@@ -6,7 +6,7 @@
   "PerRun": 5,
   "Labels": ["RT OFF", "PATH TRACED"],
   "Graphics": "motion",
-  "Scenario": { "Enemies": "blind" },
+  "Scenario": { "Enemies": "blind", "EnemyOutlines": false },
   "Tiers": {
     "draft": { "Mode": "live", "Modes": "pathtrace", "OutputScale": 0.5, "Fps": 30, "Preroll": 40, "Width": 1280, "Height": 720, "Crf": 20, "ClipCrf": 16 },
     "final": { "Mode": "live", "Modes": "pathtrace+ptx.scaleRR=1", "OutputScale": 1, "Fps": 60, "Preroll": 90, "Width": 2560, "Height": 1440, "Crf": 13, "ClipCrf": 8,

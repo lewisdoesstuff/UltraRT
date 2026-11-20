@@ -29,6 +29,9 @@ namespace UltraRT.Bench
         public PathSpec Path = new PathSpec();
         /// <summary>blind: enemies idle (still animate); active: they fight an invincible player; none: no spawns.</summary>
         public string Enemies = "blind";
+        /// <summary>The game's enemy outlines in both images: false takes them off for the scenario (trailer shots), null =
+        /// as the command line says (-ultrart-enemy-outlines, default on). No pref is written (Plugin.EnemyOutlines.cs).</summary>
+        public bool? EnemyOutlines;
         /// <summary>For recordings: trigger the recorded arenas at their recorded times.</summary>
         public bool ReplayArenas = true;
         /// <summary>Modes compared within each pass, alternating every Segment seconds. "off" = game only.</summary>
@@ -204,6 +207,11 @@ namespace UltraRT.Bench
         /// of one type is called (e.g. 5-2's lightning: <c>{ "At": 1.6, "Type": "DistantThunder", "Method": "ForceThunder" }</c>),
         /// so a random event lands where the cut needs it.</summary>
         public List<CineCall> Calls;
+        /// <summary>Diagnostics: at these path seconds (once per take) log every renderer whose path contains
+        /// <see cref="ProbeFilter"/> (enabled or not, isVisible, bounds, materials, proxy) and save the game's outline mask
+        /// for the next few frames (probe_*.png), each marked traced or off.</summary>
+        public List<float> Probes;
+        public string ProbeFilter;
         /// <summary>auto | locked</summary>
         public string Exposure;
         /// <summary>Takes with their own view mode and sample counts, rendered one after another in this scenario (after

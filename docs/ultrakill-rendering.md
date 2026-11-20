@@ -70,6 +70,62 @@ show, the index finds them. Ours adds 0.1 level of fine noise (per-pixel high-pa
 measurable (composite 0.04 ms, volumetrics and late screen-effects timers identical with and without; GPU frame within
 +-0.06 ms run-to-run noise); on the CPU one global read and one write per frame.
 
+## Enemy outlines
+Found 2026-11-20 (decompiled `PostProcessV2_Handler.SetupOutlines` and `EnemySimplifier`, `ULTRAKILL/OutlinePx` read with
+UnityPy + `fxc /dumpbin`; scratch tool `dumpshader.py <bundle> <path id> <out>`, shader path id 2724905604968942524 in
+`shaders.bundle`).
+- The world camera draws into three targets (MRT): colour, `Reusable A` (RG16, the **outline mask**) and view normals.
+  The game's shaders write the mask from their `_Outline` / `_ForceOutline` values, which `EnemySimplifier` sets per
+  renderer in a property block every time its state changes (`_Outline` = 1 with the Enemy Simplifier on and the enemy
+  beyond `simplifiedDistance`, else 0; `_ForceOutline` 0.5; both 0 for `neverOutlineAndRemoveSimplifier`).
+- `PostProcessV2_Handler.OnPreRenderCallback` clears the mask before every main-camera frame; the command buffer
+  `Outlines` at `AfterEverything` then draws it. With the pref `outlineThickness` 1 (the default) that is one blit of
+  pass 3 (`Composite1Px`, blend `DstColor Zero`, i.e. multiply): a pixel is **masked** when `mask.r > 0.999` or
+  `mask.r + mask.g > 1`, and a pixel that is not masked but has a masked 4-neighbour is multiplied by 0. So a black
+  1-pixel ring is drawn just outside every masked region. With the Simplifier on and a thickness above 1, passes 0-2 grow
+  it with a jump flood instead. `SetupOutlines` runs at start, on camera re-inits and when either pref changes.
+- It draws after our composite, onto whatever is in the colour target, so the traced image gets the game's outlines
+  exactly where the game's image does, given the same mask.
+
+**Off for a run** (`src/UltraRT/Plugin.EnemyOutlines.cs`): `-ultrart-enemy-outlines off`, bench scenario field
+`"EnemyOutlines": false` (the trailer plan's default for every shot, 2026-11-20), bench variant `plugin._enemyOutlines=0`.
+The `Outlines` buffer is taken off the main camera every frame while off (the game re-adds it on re-inits), and the
+game's own `SetupOutlines()` puts it back when it is on again. No pref is written: BenchSafety stays as it is.
+
+**Why the outline showed only in the traced image** (6-2 organ shot, trailer v5, 2026-11-20): it didn't. The mask and
+the `Outlines` buffer are the same in both images (bench probe: identical mask, `_OutlineTex_TexelSize` set, buffer on
+the camera in traced and off frames), and the game's own image has the same ring at full resolution, visible where it
+crosses Gabriel's red aura. Elsewhere it lies on the hall's near-black background; the traced hall around Gabriel is
+brighter, so the same black ring shows. Not an UltraRT bug. The mask is empty until `Gabriel 2nd` (the boss) takes
+over from the intro rig at about 11 s; from then his renderers carry `_Outline` = 1 in their property blocks
+(EnemySimplifier: Enemy Simplifier option on and the enemy beyond its distance from the player, who stays at the
+scenario's pose while the camera flies).
+
+## Gabriel's swords (6-2 intro)
+Found 2026-11-20 (bench probes, `bench/suites/gabriel-swords.json`). In the organ shot the traced image shows Gabriel
+holding two thin blades (green-tinted in the red hall) that the game's image never shows. They are real, enabled
+renderers: `GabrielIntro.SwordPull` (an animation event) enables the intro rig's `GabeSword_*002` skinned meshes, and
+`Gabriel 2nd`'s rig has its own. The main camera renders them every frame (`OnWillRenderObject`), their skinned
+vertices are identical to our proxy's (GPU readback of both buffers), and a test colour on the game's material showed
+them exactly where we trace them. The game draws them **near-black**: their material (`GabrielSwordSplendor` /
+`GabrielSwordJustice`, ULTRAKILL/Master with `_VertexColors` = 1, additive `SwordCubemap` reflection whose texels are at
+most 33/255) multiplies the blade texture by the mesh's vertex colours, and the `GabeSword_*` meshes (swords and
+sheaths) have no colour channel. V1's model is also a skinned mesh without colours under a `_VertexColors` material and
+comes out normal, so what the game reads for the missing channel is not defined. At the blade pixels the game's image is
+(44, 1, 0) against (38, 1, 0) beside it: in the dark red hall the swords vanish.
+
+Decision (user, 2026-11-20): treat it as a game bug and keep the swords visible in the traced image. UltraRT's hit
+shader reads missing vertex colours as white, and on non-atlas proxies it does not apply `_VertexColors` at all (the
+game multiplies texture x vertex colour x `_Color` there; a version that did changed 0-2% of pixels at 6-2 and 7-3
+poses and was left out to keep this change small). A "black when the mesh has no colours" rule (for every skinned
+mesh, or by material rule) worked for the swords but blackened V1's third-person model and guns, and is not in.
+
+Ruled out on the way, for the next look at "renders in RT, not in the game": culling and occlusion culling, the
+`_PortalClipPlane` clip distance (0 at every draw), stencil (`_StencilComp` Always), depth occluders (none between the
+camera and the swords), fog (linear 10-150 m, the same for every Gabriel renderer), shader discard (none in the
+variant). Tools: the cinematic `Probes` (docs/cinematics.md) and the scratch `dumpshader.py` / `matdump.py` /
+`meshch.py` UnityPy scripts (shader passes, material values, mesh channels).
+
 ## Shaders that matter
 - `ULTRAKILL/Master` covers dynamic and most static props. Emission is explicit: the `EMISSIVE` keyword plus `_EmissiveColor`, `_EmissiveTex`, `_EmissiveIntensity` and `_UseAlbedoAsEmissive`.
 - `Hidden/ULTRAKILL/ULTRAKILL-Stationary` is used for level geometry baked by `StaticSceneOptimizer` (see below).

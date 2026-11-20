@@ -127,7 +127,7 @@ when ffmpeg is found). Every `[Cinematics]` setting can be overridden per scenar
 `Paths`, `Bounces`, `CacheTail`, `OutputScale`, `MotionBlur`, `Shutter`, `Exposure`, `TimeScale`, `Png16`, `Encode`,
 `Crf`, plus `Start` / `Seconds` (part of the path) and `Preroll`. The summary gets a "Cinematics" table. Offline renders
 take seconds per frame: give long ones `-TimeoutSec`. Suites: `cine-test.json` (smoke test, ~1 min), `cine-test2.json`,
-`cine-demo.json` (the sample renders, ~25 min). `Takes` (a list of `{ "Name", "Mode", "View", "Aa", "Samples", "Bounces", "Start", "Seconds" }`) renders several takes of one path with their own bench view mode (variants allowed), render mode and sample counts into `cine_<scenario>_<Name>`; with `TimeScale` 0 they all show the same instant (`bench/suites/aliasing.json`, docs/aliasing.md; set `"Render": false` so the block's own take is skipped). More `Cinematic` fields (`Modes`, `Paired` capture, `OnFrom` / `OffUntil`, a moving `Player`, `TracePlayer`, `ShowWeapon`, `Shots` / `ShotKinds`, `Flickers`, `Calls`) are in docs/cinematics.md ("Bench: cinematic scenarios", "Before / after pairs and trailers") and docs/trailer.md.
+`cine-demo.json` (the sample renders, ~25 min). `Takes` (a list of `{ "Name", "Mode", "View", "Aa", "Samples", "Bounces", "Start", "Seconds" }`) renders several takes of one path with their own bench view mode (variants allowed), render mode and sample counts into `cine_<scenario>_<Name>`; with `TimeScale` 0 they all show the same instant (`bench/suites/aliasing.json`, docs/aliasing.md; set `"Render": false` so the block's own take is skipped). More `Cinematic` fields (`Modes`, `Paired` capture, `OnFrom` / `OffUntil`, a moving `Player`, `TracePlayer`, `ShowWeapon`, `Shots` / `ShotKinds`, `Flickers`, `Calls`, `Probes`) are in docs/cinematics.md ("Bench: cinematic scenarios", "Before / after pairs and trailers") and docs/trailer.md.
 
 ```json
 { "Name": "1-3 glide pathtrace", "Scene": "Level 1-3",
@@ -135,6 +135,10 @@ take seconds per frame: give long ones `-TimeoutSec`. Suites: `cine-test.json` (
   "Modes": [ "pathtrace" ],
   "Cinematic": { "File": "../cinematics/1-3-water-glide.json", "Play": true, "Start": 1, "Seconds": 3, "Samples": 16, "Aa": 4 } }
 ```
+
+`"EnemyOutlines": false` on any scenario takes the game's enemy outlines off for that scenario, in the game's image and the
+traced one alike (the trailer plan sets it for every shot; docs/ultrakill-rendering.md, "Enemy outlines"). Without it a
+scenario gets the command line's `-ultrart-enemy-outlines on|off` (default on, as the game). No pref is written.
 
 ## Recording a path
 1. Launch normally (`-force-d3d12`), load a level and play or fly around.

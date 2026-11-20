@@ -41,7 +41,99 @@ namespace UltraRT
                               || b.IntersectRay(new Ray(pos, fwd));
                 if (inCone) hits.Add((dist, r));
             }
-            foreach (var (dist, r) in hits.OrderBy(h => h.d).Take(max))
+            foreach (var (dist, r) in hits.OrderBy(h => h.d).Take(max)) yield return DescribeRenderer(r, dist, bySource);
+        }
+
+        /// <summary>
+        /// Bench cinematic "Probes" (bench/README.md): every renderer whose path contains <paramref name="filter"/>, enabled or
+        /// not, with what decides whether the game draws it (enabled, active, isVisible = drawn by a camera last frame,
+        /// forceRenderingOff, layer in the main camera's mask, in its frustum, bounds) and its materials and proxy.
+        /// </summary>
+        public IEnumerable<string> DescribeMatching(string filter, Camera cam, int max = 80)
+        {
+            var bySource = new Dictionary<Renderer, DynamicProxy>();
+            foreach (var d in _dynamic) if (d.Source != null && !bySource.ContainsKey(d.Source)) bySource[d.Source] = d;
+            var pos = cam != null ? cam.transform.position : Vector3.zero;
+            var planes = cam != null ? GeometryUtility.CalculateFrustumPlanes(cam) : null;
+            int n = 0, inactive = 0;
+            foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (r == null || IsProxyObject(r.gameObject)) continue;
+                if (GameControlPath(r.transform).IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (!r.gameObject.activeInHierarchy) { inactive++; continue; } // inactive ones only counted
+                if (n++ >= max) break;
+                var b = r.bounds;
+                string head = $"enabled={r.enabled} active={r.gameObject.activeInHierarchy} isVisible={r.isVisible} forceOff={r.forceRenderingOff} " +
+                              $"inCamMask={(cam != null && ((cam.cullingMask >> r.gameObject.layer) & 1) != 0)} inFrustum={(planes != null && GeometryUtility.TestPlanesAABB(planes, b))} " +
+                              $"bounds=({b.center:F2} size {b.size:F2}) ";
+                // The Master shader's per-material fog distances (its material cbuffer holds unity_FogStart / unity_FogEnd / _HeightFog).
+                r.GetPropertyBlock(ProbeBlock);
+                var m0 = r.sharedMaterial;
+                string FogVal(string n) => (ProbeBlock.HasFloat(n) ? $"mpb {ProbeBlock.GetFloat(n):G4}" : m0 != null && m0.HasFloat(n) ? $"mat {m0.GetFloat(n):G4}" : "-") + $"/global {Shader.GetGlobalFloat(n):G4}";
+                head += $"fog[start {FogVal("unity_FogStart")} end {FogVal("unity_FogEnd")} height {FogVal("_HeightFog")}; RenderSettings {RenderSettings.fog} {RenderSettings.fogMode} {RenderSettings.fogStartDistance:G4}..{RenderSettings.fogEndDistance:G4} {RenderSettings.fogColor}] ";
+                if (r is SkinnedMeshRenderer s0)
+                    head += $"localBounds=({s0.localBounds.center:F2} size {s0.localBounds.size:F2}) root='{(s0.rootBone != null ? s0.rootBone.name : "-")}' rootPos={(s0.rootBone != null ? s0.rootBone.position : r.transform.position):F2} rootScale={(s0.rootBone != null ? s0.rootBone.lossyScale : r.transform.lossyScale):F3} ";
+                yield return head + DescribeRenderer(r, (b.ClosestPoint(pos) - pos).magnitude, bySource);
+            }
+            yield return $"{n} active renderer(s) listed{(n > max ? " (more not listed)" : "")}, {inactive} inactive ones matching '{filter}' not listed";
+        }
+
+        /// <summary>
+        /// Bench cinematic "Probes": the skinned vertices the game drew this frame (the source renderer's GPU skin buffer)
+        /// against our proxy's, as world-space boxes (the buffer is in root-bone space without scale), for every active
+        /// skinned source matching <paramref name="filter"/>. Logged when the readbacks arrive.
+        /// </summary>
+        public void ProbeSkinnedExtents(string filter, System.Action<string> log)
+        {
+            foreach (var d in _dynamic)
+            {
+                if (d.SkinnedSource == null || d.SkinnedProxy == null || !d.SkinnedSource.gameObject.activeInHierarchy) continue;
+                string path = GameControlPath(d.SkinnedSource.transform);
+                if (path.IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                var root = d.Root != null ? d.Root : d.SkinnedSource.transform;
+                var rootM = Matrix4x4.TRS(root.position, root.rotation, Vector3.one);
+                var mesh = d.SkinnedSource.sharedMesh;
+                int posOffset = mesh != null ? Mathf.Max(0, mesh.GetVertexAttributeOffset(VertexAttribute.Position)) : 0;
+                bool sameBones = d.SkinnedProxy.bones.Length == d.SkinnedSource.bones.Length && d.SkinnedProxy.bones.Zip(d.SkinnedSource.bones, (a, b) => a == b).All(x => x);
+                string head = $"skin '{path}' enabled={d.SkinnedSource.enabled} mesh={mesh?.name}/{d.SkinnedProxy.sharedMesh?.name} sameBones={sameBones} quality={d.SkinnedSource.quality}/{d.SkinnedProxy.quality} " +
+                              $"motionVectors={d.SkinnedSource.skinnedMotionVectors} root='{root.name}'";
+                foreach (var (which, smr) in new[] { ("game", d.SkinnedSource), ("proxy", d.SkinnedProxy) })
+                {
+                    GraphicsBuffer vb = null;
+                    try { vb = smr.GetVertexBuffer(); } catch (System.Exception e) { log($"{head} {which}: GetVertexBuffer: {e.Message}"); }
+                    if (vb == null) { log($"{head} {which}: no skinned buffer this frame"); continue; }
+                    int stride = vb.stride, count = vb.count;
+                    var buf = vb;
+                    UnityEngine.Rendering.AsyncGPUReadback.Request(vb, r =>
+                    {
+                        try
+                        {
+                            if (r.hasError) { log($"{head} {which}: readback failed"); return; }
+                            var bytes = r.GetData<byte>();
+                            int n = bytes.Length / stride;
+                            var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+                            var max = -min;
+                            var wmin = min; var wmax = max;
+                            for (int i = 0; i < n; i++)
+                            {
+                                int o = i * stride + posOffset;
+                                var p = new Vector3(System.BitConverter.ToSingle(new[] { bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3] }, 0),
+                                                    System.BitConverter.ToSingle(new[] { bytes[o + 4], bytes[o + 5], bytes[o + 6], bytes[o + 7] }, 0),
+                                                    System.BitConverter.ToSingle(new[] { bytes[o + 8], bytes[o + 9], bytes[o + 10], bytes[o + 11] }, 0));
+                                min = Vector3.Min(min, p); max = Vector3.Max(max, p);
+                                var w = rootM.MultiplyPoint3x4(p);
+                                wmin = Vector3.Min(wmin, w); wmax = Vector3.Max(wmax, w);
+                            }
+                            log($"{head} {which}: {n} verts (stride {stride}), root-space box {min:F3}..{max:F3} (size {(max - min).magnitude:F3}), world box {wmin:F2}..{wmax:F2}");
+                        }
+                        finally { buf.Dispose(); }
+                    });
+                }
+            }
+        }
+
+        private string DescribeRenderer(Renderer r, float dist, Dictionary<Renderer, DynamicProxy> bySource)
+        {
             {
                 var sb = new StringBuilder();
                 sb.Append($"'{GameControlPath(r.transform)}' {r.GetType().Name} L{r.gameObject.layer} d={dist:F1} size={r.bounds.size.magnitude:F1} static={r.isPartOfStaticBatch} " +
@@ -90,7 +182,7 @@ namespace UltraRT
                 }
                 r.GetPropertyBlock(ProbeBlock);
                 if (!ProbeBlock.isEmpty && mats.Length > 0 && mats[0] != null) sb.Append("\n      mpb{" + DescribeProps(mats[0], ProbeBlock) + "}");
-                yield return sb.ToString();
+                return sb.ToString();
             }
         }
 
