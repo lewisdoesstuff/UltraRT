@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "cand-8-3-space-street",
+  "Scene": "Level 8-3",
+  "Note": "v5c candidate: 8-3's Space Streets, down the street past the car with the light beams.",
+  "Keys": [
+    {"Player": [513.0, 254.25, 938.0], "Yaw": 180, "Pitch": 0, "Fov": 85, "Duration": 6.0, "Ease": "smooth"},
+    {"Player": [513.0, 254.25, 928.0], "Yaw": 180, "Pitch": 2, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

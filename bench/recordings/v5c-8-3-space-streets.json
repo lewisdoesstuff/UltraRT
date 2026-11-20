@@ -1,0 +1,37 @@
+{
+ "Version": 1,
+ "Scene": "Level 8-3",
+ "Created": "2026-11-20T00:00:00",
+ "Note": "Synthetic route for trailer v5c: stand at the Space Streets checkpoint (Load: checkpoint jumps there).",
+ "SampleRate": 30.0,
+ "Samples": [
+  [
+   0.0,
+   513.0,
+   255.75,
+   936.0,
+   0.0,
+   0.0
+  ],
+  [
+   0.5,
+   513.0,
+   255.75,
+   936.0,
+   0.0,
+   0.0
+  ]
+ ],
+ "Arenas": [],
+ "Checkpoints": [
+  {
+   "Time": 0.0,
+   "Path": "SpaceCheckpoints/Checkpoint (1)",
+   "Position": [
+    513.0,
+    254.25,
+    936.0
+   ]
+  }
+ ]
+}

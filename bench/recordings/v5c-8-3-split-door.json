@@ -1,0 +1,37 @@
+{
+ "Version": 1,
+ "Scene": "Level 8-3",
+ "Created": "2026-11-20T00:00:00",
+ "Note": "Synthetic route for trailer v5c: stand at the Split Color Door checkpoint (Load: checkpoint jumps there).",
+ "SampleRate": 30.0,
+ "Samples": [
+  [
+   0.0,
+   200.0,
+   44.5,
+   258.0,
+   0.0,
+   0.0
+  ],
+  [
+   0.5,
+   200.0,
+   44.5,
+   258.0,
+   0.0,
+   0.0
+  ]
+ ],
+ "Arenas": [],
+ "Checkpoints": [
+  {
+   "Time": 0.0,
+   "Path": "Pre-Space/Rooms/CheckpointReusable",
+   "Position": [
+    200.0,
+    43.0,
+    258.0
+   ]
+  }
+ ]
+}

@@ -3,6 +3,33 @@
   "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier final, run 4): do not edit, change the plan.",
   "Scenarios": [
     {
+      "Name": "2-4 tunnel",
+      "Scene": "Level 2-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/u1118-2-4-3.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-2-4-tunnel.json",
+        "Mode": "live",
+        "Fps": 60.0,
+        "Seconds": 4.533,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 90,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 1.25,
+        "OffUntil": 1.75
+      }
+    },
+    {
       "Name": "museum gallery",
       "Scene": "CreditsMuseum2",
       "Path": {

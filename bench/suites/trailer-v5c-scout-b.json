@@ -1,0 +1,246 @@
+{
+  "Name": "trailer-v5c-scout-b",
+  "Note": "Camera scouting (scripts/trailer-paths.py --scout): one low-sample frame per candidate key.",
+  "Scenarios": [
+    {
+      "Name": "scout-v5c-8-2-market-shutters",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-2-supermarket-shutters.json",
+        "Duration": 1,
+        "LookAt": "16 - Supermarket Shutters/16 Nonstuff/Floor",
+        "LookActivate": true,
+        "LookDistance": 6
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/scout-v5c-8-2-market-shutters.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 3,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v5c-8-2-market-escalators",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-2-island.json",
+        "Duration": 1,
+        "LookAt": "13 - Supermarket Escalators/13 Nonstuff/Floor",
+        "LookActivate": true,
+        "LookDistance": 6
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/scout-v5c-8-2-market-escalators.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 3,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v5c-8-2-market-entrance",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-2-island.json",
+        "Duration": 1,
+        "LookAt": "12B - Supermarket Entrance/12B Nonstuff/Entrance",
+        "LookActivate": true,
+        "LookDistance": 6
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/scout-v5c-8-2-market-entrance.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 1,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v5c-8-3-shifting-hall",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/u1118-8-3-1.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/scout-v5c-8-3-shifting-hall.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 2,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v5c-8-3-shifting-arena",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/u1118-8-3-2.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/scout-v5c-8-3-shifting-arena.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 2,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v5c-8-3-crushers",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-3-crushers.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/scout-v5c-8-3-crushers.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 2,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v5c-8-3-split-door",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-3-split-door.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/scout-v5c-8-3-split-door.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 2,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    },
+    {
+      "Name": "scout-v5c-8-3-space-streets",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-3-space-streets.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Cinematic": {
+        "File": "../cinematics/scout-v5c-8-3-space-streets.json",
+        "Mode": "pathtrace",
+        "Fps": 1,
+        "Seconds": 2,
+        "Samples": 8,
+        "Aa": 1,
+        "OutputScale": 0.25,
+        "Encode": false,
+        "Preroll": 30,
+        "TimeScale": 0,
+        "Modes": [
+          "off",
+          "pathtrace"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "Version": 1,
+  "Name": "final-8-2-market-aisle",
+  "Scene": "Level 8-2",
+  "Note": "Trailer v5c: down a supermarket aisle in 8-2's '12B - Supermarket Entrance' towards the arch, the fluorescent tubes overhead. World frame keys [z, x, feet y, yaw, pitch]; loaded at the Island checkpoint with the supermarket switched on by LookActivate.",
+  "Keys": [
+    {"Player": [-180.0, -5, 146.0], "Yaw": 0, "Pitch": 5, "Fov": 85, "Duration": 5.0, "Ease": "smooth"},
+    {"Player": [-180.0, -5, 159.0], "Yaw": 0, "Pitch": 3, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+  ]
+}

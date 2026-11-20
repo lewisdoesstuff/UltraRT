@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Name": "scout-v5c-8-3-shifting-hall",
+  "Scene": "Level 8-3",
+  "Note": "Trailer v5c candidates: 8-3's Shifting Hallway (x -151 to -40, z 402-447, floor y 1), the user's pose 1 (u1118-8-3-1).",
+  "Keys": [
+    {"Player": [-54.0, 1, 427.5], "Yaw": 270, "Pitch": 0, "Fov": 85, "Duration": 1.0, "Ease": "cut"},
+    {"Player": [-85.0, 1, 427.5], "Yaw": 270, "Pitch": 0, "Fov": 85, "Duration": 1.0, "Ease": "cut"},
+    {"Player": [-120.0, 1, 415.0], "Yaw": 300, "Pitch": -3, "Fov": 85, "Duration": 1.0, "Ease": "cut"}
+  ]
+}

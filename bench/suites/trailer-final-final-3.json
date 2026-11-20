@@ -3,6 +3,36 @@
   "Note": "Written by scripts/trailer-plan.py from bench/trailer/final-plan.json (tier final, run 3): do not edit, change the plan.",
   "Scenarios": [
     {
+      "Name": "4-4 window hall",
+      "Scene": "Level 4-4",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-4-4-boss-entrance.json",
+        "Duration": 1,
+        "LookAt": "5 - Window Hallway/Floor",
+        "LookActivate": true,
+        "LookDistance": 6
+      },
+      "Modes": [
+        "pathtrace+ptx.scaleRR=1"
+      ],
+      "Enemies": "blind",
+      "Cinematic": {
+        "File": "../cinematics/final-4-4-window-hall.json",
+        "Mode": "live",
+        "Fps": 60.0,
+        "Seconds": 6.033,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 90,
+        "Encode": false,
+        "Paired": true,
+        "OnFrom": 1.25,
+        "OffUntil": 3.25
+      }
+    },
+    {
       "Name": "1-1 terminal",
       "Scene": "Level 1-1",
       "Path": {
@@ -61,45 +91,23 @@
       }
     },
     {
-      "Name": "2-2 street",
-      "Scene": "Level 2-2",
+      "Name": "8-2 market",
+      "Scene": "Level 8-2",
       "Path": {
         "Type": "static",
-        "Approach": "../recordings/late-2-2-floor-noise-purple.json",
-        "Duration": 1
+        "Load": "checkpoint",
+        "Approach": "../recordings/v5c-8-2-island.json",
+        "Duration": 1,
+        "LookAt": "12B - Supermarket Entrance/12B Nonstuff/Entrance",
+        "LookActivate": true,
+        "LookDistance": 6
       },
       "Modes": [
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
       "Cinematic": {
-        "File": "../cinematics/final-2-2-street.json",
-        "Mode": "live",
-        "Fps": 60.0,
-        "Seconds": 4.533,
-        "OutputScale": 1,
-        "TimeScale": 1,
-        "Preroll": 90,
-        "Encode": false,
-        "Paired": true,
-        "OnFrom": 1.25,
-        "OffUntil": 3.25
-      }
-    },
-    {
-      "Name": "0-5 lava",
-      "Scene": "Level 0-5",
-      "Path": {
-        "Type": "static",
-        "Approach": "../recordings/0-5-approach.json",
-        "Duration": 1
-      },
-      "Modes": [
-        "pathtrace+ptx.scaleRR=1"
-      ],
-      "Enemies": "blind",
-      "Cinematic": {
-        "File": "../cinematics/final-0-5-lava.json",
+        "File": "../cinematics/final-8-2-market-aisle.json",
         "Mode": "live",
         "Fps": 60.0,
         "Seconds": 4.533,
@@ -113,12 +121,12 @@
       }
     },
     {
-      "Name": "2-4 tunnel",
-      "Scene": "Level 2-4",
+      "Name": "8-3 crushers",
+      "Scene": "Level 8-3",
       "Path": {
         "Type": "static",
         "Load": "checkpoint",
-        "Approach": "../recordings/u1118-2-4-3.json",
+        "Approach": "../recordings/v5c-8-3-crushers.json",
         "Duration": 1
       },
       "Modes": [
@@ -126,7 +134,7 @@
       ],
       "Enemies": "blind",
       "Cinematic": {
-        "File": "../cinematics/final-2-4-tunnel.json",
+        "File": "../cinematics/final-8-3-crushers.json",
         "Mode": "live",
         "Fps": 60.0,
         "Seconds": 4.533,
@@ -135,8 +143,8 @@
         "Preroll": 90,
         "Encode": false,
         "Paired": true,
-        "OnFrom": 1.25,
-        "OffUntil": 1.75
+        "OnFrom": 0.95,
+        "OffUntil": 2.95
       }
     }
   ]
