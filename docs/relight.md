@@ -12,7 +12,7 @@ everything is derived from each light's colour, intensity and range, plus a few 
 | White point | `-ultrart-relight-white` | 3 | shoulder tone map in the denoiser's composite: values below the knee are untouched, the white point maps to 1, so hotspots roll off instead of clipping |
 | Tone curve | `-ultrart-relight-tonemap` | `film` (was `lum` until 2026-11-18) | `film[,K]`: the luminance shoulder, then a highlight rolloff to white (K 0.8, see "Highlight rolloff"); `lum` scales by luminance alone (the original curve: a saturated colour clips per channel); `max` scales by the largest channel (keeps hue and saturation, never clips below the white point, but dims hot saturated colours such as torch-lit orange walls a little) |
 | Knee | `-ultrart-relight-knee` | 0.75 | where the shoulder starts |
-| Highlight hue | `-ultrart-relight-hue F` (bench `plugin._tonemapHue=F`, Advanced setting `[Relight] HighlightHue`) | 0 (off; opt-in since 2026-11-20) | `film` only: hot red highlights turn up to F x 20 degrees towards orange as the rolloff whitens them, instead of pink; see "Highlight hue" |
+| Highlight hue | `-ultrart-relight-hue F` (bench `plugin._tonemapHue=F`, Advanced setting `[Relight] HighlightHue`) | 0.5 (user, 2026-11-20; was 0 = off when first merged) | `film` only: hot red highlights turn up to F x 20 degrees towards orange as the rolloff whitens them, instead of pink; see "Highlight hue" |
 | Toe | `-ultrart-relight-toe S[,END]` | 0.6 (end 0.25) since 2026-11-18 ("punch", docs/lighting-overrides.md; 0 before) | filmic toe below END: luminance v becomes `lerp(v, v^2/END * (2 - v/END), S)` (same value and slope at END, slope 1 - S at black), for deeper shadows. At 0.3 it changed the bench poses' means by under 2%; at 0.6 it takes about a third off the lift of the pixels the game leaves black |
 | Auto exposure | `-ultrart-relight-autoexposure on\|off` | on | see below; config `[Relight] AutoExposure`; **Ctrl+F4** toggles in game |
 | Linear transport | `-ultrart-relight-linear on\|off` | on | light transport on linear values; see "Sky and GI" |
@@ -58,12 +58,12 @@ Bench: `pathtrace+plugin._tonemapCurve=0` is the old curve, `plugin._tonemapSat=
 The statue orb lights are scaled x0.5 on top (docs/scene-proxies.md, "Statue orbs"). Not done yet: emissive exposure (a
 hybrid variant was on this list until the hybrid mode went on 2026-11-19). Per-area colour: see "Area colour".
 
-### Highlight hue (opt-in, 2026-11-20, `t3/tone-hue-rain-polish`)
+### Highlight hue (2026-11-20, `t3/tone-hue-rain-polish`; default 0.5 since 2026-11-20)
 The `film` rolloff pulls every channel of a hot saturated pixel towards its luminance by one factor. For red that adds
 the same amount of green and blue, and red plus white reads as salmon or pink (6-2's red rooms, 0-3's corridor, the
 hot spots of 0-1's columns and 4-3's torch-lit floor). Fire and over-exposed red film go red -> orange -> white.
 
-`-ultrart-relight-hue F` (0-1, default **0 = off**: the curve is then bit-identical to `film`, the new code sits behind
+`-ultrart-relight-hue F` (0-1, default **0.5** since 2026-11-20, the user's pick from the 0 / 0.5 / 1 comparison; it shipped opt-in at 0 first. At 0 the curve is bit-identical to `film`, the new code sits behind
 `_UltraRTTonemapHue.x > 0`) adds `UltraRTFilmWarm` after the rolloff (`UltraRTToneCurve.hlsl`):
 - only where the rolloff acted (s = e2 / e < 1), and only on red-leading colours: full from -10 to +10 degrees of hue,
   fading to nothing at -40 (magenta) and +40 (orange-yellow); yellow, green, blue and neutral are untouched;
