@@ -51,6 +51,10 @@ frames (the lead's merge-regress on master 9fd12e3, '0-1 metal'). Three separate
 | RR's feature for the current sizes | 31-82 ms create + its first evaluate | created and evaluated once on the worker when the mode is entered; meanwhile (17-18 frames, about 150 ms) the frames use UltraRT's denoiser |
 | **RayGenPT's ray tracing pipeline** | **16-33 s** after a new shader bundle (the driver's shader cache misses), about 0.2 s on a cache hit | compiled by a 1x1 dispatch on the session's first trace in any mode, usually at the main menu (`ptx.prewarm`, `-ultrart-pt-noprewarm`) |
 
+- Since 2026-11-20 PathTrace has two more ray generations, `RayGenImg` / `RayGenPTImg` (frames with lights imaged
+  through portals; [performance.md](performance.md), "2026-11-20 batch"). They are warmed the same way: a 1x1 dispatch
+  on the session's first trace (the mode in use; RayGenPTImg also when pathtrace is wanted) and on the first frame with
+  portal sides, both under `ptx.prewarm`.
 - The 16-33 s was the pipeline, not NGX: it measured the same with UltraRT's denoiser (`View mode relight -> pathtrace
   ... frame ms 18276.3`, `bench/results/20261115-022925_pt2-i_alt`) and only after a shader change (runs that reused
   the same bundle took 223 ms). Unity compiles each raygen's pipeline on its first dispatch, so relight never paid for

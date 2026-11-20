@@ -1,0 +1,18 @@
+{
+    "Name": "perf-1120-62",
+    "Note": "6-2 start pathtrace render thread (2026-11-20): emitters, RR front emitters and enemy glow lights on/off in alternating segments.",
+    "Scenarios": [
+        {
+            "Name": "6-2 start",
+            "Scene": "Level 6-2",
+            "Path": { "Type": "static", "Approach": "../recordings/6-2-start.json", "Duration": 12 },
+            "Modes": [
+                "pathtrace",
+                "pathtrace+emissive=0",
+                "pathtrace+plugin._rrFrontEmitters=0",
+                "pathtrace+eg.enabled=0"
+            ],
+            "Segment": 1.5
+        }
+    ]
+}
