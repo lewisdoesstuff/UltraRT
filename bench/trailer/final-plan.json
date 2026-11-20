@@ -97,8 +97,7 @@
 
     { "Kind": "end", "Name": "end card", "Seconds": 6.5,
       "Card": { "Text": "ULTRART", "AccentFrom": 5, "Scale": 0.8, "Y": 0.40, "OutFade": 1.2,
-                "Lines": ["FREE MOD FOR ULTRAKILL  ///  THUNDERSTORE"],
-                "Small": ["CAPTURED LIVE WITH REAL-TIME PATH TRACING AND NVIDIA DLSS RAY RECONSTRUCTION",
-                          "UNOFFICIAL MOD - NOT AFFILIATED WITH NEW BLOOD INTERACTIVE OR ARSI \"HAKITA\" PATALA"] } }
+                "Lines": ["A RAY TRACING MOD FOR ULTRAKILL"],
+                "Small": ["CAPTURED LIVE WITH REAL-TIME PATH TRACING AND NVIDIA DLSS RAY RECONSTRUCTION"] } }
   ]
 }
