@@ -243,7 +243,7 @@ ReSTIR keeps working across the handover. Its light remap is by `Light.GetInstan
 - its material blends additively (`_DstBlend == One`, or "Additive" in the shader name) in the transparent queue;
 - neither its material nor its texture name contains `smoke dust gas fog cloud mist steam checkpoint water splash glass shockwave hole lava pillar`.
 
-Trails, lines and meshes are off by default (`virtualTrailsAndMeshes`). In the surveyed levels they were enemy motion streaks, light shafts and lava overlays, and the beams that matter already have lights. Renderers in a spawned hierarchy that has its own Light never become virtual lights; they only drive flicker.
+Trails, lines and meshes are off by default (`virtualTrailsAndMeshes`). In the surveyed levels they were enemy motion streaks, light shafts and lava overlays, and the beams that matter already have lights (at their start only; since 2026-11-20 combat beams get a chain of lights along their line, see "Combat lights" below). Renderers in a spawned hierarchy that has its own Light never become virtual lights; they only drive flicker.
 
 **Colour.** The product of:
 - 2 x `_TintColor` (or `_Color`);
@@ -442,6 +442,9 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | `-ultrart-effect-scale x` | `intensityScale` | 4 | |
 | `-ultrart-effect-max n` | `maxVirtual` | 16 | |
 | `-ultrart-effectsurvey` | | off | the survey; it costs milliseconds per frame, so never measure with it on |
+| `-ultrart-beam-lights x` | `beamLights` | 1 | combat beam lights, a strength (0 = off); "Combat lights" below |
+| `-ultrart-parry-light x` | `parryLight` | 1 | the parry burst (0 = off) |
+| `-ultrart-lightning-flash x` | `lightningFlash` | 1 | the lightning flash (0 = off) |
 
 Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5. Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
 
@@ -454,3 +457,121 @@ In the bench, `Scenario.Effects` (`bench/README.md`, `bench/suites/effects.json`
 - **`Instantiate<T>(T)` without a position isn't hooked.** Lights in those clones still wait for the 1 s scan, as before.
 - **The heuristics go by name and blend mode.** A glowing effect whose name matches the exclusion list, or one that is alpha-blended, gets no virtual light. `virtualTrailsAndMeshes` turns the other renderer kinds on.
 - **Virtual light brightness is an estimate.** Every effect at full strength gets the same intensity, scaled by how much of its quad glows. It is calibrated only against the game's own Fire light.
+
+# Combat lights (beams, parry, lightning; 2026-11-20, `t3/combat-storm-lights`)
+
+Files: `src/UltraRT/CombatLights.cs` (the lights and the Harmony hooks, `CombatHooks`), wiring in `Plugin.Effects.cs`
+(`AppendEffectLights`, after `EffectLights.Append`), settings in `EffectLightSettings` (bench prefix `fx.`), the hooks
+installed from `Patches.Apply`, bench kinds in `Bench/EffectSpawner.cs`, suite `bench/suites/combat-lights.json`.
+
+## What the game does (Assembly-CSharp, read 2026-11-20)
+
+- **`RevolverBeam`** (revolver, coin shots, ricochets, the railcannon: `BeamType.Railgun`, Malicious Face, turrets and
+  other enemy beams: `BeamType.Enemy`) is one GameObject with a 2-point world-space `LineRenderer` (start, hit point)
+  and a `Light` on the same object (20, range 5 for the revolver), which sits at the beam's *start*. Its line shrinks
+  at 1.5 width per second and the light fades at 100 per second (`Update`, `fadeOut`). A ricochet or a pierce clones the
+  beam (`Instantiate(gameObject)`) at the hit point; a coin spawns `refBeam` copies (`Coin.SpawnBeam`) and sets their two
+  points itself. So every bounce segment is its own beam object, and each one is instantiated.
+- **`ContinuousBeam`** (the Mindflayer, beams tied to projectiles) is a sustained line whose width rises to
+  `originalWidth` and falls to 0 when it turns off.
+- **`TimeController.ParryFlash()`** (every parry: punches, projectiles, coins, Punch.Parry) instantiates `parryLight`
+  under the player (a point light, 20 / range 10, colour (1, 1, 0.86)), shows the white screen flash for 0.1 s (if
+  Options > parry flash is on) and calls `TrueStop(0.25)`: `Time.timeScale = 0` for 0.25 s of real time. It gets no
+  world point.
+- **`LightningStrikeDecorative_Animated`** (5-2: three bolts over the sea, `Sea/Lightning/LightningStrike*`):
+  `FlashStart` starts a `buildupTime` (0.3 s in 5-2) build-up, then the strike sets its `flash` Light (a point light,
+  25 / range 1000, white, about 160 m above the sea, 350 m from the pier) to full and fades it linearly over
+  `strikeTime` (1 s), on game time. The bolt sprite's bounds run from y -66 (below the sea) to 255. The game's flash is
+  already traced (the active-light set has every enabled light, whatever its intensity).
+- **`LightningStrikeExplosive`** (the Ferryman's strikes) spawns an explosion prefab (with its own light, tracked as a
+  spawned light) or, over a coin, a reflected `RevolverBeam` from 100 m up; then destroys itself in `Start`.
+
+## 1. Beam lights (`fx.beamLights`)
+
+Every spawned hierarchy (the `EffectSpawns` queue) is searched for `LineRenderer`s whose GameObject has a
+`RevolverBeam` or a `ContinuousBeam`; nothing else counts, so LightPillar cones and other decorative lines are never
+beams. Scene `ContinuousBeam`s (pre-placed Mindflayers) are collected once per scene. A `RevolverBeam` counts as ready
+once its `Start` has run (`cc` set): before that its line still holds the prefab's points.
+
+Each frame each live beam segment gets a chain of point lights: the segment is clipped to `cullDistance` (45 m) around
+the camera, a shot from the gun skips its first 1.5 m (the game's own beam light is there), and the rest gets 3 to 6
+lights (`beamSpacing` 5 m; 2 under 3 m, 1 under 1 m), evenly spaced, range max(`beamRange` 6, 1.2 x the spacing),
+soft-shadow radius 0.12 m (crisp shadows of pillars and enemies). Colour: the line's start/end colour average x the
+material's `_TintColor` / `_Color`, normalised, with 15% white (the revolver: (1, 0.92, 0.58)). Intensity `beamIntensity`
+(2) x `beamLights` x a type gain (railcannon x2.5 and range x1.5, Malicious Face x2, enemy x1.2, Mindflayer x1.2,
+charged shots x1.4) x the envelope: (1 - age / `beamFade`)^2 (0.15 s of game time) x the line's own width ratio. A
+paused game freezes the envelope; a real-time cap (0.6 s) ends it anyway. ContinuousBeams follow their width and have
+no age limit. At most `beamMaxLights` (24) per frame, newest beams first; all combat lights go after every scene and
+effect light and keep 8 slots free for the enemy glow and portal images appended after them, so they never take an
+explosion's or a muzzle flash's slot. Volumetric weight `beamMedium` 0.5.
+
+## 2. Parry burst (`fx.parryLight`)
+
+A guarded postfix on `TimeController.ParryFlash` queues a burst ~1.2 m in front of the camera (short of a wall), drained
+the same frame (in `OnUpdate`, or in `AppendEffectLights` when the parry came later in the frame). One point light,
+`parryIntensity` 4, range 8, colour (1, 0.93, 0.8) (the game's parry light is (1, 1, 0.86)), shadow radius 0.08 m; on
+**real** time: full for `parryHold` (0.15 s; the hit-stop lasts 0.25 s), then exp(-t / (`parryFade` / 3)) (0.15 s to
+5%), gone after hold + 2 x fade. The game's own parry light (at the player) stays as it is. Volumetric weight
+`parryMedium` 0.2.
+
+## 3. Lightning flash (`fx.lightningFlash`)
+
+A postfix on `LightningStrikeDecorative_Animated.FlashStart` arms the bolt; the light starts on the frame its game
+`flash` light comes on (the strike, after the build-up). A prefix on `LightningStrikeExplosive.Start` starts one at the
+strike point (a 40 m column). Three lights at 35%, 60% and 85% of the bolt's height (the sprite's bounds reach under the
+sea), blue-white (0.72, 0.84, 1), shadow radius 0.5 m, total intensity `lightningIntensity` 12, range
+`lightningRangePerDistance` (2) x the bolt's distance to the camera (at least 30 m): the camera sits at half the range,
+so the light the player sees does not depend on how far the bolt is. Envelope on game time: a strike and two re-strikes
+at ~0.06 and ~0.13 s (x0.75, x0.45), each exp(-t / (`lightningFade` / 3)), `lightningFade` 0.18 s; a paused game holds
+it, and a real-time cap of 1 s ends it. Volumetric weight `lightningMedium` 0.25. Cleared with every other combat light
+when the active scene changes.
+
+## Auto exposure
+
+A beam, parry or bolt flash holds auto exposure still (the Adapt pass runs with dt = 0: meter, game match, exposure and
+colour balance all keep their state) while it lights the frame and for `exposureHoldTail` (0.15 s) after, at most 1 s at
+a time (rapid fire: then it lets go until the flashes stop). Without it a 0.15 s flash moved the meter by ~45% of its
+step (4/s, computed, not measured) and could start a darkening at 3 EV/s that crept back at 1.5/s. `fx.flashHoldsExposure=0` turns it off.
+
+## Measured (2026-11-20, alt, 2560x1440, `bench/suites/combat-lights.json`)
+
+A/B against the switch at 0 in the same run, on the raw RT image (luma 0-255, mean / p95 / share at 250+):
+
+| Shot | Mode | Off | On |
+|---|---|---|---|
+| 4-1 corridor, 3-segment bounce (`beamchain`) | pathtrace | 85 / 170 / 0% | 169 / 244 / 0.01% |
+| 4-1 corridor, parry burst (0.03 s) | relight | 17.8 / 34 / 0% | 69.7 / 127 / 0% |
+| same | pathtrace | 18.1 / 35 / 0% | 78.1 / 141 / 0% |
+| 4-1 parry, 0.7 s later | relight / pathtrace | 18.1 / 17.6 | 18.4 / 18.1 (back to baseline) |
+| 5-2 pier, bolt light alone (`boltlight`) | relight | 27 / 56 | 34 / 75 |
+| same | pathtrace | 24 / 46 | 31 / 63 |
+| 5-2 pier, real strike + game flash (`lightning`, 0.36 s) | pathtrace | 70 / 241 / 2.2% | 78 / 242 / 2.5% |
+
+- **Beams.** The corridor lights up along the shot to its far end; without the chain only the 5 m around each segment's
+  start (the game's beam lights) is lit. In relight the game's beam lights alone already take the corridor near the
+  camera to luma ~150, so the chain shows mostly down the corridor there. Intensity
+  went 6 -> 8 -> 3 -> 2: 8 washed the corridor out, and at 3 pathtrace put 76% of the frame above luma 150 (the game:
+  8%); 2 is shipped. The punch dark delta during the flash (+66 pathtrace) is the flash itself, not a steady lift.
+- **Parry.** At intensity 40 (first try) the pathtrace frame clipped 67%: a torch's Fire light is 5. At 4 the corridor
+  walls light warm with a falloff into the dark, nothing clips, and the gun is not blown out (it picks up little of the
+  burst at this strength). The burst is gone 0.7 s later. Two bench traps: an effect spawned with `ShotDelay` 0 is not
+  in the capture unless the light is drained in `AppendEffectLights` (fixed), and slow bench frames around a spawn
+  stretch a 0.06 s `ShotDelay` to ~0.17 s of real time, past a 0.12 s hold (relight then showed 10% of the burst).
+  Relight's temporal filters were not the cause: TAAU off, cache off and `dn.alphaMin=0.5` all gave the same.
+- **Lightning.** The game's flash (25 / range 1000) already lights the pier near white during a strike, so the bolt
+  light adds a cool, sharper-shadowed spike on top (pathtrace mean +8, clipped share 2.2% -> 2.5%). At intensity 18 it
+  was 2.3% -> 4.2% clipped, hence 12. The re-strike flicker is not visible in stills.
+- **Cost.** `-Perf`, exclusive lock, 4-1 corridor, a 3-segment bounce and a parry every 0.2 s, modes alternating every
+  2 s in one pass: pathtrace 6.29 -> 6.41 ms, GPU 4.32 -> 4.35 ms; relight 6.31 -> 6.29 ms, GPU 4.14 -> 4.15 ms; plugin
+  CPU 0.87 / 0.78 ms both ways. Within the noise.
+
+Bench kinds (`bench/README.md`): `beamchain`, `railbeam`, `parry`, `parrygame`, `lightning`, `boltlight`.
+
+### Limits
+
+- **No coin or railcannon shot measured.** Coin shots spawn the same `RevolverBeam` segments as `beamchain`; the alt
+  save has no railcannon (`railbeam` fails with "no Railcannon"). Enemy beams and the Mindflayer were not seen in a run.
+- **The parry point is a guess.** `ParryFlash` gets no position, so the burst sits 1.2 m ahead of the camera, not at
+  the parried projectile or enemy.
+- **Point chains, not line lights.** The shader has no capsule light; 3 to 6 points per segment can show as separate
+  pools on a wall right next to a long beam.

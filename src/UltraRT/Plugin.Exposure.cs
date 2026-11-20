@@ -147,6 +147,7 @@ namespace UltraRT
             // The bench's bursts capture far below real time and set FrameTimeOverride so the denoiser blends as at 360 Hz;
             // adapt on the same clock, or every slow captured frame takes a large step after the noisy meter.
             float dt = _aeBenchClock && Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
+            if (CombatFlashHoldsExposure()) dt = 0f; // a parry / beam / lightning flash: hold (Plugin.Effects.cs)
             // Offline cinematic render: metered once per output frame, on a 1 / fps clock (Plugin.CineRender.cs).
             if (!CineExposureGate(ref dt)) { _aeLastFrame = Time.frameCount; _gpu?.End(_cmd, SlotExposure); return; }
             _aeSettings.hdrActive = HdrActive; // an HDR display needs less darkening (AutoExposureSettings.EffectiveKey)
