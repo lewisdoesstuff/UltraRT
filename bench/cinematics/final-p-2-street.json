@@ -5,9 +5,11 @@
   "Note": "Final trailer: a first-person jog down P-2's street past the lamp post at (10.25, 73), on the right side, away from the puddle. The lamp behind throws V1's shadow ahead, swinging and stretching as the player moves on; nothing is staged (the tunnel's lamp flickers by itself). Use with Cinematic.Player \"camera\".",
   "Keys": [
     {"Player": [5.0, -21.75, 76.0], "Yaw": -18, "Pitch": -12, "Fov": 100, "Duration": 1.5, "Ease": "linear"},
-    {"Player": [4.2, -21.75, 84.0], "Yaw": -14, "Pitch": -12, "Fov": 100, "Duration": 1.5, "Ease": "linear"},
-    {"Player": [4.0, -21.75, 93.0], "Yaw": -8, "Pitch": -11, "Fov": 100, "Duration": 3.0, "Ease": "out"},
-    {"Player": [4.6, -21.75, 102.0], "Yaw": -6, "Pitch": -10, "Fov": 100, "Duration": 0.5, "Ease": "linear"},
-    {"Player": [4.6, -21.75, 102.2], "Yaw": -6, "Pitch": -10, "Fov": 100, "Duration": 2.0, "Ease": "linear"}
+    {"Player": [4.2, -21.75, 85.0], "Yaw": -14, "Pitch": -12, "Fov": 100, "Duration": 1.5, "Ease": "linear"},
+    {"Player": [3.9, -21.75, 96.0], "Yaw": -8, "Pitch": -10, "Fov": 100, "Duration": 1.5, "Ease": "linear"},
+    {"Player": [3.5, -21.75, 108.0], "Yaw": -4, "Pitch": -8, "Fov": 100, "Duration": 1.5, "Ease": "linear"},
+    {"Player": [3.1, -21.75, 120.0], "Yaw": -1, "Pitch": -6, "Fov": 100, "Duration": 1.5, "Ease": "linear"},
+    {"Player": [3.0, -21.75, 131.0], "Yaw": 0, "Pitch": -5, "Fov": 100, "Duration": 1.0, "Ease": "linear"},
+    {"Player": [3.0, -21.75, 138.0], "Yaw": 0, "Pitch": -5, "Fov": 100, "Duration": 2.0, "Ease": "linear"}
   ]
 }

@@ -127,7 +127,7 @@
         "File": "../cinematics/final-p-2-street.json",
         "Mode": "live",
         "Fps": 30.0,
-        "Seconds": 6.067,
+        "Seconds": 7.567,
         "OutputScale": 0.5,
         "TimeScale": 1,
         "Preroll": 40,
@@ -137,7 +137,7 @@
           {
             "Light": "Metro Light/Spot Light",
             "From": 1.0,
-            "To": 8.0,
+            "To": 9.0,
             "On": true
           }
         ]
