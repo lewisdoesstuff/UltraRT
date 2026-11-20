@@ -645,7 +645,7 @@ crisp lines in them, without a sun. So every stained-glass window now sends its 
 Code: `src/UltraRT/Plugin.StainedGlass.cs` (discovery, bake, per-frame upload), `StainedGlassBake.shader` (the bake),
 `UltraRTStainedGlass.hlsl` (`StainedGlassLight`, called once in `PathTrace.raytrace` after `DirectLighting`, so relight
 and pathtrace both get it at primary hits). Suites `bench/suites/stained-glass.json` (look) and
-`stained-glass-perf.json` (`-Perf`).
+`stained-glass-perf.json` (`-Perf`); under water `stained-glass-water.json` and `stained-glass-water-perf.json` (below).
 
 **How it works**
 
@@ -688,11 +688,13 @@ and pathtrace both get it at primary hits). Suites `bench/suites/stained-glass.j
 
 **Switches**: `-ultrart-stained-glass F` (0 or off = off), `-ultrart-stained-glass-tilt F`, config
 `[Effects] StainedGlassProjection` (Advanced > Effects), bench `sg.strength=0`, `sg.tilt`, `sg.reach`, `sg.leadFloor`,
-`sg.saturation`, `sg.maxWindows`, `sg.minChroma` (the build-time fields `tilt`, `reach`, `resolution`, `materials`
+`sg.saturation`, `sg.maxWindows`, `sg.minChroma`, `sg.water`, `sg.waterBlur`, `sg.waterShift`, `sg.waterAbsorbScale`
+("Under water" below) (the build-time fields `tilt`, `reach`, `resolution`, `materials`
 rebuild the windows when changed; `minChroma` applies at the next build). Diagnostics: `sg.debug=1` no shadow ray,
 `2` white wherever a beam reaches, `3` bright magenta there (no cosine, no texture), `4`-`6` staged tests of the
 shader's checks (any window bound / faces a beam / within reach), with a CPU probe of the same math at the crosshair in
-the log (`SG probe`); `sg.noShadow`, `sg.bake=0`.
+the log (`SG probe`); `7` the water depth over each hit (under 0.5 m red, 1 yellow, 1.5 green, 2 cyan, 3 blue, deeper
+magenta); `sg.noShadow`, `sg.bake=0`.
 
 **Look** (alt, 2560 x 1440, `bench/results/20261120-175513_stained-glass_alt`; strength 3): 1-4's V2 arena, looking at
 the pool in front of the west window: the dove and flame panes land on the landing beside the pillar (warm) and on the
@@ -713,6 +715,45 @@ dispatch ms, `sg.strength=0` -> default): 1-4 arena west relight 4.32 / 2.31 -> 
 where windows are bound; nothing where none is (a count of 0 skips the call). CPU: the build is one frame of 50-150 ms
 per level (1-4 54 ms, P-2 148 ms with 313 renderers read back); the per-frame upload is negligible. VRAM: 256 KB per
 slice, 10 MB in 1-4, 25 MB at the 96-slice cap.
+
+**Under water** (2026-11-20, `t3/stained-glass-water`). The user liked the mosaic on the landing before the steps but not
+on 1-4's pool floor under the water: crisp and bright, as if pasted on top of the water (the overlay's view absorption
+alone left it at full contrast). The light that lands under a water plane has now crossed the water:
+
+- **Where**: a hit under one of the ripple caustics' water planes (`_UltraRTWaterPlanes`: inside its rectangle, below
+  its surface, above its lowest receiver; docs/caustics.md section 6), the same test as `RippleCausticAt`. The planes
+  are now also bound when ripple caustics are off (`caustics.ripple=0`) while windows are bound; `_UltraRTRipple.x` stays
+  0 then, which skips the caustics. None while the camera is in water (the planes aren't bound then: as dry). Dry hits
+  take the old code unchanged (no extra work, no random number).
+- **Dimmed** along the light's path in the water: refracted at the mean surface (n 1.33), path = depth / cos (capped at
+  `trans.waterAbsorbMaxPath`), T = lerp(`trans.waterAbsorbFloor`, 1, exp(-sigma path)) x (1 - Fresnel), sigma =
+  `trans.waterAbsorb` x `sg.waterAbsorbScale` (2.5). Grey: the pane gives the colour, and the overlay's view absorption
+  still adds the water's hue on top. The scale is there because 1-4's pool is shallow (0.5-1 m, `sg.debug=7`): at the
+  overlay's 0.35 / m the light lost under 20 % and still read as pasted on.
+- **Shifted by the ripples**: the lookup point moves by the ripple caustics' own map run backwards
+  (`WaterRippleSourceShift` in `UltraRTWater.hlsl`: the same q, two fixed-point steps, interactive rings, footprint band
+  limit and 60 m view fade) x `sg.waterShift` (3). It is taken at the receiver as for light from straight above, as the
+  caustics take it, so the mosaic wobbles with the caustic lines the albedo factor draws on the same floor and moves
+  with the ripples. The shadow ray keeps the unshifted point.
+- **Blurred with depth**: radius on the pane = `sg.waterBlur` (0.25 m per metre of in-water path), 8 bilinear taps on
+  a Vogel disc turned by one random number per sample (the denoiser and DLSS RR average it); under half a texel it
+  stays one point sample. The leading is applied per tap, so the lines soften rather than grey out.
+- Not done: no refraction shift of the whole beam (the floor image would move toward the window by about half the
+  depth, and the straight shadow ray would no longer match it); pool walls get the same treatment as the floor.
+
+Result (alt, 2560 x 1440, `bench/results/20261120-182650_stained-glass-water_alt`, review sheets in the main
+checkout's `bench/results/review/stained-glass-water/`): the pool floor's mosaic is softer, wavier and dimmer, still
+recognisable, in both modes; pool region mean (0-255) 64.9 -> 62.6 relight, 64.6 -> 62.1 pathtrace, 21-24 % of its
+pixels change by more than 8. The dry landing before the steps: mean |difference| 1.6 relight / 2.3 pathtrace against a
+frame-to-frame noise of the same mode of 2.1 / 2.6 (`1-4-west_dry_landing_unchanged.jpg`): unchanged. Pose 4 sees the
+pool far off: 1.5-2.8 % of the frame changes. Motion (static camera, six stills 0.1 s apart): the mosaic drifts with the
+ripples, no sparkle in either mode (`1-4-west_motion_seq_*.jpg`). Tuning (`20261120-182504`): blur 0.06 / shift 1 /
+absorption 1 (physical) barely changed this shallow pool; 0.15 / 2 softened it; 0.25 / 3 / 2.5 chosen.
+
+Cost (same-session `-Perf` on alt with main idle, `bench/results/20261120-182801_stained-glass-water-perf_alt`, GPU total
+/ dispatch ms, `sg.water=0` -> default): 1-4 arena west relight 4.469 / 2.440 -> 4.461 / 2.438, pathtrace 4.669 / 1.730
+-> 4.675 / 1.736; pose 4 relight 4.181 / 2.201 -> 4.180 / 2.205, pathtrace 4.433 / 1.567 -> 4.444 / 1.575. Within
+noise (+0.01 ms at most); no ray added.
 
 **Not done**: 1-1 to 1-3 use the same `StainedGlassBig/Blue/Red` materials and should work unchanged (not checked). No
 volumetric beam (the haze stays the game's) and no bounce light from the coloured pools (primary hits only).

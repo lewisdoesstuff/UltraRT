@@ -47,10 +47,21 @@ namespace UltraRT
         public bool bake = true;
         /// <summary>Log every window found (path, plane, inward side, beam).</summary>
         public bool log = true;
+        /// <summary>Under water (docs/materials.md, section 14, "Under water"): 1 = the light that lands under a water plane
+        /// crossed the water (dimmed, shifted by the ripples, blurred with depth); 0 = as on a dry floor (the first look).</summary>
+        public bool water = true;
+        /// <summary>Under water: the blur's radius on the pane per metre of the light's path in the water (m / m).</summary>
+        public float waterBlur = 0.25f;
+        /// <summary>Under water: the ripples' shift of the lookup, x the ripple caustics' own (1: the mosaic moves with the
+        /// caustic lines; 0 = no shift).</summary>
+        public float waterShift = 3f;
+        /// <summary>Under water: x the overlay's water absorption per metre (trans.waterAbsorb), along the light's path.</summary>
+        public float waterAbsorbScale = 2.5f;
 
         public override string ToString() =>
             $"strength {strength:0.##}, tilt {tilt:0.#} deg, reach {reach:0} m, leading floor {leadFloor:0.##}, saturation {saturation:0.##}, " +
-            $"max windows {maxWindows}, {resolution} px, materials '{materials}'{(noShadow ? ", no shadow (debug)" : "")}";
+            $"max windows {maxWindows}, {resolution} px, materials '{materials}'{(noShadow ? ", no shadow (debug)" : "")}, " +
+            (water ? $"under water: blur {waterBlur:0.###} m/m, shift x{waterShift:0.##}, absorption x{waterAbsorbScale:0.##}" : "under water: as dry");
 
         /// <summary>The fields that need a new scene build of the windows when they change.</summary>
         public string BuildKey => $"{tilt:0.###}|{reach:0.###}|{resolution}|{materials}|{bake}";
@@ -178,6 +189,11 @@ namespace UltraRT
             _cmd.SetRayTracingTextureParam(shader, "_UltraRTStainedGlassTex", on ? (Texture)_sgArray : _sgDummyTex);
             _cmd.SetRayTracingVectorParam(shader, "_UltraRTStainedGlassParams",
                 new Vector4(on ? s.strength : 0f, Mathf.Clamp(s.leadFloor, 0f, 0.95f), Mathf.Max(0f, s.saturation), s.noShadow ? Mathf.Max(1, s.debug) : s.debug));
+            // Under water: the light's path through the water (the planes are the ripple caustics', bound while windows are).
+            var t = SceneProxies.Transparents;
+            _cmd.SetRayTracingVectorParam(shader, "_UltraRTStainedGlassWater",
+                new Vector4(Mathf.Max(t.waterAbsorb, 0f) * Mathf.Max(s.waterAbsorbScale, 0f), Mathf.Clamp01(t.waterAbsorbFloor), Mathf.Max(t.waterAbsorbMaxPath, 0.1f), on && s.water ? 1f : 0f));
+            _cmd.SetRayTracingVectorParam(shader, "_UltraRTStainedGlassWater2", new Vector4(Mathf.Max(s.waterBlur, 0f), Mathf.Max(s.waterShift, 0f), 0f, 0f));
             if (count != _sgBound) Logger.LogInfo($"Stained-glass projection: {count} windows bound (was {_sgBound})");
             _sgBound = count;
         }

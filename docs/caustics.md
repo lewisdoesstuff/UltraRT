@@ -348,8 +348,9 @@ the water planes), `SceneProxies.Transparent.cs` (registration).
   `_UltraRTWaterPlanes` as horizontal planes from their renderer bounds: the top is the surface; a thin plane (bounds
   under 1 m tall) lights receivers down to `rippleDepth` (6 m), a water box only inside itself (bottom - 0.25 m). Red
   "water" (colour r > 2 x max(g, b): 6-2's blood pools, `Water 5`) is left out; 1-3's pinkish `Water 2` (1, 0.73, 0.73)
-  is kept. Nothing while the camera is in water (`InsideWater`): the underwater screen effect draws its own caustics
-  there (docs/vfx.md, "Underwater"). The loop reads one float4 per plane and the second only inside its rectangle.
+  is kept. The planes are also bound with ripple caustics off while stained-glass windows are (their light under water,
+  docs/materials.md section 14; `_UltraRTRipple.x` 0 then skips the caustics). Nothing while the camera is in water
+  (`InsideWater`): the underwater screen effect draws its own caustics there (docs/vfx.md, "Underwater"). The loop reads one float4 per plane and the second only inside its rectangle.
 - **The focusing**: light from straight above, refracted (n 1.33) at the ripple height field of the four waves the
   reflection uses (`kWaterWaves`, same dispersion and clock `_UltraRTWater.y`, scaled by the same ripple strength
   `_UltraRTWater.x`, so a level's `waterWaves` calms both). A surface point x lands at X = x + q grad h(x), q =

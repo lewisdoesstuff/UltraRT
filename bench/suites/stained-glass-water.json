@@ -1,0 +1,84 @@
+{
+ "Name": "stained-glass-water",
+ "Note": "Stained-glass projection under water (docs/materials.md section 14, 'Under water'): sg.water=0 (before: as on a dry floor) against the default (dimmed along the light's path in the water, shifted by the ripples, blurred with depth), relight and pathtrace. 1-4's V2 arena in front of the west window (dry landing before the steps + the pool floor) and the user's pose 4; a static-camera sequence for the motion (the ripples move the mosaic).",
+ "Scenarios": [
+  {
+   "Name": "1-4 arena west",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 3,
+    "Load": "checkpoint",
+    "Position": [
+     -8.0,
+     -16.54,
+     590.0
+    ],
+    "Yaw": -25.0,
+    "Pitch": -14.0
+   },
+   "Modes": [
+    "off",
+    "relight+sg.water=0",
+    "relight",
+    "pathtrace+sg.water=0",
+    "pathtrace",
+    "pathtrace+sg.strength=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-4 pose 4",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 3,
+    "Load": "checkpoint"
+   },
+   "Modes": [
+    "off",
+    "relight+sg.water=0",
+    "relight",
+    "pathtrace+sg.water=0",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-4 arena west seq",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 3,
+    "Load": "checkpoint",
+    "Position": [
+     -8.0,
+     -16.54,
+     590.0
+    ],
+    "Yaw": -25.0,
+    "Pitch": -14.0
+   },
+   "Modes": [
+    "pathtrace",
+    "relight"
+   ],
+   "Screenshots": [
+    1.0,
+    1.1,
+    1.2,
+    1.3,
+    1.4,
+    1.5
+   ],
+   "ShotSettle": 0
+  }
+ ]
+}
