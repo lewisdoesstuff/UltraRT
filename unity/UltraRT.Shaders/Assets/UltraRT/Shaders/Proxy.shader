@@ -671,6 +671,7 @@ Shader "UltraRT/Proxy"
                 // The game draws these as the sky (by view direction): the ray "escapes" here.
                 if (_SkyWall > 0.5) { p.t = -1.0; return; }
                 bool wantMotion = (p.flags & ULTRART_PAYLOAD_WANT_MOTION) != 0u;
+                bool wantTransAlpha = (p.flags & ULTRART_PAYLOAD_TRANSPARENT) != 0u; // the transparent pass's ray (UltraRTCommon.hlsl)
 
                 uint3 tri = UnityRayTracingFetchTriangleIndices(PrimitiveIndex());
                 float3 b = float3(1.0 - attribs.barycentrics.x - attribs.barycentrics.y, attribs.barycentrics.x, attribs.barycentrics.y);
@@ -805,6 +806,8 @@ Shader "UltraRT/Proxy"
                 p.primitive = hasDetail && wantMotion ? PackOct24(nVertex) : PrimitiveIndex();
                 p.motion = 0u;
                 if (wantMotion) p.motion = HitMotion(tri, b); // not ?: (both sides run in HLSL 2018: motion buffers read on every hit)
+                // The transparent pass's ray: the game's blend alpha of this water / glass texel (portal glass layer).
+                if (wantTransAlpha && _Transparent > 0.5) p.motion = asuint(saturate(albedo.a * _TransOpacity));
                 if (wantMotion && _Scrolling * _UltraRTTexScroll * _UltraRTScrollMotion > 0.5)
                     p.motion = PackMotion(UnpackMotion(p.motion) + ScrollMotion(tri));
 

@@ -120,7 +120,12 @@ namespace UltraRT
                 if (!inView) _transActive = false;
             }
             _cmd.SetRayTracingVectorParam(shader, "_TransRect", rect);
+            // Water / glass behind portals (docs/portals.md, "Water and glass through portals"): a layer over the far-side
+            // hit, collected by the camera ray on every segment past a portal, in every mode (not tied to the near side's
+            // screen rectangle).
+            bool portalGlass = s.enabled && s.portalGlass && _reflSettings.enabled && _proxies != null && _proxies.ActiveTransparent > 0;
             _cmd.SetRayTracingVectorParam(shader, "_TransParams", new Vector4(s.cacheSpread, _transActive ? 1f : 0f, 0, 0));
+            _cmd.SetRayTracingVectorParam(shader, "_UltraRTPortalGlass", new Vector4(portalGlass ? s.portalGlassStrength : 0f, Mathf.Clamp(s.portalGlassHits, 1, 2), 0, 0));
             _cmd.SetRayTracingVectorParam(shader, "_UltraRTWater", _transWater);
         }
 

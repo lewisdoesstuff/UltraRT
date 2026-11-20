@@ -385,6 +385,8 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 | `-ultrart-water-refraction X` (0 = off, skips the colour copy) | 1 |
 | bench `trans.temporal` (the reflection's temporal filter), `trans.temporalAlpha`, `trans.temporalClip` | on, 0.2, 1.5 |
 | bench `trans.overlayDisplace` (the overlay follows the game's vertex displacement) | on |
+| `-ultrart-nostaticlift` (static-batched displaced water stays a rest-pose slot of its static group) | lifted, displaced (since 2026-11-20) |
+| bench `trans.portalGlass`, `trans.portalGlassStrength`, `trans.portalGlassHits` (water and glass behind portals, docs/portals.md section 13) | on, 1, 2 (since 2026-11-20) |
 
 F0 is 0.12 (water) and 0.08 (glass), above the physical 0.02/0.04: the game's water and glass textures are bright and fairly opaque, and at physical strength the reflection only showed at grazing angles. GPU timer slot `prealpha`: the colour copy. The trace itself is part of `dispatch`.
 
@@ -610,14 +612,45 @@ read the same with and without them (pathtrace masked sigma 0.53 / 0.53 static, 
 transparent texels, only while the transparent pass runs.
 
 Not covered: the overlay copies the water material's displacement values once, when the overlay material is made; a
-level that animates them on the material (not through a property block) would drift. Static-batched water keeps the
-rest pose in the trace (scene-proxies.md) and is not displaced by the game either.
+level that animates them on the material (not through a property block) would drift. (Until 2026-11-20 this said that
+static-batched water keeps the rest pose in the trace and is not displaced by the game either. The second half was
+wrong, and the first is fixed: see the next section.)
+
+### Static-batched displaced water (2026-11-20, `t3/water-portal-glass`)
+
+The user, on the v5c trailer's 2-1 shot (`bench/cinematics/final-2-1-water.json`): "the same water clipping issues we
+saw in" 6-2 (the pools above). 2-1's channel is `1 - New Opener/1 Nonstuff/Floor/Plane-clone` (and `Plane` in the
+opener), `Water 3` with `VERTEX_DISPLACEMENT` mode 0, amplitude 1, and **static-batched**. The game's vertex shader
+displaces in world space, so a batched surface moves like any other. The overlay has followed it since the 6-2 fix, but
+the traced copy was a slot of a static group and kept the rest pose (`keeps the rest pose` in the log). The overlay's
+reflection only applies where the traced hit's distance matches the fragment's, so whole triangles dropped in and out
+again, as on 6-2 before.
+
+**Fix** (`StaticGroups.Lifted.cs`): after the combined mesh is read back, every transparent slot (water, blood or
+glass) whose material has `VERTEX_DISPLACEMENT` leaves the static group. Its triangles become a small readable mesh of
+their own (the slot's vertex range of every stream, indices rebased), traced as a dynamic transparent proxy of its
+source renderer, parented to the batch root. `AddDynamic` then gives it the displaced copy any dynamic proxy with the
+keyword gets (docs/scene-proxies.md, "Vertex displacement"), with the same 40 m freeze. Checkpoint clones of such a
+renderer get their own proxy from the same mesh. The overlay, the under-water test and the screen rectangle work as
+for any static-batched transparent. Log: `Static displaced transparent: '<path>' Water 'Water 3' submesh 8 of
+'Combined Mesh (root: scene) 4' lifted, 32 verts, displaced` and a `Static displaced transparents: N slots lifted`
+summary. `-ultrart-nostaticlift`: the old rest-pose slots. Without a CPU copy of the combined mesh (readback failed)
+the slot stays as before.
+
+**Result** (`bench/suites/water-portal-glass.json`, scenario `2-1 water`: the trailer's pose and cinematic, 0.5 s
+live takes, pathtrace with RR at scale 1; run `bench/results/20261120-131456_water-portal-glass_alt`, frame 9, `crop-2-1.jpg`): `pt-rest` (`plugin._displace=0`: the
+traced copy at the rest pose, which is what static-batched water had before) shows the patchwork, straight-edged
+regions with and without the reflection; `pt` (lifted and displaced) has one even reflection over the whole channel.
+`pt-flat` puts the overlay at the rest pose too: its reflection is cut off in a straight line along the shore where
+the game's displaced surface lies above the rest plane, which is the evidence that the game does displace batched
+water. 2-1 lifts 2 slots (32 and 60 vertices); 8-3 has 2 static-batched water slots without the keyword (nothing to
+lift). Cost: two more small DynamicGeometry BLAS in 2-1 while within 40 m; not measured separately.
 
 ### Limits
 
 - **Camera inside a large water volume** (7-1's pool, 5-x swimming): dispatch +0.4 ms although nothing transparent is traced. The water box's instance sits in the same RTAS as the scene, and masking it out (0xEF then, 0x6F now: `ULTRART_MASK_SCENE`) apparently does not stop it from slowing traversal of every ray that starts inside it. A separate RTAS for mask 0x10 would remove that; not done.
 - **One ray per trace texel**, filtered over time since 2026-11-19 (below), not in space. Reflection hits are shaded from the radiance cache, so they are smooth. Where a cache cell is missing, the hit falls back to `DirectOne` and shows speckle; ripples hide most of it.
-- **Game geometry vs. RT mesh**: SCROLLING UVs are not reproduced on water/glass (LIMBO_WATER_FADE is, see above), so the alpha estimate ignores scrolling; opaque scrolling surfaces (5-2's sea) do scroll since 2026-11-15 (docs/scene-proxies.md, "Scrolling textures"). VERTEX_DISPLACEMENT waves are, since 2026-11-15, except on static-batched water (docs/scene-proxies.md, "Vertex displacement"). The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
+- **Game geometry vs. RT mesh**: SCROLLING UVs are not reproduced on water/glass (LIMBO_WATER_FADE is, see above), so the alpha estimate ignores scrolling; opaque scrolling surfaces (5-2's sea) do scroll since 2026-11-15 (docs/scene-proxies.md, "Scrolling textures"). VERTEX_DISPLACEMENT waves are, since 2026-11-15, and on static-batched water and glass since 2026-11-20 ("Static-batched displaced water"; docs/scene-proxies.md, "Vertex displacement"). The refraction delta assumes the game's blend is exactly `W a + B (1 - a)`.
 - **The game's own cubemap stays** on REFLECTION water (`Water 10A-D`, `1C`, `6 Still/Reflection`, `Limbo Water ... V2Arena`), on top of ours. For opaque materials it is removed (section 7), but here it is baked into the game's transparent draw.
 - **Renderers whose last material slot is not water/glass** get no overlay (logged as `without overlay`). Unity repeats only the last submesh for an extra material.
 - **Total internal reflection, physical caustics, glass thickness**: not done (frosted glass is, see "Late playtest fixes"). Glass is a single mirror-Fresnel surface with no refraction. What refracts where today and the options: [caustics.md](caustics.md). The game's own caustic pattern (5-1) is traced since 2026-11-19 (caustics.md, section 5).

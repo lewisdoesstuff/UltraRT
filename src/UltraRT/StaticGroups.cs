@@ -186,6 +186,7 @@ namespace UltraRT
             double toggleMs = sw.Elapsed.TotalMilliseconds;
 
             var sources = new List<StaticSource>();
+            var liftedSources = new List<(MeshRenderer r, List<TransparentKind> kinds)>();
             foreach (var kv in batches)
             {
                 var c = CreateCombined(kv.Key, kv.Value);
@@ -195,12 +196,15 @@ namespace UltraRT
                 {
                     var s = CreateSource(c, r);
                     if (s != null) sources.Add(s);
+                    var lifted = AddLiftedTransparents(r, c);
+                    if (lifted.Count > 0) liftedSources.Add((r, lifted));
                 }
             }
             // Batched water/glass that got no transparent slot (a combined mesh without triangles, or not readable).
             foreach (var kv in batches)
                 foreach (var r in kv.Value)
-                    if (TransparentCandidate(r, r.sharedMaterials) && !(_combined.TryGetValue(kv.Key, out var cc) && HasTransparentSlot(cc, r)))
+                    if (TransparentCandidate(r, r.sharedMaterials) && !(_combined.TryGetValue(kv.Key, out var cc) && HasTransparentSlot(cc, r))
+                        && !liftedSources.Any(l => l.r == r))
                         _transparentStatic++;
             Maps.BuildAtlases(); // per-texel detail atlases, from the cells AddAtlasCells recorded
             if (Maps.Available)
@@ -237,6 +241,9 @@ namespace UltraRT
             }
             foreach (var g in _groups) MarkGroupDirty(g);
             foreach (var s in sources) NoteStaticTransparent(s, late: false);
+            foreach (var (r, kinds) in liftedSources) NoteStaticTransparent(r, kinds, late: false); // once per renderer
+            if (_lifted.Count > 0 || _liftedFailed > 0)
+                _log.LogInfo($"Static displaced transparents: {_lifted.Count} slots lifted out of the static groups, {_liftedProxies} dynamic proxies, {_liftedFailed} failed");
 
             long cpuBytes = all.Sum(c => c.CpuBytes);
             int flagsMode = all.Count(c => c.FlagsMode);
@@ -310,6 +317,7 @@ namespace UltraRT
             // hundreds of submeshes sharing a handful of materials, so group meshes are merged by material
             // (~0.5 ms/frame saved). That needs the vertex/index data on the CPU; without it, fall back to flags.
             bool read = TryReadCombined(c);
+            if (read) LiftDisplacedTransparents(c); // displaced water: own dynamic proxies (StaticGroups.Lifted.cs)
             c.FlagsMode = NoSubmeshMerge || !read;
             if (read) AddAtlasCells(c);
             return c;
@@ -826,10 +834,15 @@ namespace UltraRT
         private bool AddLateStaticSource(MeshRenderer r, Mesh mesh)
         {
             if (!StaticActivation || !_combined.TryGetValue(mesh, out var c)) return false;
+            var lifted = AddLiftedTransparents(r, c);
             var s = CreateSource(c, r);
-            if (s == null) return false;
-            RegisterSource(s);
-            NoteStaticTransparent(s, late: true);
+            if (s == null && lifted.Count == 0) return false;
+            if (s != null)
+            {
+                RegisterSource(s);
+                NoteStaticTransparent(s, late: true);
+            }
+            if (lifted.Count > 0) NoteStaticTransparent(r, lifted, late: true);
             _sumLate++;
             return true;
         }
@@ -1170,6 +1183,7 @@ namespace UltraRT
                 }
             foreach (var (mesh, _) in _retired) if (mesh != null) Object.Destroy(mesh);
             _retired.Clear();
+            DisposeLifted();
             _groups.Clear();
             _combined.Clear();
             _staticSources.Clear();

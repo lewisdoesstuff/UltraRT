@@ -74,7 +74,7 @@ Where it is used:
 - **Primary rays** (PathTrace, DebugView, the cache's primary rays): shading, lights, shadows, cache lookups and the reflection ray all happen at the real hit on the far side.
 - **Bounce rays** (PathTrace, CacheUpdate): bounce light comes through doorways from the right room.
 - **Reflection rays**: a mirror sees through portals; the reported hit distance is the full path length.
-- **Water and glass** (the transparent pass at the end of RayGen): along the camera ray up to the opaque hit or the first portal, whichever is nearer; water seen through a portal gets no RT reflection overlay (the overlay is drawn by the main camera only).
+- **Water and glass** (the transparent pass at the end of RayGen): along the camera ray up to the opaque hit or the first portal, whichever is nearer; water seen through a portal gets no RT reflection overlay (the overlay is drawn by the main camera only). Since 2026-11-20 the camera ray also collects the water and glass on every segment past a portal and lays them over the hit (section 13).
 - **Layer 30**: renderers on the "Portal" layer are traced with instance mask `SceneProxies.PortalLayerMask` = 0x40. `TraceScene` drops 0x40 from the first segment and adds it back after a hop through a side whose `canSeePortalLayer` is set (the hit reports it in `p.material` bit 0), which is the game's per-view culling mask. This is what puts the chandeliers into 8-3's Shifting Arena. Static-batched layer-30 renderers are not traced (none seen). `-ultrart-noportallayer` turns it off (at scene build).
 - **Not shadow rays**: light sampling is in world space, so a surface is lit by the lights of the room it really is in. Lights shining through a portal into another space are not modelled yet (see Limits).
 
@@ -99,6 +99,7 @@ Where it is used:
 | `-ultrart-noportallayer` | don't trace layer-30 renderers |
 | `-ultrart-rtmirrors`, bench `plugin._rtMirrors=1` | camera rays reflect off portal mirrors instead of keeping the game's mirror view (settings menu: "Ray-traced mirrors", [settings.md](settings.md)) |
 | `SceneProxies.PortalAddDelay` | 2 frames before a new portal quad goes into the RTAS |
+| bench `trans.portalGlass=0`, `trans.portalGlassStrength`, `trans.portalGlassHits` | water and glass behind portals (section 13): off / blend alpha x (1) / surfaces per segment (2, max 2) |
 | `SceneProxies.MaxPortalSides` | 1024 |
 
 `-ultrart-compdebug 5` (portal depth diagnostic) and `6` (game / RT albedo alignment overlay) were views of the hybrid
@@ -150,7 +151,7 @@ The far side is now as calm as the near side. "Side 2" has a flickering lamp in 
 - **Per-portal overrides** the game applies to a portal view are not applied to rays: `overrideSkyboxEnter/Exit`, `canSeeItself`, per-portal `maxRecursions` (one global limit of 3 instead), the fog-end distance cull, and `supportInfiniteRecursion`'s fake textures. `appearsInRecursions` and `canSeePortalLayer` are honoured. Fog overrides (and the level's fog behind a portal) are applied by the veil pass since 2026-11-18, for the first portal on a camera ray (docs/scene-proxies.md, "Blended veils").
 - **Moving portals and crossing a portal** had no temporal handling until 2026-11-18: see section 8.
 - **The game's own cubemap reflection** (`GameCubeTerm`; for pattern cubes since hybrid went on 2026-11-19) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
-- **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere.
+- **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere. Water and glass are the exception since 2026-11-20 (section 13), without their reflection.
 - **Portal clones**: `PortalAwareRenderer` copies objects whose bounds cross a portal (V1 jumping into 8-2's pool, enemies in doorways) with `new GameObject` + `AddComponent`, which the Instantiate hooks never saw (only the 120 s rescan did). A Harmony postfix on its private `CreateClone` now registers the copy's hierarchy like a spawn (`Patches.PortalClonePostfix`; logged as `Portal clone hook installed` and counted in the `Material sync` line). Copies of V1 keep layer 30, so rays see them only after a portal hop, as the game's views do.
 - **8-2's starting pool** is a floor portal (15 x 60 m, `Opening Hallway/1 Nonstuff/Portal`) into a copy of the street 300 m away, not a mirror. The game shows V1 in it only while V1's bounds cross the pool plane (the clones above); standing at the edge or above it, the game's own view (RT off) shows no V1 either (`bench/suites/materials-pm.json`, "8-2 pool"). The clone path is not verified in game (a bench pose can't put V1 through the plane).
 
@@ -356,3 +357,41 @@ on ULTRAKILL/Master materials, which may be false the same way.
 **Not portal-aware, unchanged:** the sky (one global sky; no portal level here leads into another sky), hybrid's game
 cube term (eye position; gone with hybrid on 2026-11-19), particle lighting for the game's portal cameras (they get the game's look, section 9).
 
+## 13. Water and glass through portals (2026-11-20, `t3/water-portal-glass`)
+
+**The report.** The user, on the v5c trailer's 8-3 Clockwork Crushers shot (`bench/cinematics/final-8-3-crushers.json`):
+the glass isn't rendered through the portal. The hall's side walls are glass panes in front of two sideways loop
+portals (`R3 Nonstuff/SidewaysLoop 1` and `2`, 20 and 40 m wide, at x 196.5 / 174.5, facing +-x): looking at a side wall
+you see the hall again, from the other side, through its other glass wall. The game's portal view draws all of that
+glass. Ours did not: the traced pixel replaces the game's portal view, the transparent pass stops at the first portal
+(above, "Where it is used") and the overlay covers only the near side's renderers. Only the near pane was left, so
+the walls read as nearly clear windows onto the looped hall (`pt-noglass` below).
+
+**Fix.** `TraceScene` takes a request bit, `ULTRART_TRACE_PORTAL_GLASS` (never sent to a hit shader; compiled only
+where `ULTRART_PORTAL_GLASS` is defined, i.e. PathTrace's ray generation). With it, every segment after a hop, and the
+straight segment past the hop limit, traces the transparent mask (0x10) from its origin to its hit, up to 2 surfaces
+per segment, and composites them front to back into `g_PortalGlass` (rgb = sum of transmittance x alpha x albedo,
+a = transmittance left). The transparent proxy's closest hit returns the game's blend alpha (texture alpha x colour
+alpha x opacity) in `p.motion` to this ray (the only one that sets `ULTRART_PAYLOAD_TRANSPARENT`; it never asks for
+motion). The ray generation shader reads the result right after the primary `TraceScene` and blends it into the hit:
+`albedo = albedo a + rgb`, `emission *= a`. That is the game's `W a + B (1 - a)` with `W` (the pane, lit) taken as its
+albedo lit like the hit behind it; because it goes into albedo and emission, relight, the denoiser, pathtrace and DLSS
+RR all carry it like any surface, with no new buffer. A segment that ends at a portal mirror the camera ray stops at
+adds nothing (the game's mirror view keeps its own). Plugin: `_UltraRTPortalGlass` = (strength, hits per segment),
+`TransparentSettings.portalGlass` / `portalGlassStrength` / `portalGlassHits`; on whenever water/glass instances
+are active and the transparent pass is on (F4), in every mode, independent of the near side's screen rectangle.
+
+**Result** (`bench/suites/water-portal-glass.json`, scenario `8-3 crushers`: the trailer's checkpoint pose and
+cinematic, 0.5 s live takes at 1280x720, pathtrace with RR at scale 1 as in the trailer; run `bench/results/20261120-132034_water-portal-glass_alt`, frame 14 of each
+take, `crop-8-3-left.jpg` = the left wall in off / `pt-noglass` / `pt` / relight, `stack-8-3.jpg` = off / before /
+after): the side walls now show the frosted diamond pattern of the far panes over the looped hall, in pathtrace and
+relight alike. The opening at the hall's end (`Portals A`) has no glass and is unchanged.
+
+**Still lighter than the game.** The game's side walls are a dense grey frost with the looped hall barely visible. The
+side portals have `maxRecursions` 1; rays use the global limit of 3 hops (section 7, "Per-portal overrides"), so
+they see the hall repeat further and more clearly than the game's single recursion does. Not changed here.
+
+**Not done:** the far-side panes get no reflection (the overlay's Fresnel term) and are lit like the hit behind them,
+not by their own light; the sky behind a pane is the game's pixel anyway (sky pixels are left to the game). Cost: up
+to 2 transparent rays per segment past a hop, at portal pixels only; not measured with the GPU timer (the live takes'
+wall time is bound by the PNG writer: 61.4 vs 60.7 ms per frame with and without).

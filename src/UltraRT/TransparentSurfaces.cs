@@ -57,6 +57,13 @@ namespace UltraRT
         /// <summary>The overlay displaces its vertices like the game's VERTEX_DISPLACEMENT water (6-2's blood pools). Bench
         /// trans.overlayDisplace=0: the rest pose, as before 2026-11-19.</summary>
         public bool overlayDisplace = true;
+        /// <summary>Water and glass behind portals (8-3's Clockwork Crushers): the camera ray collects them on every segment
+        /// past a portal (UltraRTPortals.hlsl, PortalGlassSegment) and they go over the traced hit as layers
+        /// (docs/portals.md, "Water and glass through portals"). Bench trans.portalGlass=0: none, as before 2026-11-20.
+        /// Strength multiplies the game's blend alpha; hits: surfaces per segment (1-2).</summary>
+        public bool portalGlass = true;
+        public float portalGlassStrength = 1f;
+        public int portalGlassHits = 2;
     }
 
     /// <summary>

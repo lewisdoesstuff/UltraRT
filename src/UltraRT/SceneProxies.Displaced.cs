@@ -124,6 +124,8 @@ namespace UltraRT
         /// <summary>Static-batched / skinned renderers with the keyword: counted and logged, they keep the rest pose.</summary>
         private void NoteUndisplaced(Renderer r, Material[] mats, bool staticBatch)
         {
+            // Static-batched water/glass with the keyword is lifted into a displaced dynamic proxy (StaticGroups.Lifted.cs).
+            if (staticBatch) mats = mats.Where(m => !WillLift(r, m)).ToArray();
             if (!AnyDisplacement(mats)) return;
             if (staticBatch) DisplacedStaticSkipped++; else DisplacedSkinnedSkipped++;
             if (DisplacedStaticSkipped + DisplacedSkinnedSkipped <= 12)

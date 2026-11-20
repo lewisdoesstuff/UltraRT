@@ -109,6 +109,9 @@ namespace UltraRT
         {
             var kindList = kinds.Distinct().ToList();
             if (kindList.Count == 0) return;
+            // Once per renderer: a source with both lifted (StaticGroups.Lifted.cs) and static transparent slots is noted
+            // from both, and a second Attach would adopt the overlay twice.
+            if (!_notedTransparent.Add(r)) return;
             var kind = kindList.Contains(TransparentKind.Water) ? TransparentKind.Water : kindList.Contains(TransparentKind.Blood) ? TransparentKind.Blood : TransparentKind.Glass;
             if (kind == TransparentKind.Water) _staticWater++;
             else if (kind == TransparentKind.Blood) _staticBlood++;

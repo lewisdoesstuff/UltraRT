@@ -281,6 +281,11 @@ Notes from making it:
 
 ## The final trailer, v5c (2026-11-20, `trailer-final-v5c`)
 
+**User notes on v5c (2026-11-20), fixed on `t3/water-portal-glass`, not re-rendered:** 2-1's water showed 6-2's old
+triangle patchwork (static-batched displaced water traced at the rest pose: docs/reflections.md, "Static-batched
+displaced water"), and 8-3's Clockwork Crushers lost the glass seen through its sideways loop portals (docs/portals.md,
+section 13). Both shots need a re-render to show the fixes.
+
 The user's notes on v5b, on branch `t3/trailer-v5c` with master's glints removal, 6-2 blood flicker fix and 1-4 arena
 lamps merged in (ed78e9e). Output: `bench\results\trailer\trailer-final-v5c\` (`trailer-final-final.mp4`, 2560x1440,
 60 fps, 120.84 s, 555 MB; no 1080p copy; `clips\`; `contact-v5b-v5c.jpg`: one frame per shot, v5b | v5c; `timing.txt`:

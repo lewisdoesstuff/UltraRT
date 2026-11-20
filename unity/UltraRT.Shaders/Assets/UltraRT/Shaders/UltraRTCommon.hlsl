@@ -69,7 +69,9 @@ struct RayPayload
 // block. Shadow rays without it (albedo 0) see stained glass as before: opaque, transparent glass not at all.
 #define ULTRART_PAYLOAD_SHADOW 0x01000000u
 // ray gen -> any-hit: the transparent pass's ray (PathTrace TraceTransparent). Transparent instances that also carry the
-// geometry bit (stained glass, for shadow rays) are ignored by every other ray.
+// geometry bit (stained glass, for shadow rays) are ignored by every other ray. Hit -> ray gen: a transparent proxy's
+// closest hit returns the game's blend alpha (texture alpha x colour alpha x opacity) as asuint in p.motion (this ray
+// never asks for motion); the glass behind portals reads it (UltraRTPortals.hlsl, PortalGlassSegment).
 #define ULTRART_PAYLOAD_TRANSPARENT 0x00800000u
 // hit -> ray gen, camera hits (ULTRART_PAYLOAD_WANT_MOTION) only: the hit has a caustic (Proxy.shader CAUSTICS, docs/caustics.md)
 // that is not in emissionHalf: its rgb in uvHalf (r | g << 16) and emissionHalf.y >> 16 (b), as halves; primitive >> 24 = 1 + the
