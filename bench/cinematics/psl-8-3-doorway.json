@@ -1,0 +1,32 @@
+{
+  "Version": 1,
+  "Name": "psl-8-3-doorway",
+  "Scene": "Level 8-3",
+  "Note": "Portal scene lights (docs/portals.md, 'Scene lights through portals'): a held pose for frozen-time A/B takes. 8-3's false-start doorway (Shifting Hallway's first door).",
+  "Keys": [
+    {
+      "Player": [
+        -54.1597,
+        2.5,
+        427.9022
+      ],
+      "Yaw": 271.03,
+      "Pitch": -4.38,
+      "Fov": 0,
+      "Duration": 1.0,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        -54.1597,
+        2.5,
+        427.9022
+      ],
+      "Yaw": 271.03,
+      "Pitch": -4.38,
+      "Fov": 0,
+      "Duration": 1.0,
+      "Ease": "linear"
+    }
+  ]
+}

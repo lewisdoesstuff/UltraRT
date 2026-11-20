@@ -53,6 +53,7 @@ namespace UltraRT
             public Matrix4x4 Pose;  // TRS(pos, rot, size) of the quad when last placed
             public Matrix4x4 Travel;
             public bool Seen;       // active this frame
+            public bool FakeMirror; // "Mirror" in the portal's path: a level's mirror built from a portal into a mirrored copy
             public int CreatedFrame; // Time.frameCount when the proxy was made (see PortalAddDelay)
         }
 
@@ -203,7 +204,8 @@ namespace UltraRT
             {
                 if (_portalSideList.Count >= MaxPortalSides) return;
                 if (_portalQuad == null) { _portalQuad = BuildPortalQuad(); _portalQuadFrame = Time.frameCount; }
-                s = new PortalSide { Portal = portal, Exit = exitSide, Index = _portalSideList.Count, CreatedFrame = Time.frameCount };
+                s = new PortalSide { Portal = portal, Exit = exitSide, Index = _portalSideList.Count, CreatedFrame = Time.frameCount,
+                    FakeMirror = Bench.GameControl.PathOf(portal.transform).IndexOf("mirror", StringComparison.OrdinalIgnoreCase) >= 0 };
                 s.Material = new Material(PortalShader) { name = $"UltraRT Portal {s.Index}" };
                 s.Material.SetFloat("_PortalIndex", s.Index);
                 s.Material.SetFloat("_PortalNoRecursion", portal.appearsInRecursions ? 0f : 1f);
@@ -297,46 +299,139 @@ namespace UltraRT
             for (int k = 0; k < _viewWork.Count && k < max; k++) output.Add(_viewWork[k].p);
         }
 
-        /// <summary>A light's image behind one portal side: where it shines from on the exit side, as a spot whose cone
-        /// holds the exit's opening (Plugin.PortalLights.cs).</summary>
+        /// <summary>
+        /// A light's image behind one portal side (Plugin.PortalLights.cs): where it shines from on the exit side, and what
+        /// the guards and the score need. The receiving room is the exit's opening's far side; the shader clips the image
+        /// to that opening and traces its shadow on both sides (UltraRTLights.hlsl, "Portal images").
+        /// </summary>
         public struct PortalImage
         {
-            public Vector3 Pos, Axis;
-            public float CosHalf, CosInner, Distance;
+            public Vector3 Pos;      // the image: travel x light
+            public Vector3 Exit;     // the exit opening's centre (travel x the side's centre)
+            public float ExitView;   // from the exit to the camera or its nearest portal viewpoint (m)
+            public Matrix4x4 Travel; // the side's travel matrix (light side -> receiving side)
+            public float Distance;   // from the light to the side's opening (the closest point of the rectangle)
+            public float ExitDistance; // from the light to the exit opening, in world space (rigid: = the image to the side's opening)
+            public bool ExitFacesLight; // the light is on the side of the exit that the image lights (a loop: same room)
+            // A mirror in all but name: light comes back out of the exit the way it went in (a U-turn: 8-2's starting
+            // pool, a floor portal into a copy of the street) or the portal is a level's mirror (8-2's MirrorBig into a
+            // mirrored copy of the room). Its far side is a copy lit by its own copies of the lights.
+            public bool MirrorLike;
+            public float Span;       // entrance to exit (m): under ~100 m both openings are in one space (loops, shifting halls)
             public int Side;
         }
 
         public int PortalSideCount => _portalSideList.Count;
 
         /// <summary>
-        /// The images of a point light at <paramref name="p"/> through the active portal sides (not mirrors) it can shine
-        /// through, by the game's rule as in <see cref="PortalViewpoints"/> (from the side's back half-space), within
-        /// <paramref name="reach"/> of the opening. One hop; nearest first, at most 4.
+        /// The images of a light at <paramref name="p"/> through the active portal sides (not mirrors) it can shine through,
+        /// by the game's rule as in <see cref="PortalViewpoints"/> (from the side's back half-space), within
+        /// <paramref name="reach"/> of the opening's rectangle. <paramref name="cone"/> (spot lights: axis, cos of the half
+        /// angle; w &lt;= -1 none) and <paramref name="emitNormal"/> (one-sided area lights; zero = none) drop sides the
+        /// light does not shine at. One hop; nearest first, at most <paramref name="max"/>.
         /// </summary>
-        public void PortalImages(Vector3 p, float reach, List<PortalImage> output)
+        public void PortalImages(Vector3 p, float reach, Vector4 cone, Vector3 emitNormal, List<PortalImage> output, int max = 4)
         {
             output.Clear();
+            float cosCone = Mathf.Clamp(cone.w, -1f, 1f);
+            float coneAngle = cone.w > -0.999f ? Mathf.Acos(cosCone) : 0f;
+            for (int i = 0; i < _imageSides.Count; i++)
+            {
+                var s = _imageSides[i];
+                // Scalar first tests: this runs for every light and side (Mono does not inline Vector3's operators).
+                if (s.ExitView - reach > ImageViewCull) continue; // the exit is far from everything the camera sees
+                float rx = p.x - s.C.x, ry = p.y - s.C.y, rz = p.z - s.C.z;
+                if (rx * s.F.x + ry * s.F.y + rz * s.F.z > -0.01f) continue; // the game's rule: light enters a side from its back half-space
+                float lim = reach + s.Rad;
+                if (rx * rx + ry * ry + rz * rz > lim * lim) continue;
+                var rel = new Vector3(rx, ry, rz);
+                float qx = Mathf.Clamp(Vector3.Dot(rel, s.Ax), -s.Hw, s.Hw), qy = Mathf.Clamp(Vector3.Dot(rel, s.Ay), -s.Hh, s.Hh);
+                Vector3 q = s.C + s.Ax * qx + s.Ay * qy;
+                float d = (p - q).magnitude;
+                if (d > reach) continue;
+                if (cone.w > -0.999f)
+                {
+                    // A spot: the opening's bounding circle must touch the cone.
+                    float dc = rel.magnitude;
+                    float ang = Mathf.Acos(Mathf.Clamp(Vector3.Dot(-rel / Mathf.Max(dc, 1e-4f), (Vector3)cone), -1f, 1f));
+                    if (ang > coneAngle + Mathf.Atan2(s.Rad, dc)) continue;
+                }
+                if (emitNormal != Vector3.zero)
+                {
+                    // A one-sided emitter (rect, disc): some corner of the opening must be in front of it.
+                    bool any = false;
+                    for (int k = 0; k < 4 && !any; k++)
+                    {
+                        var corner = s.C + s.Ax * ((k & 1) != 0 ? s.Hw : -s.Hw) + s.Ay * ((k & 2) != 0 ? s.Hh : -s.Hh);
+                        any = Vector3.Dot(emitNormal, corner - p) > 0f;
+                    }
+                    if (!any) continue;
+                }
+                var v = s.Travel.MultiplyPoint3x4(p);
+                if ((v - p).sqrMagnitude <= 1f) continue; // a pair that leads back to the same place
+                // The exit's opening as the real light sees it: the side's rectangle carried by the travel matrix. Rigid, so
+                // the distance from the light to it is the distance from the light carried back through the side to the side.
+                Vector3 rb = s.Back.MultiplyPoint3x4(p) - s.C;
+                float bx = Mathf.Clamp(Vector3.Dot(rb, s.Ax), -s.Hw, s.Hw), by = Mathf.Clamp(Vector3.Dot(rb, s.Ay), -s.Hh, s.Hh);
+                float exitDist = (rb - (s.Ax * bx + s.Ay * by)).magnitude;
+                // Light leaves the exit moving along travel x f (the side's forward): the light itself on that side of the
+                // exit's plane means the exit opens into the light's own room (8-3's sideways loops, 8-2's looping halls).
+                bool facesLight = Vector3.Dot(p - s.ExitC, s.ExitDir) > 0f;
+                output.Add(new PortalImage { Pos = v, Exit = s.ExitC, ExitView = s.ExitView, Travel = s.Travel, Distance = d, ExitDistance = exitDist, ExitFacesLight = facesLight, MirrorLike = s.MirrorLike, Span = s.Span, Side = s.Index });
+            }
+            output.Sort((a, b) => a.Distance.CompareTo(b.Distance));
+            if (output.Count > max) output.RemoveRange(max, output.Count - max);
+        }
+
+        /// <summary>What <see cref="PortalImages"/> needs of each active non-mirror side, once per frame (it runs per light).</summary>
+        private struct ImageSide
+        {
+            public int Index;
+            public Vector3 C, F, Ax, Ay, ExitC, ExitDir;
+            public float Hw, Hh, Rad, Span, ExitView;
+            public Matrix4x4 Travel, Back;
+            public bool MirrorLike;
+        }
+        private readonly List<ImageSide> _imageSides = new List<ImageSide>();
+        /// <summary>An exit further than this beyond a light's reach from the camera and its portal viewpoints is not imaged (m).</summary>
+        public const float ImageViewCull = 150f;
+
+        /// <summary>
+        /// Once per frame before <see cref="PortalImages"/>: what it needs of each active non-mirror side, and how far the
+        /// side's exit is from the camera or its nearest portal viewpoint (<paramref name="views"/>).
+        /// </summary>
+        public void BeginPortalImages(Vector3 cam, List<Vector3> views)
+        {
+            _imageSides.Clear();
             foreach (var s in _portalSideList)
             {
                 if (!s.Seen || !s.InRtas || s.Proxy == null || s.Portal == null || s.Portal.mirror) continue;
-                Vector3 c = s.Pose.GetColumn(3), f = s.Pose.GetColumn(2);
-                if (Vector3.Dot(p - c, f) > 0f) continue;
-                float w = ((Vector3)s.Pose.GetColumn(0)).magnitude, h = ((Vector3)s.Pose.GetColumn(1)).magnitude;
-                float rad = 0.5f * Mathf.Sqrt(w * w + h * h);
-                float d = (p - c).magnitude;
-                if (d - rad > reach) continue;
-                var v = s.Travel.MultiplyPoint3x4(p);
-                if ((v - p).sqrMagnitude <= 1f) continue; // a pair that leads back to the same place
-                var toC = s.Travel.MultiplyPoint3x4(c) - v;
-                float dc = toC.magnitude;
-                if (dc < 1e-3f) continue;
-                // The cone from the image through the opening's bounding circle, soft over its outer quarter.
-                float half = Mathf.Min(Mathf.Atan2(rad, dc), 80f * Mathf.Deg2Rad);
-                output.Add(new PortalImage { Pos = v, Axis = toC / dc, CosHalf = Mathf.Cos(half), CosInner = Mathf.Cos(half * 0.75f), Distance = d, Side = s.Index });
+                Vector3 c = s.Pose.GetColumn(3), f = s.Pose.GetColumn(2), ax = s.Pose.GetColumn(0), ay = s.Pose.GetColumn(1);
+                float w = ax.magnitude, h = ay.magnitude;
+                if (w < 1e-3f || h < 1e-3f) continue;
+                var exitC = s.Travel.MultiplyPoint3x4(c);
+                var exitDir = s.Travel.MultiplyVector(f);
+                _imageSides.Add(new ImageSide
+                {
+                    Index = s.Index, C = c, F = f, Ax = ax / w, Ay = ay / h, Hw = 0.5f * w, Hh = 0.5f * h, Rad = 0.5f * Mathf.Sqrt(w * w + h * h),
+                    Travel = s.Travel, Back = s.Travel.inverse, ExitC = exitC, ExitDir = exitDir, Span = (exitC - c).magnitude,
+                    MirrorLike = s.FakeMirror || Vector3.Dot(exitDir, f) < -0.5f,
+                    ExitView = ExitViewDistance(exitC, cam, views),
+                });
             }
-            output.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-            if (output.Count > 4) output.RemoveRange(4, output.Count - 4);
         }
+
+        private static float ExitViewDistance(Vector3 e, Vector3 cam, List<Vector3> views)
+        {
+            float d = (e - cam).magnitude;
+            if (views != null) foreach (var v in views) d = Mathf.Min(d, (e - v).magnitude);
+            return d;
+        }
+
+        /// <summary>A side's name for the log.</summary>
+        public string PortalSideName(int index) =>
+            index >= 0 && index < _portalSideList.Count && _portalSideList[index].Portal != null
+                ? $"{_portalSideList[index].Portal.name} {(_portalSideList[index].Exit ? "exit" : "enter")} ({index})" : $"side {index}";
 
         private readonly List<(Vector3 p, float length, int hop)> _viewWork = new List<(Vector3 p, float length, int hop)>();
 

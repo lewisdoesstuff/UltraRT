@@ -502,6 +502,16 @@ namespace UltraRT
             l3 = new Vector4(-2f - Mathf.Max(halfY, 0f), code, unshadowed, w3); // w3: unused slot, kept as passed
         }
 
+        /// <summary>The tangent of a packed area light (l3.y's code), as UltraRTLights.hlsl LightAreaTangent decodes it.</summary>
+        public static Vector3 AreaTangent(uint code)
+        {
+            uint oct = code >> 2;
+            float ex = ((oct & 1023u) + 0.5f) * (2f / 1024f) - 1f, ey = (((oct >> 10) & 1023u) + 0.5f) * (2f / 1024f) - 1f;
+            var v = new Vector3(ex, ey, 1f - Mathf.Abs(ex) - Mathf.Abs(ey));
+            if (v.z < 0f) { float ox = (1f - Mathf.Abs(v.y)) * (v.x >= 0f ? 1f : -1f), oy = (1f - Mathf.Abs(v.x)) * (v.y >= 0f ? 1f : -1f); v.x = ox; v.y = oy; }
+            return v.normalized;
+        }
+
         private static uint OctEncode10(Vector3 v)
         {
             float s = Mathf.Abs(v.x) + Mathf.Abs(v.y) + Mathf.Abs(v.z);

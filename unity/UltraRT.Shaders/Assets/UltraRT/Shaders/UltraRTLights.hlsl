@@ -20,8 +20,8 @@
 //       _LightMasks.
 //   [2] forward, soft-shadow radius (m; 0 = _LightRadius; < 0 upper half-sphere). Lights lifted out of their fixture
 //       get the fixture's size.
-//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), w unused (was
-//       the removed hybrid mode's weight for lights the game doesn't draw)
+//   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), w: <= -1 the
+//       light is an image through portal side -w - 1 (below, "Portal images"; Plugin.PortalLights.cs), else unused
 // Area lights (per-level light overrides, LightOverrides.cs; docs/lighting-overrides.md) keep this layout:
 //   [2] xyz the emission normal (rect/disc emit to its side only), w half-size x (sphere/disc: radius)
 //   [3] x = -2 - half-size y (<= -2 marks an area light; every spot test sees "no cone"), y = shape | octahedral tangent
@@ -29,6 +29,7 @@
 //   They are evaluated at the point of the shape closest to the receiver (the game's falloff from there, times the
 //   emitter cosine for rect/disc), so every sampler treats them as a deterministic light, and their shadow rays aim at a
 //   uniform random point on the shape (soft shadows the size of the emitter).
+#include "UltraRTPortalBuffers.hlsl" // portal images: the sides' travel matrices and openings
 StructuredBuffer<float4> _Lights;
 StructuredBuffer<uint>   _LightMasks; // per-light culling mask (separate: masks like ~0 are NaN bit patterns as floats)
 int      _LightCount;
@@ -163,6 +164,66 @@ bool VisibleMasked(float3 p, float3 n, float3 dir, float dist, uint mask) { retu
 
 // Geometry + light fixtures (0x01 | 0x04); sky walls (0x02) never block light.
 bool Visible(float3 p, float3 n, float3 dir, float dist) { return VisibleMasked(p, n, dir, dist, 0x05u); }
+
+// ---------------------------------------------------------------- portal images (docs/portals.md, "Scene lights through portals")
+// A light in front of a portal side (Plugin.PortalLights.cs) is packed a second time as its image through the side: the
+// light carried by the side's travel matrix (position, spot axis, area frame) and l3.w = -(side + 1). It lights what lies
+// behind the side's exit, and only through the exit's opening: the line from a receiver to the image, carried back
+// through the travel matrix, must cross the side's rectangle (LightEval), and its shadow ray runs in two segments,
+// receiver to the opening on the receiving side, then from the matching point of the side's opening to the light on
+// the light's side (LightRayVisible). Regular lights pay one compare.
+bool LightIsPortalImage(float4 l3) { return l3.w < -0.5; }
+uint LightPortalSide(float4 l3) { return (uint)(-l3.w - 0.5); }
+
+// Does the image (virtual position v) of a light through side s reach p through the opening?
+bool PortalImageReaches(uint s, float3 p, float3 v)
+{
+    float3x3 m;
+    float3 t;
+    PortalTravel(s, m, t);
+    return PortalSegmentThrough(s, PortalBackPoint(m, t, p), PortalBackPoint(m, t, v));
+}
+
+// Visibility along (L, dist) from p, for a light whose l3.w is lw: VisibleRaw, or for a portal image both segments (one
+// TraceRay site in a loop). The ray must pass through the opening (a jittered soft-shadow ray may miss it: blocked).
+// The portal quads themselves are never in a shadow mask (0x20 vs 0x05), so they don't block either segment.
+bool LightRayVisible(float lw, float3 p, float3 n, float3 L, float dist, uint mask)
+{
+    float3 o2 = 0, L2 = 0;
+    float len1 = dist, len2 = 0.0;
+    [branch] if (lw < -0.5)
+    {
+        uint s = (uint)(-lw - 0.5);
+        float3x3 m;
+        float3 t;
+        PortalTravel(s, m, t);
+        float3 pa = PortalBackPoint(m, t, p); // the receiver, carried back: beyond the side's plane (quad z > 0)
+        float3 La = PortalBackDir(m, L);
+        uint k = s * 3u;
+        float4 q0 = _UltraRTPortalQuads[k], q1 = _UltraRTPortalQuads[k + 1u], q2 = _UltraRTPortalQuads[k + 2u];
+        float za = dot(q2, float4(pa, 1.0));
+        float dz = dot(q2.xyz, La); // quad z per metre along the ray: < 0 toward the light
+        if (za <= 0.0 || dz >= -1e-6) return false;
+        float tP = za / -dz;
+        float3 h = pa + La * tP; // where the ray crosses the side's opening, on the light's side
+        if (abs(dot(q0, float4(h, 1.0))) > 0.5 || abs(dot(q1, float4(h, 1.0))) > 0.5) return false;
+        // The receiving side's segment ends 2 cm before the exit's plane (whatever the exit is set in stays out of it);
+        // the light's side starts 2 cm past the side's plane (VisibleRaw's offset along n = L2).
+        if (tP < dist) { len1 = tP + 0.03; o2 = h; L2 = La; len2 = dist - tP; }
+    }
+    bool vis = true;
+    float3 tint = 1.0;
+    uint segs = len2 > 0.07 ? 2u : 1u;
+    [loop] for (uint k2 = 0u; k2 < segs; k2++)
+    {
+        bool second = k2 > 0u;
+        vis = VisibleRaw(second ? o2 : p, second ? L2 : n, second ? L2 : L, second ? len2 : len1, mask);
+        tint *= g_ShadowTint;
+        if (!vis) break;
+    }
+    g_ShadowTint = tint;
+    return vis;
+}
 
 // ULTRAKILL places many lights inside their fixtures (torch bowls, lamp housings). The game has no shadows, so that's
 // invisible there; ray traced, the fixture shadows everything below its rim. Shadow rays toward point/spot lights
@@ -331,7 +392,8 @@ uint LightShadowSetup(uint i, float3 p, float3 n, inout float3 L, inout float di
     // is wide where the player looks; a ray all the way to it was blocked by whatever stood behind the player (a wall,
     // the tree's canopy) and the whole pool switched on and off as the camera moved (docs/relight.md, "Player lights end
     // at the eye"). What stands in front of the player still shadows it.
-    [branch] if (_UltraRTPlayerEye.w > 0.5 && al3.x > -0.999 && dist < 1.0e3 && LightPlayerFlag(_Lights[i * 4 + 1].w) > 0.75)
+    // Not for a portal image: its eye plane would be the camera's, on the other side of the portal.
+    [branch] if (_UltraRTPlayerEye.w > 0.5 && al3.x > -0.999 && al3.w > -0.5 && dist < 1.0e3 && LightPlayerFlag(_Lights[i * 4 + 1].w) > 0.75)
     {
         float3 f = _Lights[i * 4 + 2].xyz; // the spot's forward
         float den = dot(L, f);             // < 0: the ray runs back up the beam
@@ -353,7 +415,7 @@ bool LightVisible(uint i, float3 p, float3 n, float3 L, float dist)
     uint mask;
     uint s = LightShadowSetup(i, p, n, L, dist, mask);
     if (s != 2u) return s == 1u;
-    return VisibleRaw(p, n, L, dist, mask);
+    return LightRayVisible(_Lights[i * 4 + 3].w, p, n, L, dist, mask);
 }
 
 // LightVisible without the soft-shadow jitter: the ray to the light's centre (the sun's own direction), to tell an umbra
@@ -491,7 +553,14 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
 #else
     if (!ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer)) return false;
 #endif
-    return LightEvalRaw(_Lights[i * 4], _Lights[i * 4 + 1], _Lights[i * 4 + 2], _Lights[i * 4 + 3], p, n, L, dist, c);
+    float4 l0 = _Lights[i * 4], l3 = _Lights[i * 4 + 3];
+    bool lit = LightEvalRaw(l0, _Lights[i * 4 + 1], _Lights[i * 4 + 2], l3, p, n, L, dist, c);
+    // A portal image lights only what sees it through the exit's opening (crisp: the opening is the image's shape).
+    [branch] if (lit && LightIsPortalImage(l3))
+    {
+        if (!PortalImageReaches(LightPortalSide(l3), p, l0.xyz)) { c = 0; lit = false; }
+    }
+    return lit;
 }
 
 float3 LightFrom(uint i, float3 p, float3 n, uint layer)
@@ -596,10 +665,11 @@ bool EmissiveVisible(float3 p, float3 n, float3 L, float dist)
 bool VisibleTo(uint code, float3 p, float3 n, float3 L, float dist)
 {
     uint mask, s = 2u;
+    float lw = 0.0; // a light's l3.w: a portal image traces two segments (LightRayVisible)
     [branch] if ((code & ULTRART_EMISSIVE) != 0u) EmissiveShadowSetup(p, dist, L, mask);
-    else s = LightShadowSetup(code, p, n, L, dist, mask);
+    else { s = LightShadowSetup(code, p, n, L, dist, mask); lw = _Lights[code * 4 + 3].w; }
     if (s != 2u) return s == 1u;
-    return VisibleRaw(p, n, L, dist, mask);
+    return LightRayVisible(lw, p, n, L, dist, mask);
 }
 
 void SampleEmissiveTable(float u, out uint tri, out float pdf)
