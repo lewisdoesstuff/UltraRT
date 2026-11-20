@@ -19,6 +19,7 @@ namespace UltraRT
     ///   -ultrart-caustics-noshadow        caustics without their shadow ray (as the game draws them)
     ///   -ultrart-ripple-caustics X        caustics of our water ripples on what lies under water (default 1, 0 = off)
     ///   -ultrart-water-absorb X           water absorption, sigma per metre of path (default 0.35, 0 = off)
+    ///   -ultrart-water-impulses X         interactive ripples: splashes, wakes, explosions (default 1, 0 = off; Plugin.WaterRipples.cs)
     /// F4 (reflections) switches the pass too.
     /// </summary>
     public partial class Plugin
@@ -59,6 +60,7 @@ namespace UltraRT
                     case "-ultrart-caustics-noshadow": SceneProxies.Caustics.shadows = false; break;
                     case "-ultrart-ripple-caustics": SceneProxies.Caustics.ripple = F(SceneProxies.Caustics.ripple); break;
                     case "-ultrart-water-absorb": s.waterAbsorb = F(s.waterAbsorb); break;
+                    case "-ultrart-water-impulses": _waterImpulseSettings.impulses = Mathf.Max(F(_waterImpulseSettings.impulses), 0f); break;
                 }
             }
         }

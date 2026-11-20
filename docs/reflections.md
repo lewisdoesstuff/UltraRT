@@ -388,6 +388,7 @@ Blood pools (`BloodPool`) are opaque Master materials (Wet class, already glossy
 | `-ultrart-nostaticlift` (static-batched displaced water stays a rest-pose slot of its static group) | lifted, displaced (since 2026-11-20) |
 | bench `trans.portalGlass`, `trans.portalGlassStrength`, `trans.portalGlassHits` (water and glass behind portals, docs/portals.md section 13) | on, 1, 2 (since 2026-11-20) |
 | `-ultrart-water-absorb X` (bench `trans.waterAbsorb`; Beer-Lambert absorption of what shows through water, per metre; 0 = off) | 0.35 (since 2026-11-20, "Water absorption" below) |
+| `-ultrart-water-impulses X` (bench `water.impulses`, `[Effects] InteractiveWaterRipples`; rings from splashes, wakes and explosions; 0 = off) | 1 (since 2026-11-20, "Interactive ripples" below) |
 
 F0 is 0.12 (water) and 0.08 (glass), above the physical 0.02/0.04: the game's water and glass textures are bright and fairly opaque, and at physical strength the reflection only showed at grazing angles. GPU timer slot `prealpha`: the colour copy. The trace itself is part of `dispatch`.
 
@@ -680,6 +681,81 @@ above 19.9 -> 16.4 / 63.4 -> 58.9 (the game: 15.6), 2-1 channel 29.1 -> 26.9 / 2
 120.5 / 131.6 -> 121.1. The 2-1 channel reads a little deeper and bluer, its shallow sides unchanged (`crop_2-1.jpg`).
 Cost: one more fragment pass on visible water (it shares the `Absorb` pass); with the ripple caustics, under 0.06 ms
 GPU total at the three poses measured (docs/caustics.md section 6, "Cost").
+
+### Interactive ripples (2026-11-20, `t3/water-interactive-ripples`)
+
+Splashes, wakes and explosions now ring the water: expanding circular waves on top of the four `kWaterWaves`, in the
+reflection normal (`WaterNormalBand`, so the traced reflection and the overlay's Fresnel and refraction) and in the
+ripple caustics under the water (docs/caustics.md section 6, "Interactive rings"). They are an analytic height field
+only. The traced mesh, the vertex displacement, the overlay's displaced depth and the reflection's temporal filter are
+untouched, so the same ring reaches every consumer and none of the 6-2 / 2-1 triangle dropouts can come back.
+
+**The ring** (`UltraRTWater.hlsl`, `WaterImpulseRing`): h(r) = (a / k) E(r) sin(k (r - 1.5 R)), R = speed x age; the
+envelope E = exp(-age / decay) x exp(-((r - R) / sigma)^2) x (1 + r / 2)^-1/2 x r^2 / (r^2 + eps^2), sigma = 0.6
+wavelengths + 0.1 R (the packet widens as it travels), eps = 0.35 wavelengths. The crests run at 1.5 x the packet (deep
+water: 2 x), so they rise at its back and fade at its front. The last factor makes h ~ r^2 at the centre: the slope is 0
+there and the curvature finite (the radial `r / sqrt(r^2 + eps^2)` would leave a cone point). The slope and the Hessian
+are exact (checked against finite differences to 1e-9 offline). The Hessian is h'' along the radius and h' / r across it.
+Each ring is band-limited by the footprint like the waves (gone at 4 footprints per wavelength in the reflection, 6 in the
+caustics), fades with the ripples' 60 m view fade, and is cut at 3 sigma from its crest (the loop skips it). It applies
+only to horizontal surfaces (|n.y| > 0.9) whose height is within 2.5 m of the ring's surface, so a splash in an upper
+pool never ripples a lower one. Rings ignore the level's `waterWaves`: 8-2's still pool still rings when something lands
+in it.
+
+**Sources** (`Plugin.WaterRipples.cs`):
+- The game's own splashes: a Harmony postfix on `Water.TrySpawnSplash(WaterObject)` (the game's splash comes from a
+  pool, so the spawn hooks never see it), with the game's own big/small rule. That covers V1, enemies, corpses and gibs,
+  and any rigidbody projectile, on entry and on exit. The slope is 0.05 + 0.006 x impact speed (|v.y| + 0.25 x horizontal
+  speed), capped at 0.24, times the body's size (V1 about 1.1). A fall faster than 25 m/s gets at least 0.2. The wavelength
+  is 0.45-0.9 m with size, speed 1.8-2.6 m/s, decay 1.6 s.
+- Wakes: a postfix on `Water.UpdateContinuousSplash` (each FixedUpdate for the player and enemies standing at the
+  surface, not submerged) drops a ring every 0.2 s at walking speed and every 0.15 s at 20 m/s, above 1.5 m/s. Slope
+  0.025 + 0.003 x speed, capped at 0.09 (enemies x 0.7), wavelength 0.5 m, speed 1.5 m/s, decay 0.9 s.
+- Explosions: `EffectLights.Spawned` (beside the shockwaves of `Plugin.Vfx.cs`). An `Explosion` within 4.5 m of a water
+  surface, over its rectangle give or take its size, makes a ring of slope 0.12 + 0.015 x size (0.12-0.3, less the
+  higher above the water), wavelength 0.7-1.4 m, speed 2.8 m/s, decay 2.2 s.
+- The surface is the ripple-caustic water list (`SceneProxies.WaterSurfaceAt`: the top of the renderer bounds). Nothing
+  is made further than 80 m from the camera, or over water that is not traced (6-2's red pools).
+
+**Buffer**: 16 rings. When the buffer is full, the ring with the least left (slope now, divided by 1 + distance / 30 m) is
+replaced, unless the new one has even less. Each frame the C# side sends the age, not the birth time (`Time.time`: game time,
+so pauses and hitstop freeze the rings, and no clock wraps in the shader): `_UltraRTWaterImpulses[16]` = (x, z, age, slope
+x strength), `_UltraRTWaterImpulses2[16]` = (surface y, speed, wavelength, decay), `_UltraRTWaterImpulse.x` = count.
+These are immediate global arrays, read by `PathTrace.raytrace` and the overlays. With no ring the count is 0 and both
+shader paths are the code from before (a branch on it). Log: `Water ripples: strength S, game splash hooks on`, and
+`Water ripples: <splash (V1) | big splash (V1) | splash (enemy) | explosion '...'> at (x, y, z) slope A, wavelength L m, N ring(s)`.
+
+| Setting | Default |
+|---|---|
+| Strength (`[Effects] InteractiveWaterRipples`, Advanced page; `-ultrart-water-impulses X`; bench `water.impulses=X`; 0 = off) | 1 |
+| bench `water.splashes`, `water.wakes`, `water.explosions`, `water.enemies`, `water.maxDistance` | on, on, on, on, 80 m |
+| bench `water.testRipple=1`: one ring frozen at `water.testAge` (0.65 s), slope `water.testAmplitude` (0.25), wavelength 0.7 m, where the view (tilted down 0-21 degrees) meets water nearest 6 m away; `water.testRings=N`: N of them on a spiral (cost of a full buffer) | off |
+
+**Validation** (main slot, which the user allowed for visual runs; 2560x1440, 2026-11-20; suite `bench/suites/water-rings.json`, runs
+`bench/results/20261120-172622_tmp-water-rings` and `20261120-173119_tmp-water-rings`, run under the suite's working name; sheets in each run's `sheets/`):
+- 5-1 shaft pool with flat water (`trans.waves=0`, so only the ring moves the surface): crisp concentric rings at ages
+  0.3, 0.65 and 1.3 s, expanding, no spike or hole at the centre, the same in relight and pathtrace (`crop_5-1_ring.jpg`).
+  Two rings show: the surface's reflected ring, and, offset by the parallax of the floor 1 m below, the bright caustic
+  ring on the pool floor. With the waves on, the ring is a soft disturbance in the wave caustics, not a separate effect.
+- 16 overlapping rings (`water.testRings=16`): an interference pattern of caustic lines, no blow-up, speckle or boiling
+  (`5-1_16.jpg`).
+- 2-1 channel and 1-3 water hall: the ring shows in the reflection (subtle in 2-1's dark channel). No NaN, no exception
+  in the logs. `tools/lights/punch.py` over 1-3 and 2-1: highlights, p95, saturation and contrast within 0.02 of the
+  ringless frames (the views have no game-dark pixels for the dark test).
+- Live hooks (run `20261120-173555_tmp-water-live`, scenario `5-1 shaft explosion` of `water-rings.json`: the bench's
+  harmless `explosion` 6 m ahead, 0.9 s before the shot): the explosion makes its ring (slope 0.21, wavelength 1.08 m),
+  and its debris chunks falling into the pool come through the game's `TrySpawnSplash` as a dozen small splashes
+  (slope 0.07-0.09), which fill the buffer to 16. The pool floor's caustics and the reflection then show soft, expanding
+  rings that overlap. The effect is clear but gentle, not a burst of sparkle. A revolver coin thrown into the water made
+  no splash (its collider does not trigger the game's water), so V1's own splash and wakes were not exercised in a bench
+  run: they use the same two hooks.
+
+**Cost** (perf hold, main, 2560x1440, `bench/suites/water-rings-perf.json`, run `20261120-173435_tmp-water-rings-perf`,
+alternating 1.5 s segments; a full buffer of 16 overlapping rings around the test point against none). GPU total ms:
+5-1 shaft pool, pathtrace (RR) 4.81 -> 4.88 (dispatch 1.94 -> 2.01); 2-1 channel, pathtrace 5.90 -> 6.00 (dispatch
+2.83 -> 2.93), relight 5.54 -> 5.64. (The 5-1 relight segments recorded no frames in that run.) So up to +0.1 ms with
+16 rings on water that fills the view: the cost is in the dispatch (reflection normal and caustics), and the overlay's
+share is too small to see. With no ring it is zero: the count is 0, and the shaders take the old path.
 
 ### Limits
 

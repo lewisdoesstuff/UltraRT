@@ -426,11 +426,26 @@ docs/reflections.md "Water absorption"):
 So under 0.06 ms with water filling the view, within the 0.2 ms target. No new dispatch, binding beyond one global
 buffer, or UAV.
 
+### Interactive rings (2026-11-20, `t3/water-interactive-ripples`)
+
+Splash, wake and explosion rings (docs/reflections.md, "Interactive ripples") focus light too: `WaterRippleCaustic`
+adds every ring of the receiver's plane (its surface height is passed in; rings more than 2.5 m away in height are
+another pool's) to the map. X = x + q grad h_waves(x) + sum_i q_i grad h_i(x), and the irradiance is 1 / |det(I + q H_waves +
+sum_i q_i H_i)| with the same two fixed-point steps, eps and renormalisation. A ring's slopes are real slopes, so its q_i is
+the physical depth x (1 - 1/1.33) x the same `rippleGain`, soft-limited per ring to 0.9 / (slope x k): even a fresh
+ring at its steepest stays short of its first focus (no single-root blobs), and a deep floor only blurs it. Rings ignore
+the reflection's ripple strength (`slope`): a still pool (8-2's `waterWaves` 0.25, or `trans.waves=0`) still throws ring
+caustics. With no ring the old code runs unchanged (a branch on the count). Offline, the test ring (slope 0.25,
+wavelength 0.7 m, age 0.65 s) 1 m above a floor at gain 4 gives, along a radius, 1.71 at the bright crest and 0.71 in the
+trough, and exactly 1 outside the packet. In game it is a bright ring on the 5-1 pool floor, offset from the surface's
+reflected ring by the floor's parallax (docs/reflections.md, "Interactive ripples", `crop_5-1_ring.jpg`). The ring
+band-limits at 6 footprints, like the waves.
+
 ## Files and tools
 
 - Suites: `bench/suites/caustics-5-1.json` (8 scenarios, about 1.5 min with one level load), `caustics-rt.json`,
   `caustics-iso.json`, `caustics-perf.json` (section 5); `water-absorb-caustics.json`, `water-absorb-caustics2.json`,
-  `water-absorb-caustics-perf.json` (section 6).
+  `water-absorb-caustics-perf.json` (section 6); `water-rings.json`, `water-rings-perf.json` (interactive rings).
 - Game data was read offline with UnityPy (a scratch venv): materials from `materials.bundle`, scene objects from each
   `campaign_scenes_level*.bundle` (MonoScript names from `monoscript_monoscripts.bundle`), the Master shader's GLCore
   program for keyword set `CAUSTICS VERTEX_LIGHTING _FOG_ON` (platform 15 in the shader's `platforms`; the vertex

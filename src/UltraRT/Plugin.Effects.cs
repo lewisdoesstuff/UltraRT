@@ -53,7 +53,7 @@ namespace UltraRT
             if (!_effectArgsParsed) ParseEffectArgs();
             if (_effectLights == null)
             {
-                _effectLights = new EffectLights(Logger) { Settings = _effectSettings, Spawned = VfxOnSpawn };
+                _effectLights = new EffectLights(Logger) { Settings = _effectSettings, Spawned = go => { VfxOnSpawn(go); WaterImpulseOnSpawn(go); } };
                 _effectGeometry = new EffectGeometry(Logger) { Settings = _fxgSettings };
                 _effectGeometry.SetShader(_effectProxyShader);
                 _effectLights.GlowSink = _effectGeometry.Track;
