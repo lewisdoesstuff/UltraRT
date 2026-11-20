@@ -299,7 +299,7 @@ without the fix). Sheets in the main checkout's `bench\results\review\trailer-li
   (`12 - Island/12 Nonstuff/2/12 -> 12B Entrance`). The game does render it; the black was a bench artifact: the game picked
   its portal views from the frozen player's eye (at the Island checkpoint), not from the cinematic camera, so the arch's
   view was never rendered in the RT-off images. Fixed by re-running the game's portal setup from the posed camera
-  (docs/portals.md, section 13). Now both halves show the island through the arch (`8-2-market-arch.jpg`, run
+  (docs/portals.md, section 14). Now both halves show the island through the arch (`8-2-market-arch.jpg`, run
   `20261120-132549_trailer-light-fixes_alt`; the traced view is warmer and its sky darker than the game's). So the RT-off
   half of the v5c 8-2 and 8-3 shots was not the game as played; a re-render is needed for both halves to match. Nothing was
   made darker: the game shows the island there in play too.
