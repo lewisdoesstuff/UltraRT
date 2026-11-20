@@ -726,7 +726,7 @@ newest match wins, so re-rendering one shot with the `-redo` suite replaces just
 |---|---|
 | `Bar`, `Margin` | seconds per bar (1.5 at 160 bpm); extra seconds rendered either side of a comparison's switch |
 | `Tiers` | per tier: `Mode` (the cinematic's render mode), `Modes` (the scenario's RT mode and runtime variants), `OutputScale`, `Fps`, `Preroll`, `Width`, `Height`, `Crf`, `ClipCrf`, `Exports` |
-| `Scenario` | fields for every bench scenario (`"Enemies": "blind"`) |
+| `Scenario` | fields for every bench scenario (`"Enemies": "blind", "EnemyOutlines": false`: since 2026-11-20 every shot has the game's enemy outlines off, in the game's image and the traced one; docs/ultrakill-rendering.md, "Enemy outlines") |
 | `Labels`, `Graphics`, `Music` | passed to the edit list |
 
 Shots: `Kind` is `title` / `end` (a card: `Card` holds the title clip's fields), `beauty` (one traced take), `switch`

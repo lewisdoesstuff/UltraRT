@@ -821,6 +821,8 @@ namespace UltraRT
         /// <summary>Measure one scenario in the loaded level (EnsureLevel). routeFrom: see LoadPose.</summary>
         private IEnumerator RunScenario(Scenario sc, ScenarioResult sr, string suiteDir, string outDir, string method, float routeFrom)
         {
+            // The game's enemy outlines for this scenario (both images; Plugin.EnemyOutlines.cs): its own field, else the command line's.
+            _enemyOutlines = sc.EnemyOutlines ?? _enemyOutlinesDefault;
             if ((sc.Path.Type ?? "").ToLowerInvariant() == "tour") { yield return RunTour(sc, sr, outDir); yield break; } // Plugin.Bench.Tour.cs
             var load = new PoseLoad();
             yield return LoadPose(sc, method, suiteDir, load, _level.Spawn, routeFrom);

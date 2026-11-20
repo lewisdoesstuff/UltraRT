@@ -17,6 +17,104 @@ namespace UltraRT
     /// </summary>
     public partial class Plugin
     {
+        /// <summary>Cinematic "Probes": the matching renderers now, and the outline mask of the next frames.</summary>
+        private void CineProbe(string filter, float t, string outDir)
+        {
+            var cam = MonoSingleton<PostProcessV2_Handler>.Instance?.mainCam;
+            Logger.LogInfo($"Benchmark: probe at {t:F2}s (frame {Time.frameCount}, traced view {_viewEnabled}), renderers matching '{filter}':");
+            foreach (var line in _proxies.DescribeMatching(filter, cam)) Logger.LogInfo("  probe: " + line);
+            _proxies.ProbeSkinnedExtents(filter, line => Logger.LogInfo("  probe: " + line));
+            // Which cameras draw the matching skinned renderers in the next frames (OnWillRenderObject), and occlusion culling.
+            if (cam != null) Logger.LogInfo($"  probe: main camera '{cam.name}' useOcclusionCulling={cam.useOcclusionCulling} cullingMask=0x{cam.cullingMask:X} near={cam.nearClipPlane} far={cam.farClipPlane}");
+            foreach (var smr in FindObjectsOfType<SkinnedMeshRenderer>())
+            {
+                if (smr == null || SceneProxies.IsProxyObject(smr.gameObject) || GameControl.PathOf(smr.transform).IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                Logger.LogInfo($"  probe: '{GameControl.PathOf(smr.transform)}' allowOcclusionWhenDynamic={smr.allowOcclusionWhenDynamic} enabled={smr.enabled}");
+                var w = smr.GetComponent<ProbeWillRender>() ?? smr.gameObject.AddComponent<ProbeWillRender>();
+                w.Frames = 4;
+                w.Log = Logger;
+                if (cam == null || !smr.enabled || !smr.gameObject.activeInHierarchy) continue;
+                // What lies between the camera and this renderer (bounds on the ray to its centre and its box corners).
+                var b = smr.bounds;
+                var targets = new[] { b.center, b.min, b.max, new Vector3(b.min.x, b.max.y, b.min.z), new Vector3(b.max.x, b.min.y, b.max.z) };
+                var hits = new Dictionary<Renderer, float>();
+                foreach (var tp in targets)
+                {
+                    var ray = new Ray(cam.transform.position, (tp - cam.transform.position).normalized);
+                    float far = (tp - cam.transform.position).magnitude;
+                    foreach (var r in FindObjectsOfType<Renderer>())
+                    {
+                        if (r == null || r == smr || !r.enabled || SceneProxies.IsProxyObject(r.gameObject) || ((cam.cullingMask >> r.gameObject.layer) & 1) == 0) continue;
+                        if (r.bounds.IntersectRay(ray, out float d) && d < far && (!hits.TryGetValue(r, out var old) || d < old)) hits[r] = d;
+                    }
+                }
+                foreach (var kv in hits.OrderBy(h => h.Value))
+                {
+                    var r = kv.Key;
+                    Logger.LogInfo($"    in front of '{smr.name}': '{GameControl.PathOf(r.transform)}' {r.GetType().Name} L{r.gameObject.layer} d={kv.Value:F1} isVisible={r.isVisible} " +
+                                   string.Join(" ", r.sharedMaterials.Where(m => m != null).Select(m => $"['{m.name}' {m.shader?.name} q={m.renderQueue} kw={string.Join(",", m.shaderKeywords)}]")));
+                }
+            }
+            StartCoroutine(CineProbeMasks(t, outDir));
+        }
+
+        /// <summary>Probe helper: logs the cameras that are about to render this object, for a few frames.</summary>
+        internal sealed class ProbeWillRender : MonoBehaviour
+        {
+            public int Frames;
+            public BepInEx.Logging.ManualLogSource Log;
+            private int _frame = -1;
+            private readonly List<string> _cams = new List<string>();
+            private void OnWillRenderObject()
+            {
+                if (Frames <= 0 || Log == null) return;
+                if (_frame != Time.frameCount) { Flush(); _frame = Time.frameCount; }
+                _cams.Add((Camera.current != null ? Camera.current.name : "null") + $" clip {Shader.GetGlobalVector("_PortalClipPlane"):G4}");
+            }
+            private void LateUpdate() { if (Frames > 0 && _frame >= 0 && _frame != Time.frameCount) Flush(); }
+            private void Flush()
+            {
+                if (_frame < 0 || _cams.Count == 0) return;
+                Log.LogInfo($"  probe: will render '{name}' frame {_frame}: cameras [{string.Join(",", _cams)}]");
+                _cams.Clear();
+                Frames--;
+            }
+        }
+
+        private IEnumerator CineProbeMasks(float t, string outDir)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                yield return new WaitForEndOfFrame();
+                var rt = MonoSingleton<PostProcessV2_Handler>.Instance?.reusableBufferA;
+                if (rt == null) yield break;
+                var prev = RenderTexture.active;
+                var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+                try
+                {
+                    RenderTexture.active = rt;
+                    tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0, false);
+                    var px = tex.GetPixels32();
+                    int outlined = 0;
+                    for (int k = 0; k < px.Length; k++)
+                    {
+                        // ULTRAKILL/OutlinePx Composite1Px: a masked pixel has r > 0.999 or r + g > 1.
+                        if (px[k].r >= 255 || px[k].r + px[k].g > 255) outlined++;
+                        px[k].b = 0; px[k].a = 255;
+                    }
+                    tex.SetPixels32(px);
+                    string file = $"probe_{t:F2}s_f{Time.frameCount}_{(_viewEnabled ? "traced" : "off")}.png";
+                    File.WriteAllBytes(Path.Combine(outDir, file), tex.EncodeToPNG());
+                    var cam = MonoSingleton<PostProcessV2_Handler>.Instance?.mainCam;
+                    string cbs = cam != null ? string.Join(",", cam.GetCommandBuffers(UnityEngine.Rendering.CameraEvent.AfterEverything).Select(c => c.name)) : "-";
+                    Logger.LogInfo($"Benchmark: probe outline mask {file}: {rt.width}x{rt.height} {rt.format}, {outlined} masked pixels; " +
+                                   $"global _OutlineTex '{Shader.GetGlobalTexture("_OutlineTex")?.name}' _OutlineTex_TexelSize {Shader.GetGlobalVector("_OutlineTex_TexelSize"):G4}, " +
+                                   $"AfterEverything [{cbs}]");
+                }
+                finally { RenderTexture.active = prev; Destroy(tex); }
+            }
+        }
+
         private IEnumerator RunCinematicScenario(Scenario sc, ScenarioResult sr, string suiteDir, string outDir, CameraPath route, List<Recording.ArenaEvent> arenas)
         {
             var spec = sc.Cinematic;
@@ -196,6 +294,26 @@ namespace UltraRT
                         while (next < calls.Count && calls[next].At <= t)
                         {
                             if (t - calls[next].At < 0.25f) CineCallNow(calls[next]); // not the ones a late start has passed
+                            next++;
+                        }
+                    };
+                }
+
+                if (spec.Probes != null && spec.Probes.Count > 0 && !string.IsNullOrEmpty(spec.ProbeFilter) && _proxies != null)
+                {
+                    // Diagnostics (renderers matching ProbeFilter and the outline mask) at path seconds, once per take.
+                    var probes = spec.Probes.OrderBy(x => x).ToList();
+                    var before = _cineOnTime;
+                    int next = 0;
+                    float last = float.MinValue;
+                    _cineOnTime = t =>
+                    {
+                        before?.Invoke(t);
+                        if (t < last - 0.5f) next = 0;
+                        last = t;
+                        while (next < probes.Count && probes[next] <= t)
+                        {
+                            if (t - probes[next] < 0.25f) CineProbe(spec.ProbeFilter, t, outDir);
                             next++;
                         }
                     };

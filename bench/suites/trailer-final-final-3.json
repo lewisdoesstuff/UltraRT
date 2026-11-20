@@ -18,6 +18,7 @@
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
+      "EnemyOutlines": false,
       "Cinematic": {
         "File": "../cinematics/final-4-4-window-hall.json",
         "Mode": "live",
@@ -51,6 +52,7 @@
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
+      "EnemyOutlines": false,
       "Cinematic": {
         "File": "../cinematics/final-1-1-terminal-cam.json",
         "Mode": "live",
@@ -76,6 +78,7 @@
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
+      "EnemyOutlines": false,
       "Cinematic": {
         "File": "../cinematics/final-6-2-entry.json",
         "Mode": "live",
@@ -106,6 +109,7 @@
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
+      "EnemyOutlines": false,
       "Cinematic": {
         "File": "../cinematics/final-8-2-market-aisle.json",
         "Mode": "live",
@@ -133,6 +137,7 @@
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
+      "EnemyOutlines": false,
       "Cinematic": {
         "File": "../cinematics/final-8-3-crushers.json",
         "Mode": "live",

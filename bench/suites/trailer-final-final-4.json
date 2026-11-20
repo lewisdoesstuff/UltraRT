@@ -15,6 +15,7 @@
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
+      "EnemyOutlines": false,
       "Cinematic": {
         "File": "../cinematics/final-2-4-tunnel.json",
         "Mode": "live",
@@ -43,6 +44,7 @@
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
+      "EnemyOutlines": false,
       "Cinematic": {
         "File": "../cinematics/final-museum-gallery.json",
         "Mode": "live",
@@ -70,6 +72,7 @@
         "pathtrace+ptx.scaleRR=1"
       ],
       "Enemies": "blind",
+      "EnemyOutlines": false,
       "Cinematic": {
         "File": "../cinematics/final-1-4-hall.json",
         "Mode": "live",
