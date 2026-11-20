@@ -4,7 +4,7 @@
   "Scene": "Level 4-4",
   "Note": "Trailer v5c: 4-4's Window Hallway before the boss arena, from the top of the stairs by the boss gate gliding down into the hall, the slatted window's stripes on the walls and the floor (the user's pick of the v5c candidates, 'looks incredible'). World frame keys [z, x, feet y, yaw, pitch]; loaded at the Boss Entrance checkpoint with the hallway switched on by LookActivate.",
   "Keys": [
-    {"Player": [114.0, 649.0, 418.0], "Yaw": 48, "Pitch": -5, "Fov": 85, "Duration": 6.5, "Ease": "linear"},
-    {"Player": [117.0, 649.2, 436.0], "Yaw": 32, "Pitch": -5, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+    {"Player": [117.5, 662.5, 394.0], "Yaw": 0, "Pitch": -9, "Fov": 85, "Duration": 6.5, "Ease": "linear"},
+    {"Player": [117.5, 649.6, 426.0], "Yaw": 0, "Pitch": -3, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
   ]
 }

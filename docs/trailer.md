@@ -291,10 +291,10 @@ the frame check), copied to the main checkout's `bench\results\trailer\trailer-v
 
 Paths (`bench/trailer/paths.json`; scout `bench/trailer/scout-v6.json`, suite `trailer-v6-scout`, game | path traced per
 key, run `20261120-161145_trailer-v6-scout_alt`):
-- **4-4 Window Hallway**: no longer a centred push down the stairs. A low diagonal glide along the hall's west half
-  (z 418 -> 436, x 114 -> 117, feet 649), turned 48 -> 32 degrees towards the slatted window, so the striped light on the
-  floor and the window wall sweeps across the frame; the west wall's torches pass on the left. At x 112 and less the
-  ledge by the west wall comes into the bottom left, so the glide starts at x 114.
+- **4-4 Window Hallway**: v5d's centred descent down the stairs into the hall (z 394 -> 426), now with linear easing.
+  The first v6 draft had a low diagonal glide along the hall's west half instead (z 418 -> 436, x 114 -> 117, feet 649,
+  turned 48 -> 32 degrees towards the slatted window; at x 112 and less the ledge by the west wall comes into the bottom
+  left); the user preferred v5d's centred angle (2026-11-20), so it was re-rendered with the old keys.
 - **Museum gallery**: an angled diagonal glide instead of the centred push: from left of the centre path (z 803) across to
   its right (z 808.5) while moving 13 m down the gallery, turned 24 -> 14 degrees towards the -z wall, so the
   portraits and the checkerboard slide sideways. The pedestal rows begin about 7 m either side of z 805, so the glide
@@ -331,7 +331,7 @@ Plan (`bench/trailer/final-plan.json`):
 | 1-10 | 0:00.0 | 63.34 | title, 0-3, 6-2 organ, 1-1 hallway, 0-1, 7-3, P-2 hall, 8-2 street, 2-1, 5-2 (as in v5d) | calm layer, 42 bars |
 | 11 | 1:03.3 | 6.0 | combat footage slot (placeholder card) | card |
 | 12 | 1:09.3 | 7.5 | P-2 street, through the arch into the tunnel | beauty |
-| 13 | 1:16.8 | 6.0 | 4-4 Window Hallway, diagonal glide | switch at 1.5 s |
+| 13 | 1:16.8 | 6.0 | 4-4 Window Hallway, down the stairs into the hall (v5d's angle) | switch at 1.5 s |
 | 14 | 1:22.8 | 4.5 | 1-1 terminal | beauty |
 | 15 | 1:27.3 | 4.5 | 8-2 supermarket aisle | switch at 1.5 s |
 | 16 | 1:31.8 | 4.5 | 8-3 Clockwork Crushers, pull-back from the door | sweep from the right |
@@ -351,6 +351,15 @@ clip frame is matched against its take frames (+-4) on a central crop. 9 of 17 s
 1 to 9 frames match the neighbouring take frame about as well as the expected one (0-3's dark room before the
 pillars, the organ hall before the flip, 0-1's frozen room, single frames in the 1-1 hallway, 8-2 street, 2-1 and 2-4).
 1-4's flags are its 0.6 s fade into the end card, where the fade decides the match, not the take. No hold or jump.
+
+**Re-take of 4-4 and 8-2's market** (the user's notes on the first v6 draft): 4-4 back to v5d's angle (above), and V1
+removed from 8-2's arch. In the first draft's RT-off half V1 stood in the middle of the supermarket arch, with its wings
+lit, and the traced half had no V1: the cinematic camera kept V1 out of the traced scene but left its layer-30 model on,
+and the game's portal view of the island (where the scenario parks the player) drew it. Fixed in the cinematic camera
+(docs/cinematics.md, "While the camera is free"): with V1 neither traced nor shown, its renderers are off. Run
+`20261120-165024_trailer-final-draft-redo_alt` (`trailer-plan.py --tier draft --only "4-4 window hall,8-2 market"`,
+0.6 minutes of game time; 50 and 55 renderers hidden, all put back after the takes), clips 13 and 15 rebuilt
+(`trailer.py --only 13,15`): the arch shows only the island in both halves, and both clips match their takes frame for frame.
 
 Assembly 3 min 20 s. Seen in the draft: Gabriel's sword glows with no outline (6-2), 2-1's water reflects the green
 ring and the walls in its ripples under the blue absorption tint, and the v6 level titles sit above the subjects.

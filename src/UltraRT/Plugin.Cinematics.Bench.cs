@@ -147,7 +147,7 @@ namespace UltraRT
             ApplyBenchMode(live);
             CineEnter(bench: true);
             if (_cineState == CineState.Off) throw new InvalidOperationException("cinematic camera could not start (no player?)");
-            if (spec.TracePlayer == true) SceneProxies.TracePlayerModel = _cineSavedPlayerModel; // V1 stands at the scenario's pose
+            if (spec.TracePlayer == true) { SceneProxies.TracePlayerModel = _cineSavedPlayerModel; CineSyncPlayerModel(); } // V1 stands at the scenario's pose
             if (spec.ShowPlayer == true) CineShowPlayer(true);
             if (spec.ShopScreensOff == true) CineShopScreensOff(true);
             bool ride = !replay && string.Equals(spec.Player, "camera", StringComparison.OrdinalIgnoreCase);
@@ -173,6 +173,7 @@ namespace UltraRT
                     if (sc.KillEnemies && Time.time >= nextKill) { nextKill = Time.time + 0.25f; KillEnemies(); }
                 };
                 SceneProxies.TracePlayerModel = _cineSavedPlayerModel; // V1 is where the camera is again: keep its shadow
+                CineSyncPlayerModel();
             }
             var flickers = new List<(Flicker lamp, FlickerHold hold)>();
             var steady = new List<(Light light, FlickerHold hold, bool was)>();
@@ -194,6 +195,7 @@ namespace UltraRT
                     var playerRoute = ride ? sp : walk;
                     _cineOnTime = t => CineDrivePlayer(playerRoute, t);
                     SceneProxies.TracePlayerModel = _cineSavedPlayerModel;
+                    CineSyncPlayerModel();
                     if (spec.ShowPlayer ?? !ride) CineShowPlayer(true);
                     CineDrivePlayer(playerRoute, 0f);
                     Logger.LogInfo($"Benchmark: the player {(ride ? "rides the camera path" : $"walks {spec.Player} ({walk.Duration:F2}s)")}, shown to the camera: {_cineShowPlayer}");
