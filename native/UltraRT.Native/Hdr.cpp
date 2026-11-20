@@ -15,6 +15,10 @@
 //   the late map            the same layout, written by the screen-effects pass after the game's transparents (flags bit 1):
 //                           effects (explosions, fire, beams) and bloom, which the game draws after the composite. The pass
 //                           takes the larger of the two gains per pixel.
+//   the scene (native)      native float HDR (flags bit 2, the default since 2026-11-20): the game's whole frame in float
+//                           (display gamma, 1 = paper white, above 1 = HDR), right before its final pass. Where Unity's
+//                           finished 8-bit frame matches that frame saturated, the pass shows the float frame; where it
+//                           doesn't (the HUD, menus, overlays drawn after it) the 8-bit frame. No gain maps then.
 //
 // Threads: the hook and the proxy's methods run on Unity's render thread; UltraRT_Hdr_* is called from the main thread.
 
@@ -41,7 +45,8 @@ namespace
     constexpr int kEventHdrFrame = 97;  // GpuTimer 91-93, DLSS 94-96
     constexpr int kMaxBuffers = 8;
     constexpr int kSlots = 8;           // command allocators / descriptor pairs in flight
-    constexpr int kFrameRing = 16;      // two maps per frame (composite, late)
+    constexpr int kFrameRing = 24;      // up to three maps per frame (composite, late; or the native scene)
+    constexpr int kSrvPerSlot = 4;      // back buffer, gain map, late map, native scene
     constexpr DXGI_FORMAT kHdrFormat = DXGI_FORMAT_R10G10B10A2_UNORM;
     constexpr DXGI_COLOR_SPACE_TYPE kHdrSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
 
@@ -52,6 +57,7 @@ namespace
         int width, height;
         int flags;                // bit 0: sample with a linear filter (not with the packed alpha the plugin writes: unused)
                                   // bit 1: the late map (screen effects, after the game's transparents)
+                                  // bit 2: the native float scene (RGBA16F, display gamma; docs/hdr.md "Native float HDR")
         int pad;
         float uvScaleX, uvScaleY, uvOffsetX, uvOffsetY; // screen uv (0,0 = top left) -> gain uv
     };
@@ -67,6 +73,9 @@ namespace
         float gainMax;
         float gainStrength; // 0..1
         float gainFloor;    // 1 = the composite's gain is never below 1 and the late map's result floors the pixel at the SDR image (before 2026-11-20)
+        float nativeTolLo, nativeTolHi; // native scene: shown where the 8-bit frame is within this of it saturated (largest channel), SDR from the second
+        float gameGamma;    // native scene: the game's final pass exponent (Options > Brightness; 1 = none)
+        float colorPrecision; // native scene: the game's colour compression, levels per channel (0 = none)
         float pad1, pad2;
     };
 
@@ -117,13 +126,16 @@ namespace
 
     // ---- shared with the plugin
     SRWLOCK s_Lock = SRWLOCK_INIT;
-    HdrParams s_Params = { 0.0f, 0.0f, 1.0f, 0.06f, 0.25f, 0.0f, 0.0f, 16.0f, 1.0f, 0, 0, 0 };
+    HdrParams s_Params = { 0.0f, 0.0f, 1.0f, 0.06f, 0.25f, 0.0f, 0.0f, 16.0f, 1.0f, 0, 0.025f, 0.08f, 1.0f, 0, 0, 0 };
     HdrFrame s_Frames[kFrameRing] = {};   // each holds a reference on its gain texture
     HdrFrame s_Present = {};              // the frame the next Present uses (holds a reference), set by the plugin event
     bool s_PresentValid = false;
     HdrFrame s_PresentLate = {};          // the same for the late map
     bool s_PresentLateValid = false;
     volatile LONG64 s_LateFrames = 0;
+    HdrFrame s_PresentScene = {};         // the native float scene (flags bit 2)
+    bool s_PresentSceneValid = false;
+    volatile LONG64 s_SceneFrames = 0;
     wchar_t s_CapturePath[MAX_PATH] = L"";
     bool s_CaptureWanted = false;
     bool s_Force = false;
@@ -136,11 +148,14 @@ cbuffer C : register(b0)
     float tolLo, tolHi, sdrBoost, debugMode;
     float gainMax, linearGain, gainStrength, lateOn;
     float4 lateUV;
-    float gainFloor, cpad0, cpad1, cpad2;
+    float gainFloor, sceneOn, nativeTolLo, nativeTolHi;
+    float4 sceneUV;
+    float gameGamma, colorPrecision, cpad0, cpad1;
 };
 Texture2D<float4> Src : register(t0);
 Texture2D<float4> Gain : register(t1);
 Texture2D<float4> Late : register(t2);
+Texture2D<float4> Scene : register(t3);
 SamplerState PointClamp : register(s0);
 SamplerState LinearClamp : register(s1);
 struct VO { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
@@ -183,6 +198,13 @@ float3 SoftPeak(float3 r, float top)
     if (top <= 1.001 || v <= k) return r;
     return r * ((k + (top - k) * (1.0 - exp(-(v - k) / (top - k)))) / v);
 }
+// Native float HDR: the scene went through the display transform already (Denoise.compute HdrScene, UltraRTHdrDisplay),
+// for the peak the plugin was told; a peak setting changed since, or rounding, is clamped here, keeping the hue.
+float3 OutputNative(float3 r, float top)
+{
+    float v = max(r.r, max(r.g, r.b));
+    return v > top ? r * (top / v) : r;
+}
 float4 PS(VO i) : SV_Target
 {
     float3 s = saturate(Src.Load(int3(i.pos.xy, 0)).rgb);
@@ -190,7 +212,21 @@ float4 PS(VO i) : SV_Target
     float3 base = rel;
     float top = peakNits / paperNits;
     bool mapped = false;
-    if (gainOn > 0.5)
+    if (sceneOn > 0.5)
+    {
+        // Native float HDR: the game's float frame, with what the game's final pass does to it (colour compression, the
+        // brightness option's exponent). Where Unity's finished 8-bit frame is that frame saturated, nothing was drawn
+        // after it: show the float frame. Elsewhere (HUD, menus, overlays, a flash) the 8-bit frame, at paper white.
+        float3 h = Scene.SampleLevel(PointClamp, i.uv * sceneUV.xy + sceneUV.zw, 0).rgb;
+        h = any(isnan(h)) || any(isinf(h)) ? 0.0 : clamp(h, 0.0, 64.0);
+        if (colorPrecision > 0.5) h = floor(h * colorPrecision) / colorPrecision;
+        if (abs(gameGamma - 1.0) > 1e-4) h = pow(h, gameGamma);
+        float3 dd = abs(s - saturate(h));
+        float w = (1.0 - smoothstep(nativeTolLo, nativeTolHi, max(dd.r, max(dd.g, dd.b)))) * saturate(gainStrength);
+        rel = lerp(base, OutputNative(Decode(h), top), w);
+        mapped = true;
+    }
+    else if (gainOn > 0.5)
     {
         float2 uv = i.uv * gainUV.xy + gainUV.zw;
         float4 g = linearGain > 0.5 ? Gain.SampleLevel(LinearClamp, uv, 0) : Gain.SampleLevel(PointClamp, uv, 0);
@@ -204,7 +240,7 @@ float4 PS(VO i) : SV_Target
         else rel = base * lerp(1.0, clamp(g.rgb, gainFloor, gainMax), w);
         mapped = true;
     }
-    if (lateOn > 0.5)
+    if (lateOn > 0.5 && sceneOn < 0.5)
     {
         // Screen effects (explosions, fire, beams, bloom; the gun's glowing parts): drawn after the composite, so the
         // brighter of the two wins.
@@ -239,7 +275,9 @@ float4 PS(VO i) : SV_Target
         float tolLo, tolHi, sdrBoost, debugMode;
         float gainMax, linearGain, gainStrength, lateOn;
         float lateScaleX, lateScaleY, lateOffsetX, lateOffsetY;
-        float gainFloor, cpad0, cpad1, cpad2;
+        float gainFloor, sceneOn, nativeTolLo, nativeTolHi;
+        float sceneScaleX, sceneScaleY, sceneOffsetX, sceneOffsetY;
+        float gameGamma, colorPrecision, cpad0, cpad1;
     };
 
     double PqToNits(double v)
@@ -396,6 +434,7 @@ float4 PS(VO i) : SV_Target
             {
                 if (m_slotGain[i]) m_slotGain[i]->Release();
                 if (m_slotLate[i]) m_slotLate[i]->Release();
+                if (m_slotScene[i]) m_slotScene[i]->Release();
                 if (m_alloc[i]) m_alloc[i]->Release();
             }
             if (m_list) m_list->Release();
@@ -431,7 +470,7 @@ float4 PS(VO i) : SV_Target
             hd.NumDescriptors = kMaxBuffers;
             if (FAILED(m_device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&m_rtvHeap)))) { Log("proxy: RTV heap failed"); return false; }
             hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-            hd.NumDescriptors = kSlots * 3;
+            hd.NumDescriptors = kSlots * kSrvPerSlot;
             hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
             if (FAILED(m_device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&m_srvHeap)))) { Log("proxy: SRV heap failed"); return false; }
             m_rtvStep = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -502,7 +541,7 @@ float4 PS(VO i) : SV_Target
 
             D3D12_DESCRIPTOR_RANGE range = {};
             range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-            range.NumDescriptors = 3;
+            range.NumDescriptors = kSrvPerSlot;
             D3D12_ROOT_PARAMETER rp[2] = {};
             rp[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
             rp[0].DescriptorTable.NumDescriptorRanges = 1;
@@ -653,13 +692,14 @@ float4 PS(VO i) : SV_Target
             if (idx >= m_count || !m_fake[idx] || !m_realBuf[idx]) return;
 
             HdrParams prm;
-            HdrFrame fr = {}, fl = {};
-            bool haveGain = false, haveLate = false, capture = false;
+            HdrFrame fr = {}, fl = {}, fs = {};
+            bool haveGain = false, haveLate = false, haveScene = false, capture = false;
             wchar_t capturePath[MAX_PATH] = L"";
             AcquireSRWLockExclusive(&s_Lock);
             prm = s_Params;
             if (s_PresentValid) { fr = s_Present; s_Present = {}; s_PresentValid = false; haveGain = fr.gain != nullptr; }
             if (s_PresentLateValid) { fl = s_PresentLate; s_PresentLate = {}; s_PresentLateValid = false; haveLate = fl.gain != nullptr; }
+            if (s_PresentSceneValid) { fs = s_PresentScene; s_PresentScene = {}; s_PresentSceneValid = false; haveScene = fs.gain != nullptr; }
             if (s_CaptureWanted) { capture = true; s_CaptureWanted = false; wcsncpy_s(capturePath, s_CapturePath, _TRUNCATE); }
             ReleaseSRWLockExclusive(&s_Lock);
 
@@ -673,13 +713,16 @@ float4 PS(VO i) : SV_Target
             m_slotGain[k] = fr.gain; // keeps the reference until this slot's commands are done
             if (m_slotLate[k]) { m_slotLate[k]->Release(); m_slotLate[k] = nullptr; }
             m_slotLate[k] = fl.gain;
+            if (m_slotScene[k]) { m_slotScene[k]->Release(); m_slotScene[k] = nullptr; }
+            m_slotScene[k] = fs.gain;
             if (haveGain && prm.gainStrength <= 0.0f) haveGain = false;
             if (haveLate && prm.gainStrength <= 0.0f) haveLate = false;
+            if (haveScene && prm.gainStrength <= 0.0f) haveScene = false;
 
             if (FAILED(m_alloc[k]->Reset()) || FAILED(m_list->Reset(m_alloc[k], m_pso))) { m_failed = true; Log("proxy: command list reset failed; HDR pass stopped"); return; }
 
             D3D12_CPU_DESCRIPTOR_HANDLE srv = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-            srv.ptr += (SIZE_T)(k * 3) * m_srvStep;
+            srv.ptr += (SIZE_T)(k * kSrvPerSlot) * m_srvStep;
             D3D12_SHADER_RESOURCE_VIEW_DESC sd = {};
             sd.Format = m_unityFormat;
             sd.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -691,14 +734,17 @@ float4 PS(VO i) : SV_Target
             m_device->CreateShaderResourceView(haveGain ? fr.gain : nullptr, &sd, srv);
             srv.ptr += m_srvStep;
             m_device->CreateShaderResourceView(haveLate ? fl.gain : nullptr, &sd, srv);
+            srv.ptr += m_srvStep;
+            m_device->CreateShaderResourceView(haveScene ? fs.gain : nullptr, &sd, srv);
 
             if (m_queryHeap) m_list->EndQuery(m_queryHeap, D3D12_QUERY_TYPE_TIMESTAMP, (UINT)k * 2);
-            D3D12_RESOURCE_BARRIER b[4];
+            D3D12_RESOURCE_BARRIER b[5];
             int nb = 0;
             Transition(b[nb++], m_fake[idx], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             Transition(b[nb++], m_realBuf[idx], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
             if (haveGain) Transition(b[nb++], fr.gain, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             if (haveLate) Transition(b[nb++], fl.gain, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            if (haveScene) Transition(b[nb++], fs.gain, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             m_list->ResourceBarrier((UINT)nb, b);
 
             Constants c = {};
@@ -717,9 +763,15 @@ float4 PS(VO i) : SV_Target
             c.lateOn = haveLate ? 1.0f : 0.0f;
             c.gainFloor = prm.gainFloor > 0.5f ? 1.0f : 0.0f;
             c.lateScaleX = fl.uvScaleX; c.lateScaleY = fl.uvScaleY; c.lateOffsetX = fl.uvOffsetX; c.lateOffsetY = fl.uvOffsetY;
+            c.sceneOn = haveScene ? 1.0f : 0.0f;
+            c.nativeTolLo = prm.nativeTolLo > 0.0f ? prm.nativeTolLo : 0.025f;
+            c.nativeTolHi = prm.nativeTolHi > c.nativeTolLo ? prm.nativeTolHi : c.nativeTolLo + 0.01f;
+            c.sceneScaleX = fs.uvScaleX; c.sceneScaleY = fs.uvScaleY; c.sceneOffsetX = fs.uvOffsetX; c.sceneOffsetY = fs.uvOffsetY;
+            c.gameGamma = prm.gameGamma > 0.0f ? prm.gameGamma : 1.0f;
+            c.colorPrecision = prm.colorPrecision > 0.5f && prm.colorPrecision < 256.0f ? prm.colorPrecision : 0.0f;
 
             D3D12_GPU_DESCRIPTOR_HANDLE table = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
-            table.ptr += (UINT64)(k * 3) * m_srvStep;
+            table.ptr += (UINT64)(k * kSrvPerSlot) * m_srvStep;
             D3D12_VIEWPORT vp = { 0.0f, 0.0f, (float)m_w, (float)m_h, 0.0f, 1.0f };
             D3D12_RECT sc = { 0, 0, (LONG)m_w, (LONG)m_h };
             D3D12_CPU_DESCRIPTOR_HANDLE rtv = Rtv(idx);
@@ -754,6 +806,7 @@ float4 PS(VO i) : SV_Target
             else Transition(b[nb++], m_realBuf[idx], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
             if (haveGain) Transition(b[nb++], fr.gain, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             if (haveLate) Transition(b[nb++], fl.gain, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            if (haveScene) Transition(b[nb++], fs.gain, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             m_list->ResourceBarrier((UINT)nb, b);
             if (m_queryHeap)
             {
@@ -775,13 +828,14 @@ float4 PS(VO i) : SV_Target
             InterlockedIncrement64(&s_Presents);
             if (haveGain) InterlockedIncrement64(&s_GainFrames);
             if (haveLate) InterlockedIncrement64(&s_LateFrames);
+            if (haveScene) InterlockedIncrement64(&s_SceneFrames);
             if (m_presentLogs < 1)
             {
                 m_presentLogs++;
                 InterlockedExchange(&s_State, 2);
                 Log("proxy: first HDR10 present (paper white %.0f nits, peak %.0f nits, display max %.0f)", c.paperNits, c.peakNits, m_displayMaxNits);
             }
-            if (capture) FinishReadback(fp, capturePath, c, haveGain, haveLate);
+            if (capture) FinishReadback(fp, capturePath, c, haveGain, haveLate, haveScene);
         }
 
         bool PrepareReadback(UINT idx, D3D12_PLACED_SUBRESOURCE_FOOTPRINT* fp)
@@ -811,7 +865,7 @@ float4 PS(VO i) : SV_Target
 
         // Blocks the render thread until the GPU is done (a diagnostic, not a per-frame path): statistics of what the
         // display was sent, and optionally the raw R10G10B10A2 frame.
-        void FinishReadback(const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& fp, const wchar_t* path, const Constants& c, bool haveGain, bool haveLate)
+        void FinishReadback(const D3D12_PLACED_SUBRESOURCE_FOOTPRINT& fp, const wchar_t* path, const Constants& c, bool haveGain, bool haveLate, bool haveScene)
         {
             WaitFor(m_fenceValue, 5000);
             void* p = nullptr;
@@ -844,9 +898,9 @@ float4 PS(VO i) : SV_Target
                 }
             }
             double n = (double)w * h;
-            Log("capture: %ux%u HDR10, gain map %s, late map %s; mean %.1f nits, max luminance %.0f nits, max channel %.0f nits (PQ code %u); "
+            Log("capture: %ux%u HDR10, %s, gain map %s, late map %s; mean %.1f nits, max luminance %.0f nits, max channel %.0f nits (PQ code %u); "
                 "above paper white (%.0f nits) %.3f%% of pixels, above 2x %.3f%%, within 10%% of peak (%.0f nits) %.3f%%",
-                w, h, haveGain ? "applied" : "none", haveLate ? "applied" : "none", sum / n, maxY, maxC, maxCode, c.paperNits, 100.0 * above / n, 100.0 * above2 / n,
+                w, h, haveScene ? "native float scene" : "8-bit frame", haveGain ? "applied" : "none", haveLate ? "applied" : "none", sum / n, maxY, maxC, maxCode, c.paperNits, 100.0 * above / n, 100.0 * above2 / n,
                 c.peakNits, 100.0 * nearPeak / n);
             if (m_cpuCount > 0)
             {
@@ -894,6 +948,7 @@ float4 PS(VO i) : SV_Target
         UINT64 m_slotFence[kSlots] = {};
         ID3D12Resource* m_slotGain[kSlots] = {};
         ID3D12Resource* m_slotLate[kSlots] = {};
+        ID3D12Resource* m_slotScene[kSlots] = {};
         ID3D12GraphicsCommandList* m_list = nullptr;
         ID3D12Fence* m_fence = nullptr;
         UINT64 m_fenceValue = 0;
@@ -1111,10 +1166,11 @@ bool Hdr_OnRenderEvent(int eventId, void* data)
     if (eventId != kEventHdrFrame) return false;
     int slot = (int)(intptr_t)data;
     AcquireSRWLockExclusive(&s_Lock);
-    // flags bit 1: the late map (screen effects), kept apart from the composite's.
-    bool late = slot >= 0 && slot < kFrameRing && (s_Frames[slot].flags & 2) != 0;
-    HdrFrame& dst = late ? s_PresentLate : s_Present;
-    bool& valid = late ? s_PresentLateValid : s_PresentValid;
+    // flags bit 1: the late map (screen effects), kept apart from the composite's; bit 2: the native float scene.
+    int fl = slot >= 0 && slot < kFrameRing ? s_Frames[slot].flags : 0;
+    bool late = (fl & 2) != 0, scene = (fl & 4) != 0;
+    HdrFrame& dst = scene ? s_PresentScene : late ? s_PresentLate : s_Present;
+    bool& valid = scene ? s_PresentSceneValid : late ? s_PresentLateValid : s_PresentValid;
     if (valid && dst.gain) dst.gain->Release();
     dst = {};
     valid = false;

@@ -315,6 +315,12 @@ namespace UltraRT
                 }
             }
             if (HdrLateFrame(out frame.hdrFx, out frame.hdrTop)) frame.hdrGain = _vfx.EnsureHdrGain(target);
+            else if (_hdrNativeNow) // native float HDR (Plugin.Hdr.cs): pass 5
+            {
+                frame.native = true;
+                frame.hdrFx = new Vector4(Mathf.Max(0f, _hdrEffects - 1f), _hdrFxLo, Mathf.Max(_hdrFxHi, _hdrFxLo + 1e-3f), _hdrBloom);
+                frame.hdrTop = new Vector4(HdrTopDisplay(), _hdrGainMax, 0f, 0f);
+            }
             if (!_vfx.Wanted(frame)) return;
             if (Time.realtimeSinceStartup >= _vfxNextSummary)
             {
@@ -323,7 +329,7 @@ namespace UltraRT
             }
             bool bloom = _vfxSettings.bloom && _vfxSettings.bloomStrength > 0f;
             _gpu?.Begin(_cmd, SlotVfx);
-            if (bloom || frame.hdrGain != null)
+            if (bloom || frame.hdrGain != null || frame.native)
             {
                 frame.pre = _vfx.EnsurePre(target);
                 _cmd.CopyTexture(target, frame.pre);

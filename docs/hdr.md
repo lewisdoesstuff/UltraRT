@@ -6,6 +6,12 @@ screens, lava), the game's effects (explosions, fire, beams, sparks) and the glo
 glowing parts (since 2026-11-18 evening, "Effects and bloom"). Everything else (the HUD, menus, the gun's muzzle flash,
 the rest of the image) is the SDR image at paper white.
 
+Two ways to make the HDR image (2026-11-20): **native float HDR** (the default, `[Display] HDRNative`): the game's own
+frame is rendered in floating point and our passes write scene light into it, with one display transform at the end
+("Native float HDR"); and the older **gain map**: the 8-bit SDR frame times a per-pixel brightness factor ("How it
+works" up to "Per mode"). `-ultrart-hdr-native off` (bench `plugin._hdrNative=0`) switches back to the gain map, so the
+three can be compared: SDR | gain map | native.
+
 See also: [relight.md](relight.md) ("HDR displays": why Unity itself can't do it; the tone curve), [vfx.md](vfx.md)
 (bloom has its own HDR source), [gpu-timer.md](gpu-timer.md) (the native DLL and its plugin events).
 
@@ -29,9 +35,11 @@ See also: [relight.md](relight.md) ("HDR displays": why Unity itself can't do it
 | `HDREffects` | `-ultrart-hdr-effects X` | 2.5 | bright pixels the game's transparents made (explosions, fire, beams, coins, sparks; the lava overlay): x their SDR value (display gamma), rolled off towards the peak. 1 = as in SDR. Needs screen effects on |
 | `HDRBloom` | `-ultrart-hdr-bloom X` | 1 | room above SDR white for bloom's glow, in display units (1 = up to twice SDR white in display gamma, or the peak). 0 = as in SDR |
 | `HDRHighlights` | `-ultrart-hdr-highlights on\|off` | true | the gain map as a whole; off = the SDR image at paper white |
-| | `-ultrart-hdr-white X` | 0 | composite value (display gamma, 1 = SDR white) that reaches the peak; 0 = the tone curve's white point (3). Lower = harsher |
-| | `-ultrart-hdr-hue sdr\|channel\|floor` | sdr | colour of the composite's highlights: `sdr` = the SDR image's hue at the HDR curve's luminance and saturation (since 2026-11-20, "Highlight colour"); `channel` = the HDR curve's colour per channel; `floor` = per channel with no gain below 1 (before 2026-11-20). Bench `plugin._hdrGainMode=0\|2\|1` |
-| | `-ultrart-hdr-saturation X` | 0.3 | with `sdr`: share of the saturation the SDR rolloff took that HDR gives back (0 = the SDR colour's, just brighter; 1 = the HDR curve's). Bench `plugin._hdrSaturation` |
+| `HDRNative` | `-ultrart-hdr-native on\|off` | true (since 2026-11-20) | native float HDR ("Native float HDR"); off = the gain map. Applies live (the game's targets are rebuilt). Bench `plugin._hdrNative=0\|1` |
+| | `-ultrart-hdr-tone channel\|max\|lum` | channel | native only: how the display transform rolls colours into the peak: per channel, by the brightest channel, or by luminance ("Native float HDR"). Bench `plugin._hdrToneMode=1\|0\|2` |
+| | `-ultrart-hdr-white X` | 0 | composite value (display gamma, 1 = SDR white) that reaches the peak; 0 = the tone curve's white point (3). Lower = harsher. Native: the scene value that reaches the peak |
+| | `-ultrart-hdr-hue sdr\|channel\|floor` | sdr | gain map only: colour of the composite's highlights: `sdr` = the SDR image's hue at the HDR curve's luminance and saturation (since 2026-11-20, "Highlight colour"); `channel` = the HDR curve's colour per channel; `floor` = per channel with no gain below 1 (before 2026-11-20). Bench `plugin._hdrGainMode=0\|2\|1` |
+| | `-ultrart-hdr-saturation X` | 0.3 | gain map only, with `sdr`: share of the saturation the SDR rolloff took that HDR gives back (0 = the SDR colour's, just brighter; 1 = the HDR curve's). Bench `plugin._hdrSaturation` |
 | | `-ultrart-hdr-gamma srgb\|2.2` | 2.2 | how the SDR image is decoded |
 | | `-ultrart-hdr-boost X` | 0 | frames without a gain map (off, menus): highlights above 0.7 scaled up to 1 + X |
 | | `-ultrart-hdr-debug` | | tints the pixels that got gain magenta |
@@ -259,12 +267,116 @@ luminance), which was the floor's error, not the curve's.
 ### Per mode
 | Mode | HDR content |
 |---|---|
-| `pathtrace`, `relight`, `pt-dn` | gain map: ray-traced surfaces and glowing surfaces up to the peak; lava and sky with DLSS RR. Late map: effects, bloom, the gun's glowing parts |
+| `pathtrace`, `relight`, `pt-dn` | native (default): the whole frame in float, one display transform ("Native float HDR"). Gain map (`HDRNative` off): ray-traced surfaces and glowing surfaces up to the peak; lava and sky with DLSS RR. Late map: effects, bloom, the gun's glowing parts |
 | `off`, menus, debug views | the SDR image at paper white (`-ultrart-hdr-boost` expands its highlights) |
 
 ### Auto exposure
 While HDR output is active the auto exposure's key is x1.3 (docs/relight.md, "No darkening towards the game"): a
 bright scene is darkened less, since its highlights have the display's headroom. SDR is unchanged.
+
+## Native float HDR (2026-11-20, `t3/hdr-native-float`)
+The gain map grafts HDR onto a finished 8-bit frame, and everything drawn after our composite needs its own rule to keep
+its brightness (the late map, the effect floors, the hue and saturation fixes above). Native float HDR drops that: the
+game's own frame is a half-float texture, every pass writes light into it without clamping, and one display transform
+at the end decides how scene light lands on the display. The SDR path (HDR output off) does not change; nor does the
+gain map (`HDRNative` off), which is kept for comparison.
+
+**The game's target.** `PostProcessV2_Handler.SetupRTs` creates `mainTex` and `reusableBufferB` (which HeatWaves
+copies to and from with `CopyTexture`, so the two must match) as `ARGB32`. A Harmony transpiler
+(`HdrGameTarget` in `Plugin.Hdr.cs`, installed only when the HDR swapchain is) replaces the format constant before
+those two `new RenderTexture(w, h, depth, format)` calls with a call that returns `ARGBHalf` while native HDR is wanted
+and `ARGB32` otherwise. Switching (the setting, a bench variant, HDR highlights on or off) sets the handler's
+`reinitializeTextures`, so the game rebuilds its targets the way it does after a resolution change: it drops the
+command buffers on the main camera (ours are re-added from `onReinitialize`) and our own copies of the frame follow
+its format. Portal views render straight into `mainTex`, so they are float too (8-3 checked: the portal views are
+intact). Log: `HDR output: game target ARGBHalf (native float HDR)`.
+
+**What is written into it: scene values.** Every writer puts light in display units (1 = paper white, gamma 2.2 like
+the SDR image, nothing clamped at 1):
+- The composite (UltraRT's denoiser, DLSS RR's finish and the remodulated path): the tone curve's toe only, so darks and
+  midtones are exactly the SDR image's; above that the light itself, no shoulder. Glowing surfaces get `HDREmissive`,
+  as in the gain map.
+- Lava, acid and the sky (DLSS RR): the game's colour from before the composite, its bright part (brightest channel
+  0.7 to 1) scaled by `HDRLava` / `HDRSky`.
+- The gun (viewmodel composite pass 2), water and glass reflections (TransparentOverlay): the same scene values.
+- The game's transparents (explosions, fire, beams, sparks) draw over that themselves, in float. Screen effects
+  pass 5 (`Vfx.shader`, `fragFinalNative`) then expands what they added: the difference to the frame before them,
+  `d`, gets `c += d * (HDREffects - 1) * t^2` with `t = smoothstep(0.6, 1, brightest channel of d)`, so only the hot
+  part of an effect is pushed (a dim smoke wisp is untouched). Bloom is a plain linear add on top (linear light, no
+  shoulder, no headroom cap); as in SDR (pass 3) there is less of it on pixels that are already bright, so the glow goes
+  around a light rather than onto it.
+- Every pass that reads the frame sanitises it with `min(max(x, 0), 64)` (D3D's min and max drop NaN; `isnan` can be
+  compiled away by fxc), so no NaN, infinity or negative value from any game or mod shader reaches the display.
+
+**The display transform** (`UltraRTHdrDisplay` in `UltraRTToneCurve.hlsl`), in linear light: identity up to the SDR
+curve's knee (0.75 display), so everything below the highlights is the SDR image; above it an extended Reinhard
+shoulder (slope 1 at the knee) that brings the tone curve's white point (3, `-ultrart-hdr-white`) to the display's peak.
+What reached SDR white reaches the peak, and nothing passes it. Three ways to apply it to a colour
+(`-ultrart-hdr-tone`):
+- `channel` (default): each channel through the shoulder. Hot colours turn towards yellow and white, as they do in SDR
+  and in the game: 0-3's beams stay yellow, walls keep their saturation.
+- `max`: by the brightest channel, the colour scaled with it: hue and saturation kept exactly.
+- `lum`: by luminance, a colour that would pass the peak pulled towards its luminance. Saturated highlights whiten:
+  0-3's beams came out pure white (1163 nits in all three channels), so it is not the default.
+
+**Hand-off.** At the game's Virtual Camera's `onPreRender` (camera depth 1, after the main camera with its outlines
+and the HUD camera, before the game's final pass) the `HdrScene` kernel (`Denoise.compute`) runs the sanitise and the
+display transform into `_hdrSceneTex`, which is copied back into `mainTex` for the game's final pass (its colour
+compression and dither, then the 8-bit back buffer: screenshots and the cinematic renderer see that), and the texture is
+handed to the native present pass with `HdrFrame` flag bit 2. Present (`Hdr.cpp`) reads both: where the finished 8-bit
+pixel matches the float frame saturated (largest channel difference below 0.025, fully above 0.08) it shows the float
+pixel, with the game's colour compression (`_ColorPrecision`) and its `_Gamma` applied the way the final pass does,
+clamped to the peak with its hue kept; elsewhere something was drawn over the frame (HUD, menus, Screen Space Overlay
+UI) and the 8-bit pixel shows at paper white, as with the gain map. The gain map and the late map are not made.
+
+**What it fixes against the gain map** (see "Differences from a native HDR pipeline", which is about the gain map):
+effects keep the colour SDR clipped away, since they are drawn in float; shadows and midtones have half-float
+gradation (the output dither is off in native mode); no floor, hue or saturation rules are needed.
+
+### Measured (2026-11-20, RTX 5070 Ti, 2560x1440, HDR10, peak 1170 nits, paper white 250)
+0-3, `pathtrace` with DLSS RR, gain map and native in the same launch (run `20261120-222657_hdrn-a`; luminance of the
+HDR10 frame):
+
+| Pose | Mean, gain map / native | At least 90 % of the peak, gain map / native |
+|---|---|---|
+| user view | 202 / 193 nits | 3.0 / 4.6 % |
+| mid room | 221 / 210 nits | 3.5 / 4.9 % |
+| back wall | 468 / 444 nits | 15.3 / 18.2 % |
+
+The rooms' midtones are the same as the gain map's (a few percent lower: no lift from the gain map's floor) and more
+of the hot walls and beams reach the peak; the beams are yellow, the walls keep their colour. Review sheets (SDR | gain
+map | native; peak-scaled and paper-white-exposed rows): `bench\results\review\hdr-native\final_*.jpg` and
+`final_stats.txt` in the main checkout. 1-1 fire, 1-4 lamps and 8-3 portals were checked in earlier runs of the branch;
+the first capture after a level load is brighter in both modes (see "Effects over bright surfaces"), so its row is a
+confound.
+
+**Cost** (exclusive lock, main install, GPU timer total, ms, same launch; runs `20261120-223227_hdrn-perf` and, SDR,
+`20261120-223308_hdrn-perf` with `-ultrart-hdr off`):
+
+| Pose | Mode | SDR | Gain map | Native |
+|---|---|---|---|---|
+| 0-3 user view | `pathtrace` | 5.28 | 5.37 | 5.44 |
+| 0-3 user view | `relight` | 5.15 | 5.14 | 5.23 |
+| 1-1 start | `pathtrace` | 4.93 | 5.21 | 5.26 |
+| 1-1 start | `relight` | 5.23 | 5.24 | 5.32 |
+
+Native costs about 0.05-0.09 ms more than the gain map: the `HdrScene` kernel and copy, the half-float target (twice
+the bytes for every game pass that touches `mainTex`), and the present pass reading two textures (0.08-0.09 ms against
+0.05 ms). The SDR column is another launch, so its difference to the HDR columns is within noise.
+
+### Known gaps (native)
+- Not judged on the display yet: everything is measured from captured HDR10 frames.
+- Paper white: the captures used 250 nits while Windows shows SDR content at 380 nits on the display they were taken on,
+  so HDR looks dimmer overall than SDR there. `HDRPaperWhiteNits` 0 (the default) follows Windows; set a value only on
+  purpose.
+- The game's 8-bit screenshot in native mode is the display-transformed float frame through the final pass (so
+  highlights clip at SDR white): fine for the bench, but not the SDR image of an SDR run.
+- The remodulated finish (`RemodFinish`, DLSS RR without the normal finish) writes scene values without `HDREmissive`.
+- `PortalRenderV2`'s own composite colour target stays `ARGB32`; portal views are drawn into `mainTex` and were fine in
+  8-3, so it was left alone.
+- A full-screen flash, the hurt vignette or anything else drawn over the frame after the game's final pass falls back
+  to the 8-bit pixel at paper white while it covers a pixel (the present pass sees a mismatch).
+- `-ultrart-hdr-hue`, `-ultrart-hdr-saturation`, `HDRBloom`'s headroom and the late map do nothing in native mode.
 
 ## Differences from a native HDR pipeline
 - The base image is 8 bits; only highlights get more range. Shadows have the SDR image's gradation.

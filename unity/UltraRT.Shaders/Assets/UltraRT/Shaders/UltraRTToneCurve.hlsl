@@ -230,4 +230,69 @@ float UltraRTHdrEmissive(float3 em, float3 hdr, float4 ep)
     return 1.0 + max(ep.x, 0.0) * smoothstep(ep.y, ep.z, e) * smoothstep(ep.y, ep.z, v);
 }
 
+// ---------------------------------------------------------------- native float HDR (docs/hdr.md, "Native float HDR")
+// The game's colour target is ARGBHalf. Everything that draws into it (the composite, the game's own pixels and
+// transparents, effects, bloom, the gun) writes scene values in display units (1 = paper white), and one display
+// transform maps the finished frame into the display's range right before the present (UltraRTHdrDisplay, Denoise.compute
+// HdrScene). So the composite here has no shoulder: only the toe (the darks' contrast, as the SDR curve has it) and the
+// HDR-only brightening of glowing surfaces (scale, UltraRTHdrEmissive).
+float3 UltraRTHdrScene(float3 hdr, float scale, float white, float4 params)
+{
+    float3 c = max(hdr, 0.0) * max(scale, 1.0);
+    if (white > 0.0 && params.z > 0.0)
+    {
+        float t = params.w > 0.0 ? params.w : 0.25;
+        float l = dot(c, float3(0.2126, 0.7152, 0.0722));
+        if (l > 1e-6 && l < t) c *= lerp(l, l * l / t * (2.0 - l / t), saturate(params.z)) / l;
+    }
+    return min(c, 64.0);
+}
+
+// Extended Reinhard shoulder in linear light: x up to the knee k is unchanged, then it rolls off with slope 1 at the knee
+// so that white reaches top (and never passes it).
+float UltraRTHdrShoulder(float x, float k, float top, float white)
+{
+    if (x <= k) return x;
+    float d = x - k, room = top - k, range = max(white - k, room + 1e-3);
+    return min(k + room * d * (1.0 + d * room / (range * range)) / (d + room), top);
+}
+
+// The display transform (display units in and out, 1 = paper white). tone: x knee (display; the SDR curve's, so darks
+// and midtones are the SDR image's), y the display peak, z the scene value that reaches it (display), w the mode:
+//   0 brightest channel: the shoulder runs on the colour's brightest channel, in linear light, and the colour
+//     is scaled with it. Hue and saturation are kept exactly (no hue drift from a curve in display gamma), nothing passes
+//     the peak, and nothing is whitened: a hot orange wall stays orange, a beam stays its colour at the peak.
+//   1 per channel (default): each channel through the shoulder. Hot colours turn towards yellow and white as they near
+//     the peak, the way film does and the way the game's SDR clipping does at white: 0-3's beams over the hot wall stay
+//     the solid yellow the game shows, only with the display's range.
+//   2 luminance: the luminance through the shoulder, the colour scaled with it; where a channel would pass the peak the
+//     colour is pulled towards its luminance to fit (very bright saturated colours whiten).
+float3 UltraRTHdrDisplay(float3 c, float4 tone)
+{
+    float top = max(tone.y, 1.0);
+    float3 x = pow(max(c, 0.0), 2.2);
+    float kL = pow(clamp(tone.x, 0.05, top), 2.2), tL = pow(top, 2.2), wL = pow(max(tone.z, top), 2.2);
+    if (tL <= kL * 1.001) return pow(min(x, tL), 1.0 / 2.2);
+    float3 o;
+    if (tone.w < 0.5)
+    {
+        float m = max(x.r, max(x.g, x.b));
+        o = m > 1e-6 ? x * (UltraRTHdrShoulder(m, kL, tL, wL) / m) : x;
+    }
+    else if (tone.w < 1.5) o = float3(UltraRTHdrShoulder(x.r, kL, tL, wL), UltraRTHdrShoulder(x.g, kL, tL, wL), UltraRTHdrShoulder(x.b, kL, tL, wL));
+    else
+    {
+        float y = dot(x, float3(0.2126, 0.7152, 0.0722));
+        float yt = UltraRTHdrShoulder(y, kL, tL, wL);
+        o = y > 1e-6 ? x * (yt / y) : x;
+        float m = max(o.r, max(o.g, o.b));
+        if (m > tL) o = yt + (o - yt) * saturate((tL - yt) / max(m - yt, 1e-6));
+    }
+    return pow(min(max(o, 0.0), tL), 1.0 / 2.2);
+}
+
+// Native float HDR this frame (Plugin.Hdr.cs, set every frame; 0 = off) for the passes that have no HDR parameters of their
+// own (RemodFinish, the water/glass reflections): x 1 = on.
+float4 _UltraRTHdrNative;
+
 #endif

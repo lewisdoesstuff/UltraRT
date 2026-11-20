@@ -737,7 +737,8 @@ namespace UltraRT
             cmd.SetRenderTarget(color.colorBuffer);
             cmd.EnableScissorRect(rect);
             var hdrLate = HdrLateForViewmodel(mat);
-            if (hdrLate != null)
+            if (HdrNativeForViewmodel(mat)) cmd.DrawProcedural(Matrix4x4.identity, mat, 2, MeshTopology.Triangles, 3); // pass 2: native float HDR
+            else if (hdrLate != null)
             {
                 // The gun's glowing parts into the HDR late map the screen-effects pass wrote this frame (docs/hdr.md).
                 cmd.SetRandomWriteTarget(1, hdrLate);

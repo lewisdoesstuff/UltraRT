@@ -408,7 +408,24 @@ void Finish(uint3 id : SV_DispatchThreadID)
         }
         _BloomOut[p] = float4(min(b, 64.0), 1.0);
     }
-    if (_HdrParams.x > 0.5)
+    if (_HdrParams.x > 1.5)
+    {
+        // Native float HDR (docs/hdr.md): _Final (ARGBHalf) gets the scene value (UltraRTHdrScene). A pixel the game draws itself (lava
+        // and acid, which the camera's rays skip; the sky) is the game's colour from right before the composite with its
+        // bright part scaled (HDRLava / HDRSky, display units here), marked a = -1 so the composite writes it (and the
+        // volumetric fog, which the game already applied there, still skips it).
+        if (a > 0.0)
+            c = UltraRTHdrScene(hdr, UltraRTHdrEmissive(max(_Emission[kHit].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams);
+        else
+        {
+            float gb = _NormalDepth[clamp(kn, 0, tdim - 1)].w < 0.0 ? _HdrGame.y : _HdrGame.x;
+            float3 gc = _HdrGameColor[p].rgb;
+            gc = min(max(gc, 0.0), 64.0); // no NaN, no infinity (min / max drop a NaN on D3D)
+            float t = smoothstep(0.7, 1.0, max(gc.r, max(gc.g, gc.b)));
+            if (gb > 1.0 && t > 0.0) { c = gc * (1.0 + (gb - 1.0) * t * t); a = -1.0; }
+        }
+    }
+    else if (_HdrParams.x > 0.5)
     {
         // Not an RT pixel: the game's own pixel shows (the composite discards). A negative a marks it (-(its packed colour
         // + 1)); r = the factor the present pass applies to its bright part. The camera's rays skip lava and acid
@@ -450,7 +467,11 @@ void RemodFinish(uint3 id : SV_DispatchThreadID)
     // Where the D upsampler has nothing yet: the trace sample nearest the pixel centre.
     int2 k = clamp((int2)floor(((float2)p + 0.5) * _TraceMap.xy + _TraceMap.zw - _Jitter.xy), 0, (int2)_Dim.xy - 1);
     float3 d = dh.a > 0.0 ? dh.rgb : _DemodTex[k].rgb;
-    _Final[p] = float4(saturate(UltraRTToneMap(max(x.rgb, 0.0) * d)), x.a);
+    float3 hdr = max(x.rgb, 0.0) * d;
+    float3 c = saturate(UltraRTToneMap(hdr));
+    // Native float HDR (docs/hdr.md): the scene value (no HDREmissive here: the emission isn't bound).
+    if (_UltraRTHdrNative.x > 0.5) c = UltraRTHdrScene(hdr, 1.0, _UltraRTTonemapWhite, _UltraRTTonemapParams);
+    _Final[p] = float4(c, x.a);
 }
 
 [numthreads(8, 8, 1)]

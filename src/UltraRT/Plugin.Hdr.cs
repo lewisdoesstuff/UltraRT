@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.InteropServices;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -14,7 +18,11 @@ namespace UltraRT
     ///   - settings: [Display] HDR (read by the patcher: needs a restart), HDRPaperWhite, HDRPeak, HDRHighlights, and
     ///     -ultrart-hdr [on|off|force], -ultrart-hdr-paperwhite N, -ultrart-hdr-peak N, -ultrart-hdr-highlights on|off,
     ///     -ultrart-hdr-emissive X, -ultrart-hdr-lava X, -ultrart-hdr-sky X, -ultrart-hdr-effects X, -ultrart-hdr-bloom X, -ultrart-hdr-white X, -ultrart-hdr-hue sdr|channel|floor, -ultrart-hdr-saturation X, -ultrart-hdr-boost X, -ultrart-hdr-gamma srgb|2.2, -ultrart-hdr-debug,
-    ///     -ultrart-hdr-capture [raw]
+    ///     -ultrart-hdr-capture [raw], -ultrart-hdr-native on|off
+    ///   - native float HDR (the default since 2026-11-20, docs/hdr.md "Native float HDR"): the game's colour target
+    ///     (PostProcessV2_Handler.mainTex) is ARGBHalf (HdrGameTarget patches SetupRTs), the composite writes the HDR colour
+    ///     itself, the game's transparents add to it unclipped, and right before the game's final pass the float frame is
+    ///     handed to the present pass (HdrScenePreRender). The gain maps below are the fallback (-ultrart-hdr-native off).
     ///   - the gain map: the composite (Denoise.compute Composite, RayReconstruction.compute Finish) writes, per pixel, what
     ///     an HDR display should show over what the SDR image shows; the native present pass multiplies it in.
     ///   - the late map: the same from the screen-effects pass (Vfx.shader pass 4) after the game's transparents: effects
@@ -35,7 +43,12 @@ namespace UltraRT
         [StructLayout(LayoutKind.Sequential)]
         private struct HdrParams
         {
-            public float paperNits, peakNits, gamma22, tolLo, tolHi, sdrBoost, debug, gainMax, gainStrength, gainFloor, pad1, pad2;
+            public float paperNits, peakNits, gamma22, tolLo, tolHi, sdrBoost, debug, gainMax, gainStrength, gainFloor;
+            // Native float HDR: where the finished SDR frame differs from the float frame saturated by more than nativeTolLo
+            // (fully from nativeTolHi; largest channel difference, display units), something was drawn over it (HUD, menus)
+            // and it shows SDR. gameGamma: the exponent of the game's final pass (Options > Brightness; 1 = none),
+            // colorPrecision: its colour compression (levels per channel; 0 = none).
+            public float nativeTolLo, nativeTolHi, gameGamma, colorPrecision, pad1, pad2;
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int HdrIntFn();
@@ -81,6 +94,25 @@ namespace UltraRT
         private bool _hdrGamma22 = true, _hdrDebug;
         private int _hdrCaptureMode;                           // bench: 1 = log statistics of the HDR frame at each screenshot, 2 = + raw frame
         private HdrParams _hdrSent;
+        // Native float HDR (docs/hdr.md, "Native float HDR"): [Display] HDRNative, -ultrart-hdr-native on|off, bench plugin._hdrNative=0|1.
+        private bool _hdrNative = true;
+        private float _hdrNativeTolLo = 0.025f, _hdrNativeTolHi = 0.08f;
+        private bool _hdrNativeNow;                            // this frame's composite writes scene values into the float target (HdrPrepare)
+        private float _hdrToneMode = 1f;                       // display transform (UltraRTHdrDisplay): 0 = brightest channel, 1 = per channel (default), 2 = luminance (-ultrart-hdr-tone max|channel|lum, bench plugin._hdrToneMode)
+        private float _hdrToneWhite, _hdrToneKnee;             // this frame's tone curve white point and knee (BindExposure)
+        private Vector4 _hdrSceneTone;                         // the display transform's parameters this frame (HdrPrepare)
+        private int _hdrNativeFrame = -1;                      // ... and in which frame
+        private int _hdrNativeReinits, _hdrNativeNextReinit;   // game target rebuilds asked for since the last match
+        private bool _hdrNativeTargetLogged;
+        private int _hdrSceneFrames, _hdrSceneMissed;
+        private ComputeShader _hdrSceneCs;                     // Denoise.compute's HdrScene kernel (LoadShaders)
+        private int _hdrSceneKernel = -1;
+        private RenderTexture _hdrSceneTex;
+        private IntPtr _hdrScenePtr;
+        private CommandBuffer _hdrSceneCmd;
+        private static readonly int HdrNativeId = Shader.PropertyToID("_UltraRTHdrNative");
+        private static readonly int HdrSceneSrcId = Shader.PropertyToID("_HdrSceneSrc"), HdrSceneOutId = Shader.PropertyToID("_HdrSceneOut"),
+            HdrSceneDimId = Shader.PropertyToID("_HdrSceneDim"), HdrSceneToneId = Shader.PropertyToID("_HdrSceneTone"), GameGammaId = Shader.PropertyToID("_Gamma"), ColorPrecisionId = Shader.PropertyToID("_ColorPrecision");
         private RenderTexture _hdrGainTex, _hdrGameCopy;
         private IntPtr _hdrGainPtr;
 
@@ -155,6 +187,8 @@ namespace UltraRT
                         break;
                     }
                     case "-ultrart-hdr-capture": _hdrCaptureMode = (Next() ?? "").ToLowerInvariant() == "raw" ? 2 : 1; break;
+                    case "-ultrart-hdr-native": { var v = (Next() ?? "on").ToLowerInvariant(); _hdrNative = v != "off" && v != "0" && v != "false"; break; }
+                    case "-ultrart-hdr-tone": { var v = (Next() ?? "channel").ToLowerInvariant(); _hdrToneMode = v.StartsWith("max") ? 0f : v.StartsWith("lum") ? 2f : 1f; break; }
                 }
             }
             if (_hdrPaperWhite > 0f) _hdrPaperWhite = Mathf.Clamp(_hdrPaperWhite, 40f, 1000f);
@@ -197,13 +231,15 @@ namespace UltraRT
                 bool events = Get<HdrIntFn>("UltraRT_Init")() != 0;
                 _hdrEventFunc = events ? Get<HdrPtrFn>("GetRenderEventAndDataFunc")() : IntPtr.Zero;
                 _hdrInstalled = true;
+                HdrGameTarget.Float = HdrNativeWanted; // before the game's first SetupRTs (LateUpdate, while mainTex is null)
                 HdrPushParams(true);
                 HdrPumpLog();
                 int state = _hdrGetState();
                 Logger.LogInfo($"HDR output: {(state == 2 ? "active (HDR10)" : state == -1 ? "not used (see the lines above)" : "hooks installed, no frame presented yet")}; " +
                                $"paper white {(_hdrPaperWhite > 0f ? _hdrPaperWhite.ToString("F0") + " nits" : "as Windows shows SDR content")}, " +
                                $"peak {(_hdrPeak > 0f ? _hdrPeak.ToString("F0") + " nits" : "from the display")}, " +
-                               $"highlights {(_hdrHighlights ? "on" : "off")}{(events ? "" : "; frame events unavailable: no gain map")}");
+                               $"highlights {(_hdrHighlights ? "on" : "off")}, {(_hdrNative ? "native float" : "gain map")}" +
+                               $"{(events ? "" : "; frame events unavailable: no gain map")}");
             }
             catch (Exception e)
             {
@@ -228,15 +264,23 @@ namespace UltraRT
 
         private void HdrPushParams(bool force = false)
         {
+            // The game's final pass (ULTRAKILL/PostProcessV2, docs/ultrakill-rendering.md "Final post-process: dither"): colour
+            // compression floor(c P) / P, then c^(2 (1 - _Gamma / 2)). The present pass applies both to the float frame too.
+            float g = Shader.GetGlobalFloat(GameGammaId);
+            float gameGamma = g > 0f && g < 4f ? Mathf.Max(2f * (1f - g / 2f), 0.01f) : 1f;
+            float prec = Mathf.Max(Shader.GetGlobalFloat(ColorPrecisionId), Shader.GetGlobalInt(ColorPrecisionId));
             var p = new HdrParams
             {
                 paperNits = _hdrPaperWhite, peakNits = _hdrPeak, gamma22 = _hdrGamma22 ? 1f : 0f, tolLo = 0.06f, tolHi = 0.25f,
                 sdrBoost = _hdrSdrBoost, debug = _hdrDebug ? 1f : 0f, gainMax = _hdrGainMax, gainStrength = _hdrHighlights ? 1f : 0f,
                 gainFloor = Mathf.Abs(_hdrGainMode - 1f) < 0.5f ? 1f : 0f,
+                nativeTolLo = _hdrNativeTolLo, nativeTolHi = Mathf.Max(_hdrNativeTolHi, _hdrNativeTolLo + 1e-3f),
+                gameGamma = gameGamma, colorPrecision = prec > 0.5f && prec < 256f ? prec : 0f,
             };
             var s = _hdrSent; // field by field: ValueType.Equals would box every frame
             if (!force && p.paperNits == s.paperNits && p.peakNits == s.peakNits && p.gamma22 == s.gamma22 && p.sdrBoost == s.sdrBoost &&
-                p.debug == s.debug && p.gainMax == s.gainMax && p.gainStrength == s.gainStrength && p.gainFloor == s.gainFloor) return;
+                p.debug == s.debug && p.gainMax == s.gainMax && p.gainStrength == s.gainStrength && p.gainFloor == s.gainFloor &&
+                p.nativeTolLo == s.nativeTolLo && p.nativeTolHi == s.nativeTolHi && p.gameGamma == s.gameGamma && p.colorPrecision == s.colorPrecision) return;
             _hdrSent = p;
             _hdrSetParams(ref p);
         }
@@ -254,6 +298,7 @@ namespace UltraRT
         {
             if (!_hdrInstalled) return;
             HdrPushParams();
+            HdrNativeTarget();
             if (Time.realtimeSinceStartup < _hdrNextLog) return;
             _hdrNextLog = Time.realtimeSinceStartup + 0.5f;
             HdrPumpLog();
@@ -265,13 +310,41 @@ namespace UltraRT
             }
         }
 
-        /// <summary>Trace, before the denoiser's Composite or RR's Finish: hands it the gain map to fill (final-image modes only).</summary>
+        /// <summary>Trace, before the denoiser's Composite or RR's Finish: hands it the gain map to fill (final-image modes only),
+        /// or, with native float HDR, tells it to write the HDR colour itself.</summary>
         private void HdrPrepare(Kind kind, int mode, bool rr, int w, int h, RenderTexture screenDepth)
         {
-            if (_denoiser != null) _denoiser.HdrTarget = null;
-            if (_rr != null) _rr.HdrTarget = null;
+            if (_denoiser != null) { _denoiser.HdrTarget = null; _denoiser.HdrNative = false; }
+            if (_rr != null) { _rr.HdrTarget = null; _rr.HdrNative = false; }
+            _hdrNativeNow = false;
             if (!_hdrHighlights || kind != Kind.Denoised || mode != 0 || _hdrEventFunc == IntPtr.Zero || !HdrActive) return;
             if (rr && (screenDepth == null || _rr == null)) return;
+            if (HdrNativeLive)
+            {
+                // Native float HDR (docs/hdr.md): no gain map. The composite writes scene values into the float target
+                // (Denoise.compute Composite, RayReconstruction.compute Finish / RemodFinish), the passes after it read
+                // _UltraRTHdrNative, and HdrScenePreRender puts the finished frame through the display transform and
+                // hands it to the present pass.
+                float topN = HdrTopDisplay();
+                var pn = new Vector4(2f, topN, _hdrWhite, _hdrGainMax);
+                var en = new Vector4(Mathf.Max(0f, _hdrEmissive - 1f), 0.5f, 0.9f, _hdrGainMode);
+                _hdrNativeNow = true;
+                _hdrNativeFrame = Time.frameCount;
+                _cmd.SetGlobalVector(HdrNativeId, new Vector4(1f, topN, 0f, 0f));
+                // Display transform: identical below the SDR curve's knee; the scene value that reaches the peak is the SDR
+                // curve's white point (what reaches paper white in SDR reaches the peak here), or -ultrart-hdr-white.
+                float white = _hdrWhite > 0f ? _hdrWhite : _hdrToneWhite > 0f ? _hdrToneWhite : topN;
+                _hdrSceneTone = new Vector4(_hdrToneKnee > 0f ? _hdrToneKnee : 0.75f, topN, Mathf.Max(white, topN), _hdrToneMode);
+                if (rr)
+                {
+                    _rr.HdrNative = true; _rr.HdrParams = pn; _rr.HdrEmissive = en;
+                    // Lava, acid and sky: display units here (the factor scales the game's colour in the float target).
+                    _rr.HdrGame = new Vector4(_hdrGameSurfaces, _hdrSky, 0f, 0f);
+                    _rr.HdrGameColor = _hdrGameSurfaces > 1f || _hdrSky > 1f ? HdrGameCopy(screenDepth.width, screenDepth.height) : null;
+                }
+                else { _denoiser.HdrNative = true; _denoiser.HdrParams = pn; _denoiser.HdrEmissive = en; }
+                return;
+            }
             int gw = rr ? screenDepth.width : w, gh = rr ? screenDepth.height : h;
             if (_hdrGainTex == null || _hdrGainTex.width != gw || _hdrGainTex.height != gh || !_hdrGainTex.IsCreated())
             {
@@ -281,8 +354,7 @@ namespace UltraRT
                 _hdrGainTex.Create();
                 _hdrGainPtr = _hdrGainTex.GetNativeTexturePtr();
             }
-            // Display peak in the composite's units (display gamma, 1 = SDR white).
-            float top = Mathf.Pow(Mathf.Max(1f, HdrPeakNits() / HdrPaperNits()), 1f / 2.2f);
+            float top = HdrTopDisplay();
             var p = new Vector4(1f, top, _hdrWhite, _hdrGainMax);
             var e = new Vector4(Mathf.Max(0f, _hdrEmissive - 1f), 0.5f, 0.9f, _hdrGainMode);
             if (rr)
@@ -293,6 +365,9 @@ namespace UltraRT
             }
             else { _denoiser.HdrTarget = _hdrGainTex; _denoiser.HdrParams = p; _denoiser.HdrEmissive = e; }
         }
+
+        /// <summary>Display peak in the composite's units (display gamma, 1 = SDR white).</summary>
+        private float HdrTopDisplay() => Mathf.Pow(Mathf.Max(1f, HdrPeakNits() / HdrPaperNits()), 1f / 2.2f);
 
         /// <summary>A copy of the game's frame as it is now (opaques, lava and sky drawn, before the composite draws over it): what
         /// the pixels that stay the game's own are expected to look like (HDRLava, HDRSky).</summary>
@@ -350,7 +425,7 @@ namespace UltraRT
         private bool HdrLateFrame(out Vector4 fx, out Vector4 top)
         {
             fx = top = Vector4.zero;
-            if (!_hdrHighlights || _hdrEventFunc == IntPtr.Zero || !HdrActive || (_hdrEffects <= 1f && _hdrBloom <= 0f)) return false;
+            if (!_hdrHighlights || _hdrEventFunc == IntPtr.Zero || !HdrActive || _hdrNativeNow || (_hdrEffects <= 1f && _hdrBloom <= 0f)) return false;
             fx = new Vector4(Mathf.Pow(_hdrEffects, 2.2f) - 1f, _hdrFxLo, Mathf.Max(_hdrFxHi, _hdrFxLo + 1e-3f), _hdrBloom);
             top = new Vector4(Mathf.Pow(Mathf.Max(1f, HdrPeakNits() / HdrPaperNits()), 1f / 2.2f), _hdrGainMax, 0f, 0f);
             return true;
@@ -365,10 +440,21 @@ namespace UltraRT
         /// when the screen-effects pass wrote one this frame; null otherwise.</summary>
         private RenderTexture HdrLateForViewmodel(Material mat)
         {
+            if (_hdrNativeNow) return null;
             if (_hdrLateFrameNo != Time.frameCount || _hdrLateFrameTex == null || _hdrEmissive <= 1f) return null;
             mat.SetVector(VmHdrEmId, new Vector4(_hdrEmissive - 1f, 0.5f, 0.9f, 0f));
             mat.SetVector(VmHdrTopId, _hdrLateTop);
             return _hdrLateFrameTex;
+        }
+
+        /// <summary>Viewmodel composite with native float HDR this frame: its parameters for pass 2 (the gun's glowing parts
+        /// HDREmissive brighter in the float target).</summary>
+        private bool HdrNativeForViewmodel(Material mat)
+        {
+            if (_hdrNativeFrame != Time.frameCount) return false;
+            mat.SetVector(VmHdrEmId, new Vector4(Mathf.Max(0f, _hdrEmissive - 1f), 0.5f, 0.9f, 0f));
+            mat.SetVector(VmHdrTopId, new Vector4(HdrTopDisplay(), _hdrGainMax, 0f, 0f));
+            return true;
         }
 
         /// <summary>After the screen-effects pass, in its command buffer: the late map of this frame, at the target's size.</summary>
@@ -381,13 +467,153 @@ namespace UltraRT
             HdrSubmitMap(cmd, tex, _hdrLatePtr, 1f, 1f, 2);
         }
 
+        // ---------------------------------------------------------------- native float HDR (docs/hdr.md, "Native float HDR")
+
+        /// <summary>The game's colour target should be ARGBHalf: HDR output can be (or is) active and native float HDR is on.</summary>
+        private bool HdrNativeWanted => _hdrInstalled && _hdrNative && _hdrHighlights && _hdrEventFunc != IntPtr.Zero && _hdrGetState() >= 1 &&
+                                        HdrGameTarget.Patched > 0 && SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBHalf);
+
+        /// <summary>Native float HDR this frame: wanted, HDR10 presenting, and the game's target is float.</summary>
+        private bool HdrNativeLive
+        {
+            get
+            {
+                if (!HdrNativeWanted || !HdrActive) return false;
+                var t = MonoSingleton<PostProcessV2_Handler>.Instance?.mainTex;
+                return t != null && t.format == RenderTextureFormat.ARGBHalf;
+            }
+        }
+
+        /// <summary>Update: the game's colour target follows the setting. A change makes the game rebuild its targets (as a
+        /// resolution change does: PostProcessV2_Handler.reinitializeTextures), which creates them in the patched format.</summary>
+        private void HdrNativeTarget()
+        {
+            bool want = HdrNativeWanted;
+            HdrGameTarget.Float = want;
+            var pp = MonoSingleton<PostProcessV2_Handler>.Instance;
+            var t = pp != null ? pp.mainTex : null;
+            if (t == null) return;
+            bool isFloat = t.format == RenderTextureFormat.ARGBHalf;
+            if (isFloat == want)
+            {
+                if (_hdrNativeReinits > 0 || !_hdrNativeTargetLogged)
+                    Logger.LogInfo($"HDR output: the game's colour target is {t.format} {t.width}x{t.height} ({(want ? "native float HDR" : "8-bit")})");
+                _hdrNativeReinits = 0;
+                _hdrNativeTargetLogged = true;
+                return;
+            }
+            if (_hdrNativeReinits >= 3 || PpReinit == null || Time.frameCount < _hdrNativeNextReinit) return;
+            _hdrNativeNextReinit = Time.frameCount + 30;
+            if (++_hdrNativeReinits == 3)
+            {
+                Logger.LogWarning($"HDR output: the game's colour target is still {t.format} after 2 rebuilds; giving up (native float HDR stays off)");
+                return;
+            }
+            Logger.LogInfo($"HDR output: rebuilding the game's render targets as {(want ? "ARGBHalf (native float HDR)" : "ARGB32")}");
+            PpReinit.SetValue(pp, true);
+        }
+
+        /// <summary>Camera.onPreRender of the game's Virtual Camera, which draws the final pass (ULTRAKILL/PostProcessV2) from
+        /// mainTex to the screen, so the main camera (outlines included) and the HUD camera are done: sanitises the float frame
+        /// (NaN, infinity, negative values from any shader), puts it through the display transform (UltraRTHdrDisplay),
+        /// copies it back for the final pass, and hands it to the present pass, which shows it where the finished SDR frame
+        /// matches it (not under the HUD, menus or overlays).</summary>
+        private void HdrScenePreRender(Camera cam, PostProcessV2_Handler pp)
+        {
+            if (_hdrNativeFrame != Time.frameCount || !_hdrInstalled || cam == null || pp == null || cam != pp.virtualCam) return;
+            var src = pp.mainTex;
+            if (src == null || src.format != RenderTextureFormat.ARGBHalf || _hdrSceneCs == null || _hdrSceneKernel < 0) { _hdrSceneMissed++; return; }
+            if (_hdrSceneTex == null || _hdrSceneTex.width != src.width || _hdrSceneTex.height != src.height || !_hdrSceneTex.IsCreated())
+            {
+                if (_hdrSceneTex != null) _hdrSceneTex.Release(); // the native side holds its own reference while frames are in flight
+                _hdrSceneTex = new RenderTexture(src.width, src.height, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear)
+                    { enableRandomWrite = true, filterMode = FilterMode.Point, name = "UltraRT HDR Scene", hideFlags = HideFlags.HideAndDontSave };
+                _hdrSceneTex.Create();
+                _hdrScenePtr = _hdrSceneTex.GetNativeTexturePtr();
+            }
+            if (_hdrSceneCmd == null) _hdrSceneCmd = new CommandBuffer { name = "UltraRT HDR scene" };
+            var cmd = _hdrSceneCmd;
+            cmd.Clear();
+            var cs = _hdrSceneCs;
+            int k = _hdrSceneKernel;
+            cmd.SetComputeTextureParam(cs, k, HdrSceneSrcId, src);
+            cmd.SetComputeTextureParam(cs, k, HdrSceneOutId, _hdrSceneTex);
+            cmd.SetComputeVectorParam(cs, HdrSceneDimId, new Vector4(src.width, src.height, 0f, 0f));
+            cmd.SetComputeVectorParam(cs, HdrSceneToneId, _hdrSceneTone);
+            cmd.DispatchCompute(cs, k, (src.width + 7) / 8, (src.height + 7) / 8, 1);
+            cmd.CopyTexture(_hdrSceneTex, src); // the game's final pass reads the sanitised frame too
+            // Bound as a UAV again (writes nothing): the present pass expects the state a compute kernel leaves it in.
+            cmd.SetComputeVectorParam(cs, HdrSceneDimId, Vector4.zero);
+            cmd.DispatchCompute(cs, k, 1, 1, 1);
+            HdrSubmitMap(cmd, _hdrSceneTex, _hdrScenePtr, 1f, 1f, 4);
+            Graphics.ExecuteCommandBuffer(cmd);
+            if (_hdrSceneFrames++ == 0)
+                Logger.LogInfo($"HDR output: native float frame {src.width}x{src.height} handed to the present pass (camera depths: main {pp.mainCam?.depth}, " +
+                               $"HUD {pp.hudCam?.depth}, virtual {cam.depth})");
+        }
+
         /// <summary>Bench (-ultrart-hdr-capture [raw]): the next present logs statistics of the HDR10 frame it sent to the display;
         /// "raw" also writes it next to the screenshot (png path + .hdr10.bin; tools/hdr/hdr10-view.py reads it).</summary>
         private void HdrCapture(string pngPath)
         {
             if (_hdrCaptureMode == 0 || !HdrActive) return;
-            Logger.LogInfo($"HDR output: capture for {Path.GetFileName(pngPath)}");
+            Logger.LogInfo($"HDR output: capture for {Path.GetFileName(pngPath)} ({(_hdrNativeFrame == Time.frameCount ? "native float" : _hdrNative ? "native float wanted, not this frame" : "gain map")}; " +
+                           $"{_hdrSceneFrames} native frames so far, {_hdrSceneMissed} missed)");
             _hdrCapture(_hdrCaptureMode == 2 ? pngPath + ".hdr10.bin" : null);
+        }
+    }
+
+    /// <summary>
+    /// Native float HDR (docs/hdr.md): PostProcessV2_Handler.SetupRTs creates the game's colour target (mainTex) and the
+    /// scratch target reusableBufferB as ARGB32. This transpiler makes both <see cref="GameColorFormat"/>: ARGBHalf while
+    /// <see cref="Float"/> is set. (reusableBufferB too: the game's heat-wave pass copies mainTex into it with CopyTexture,
+    /// which needs equal formats; the outline and stain passes only draw into it.) Every other target, size and setting stays
+    /// the game's own, so the rebuilds it does by itself (resolution, pixelization, camera changes) keep the format and
+    /// release the old targets as before.
+    /// </summary>
+    internal static class HdrGameTarget
+    {
+        public static volatile bool Float;
+        public static int Patched;
+
+        public static RenderTextureFormat GameColorFormat() => Float ? RenderTextureFormat.ARGBHalf : RenderTextureFormat.ARGB32;
+
+        public static void Patch(Harmony harmony, BepInEx.Logging.ManualLogSource log)
+        {
+            try
+            {
+                var setup = AccessTools.Method(typeof(PostProcessV2_Handler), "SetupRTs");
+                if (setup == null) { log.LogWarning("HDR output: PostProcessV2_Handler.SetupRTs not found: no native float HDR"); return; }
+                harmony.Patch(setup, transpiler: new HarmonyMethod(typeof(HdrGameTarget).GetMethod(nameof(Transpiler), BindingFlags.NonPublic | BindingFlags.Static)));
+                if (Patched == 0) log.LogWarning("HDR output: no ARGB32 target found in PostProcessV2_Handler.SetupRTs: no native float HDR");
+                else log.LogInfo($"HDR output: game target hook installed (PostProcessV2_Handler.SetupRTs, {Patched} targets)");
+            }
+            catch (Exception e)
+            {
+                Patched = 0;
+                log.LogWarning($"HDR output: patching PostProcessV2_Handler.SetupRTs failed ({e.GetType().Name}: {e.Message}): no native float HDR");
+            }
+        }
+
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var ctor = AccessTools.Constructor(typeof(RenderTexture), new[] { typeof(int), typeof(int), typeof(int), typeof(RenderTextureFormat) });
+            var fmt = AccessTools.Method(typeof(HdrGameTarget), nameof(GameColorFormat));
+            var list = new List<CodeInstruction>(instructions);
+            int n = 0;
+            for (int i = 1; i < list.Count; i++)
+            {
+                if (list[i].opcode != OpCodes.Newobj || !Equals(list[i].operand, ctor)) continue;
+                var prev = list[i - 1];
+                bool argb32 = prev.opcode == OpCodes.Ldc_I4_0 ||
+                              ((prev.opcode == OpCodes.Ldc_I4 || prev.opcode == OpCodes.Ldc_I4_S) && Convert.ToInt32(prev.operand) == 0);
+                if (!argb32) continue; // the depth (Depth), outline mask (RG16) and normal (RGB565) targets stay as they are
+                prev.opcode = OpCodes.Call; // in place: keeps any labels on the instruction
+                prev.operand = fmt;
+                n++;
+            }
+            Patched = n;
+            return list;
         }
     }
 }
