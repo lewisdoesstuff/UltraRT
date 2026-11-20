@@ -1,0 +1,108 @@
+{
+  "Name": "water-rings",
+  "Note": "Interactive water ripples (docs/reflections.md 'Interactive ripples', docs/caustics.md 'Interactive rings'): a frozen test ring (water.testRipple=1) vs none, flat water (trans.waves=0) to see the ring alone, a live explosion over the 5-1 pool.",
+  "Scenarios": [
+    {
+      "Name": "5-1 shaft ring",
+      "Scene": "Level 5-1",
+      "Path": {
+        "Type": "static",
+        "Duration": 3,
+        "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+        "LookActivate": true,
+        "LookDistance": 0.5,
+        "LookYaw": 218,
+        "Pitch": -25
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "pathtrace+water.impulses=0",
+        "pathtrace+water.testRipple=1",
+        "relight+water.testRipple=1",
+        "pathtrace+trans.waves=0+water.testRipple=1+water.testAge=0.3",
+        "pathtrace+trans.waves=0+water.testRipple=1",
+        "pathtrace+trans.waves=0+water.testRipple=1+water.testAge=1.3",
+        "pathtrace+trans.waves=0+water.testRipple=1+water.testRings=16"
+      ],
+      "Screenshots": [
+        2.0
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "5-1 shaft explosion",
+      "Scene": "Level 5-1",
+      "Path": {
+        "Type": "static",
+        "Duration": 3,
+        "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+        "LookActivate": true,
+        "LookDistance": 0.5,
+        "LookYaw": 218,
+        "Pitch": -25
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "pathtrace+trans.waves=0+water.impulses=0",
+        "pathtrace+trans.waves=0",
+        "relight+trans.waves=0",
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2.0
+      ],
+      "ShotSettle": 0.8,
+      "Effects": {
+        "Kinds": [
+          "explosion"
+        ],
+        "Every": 0,
+        "Distance": 6,
+        "ShotDelay": 0.9
+      }
+    },
+    {
+      "Name": "2-1 water",
+      "Scene": "Level 2-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/u1118-2-1-1.json",
+        "Duration": 4
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "pathtrace+water.impulses=0",
+        "pathtrace+water.testRipple=1",
+        "pathtrace+trans.waves=0+water.testRipple=1",
+        "relight+water.testRipple=1"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "1-3 start water",
+      "Scene": "Level 1-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-3-start-water.json",
+        "Duration": 4
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "pathtrace+water.impulses=0",
+        "pathtrace+water.testRipple=1",
+        "pathtrace+trans.waves=0+water.testRipple=1",
+        "relight+water.testRipple=1"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

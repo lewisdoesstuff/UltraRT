@@ -1329,6 +1329,7 @@ namespace UltraRT
             _proxies.UpdateLava(); // scroll offsets of the lava proxies (SceneProxies.Lava.cs)
             _proxies.UpdateCaustics(); // caustic volumes and settings (SceneProxies.Caustics.cs)
             if (_camera != null) _proxies.UpdateRippleCaustics(_camera.transform.position, SceneProxies.Transparents.waveFade); // water planes for ripple caustics (same file)
+            UpdateWaterImpulses(); // interactive water ripples: splashes, wakes, explosions (Plugin.WaterRipples.cs)
             _proxies.UpdateVeils(); // the same for the veil proxies (SceneProxies.Veils.cs)
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;

@@ -288,6 +288,48 @@ namespace UltraRT
             Shader.SetGlobalVector(IdRipple, new Vector4(n > 0 ? s.ripple : 0f, n, Mathf.Max(s.rippleGain, 0f), Mathf.Max(s.rippleDepth, 0.5f)));
         }
 
+        // ---------------------------------------------------------------- interactive ripples (Plugin.WaterRipples.cs)
+
+        /// <summary>The surface (top of the renderer bounds, as the ripple caustics take it) of the active ripple water whose
+        /// rectangle, grown by <paramref name="margin"/>, holds p and whose surface is nearest in height, within maxDy.</summary>
+        public bool WaterSurfaceAt(Vector3 p, float maxDy, float margin, out float surfaceY)
+        {
+            surfaceY = 0f;
+            float best = float.MaxValue;
+            foreach (var r in _rippleWater)
+            {
+                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+                var b = r.bounds;
+                if (p.x < b.min.x - margin || p.x > b.max.x + margin || p.z < b.min.z - margin || p.z > b.max.z + margin) continue;
+                float dy = Mathf.Abs(p.y - b.max.y);
+                if (dy > maxDy || dy >= best) continue;
+                best = dy;
+                surfaceY = b.max.y;
+            }
+            return best < float.MaxValue;
+        }
+
+        /// <summary>The first ripple water surface a ray from o along d (normalised) meets between minT and maxT, from above.</summary>
+        public bool WaterAlongRay(Vector3 o, Vector3 d, float minT, float maxT, out Vector3 hit)
+        {
+            hit = Vector3.zero;
+            float best = maxT;
+            if (d.y > -1e-3f) return false;
+            foreach (var r in _rippleWater)
+            {
+                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+                var b = r.bounds;
+                if (o.y < b.max.y) continue;
+                float t = (b.max.y - o.y) / d.y;
+                if (t < minT || t >= best) continue;
+                var q = o + d * t;
+                if (q.x < b.min.x || q.x > b.max.x || q.z < b.min.z || q.z > b.max.z) continue;
+                best = t;
+                hit = q;
+            }
+            return best < maxT;
+        }
+
         private void LogCaustics()
         {
             if (_causticLog.Count == 0) return;

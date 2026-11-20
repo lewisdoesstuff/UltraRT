@@ -261,7 +261,7 @@ float RippleCausticAt(float3 pos, float3 nv, float viewDist, float footprint)
         float w = _UltraRTRipple.x * saturate(depth / 0.15) * saturate((_UltraRTRipple.w - depth) / (0.4 * _UltraRTRipple.w))
                 * saturate(1.0 - viewDist / max(_UltraRTWater.z, 1.0)) * saturate(0.35 + nv.y);
         [branch] if (w > 0.0)
-            m = max(lerp(1.0, WaterRippleCaustic(WaterPlaneUV(pos), depth, _UltraRTWater.x, _UltraRTRipple.z, footprint), w), 0.0);
+            m = max(lerp(1.0, WaterRippleCaustic(WaterPlaneUV(pos), depth, _UltraRTWater.x, _UltraRTRipple.z, footprint, h.x), w), 0.0);
         break;
     }
     return m;
