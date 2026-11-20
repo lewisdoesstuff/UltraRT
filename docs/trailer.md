@@ -279,6 +279,70 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## The final trailer, v5d (2026-11-20, `trailer-final-v5d`)
+
+The user's notes on v5c, on branch `t3/trailer-v5d` from master 30522b5 (with `t3/water-portal-glass` and
+`t3/trailer-light-fixes` merged). Output: `bench\results\trailer\trailer-final-v5d\` (`trailer-final-final.mp4`, 2560x1440,
+60 fps, 117.84 s, 545 MB; no 1080p copy; `clips\`; `contact-v5c-v5d.jpg`: one frame per shot, v5c | v5d; `timing.txt` and
+`timing-strict.txt`: the frame check), in the branch worktree and copied to the main checkout's
+`bench\results\trailer\trailer-final-v5d\`. Every shot is a new take on this build, so the merged fixes show: 2-1's water
+(static-batched displaced water traced displaced), 8-3's glass seen through the loop portals, the RT-off halves of 8-2's
+market and 8-3 (the game's portal views now rendered from the cinematic camera: the island through 8-2's arch), 7-3's
+tree with the flashlight held off (`Flickers`, already in the plan for v5c's light fixes).
+
+Changes against v5c:
+- **0-3's opening room is 3 bars** (was 5): it lit up on the second bar and then held a nearly still room for 4.5 s.
+  Now 1.5 s of the dark room, the pillars on the bar, 3 s lit. The push is quicker too (4.5 m in 7 s, was 3 m in 10 s),
+  so the camera is visibly moving while the room is lit; `Render` 8 s (was 10).
+- **P-2's street is 5 bars** (was 4) and no longer slows to a stop at the arch: the first-person jog picks up from 6 to
+  8 m/s and runs on through the red arch into the lit tunnel (the mouth at z ~122, reached at about 6.3 s; the clip ends
+  1 s inside). Scouted with `bench/trailer/scout-v5d.json` (suite `trailer-v5d-scout`: game | path traced, z 102-140);
+  a first draft at 6 m/s ended just short of the mouth. The tunnel lamp is held on to 9 s (was 8).
+- **1-1's terminal is 3 bars** (was 4): V1 stood still at the terminal for its last 3 s. The battle layer is exactly 32
+  bars ("Music" below), so P-2's extra bar had to come from another battle-layer shot.
+- Total 1:57.8 (was 2:00.8): the calm layer is 42 bars (to 63.34 s), the battle layer still 32 (to 111.34 s).
+
+The staged events, re-measured on the new takes (`events5c.py`-style: the largest frame-to-frame jump in mean
+brightness, and in the red ratio for the organ): 0-3's light pillars start at frame 184 (3.067 s; v5c 182), so `In` is
+1.567 (v5c 1.533); the organ hall turns red at frame 641 (10.68 s; same as v5c), `In` stays 6.183.
+
+Render: suites 1-4 in one alt launch (12.5 minutes of game time: 272 + 203 + 175 + 93 s, 0 failures, 36.5 GB of frames,
+deleted after the check), assembly 38 minutes in one run. Frame check as for v5c (`timing.txt`, `timing-strict.txt`):
+every clip frame maps to its expected take frame, and the master is the 20 clips joined (7070 frames). The flags are
+events in the takes: the pillars on clip frame 90 (1.50 s, the bar), the red flip on frame 270 (4.50 s; its brightness
+step follows 2 frames later, 643 against 641 in the take), 5-2's lightning at 1.55 s, 2-4's hard switch, P-2 hall's lamps,
+the cards' typing. New: 8-3's take ends with the crushers moving in the side rooms (the last 4 frames, from 4.45 s), and
+2-1's take has two frames with twice the usual motion (4.95 and 5.0 s), which the strict map reads as off by one; both
+are in the takes. The battle layer's step up is on the cut into P-2's street (audio level 2700 -> 8100 at 63.3 s).
+
+Look at: 7-3's tree is much darker without the flashlight (frame mean 21 at 80 % of the clip, v5c 44): the tree's own
+red light and the dappled light through its canopy are all there is.
+
+Merge regression before the takes (`merge-regress`, alt, exclusive hold, the lead's request): master 30522b5 against
+pre-merge master d0ce90d, both on the alt install back to back (`20261120-133931_merge-regress_alt` against
+`20261120-133751_merge-regress_alt`, both copied to the main checkout's `bench\results`; the d0ce90d build came from a
+temporary worktree).
+No regression: GPU totals within +-0.1 ms, frame times within the run-to-run spread (RT-off rows moved by up to
++0.19 ms too), screenshots the same (mean absolute difference under 1 of 255 except the noisy `pt-direct` and one
+darker relight frame in the baseline's 0-1, an outlier against the eight earlier runs). Against the main checkout's last
+run (`20261119-234437_merge-regress`, main install) 0-3's relight looked 20 % darker: the main install runs with
+`HDR = true`, the alt install without, so main and alt runs cannot be compared image for image.
+
+**Re-taking one shot** (the 6-2 organ take is waiting for the `t3/gabriel-swords` fix: phantom green blades on Gabriel
+in the traced image, take frames ~700-900): the plan writes a one-shot suite, the edit list's wildcard picks the newest
+take, and only the changed clips are rebuilt:
+
+```powershell
+python scripts\trailer-plan.py bench\trailer\final-plan.json --tier final --only "6-2 organ"   # -> bench\suites\trailer-final-final-redo.json
+.\scripts\bench.ps1 -Suite trailer-final-final-redo -Slot alt -TimeoutSec 1500                   # inside a visual lock hold
+#   re-measure the red flip in the new take (cine_6-2_organ_live, frames 580-720: the jump in R/(G+B));
+#   if it moved from frame 641, set the shot's In to (flip frame - 270) / 60 and run trailer-plan.py again
+python scripts\trailer.py bench\trailer\trailer-final-final.json --out bench\results\trailer\trailer-final-v5e --only 3
+```
+
+`--only 3` rebuilds clip 3 (the organ) and reuses the others from the `--out` folder, so copy `trailer-final-v5d`'s
+`clips\` there first (or point `--out` at the v5d folder to replace its master in place).
+
 ## v5c light fixes (2026-11-20, branch `t3/trailer-light-fixes`)
 
 The user's two lighting questions on v5c. Suite `bench/suites/trailer-light-fixes.json` (paired off / traced takes of the
@@ -312,7 +376,7 @@ without the fix). Sheets in the main checkout's `bench\results\review\trailer-li
 **User notes on v5c (2026-11-20), fixed on `t3/water-portal-glass`, not re-rendered:** 2-1's water showed 6-2's old
 triangle patchwork (static-batched displaced water traced at the rest pose: docs/reflections.md, "Static-batched
 displaced water"), and 8-3's Clockwork Crushers lost the glass seen through its sideways loop portals (docs/portals.md,
-section 13). Both shots need a re-render to show the fixes.
+section 13). Both shots need a re-render to show the fixes (done in v5d).
 
 The user's notes on v5b, on branch `t3/trailer-v5c` with master's glints removal, 6-2 blood flicker fix and 1-4 arena
 lamps merged in (ed78e9e). Output: `bench\results\trailer\trailer-final-v5c\` (`trailer-final-final.mp4`, 2560x1440,
@@ -783,45 +847,49 @@ the mod is unofficial and not affiliated with the game's developers.
 ### Music
 
 0-1's theme, both layers from the game's files, 160 bpm, bars at 0.34 + 1.5 n seconds. The calm layer (`0-1 Clean`)
-plays from its start under the title and the first nine shots (44 bars, to 66.34 s; v4: 40 bars and eight shots, to
-60.34 s); the battle layer (`0-1`) comes in there from its step up at 36.34 s of the song and runs 32 bars to its loop
-point (114.34 s of the trailer); the calm layer returns under the end card and fades over 4.5 s. Every cut, switch and
+plays from its start under the title and the first nine shots (42 bars, to 63.34 s; v5-v5c: 44 bars, to 66.34 s; v4: 40
+bars and eight shots, to 60.34 s); the battle layer (`0-1`) comes in there from its step up at 36.34 s of the song and
+runs 32 bars to its loop point (111.34 s of the trailer; v5c 114.34); the calm layer returns under the end card and fades
+over 4.5 s. The battle layer is always exactly 32 bars (step up on the cut into P-2's street, loop point on the end
+card), so a battle-layer shot can only grow by taking bars from another one; the calm layer can be any length (the
+plan's `Music.Tracks` `At` / `Until` move with it). Every cut, switch and
 gunshot (half bars) is on the grid, and so are v5's two staged events: 0-3's light pillars come on and 6-2's organ hall
 turns red on a bar. Since v5b both are in the first 20 seconds, on the calm layer (the organ shot ends on the bar after
 the red flip); 1-4's hall closes the battle layer.
 
 ### Shot list
 
-The cut as of v5b (2026-11-19; "The final trailer, v5b" above has what changed).
+The cut as of v5d (2026-11-20; "The final trailer, v5d" above has what changed).
 
 All comparisons are paired live takes (the game's image / real-time path tracing with RR); "beauty" is one traced take.
+No captions since v5c; level titles stay.
 
-| # | Start | s | Shot | Level | Treatment | Caption |
-|---|---|---|---|---|---|---|
-| 1 | 0:00.0 | 4.84 | Title card: "A RAY TRACING MOD FOR ULTRAKILL" / ULTRART | - | card | |
-| 2 | 0:04.8 | 7.5 | Opening room from its back wall: V1 walks in through the door, the room and its light pillars come on (on the second bar) | 0-3 | beauty | |
-| 3 | 0:12.3 | 6.0 | Gabriel's intro: his light on the organ, then the hall turns red on the fourth bar | 6-2 | sweep | |
-| 4 | 0:18.3 | 9.0 | Torch hallway, round the corner to the doorway | 1-1 | sweep from the right | |
-| 5 | 0:27.3 | 6.0 | Statue room glide (world frozen) | 0-1 | sweep | Real-time path tracing |
-| 6 | 0:33.3 | 7.5 | Tree orbit | 7-3 | sweep from the right | Emissive lighting / Glowing objects cast real light |
-| 7 | 0:40.8 | 7.5 | Hall crane from the stained glass | P-2 | sweep | Global illumination / Light bounces realistically, carrying color |
-| 8 | 0:48.3 | 7.5 | Street, lamp posts and the pool | 8-2 | sweep from the right | Water reflections |
-| 9 | 0:55.8 | 6.0 | Glide down onto the water channel towards the door (the user's pose) | 2-1 | sweep | |
-| 10 | 1:01.8 | 4.5 | Storm sea, a lightning strike on the second bar (`Calls`) | 5-2 | beauty | |
-| 11 | 1:06.3 | 6.0 | First-person jog down the street to the red arch (`Player` camera; the tunnel lamp held on from 1 s) | P-2 | beauty | Reflective wet surfaces |
-| 12 | 1:12.3 | 6.0 | V1 walks up to the shop terminal (`Player` path, `ShopScreensOff`) | 1-1 | beauty | Ray-traced reflections |
-| 13 | 1:18.3 | 6.0 | Down the entryway between the windows to the lit arch | 6-2 | sweep from the right | |
-| 14 | 1:24.3 | 4.5 | Neon street pan | 2-2 | sweep | |
-| 15 | 1:28.8 | 6.0 | First-person walk, the pump shotgun fired on the half bars (main install: the user's gun colours) | 7-3 | switch at 1.5 s | Gunfire is a light source |
-| 16 | 1:34.8 | 4.5 | Low along the lava | 0-5 | sweep from the right | |
-| 17 | 1:39.3 | 4.5 | Push down the tunnel towards the red-lit arches (the user's pose 3) | 2-4 | switch at 1.5 s | |
-| 18 | 1:43.8 | 4.5 | Push down a picture gallery | museum | sweep from the right | |
-| 19 | 1:48.3 | 6.0 | Slow arc beside the pool of the lamp-lit hall inside the building (the user's pose 4) | 1-4 | sweep, fade out | |
-| 20 | 1:54.3 | 6.5 | End card: ULTRART | - | card | |
+| # | Start | s | Shot | Level | Treatment |
+|---|---|---|---|---|---|
+| 1 | 0:00.0 | 4.84 | Title card: "A RAY TRACING MOD FOR ULTRAKILL" / ULTRART | - | card |
+| 2 | 0:04.8 | 4.5 | Opening room from its back wall, a slow push; the room and its light pillars come on (on the second bar) | 0-3 | beauty |
+| 3 | 0:09.3 | 6.0 | Gabriel's intro: his light on the organ, then the hall turns red on the fourth bar | 6-2 | sweep |
+| 4 | 0:15.3 | 9.0 | Torch hallway, round the corner to the doorway | 1-1 | sweep from the right |
+| 5 | 0:24.3 | 6.0 | Statue room glide (world frozen) | 0-1 | sweep |
+| 6 | 0:30.3 | 7.5 | Tree orbit (the game's flashlight held off) | 7-3 | sweep from the right |
+| 7 | 0:37.8 | 7.5 | Hall crane from the stained glass | P-2 | sweep |
+| 8 | 0:45.3 | 7.5 | Street, lamp posts and the pool | 8-2 | sweep from the right |
+| 9 | 0:52.8 | 6.0 | Glide down onto the water channel towards the door (the user's pose) | 2-1 | sweep |
+| 10 | 0:58.8 | 4.5 | Storm sea, a lightning strike on the second bar (`Calls`) | 5-2 | beauty |
+| 11 | 1:03.3 | 7.5 | First-person jog down the street, through the red arch into the lit tunnel (`Player` camera; the tunnel lamp held on from 1 s) | P-2 | beauty |
+| 12 | 1:10.8 | 6.0 | Down the stairs into the Window Hallway, the slats' striped light | 4-4 | sweep |
+| 13 | 1:16.8 | 4.5 | V1 walks up to the shop terminal (`Player` path, `ShopScreensOff`) | 1-1 | beauty |
+| 14 | 1:21.3 | 6.0 | Down the entryway between the windows to the lit arch | 6-2 | sweep from the right |
+| 15 | 1:27.3 | 4.5 | Down a supermarket aisle towards the arch (the island through it) | 8-2 | sweep |
+| 16 | 1:31.8 | 4.5 | Push down the Clockwork Crushers' glass hall | 8-3 | sweep from the right |
+| 17 | 1:36.3 | 4.5 | Push down the tunnel towards the red-lit arches (the user's pose 3) | 2-4 | switch at 1.5 s |
+| 18 | 1:40.8 | 4.5 | Push down a picture gallery | museum | sweep from the right |
+| 19 | 1:45.3 | 6.0 | Slow arc beside the pool of the lamp-lit hall inside the building (the user's pose 4) | 1-4 | sweep, fade out |
+| 20 | 1:51.3 | 6.5 | End card: ULTRART | - | card |
 
-Total 2:00.8. Where gameplay footage (the user's own capture) could go: at the battle layer's entry (1:06.3, before or
-instead of P-2's street), between 2-2's street and the 7-3 gun shot (1:22.8, the action stretch), or in place of 2-2's
-street or 0-5's lava; a clip of whole bars keeps the grid.
+Total 1:57.8 (v5-v5c 2:00.8). Where gameplay footage (the user's own capture) could go: at the battle layer's entry (1:03.3, before or
+instead of P-2's street) or in the battle layer's middle (after the terminal, 1:21.3), in place of battle-layer bars (the
+layer is 32 bars, "Music" above); a clip of whole bars keeps the grid.
 
 8-2's street was first captioned "Volumetric light": the game draws its lamp cones as bold polygons and the traced
 cones are soft and faint, so the comparison did not carry that caption. What the traced image adds there is the lamps'

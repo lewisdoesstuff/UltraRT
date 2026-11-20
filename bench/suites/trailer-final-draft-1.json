@@ -18,7 +18,7 @@
         "File": "../cinematics/final-0-3-beams.json",
         "Mode": "live",
         "Fps": 30.0,
-        "Seconds": 10.067,
+        "Seconds": 8.067,
         "OutputScale": 0.5,
         "TimeScale": 1,
         "Preroll": 40,
@@ -27,7 +27,7 @@
         "ShowPlayer": true,
         "Paired": true,
         "OnFrom": 0,
-        "OffUntil": 10.0
+        "OffUntil": 8.0
       }
     },
     {

@@ -4,7 +4,7 @@
   "Scene": "Level 0-3",
   "Note": "Trailer v5: 0-3's opening room from its back wall, facing the door, while V1 walks in and the light pillars come on (world frame: base at the origin, yaw 0, keys [z, x, feet y]; the player's walk is final-0-3-beams-walk).",
   "Keys": [
-    {"Player": [1.0, -4.9, 326.5], "Yaw": 180, "Pitch": -14, "Fov": 85, "Duration": 10.0, "Ease": "smooth"},
-    {"Player": [0.5, -5.4, 323.5], "Yaw": 180, "Pitch": -12, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
+    {"Player": [1.0, -4.9, 326.5], "Yaw": 180, "Pitch": -14, "Fov": 85, "Duration": 7.0, "Ease": "smooth"},
+    {"Player": [0.5, -5.5, 322.0], "Yaw": 180, "Pitch": -12, "Fov": 85, "Duration": 2.0, "Ease": "linear"}
   ]
 }
