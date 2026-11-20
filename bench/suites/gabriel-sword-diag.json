@@ -1,0 +1,31 @@
+{
+  "Name": "gabriel-sword-diag",
+  "Note": "6-2 organ shot at full resolution, Gabriel's swords seen through: debug views (albedo, normals, motion) and UltraRT's own denoiser in place of DLSS RR. Behind docs/ultrakill-rendering.md, 'Gabriel's swords'.",
+  "Scenarios": [
+    {
+      "Name": "6-2 organ motion",
+      "Scene": "Level 6-2",
+      "Path": {
+        "Type": "static",
+        "Load": "checkpoint",
+        "Approach": "../recordings/u1118-6-2-4.json",
+        "Duration": 1
+      },
+      "Modes": [
+        "motion+plugin._scale=1"
+      ],
+      "Enemies": "blind",
+      "EnemyOutlines": false,
+      "Cinematic": {
+        "File": "../cinematics/final-6-2-organ.json",
+        "Mode": "live",
+        "Fps": 30.0,
+        "Seconds": 15.0,
+        "OutputScale": 1,
+        "TimeScale": 1,
+        "Preroll": 40,
+        "Encode": false
+      }
+    }
+  ]
+}

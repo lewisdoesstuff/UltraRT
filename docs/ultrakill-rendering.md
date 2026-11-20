@@ -120,6 +120,34 @@ game multiplies texture x vertex colour x `_Color` there; a version that did cha
 poses and was left out to keep this change small). A "black when the mesh has no colours" rule (for every skinned
 mesh, or by material rule) worked for the swords but blackened V1's third-person model and guns, and is not in.
 
+**Glowing in the traced image (2026-11-20, `t3/trailer-v5e-6-2-organ`; user: visible and emissive).** Traced without a
+rule they read as dull dark-teal sticks: thin blades, unlit-ish (enemy lit weight 0.5) and dark in the red hall. The
+emitter rule `enemy: Gabriel's swords` in `data/lights/_rules.json` (material `^GabrielSword(Splendor|Justice)$`, glow 5,
+chroma 0.2; docs/emissive-lights.md, "Enemy glows") makes them glow with their own texture colour. The textures
+(`T_GabeSword_Gold` / `T_GabeSword_Blue`, 64x256, from `models.bundle`) hold blade and guard in saturated gold and blue
+and the grip in near-black: the chroma mask lights blade and guard, not the grip. The sheaths (`GabrielSheath`, dark grey
+with a gold trim, and `GabrielSheathText`) have no rule: they stay lit surfaces. Gabriel has lights of the game's, so no
+enemy glow light is added for the swords (`eg.skipLit`); their glow shows in the image (and bounces in the path
+tracer), not as a light on the hall. In the organ shot they now read as bright white-blue lines instead of dark slivers
+(`bench/results/review/gabriel-sword-glow/swords-before-after*.jpg`, not committed: game | before | glow 5 at take frames
+400 / 700 / 850; the glow-5 column is a main-install run, which has `HDR = true`, the others alt). Glow 2.5 / 5 / 10
+looked alike at draft size (RR at a third smears lines this thin); 5 was judged at full resolution
+(`bench/suites/gabriel-sword-glow.json`, `gabriel-sword-diag.json`).
+
+**Open: the blades look see-through (user, 2026-11-20).** In the traced image the organ behind shows through them, with
+the rule and without. Narrowed down so far (`gabriel-sword-diag.json` and its variants, full resolution):
+- The geometry and material are right: the `albedo` debug view (primary rays, no denoiser, no history) shows both blades
+  solid and opaque (the Justice blade saturated blue, the Splendor one a thin gold edge).
+- The composite uses the traced blades: `plugin._matchDebug=1` paints no kept pixel on them.
+- Not mirrored skinning (docs/scene-proxies.md, "Mirrored skinned meshes"): no bone's skin matrix (bone x bindpose)
+  of the four `GabeSword_*` meshes has a negative determinant (root `Root`, det 24.8, 51 bones).
+- The previous-pose copy is in the expected space (`-ultrart-motion-probe-filter GabeSword`: raw = rootNoScale).
+- DLSS RR and UltraRT's own denoiser (`ptx.denoiser=1`) both blend them with the background, so the cause is in what
+  both share after the primary hit: the motion vectors or history of these thin, fast-moving skinned blades. The
+  `motion` view did not settle it (the runs' timing differs, so the blades are not at the same place).
+Next: freeze a pose with the swords out and compare motion on and off (`-ultrart-nomotion`), and read the motion of a
+blade pixel against Gabriel's hand next to it.
+
 Ruled out on the way, for the next look at "renders in RT, not in the game": culling and occlusion culling, the
 `_PortalClipPlane` clip distance (0 at every draw), stencil (`_StencilComp` Always), depth occluders (none between the
 camera and the swords), fog (linear 10-150 m, the same for every Gabriel renderer), shader discard (none in the
