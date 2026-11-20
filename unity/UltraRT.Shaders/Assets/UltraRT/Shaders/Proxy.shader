@@ -278,6 +278,9 @@ Shader "UltraRT/Proxy"
             // x puddle edge width, y wet margin width (both in puddle-noise units), z roughness and w specular weight of a
             // wet surface without standing water (Plugin.Wet.cs).
             float4 _UltraRTWet2;
+            // x 1 = the ripples of 2026-11-15 (bench A/B: a steep cone per drop, and the detail normal halved over the
+            // drop's whole disc), y largest tilt of the ripple normal (radians, about), Plugin.Wet.cs.
+            float4 _UltraRTWet3;
 
             float WetHash(float2 p)
             {
@@ -302,12 +305,17 @@ Shader "UltraRT/Proxy"
             }
 
             // The game's raindrop ring at a _RainDrops sample (RainAlbedo below), signed: the ring's height profile.
+            // The game's own term (sin(1.5 x), x clamped to 3) stays at sin(4.5) = -0.98 inside the ring, so as a height
+            // it was a cone over the drop's whole disc. Since 2026-11-20 it is a travelling wave instead: one crest and
+            // one trough across the ring's band (x 0..3, where the game draws its bright ring), flat water inside and out.
             float RainRing(float4 d)
             {
                 float y = d.r * 31.45 + _UltraRTRainTime * _RainSpeed * 1.5;
                 float f = frac(y);
                 float alt = floor(frac(y * 0.5) * 2.0);
-                return alt * d.g * (1.0 - f) * sin(1.5 * clamp(9.0 * (d.g + f - 1.0), 0.0, 3.0));
+                float x = clamp(9.0 * (d.g + f - 1.0), 0.0, 3.0);
+                if (_UltraRTWet3.x > 0.5) return alt * d.g * (1.0 - f) * sin(1.5 * x);
+                return alt * d.g * (1.0 - f) * sin(2.0943951 * x); // 2 pi / 3: zero at both edges of the band
             }
 
             // Wetness of a rained-on hit: wet 0..1 (darker, glossier), puddle 0..1 (standing water on floors: mirror-like,
@@ -340,6 +348,14 @@ Shader "UltraRT/Proxy"
                 float hx = RainRing(_RainDrops.SampleLevel(my_linear_repeat_sampler, uv + float2(e.x, 0.0), 0));
                 float hz = RainRing(_RainDrops.SampleLevel(my_linear_repeat_sampler, uv + float2(0.0, e.y), 0));
                 slope = float2(hx - h0, hz - h0) * (_UltraRTWet.w * 1.5) * lerp(0.35, 1.0, puddle);
+                if (_UltraRTWet3.x > 0.5) return;
+                // The difference is per texel of the drop texture, unscaled: across a ring's narrow band it tipped the
+                // normal far enough that the reflection left the lit street for the dark ground or sky, and every drop
+                // drew a dark ellipse on P-2's wet street. Limit the tilt smoothly to _UltraRTWet3.y: a ripple bends a
+                // reflection, it does not turn it away.
+                // Off the puddles a third of it (lerp 0.35..1 above): the film is thin and rougher.
+                float t = max(_UltraRTWet3.y, 1e-3) * saturate(_UltraRTWet.w) * lerp(0.35, 1.0, puddle), m = length(slope);
+                slope *= t / sqrt(t * t + m * m);
             }
 
             float3 RainAlbedo(float3 albedo, float3 P, float3 N)
@@ -749,11 +765,20 @@ Shader "UltraRT/Proxy"
                     n = DetailNormal(u0, u1, u2, p0, p1, p2, n, xy);
                     flags |= ULTRART_FLAG_DETAIL;
                 }
-                if (puddle > 0.0 || any(wetSlope != 0.0))
+                if (_UltraRTWet3.x > 0.5)
                 {
-                    // Standing water is flat (the surface detail drowns), and tilts with the raindrop rings.
-                    float3 nw = normalize(nVertex + float3(-wetSlope.x, 0.0, -wetSlope.y));
-                    n = normalize(lerp(n, nw, saturate(puddle + (any(wetSlope != 0.0) ? 0.5 : 0.0))));
+                    if (puddle > 0.0 || any(wetSlope != 0.0))
+                    {
+                        float3 nw = normalize(nVertex + float3(-wetSlope.x, 0.0, -wetSlope.y));
+                        n = normalize(lerp(n, nw, saturate(puddle + (any(wetSlope != 0.0) ? 0.5 : 0.0))));
+                    }
+                }
+                else if (puddle > 0.0 || any(wetSlope != 0.0))
+                {
+                    // Standing water is flat (the surface detail drowns), and tilts with the raindrop rings. Outside the
+                    // puddles the ring only tilts the surface's own normal: halving the detail normal wherever a drop's
+                    // texels were (the 2026-11-15 blend) stamped the drop's whole disc into the shading.
+                    n = normalize(lerp(n, nVertex, puddle) + float3(-wetSlope.x, 0.0, -wetSlope.y));
                 }
 
                 float3 emission = 0;

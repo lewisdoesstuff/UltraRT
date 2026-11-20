@@ -18,6 +18,8 @@ namespace UltraRT
     ///                                          (saturated colours clip per channel); max: shoulder on the largest channel
     ///   -ultrart-relight-knee K                where the shoulder starts (default 0.75)
     ///   -ultrart-relight-toe S[,END]           toe strength (0 = none) and where it joins the identity
+    ///   -ultrart-relight-hue F                 film: highlight hue, 0-1 (0 = off, the default): red highlights turn up to
+    ///                                          F x 20 degrees towards orange as the rolloff whitens them, instead of pink
     /// Ctrl+F4: toggle auto exposure.
     /// </summary>
     public partial class Plugin
@@ -30,11 +32,13 @@ namespace UltraRT
         private float _tonemapCurve = 2f; // 0 = luminance shoulder (the original curve), 1 = max-channel shoulder, 2 = film (default since 2026-11-18)
         private float _tonemapSat = 0.8f; // film: share of the room above luminance a channel may use before the rolloff (UltraRTToneCurve.hlsl)
         private float _tonemapKnee = 0.75f;
+        private float _tonemapHue = 0f; // film: highlight hue strength 0-1 (UltraRTToneCurve.hlsl UltraRTFilmWarm); opt-in, 2026-11-20
         private float _tonemapToe = 0.6f, _tonemapToeEnd = 0.25f; // toe strength (0 = none; 0.6 since the punch defaults, 2026-11-17) and where it ends (UltraRTToneCurve.hlsl)
 
         private static readonly int
             UltraRTAutoExposureId = Shader.PropertyToID("_UltraRTAutoExposure"),
-            UltraRTTonemapParamsId = Shader.PropertyToID("_UltraRTTonemapParams");
+            UltraRTTonemapParamsId = Shader.PropertyToID("_UltraRTTonemapParams"),
+            UltraRTTonemapHueId = Shader.PropertyToID("_UltraRTTonemapHue");
 
         private void ParseExposureArgs()
         {
@@ -55,6 +59,9 @@ namespace UltraRT
                         if (p.Length > 1 && float.TryParse(p[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var ks)) _tonemapSat = Mathf.Clamp(ks, 0.05f, 0.98f);
                         break;
                     }
+                    case "-ultrart-relight-hue":
+                        if (float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var hue)) _tonemapHue = Mathf.Clamp01(hue);
+                        break;
                     case "-ultrart-relight-knee":
                         if (float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var k)) _tonemapKnee = Mathf.Clamp(k, 0.05f, 0.99f);
                         break;
@@ -68,7 +75,7 @@ namespace UltraRT
                 }
             }
             InitHdr(); // HDR display output (Plugin.Hdr.cs, docs/hdr.md)
-            Logger.LogInfo($"Relight: {_aeSettings}; tone map {(_tonemapCurve > 1.5f ? $"film (rolloff from {_tonemapSat})" : _tonemapCurve > 0.5f ? "max-channel shoulder" : "luminance shoulder")}, knee {_tonemapKnee}, white {_relightWhite}, toe {_tonemapToe} to {_tonemapToeEnd}");
+            Logger.LogInfo($"Relight: {_aeSettings}; tone map {(_tonemapCurve > 1.5f ? $"film (rolloff from {_tonemapSat}{(_tonemapHue > 0f ? $", highlight hue {_tonemapHue}" : "")})" : _tonemapCurve > 0.5f ? "max-channel shoulder" : "luminance shoulder")}, knee {_tonemapKnee}, white {_relightWhite}, toe {_tonemapToe} to {_tonemapToeEnd}");
         }
 
         private void LoadExposureShader(AssetBundle bundle, ComputeShader denoise)
@@ -127,6 +134,7 @@ namespace UltraRT
             bool tonemap = _relightActive || ae;
             _cmd.SetGlobalFloat("_UltraRTTonemapWhite", tonemap ? _relightWhite : 0f);
             _cmd.SetGlobalVector(UltraRTTonemapParamsId, new Vector4(_tonemapCurve > 1.5f ? 2f + Mathf.Clamp(_tonemapSat, 0.05f, 0.98f) : _tonemapCurve, _tonemapKnee, _tonemapToe, Mathf.Min(_tonemapToeEnd, _tonemapKnee)));
+            _cmd.SetGlobalVector(UltraRTTonemapHueId, new Vector4(_tonemapCurve > 1.5f ? Mathf.Clamp01(_tonemapHue) : 0f, 0f, 0f, 0f));
         }
 
         /// <summary>After the denoiser: measure this frame and adapt (used from the next frame on).</summary>

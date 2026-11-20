@@ -200,7 +200,9 @@ game rains on, and under roofs it stops by itself. `RainWetness` adds, at every 
   0.45 of the range holds water: roughness 0.03, full weight, darker, and the shading normal flattened (the surface
   detail drowns).
 - **Ripples**: the game's own raindrop rings (`_RainDrops`, the same clock) tilt the normal: the ring function is
-  evaluated at three taps and its slope added, primary rays only.
+  evaluated at three taps and its slope added, primary rays only. Since 2026-11-20 the ring is a travelling wave (one
+  crest and trough across the ring's band, flat inside), the tilt is limited to `wet.rippleTilt` (0.12, about 7
+  degrees; a third of that off the puddles), and off the puddles it tilts the surface's own normal ("Ripple rings").
 
 Metals keep their own specular weight and most of their roughness: raising it turned P-2's metal floor black under
 its dark sky (a metal's reflection replaces its diffuse colour). REFLECTION materials keep the game's model. Rain is
@@ -233,6 +235,44 @@ default / soft): the arch and the lamps reflect in the whole floor, and the outl
 brighter: x2.73 -> x3.34 of the game at that pose, which is too bright before any of this (P-2's street lights, not
 the water: its light proposal comes first). Not done from the plan's list: breaking the puddle noise with the
 surface's own height, so water sits in joints (needs the height maps of the materials bake-off).
+
+### Ripple rings (2026-11-20, `t3/tone-hue-rain-polish`)
+Report: on P-2's wet street the raindrops read as dark, high-contrast stamped circles. Three causes in `RainWetness`
+and the hit shader (`Proxy.shader`):
+1. The height was the game's albedo term taken as a height, `sin(1.5 x)` with x clamped to 3: inside the ring it stays
+   at sin(4.5) = -0.98, a cone over the drop's whole disc.
+2. The slope was the height difference over one texel of the drop texture, unscaled, so across the ring's narrow band
+   the normal tipped far enough for the reflection to leave the lit street for the dark ground and sky.
+3. Wherever a drop had any slope, the shading normal was pulled half way to the vertex normal: the surface's detail
+   normal was halved over the drop's whole disc, a stamped ellipse even where the ring itself was flat.
+
+Now the height is a travelling wave (`sin(2 pi x / 3)`: zero at both edges of the band), the tilt is limited smoothly
+to `wet.rippleTilt` (`slope * t / sqrt(t^2 + |slope|^2)`, t = 0.12 x ripples, x 0.35 off the puddles), and the normal
+is `normalize(lerp(n, vertex normal, puddle) + tilt)`: puddles still drown the detail, the wet film keeps it.
+`wet.ripplesOld=1` (bench) is the old code, for A/B. No cost change (the same three reads; dispatch 2.74 ms in both at
+the street pose).
+
+A/B 2026-11-20 (`bench/suites/wet-rings.json`, pathtrace, alt, `bench/results/20261120-151427_wet-rings_alt`; sheets
+`bench/results/review/tone-rain-polish/P-2_street_2.5s_crop2.png` and `P-2_puddle_3.0s_crop2.png`: old / new /
+ripples off, each auto-levelled so the structure compares): with the old ripples every drop is a dark ellipse on the
+street and on the puddle by the vent; with the new ones they are gone, and what is left of each drop is the game's own
+bright ring texels and a slight bend of the reflections, close to ripples off. Trap: P-2's lighting changes between
+the modes of one pose (lightning; the game frame's log2 mean was -5.88 / -4.18 / -5.13 at the street), so whole-frame
+brightness differs between the shots: compare the floor's structure, not its level.
+
+### 5-2's storm sea: no extra sheen (evaluated 2026-11-20, skipped)
+The question was whether 5-2's opaque sea (`Sea/Sea Itself/Filler/Plane`, materials `Corpses` / `CorpsesAlt`,
+classified `Generic none` by `SurfaceType`, `-ultrart-matdump`) would read wetter with a subtle grazing Fresnel
+specular. It already has one: the material carries the game's `RAIN` keyword and the game rains on it, so
+`RainWetness` treats the sea like a rained-on floor: wet film (specular weight 1 x wetness, roughness 0.15, f0 0.04),
+puddle patches from the floor noise (roughness 0.03, detail normal flattened), ripples, and albedo x 0.82 (x 0.67 in a
+puddle). Same pose, same launch (`5-2 sea` in `wet-rings`, exposure x1.000 in both): mean luma 0.123 with rain wetness
+against 0.147 with `wet.rain=0`, and the waves are darker and smoother with it (sheet
+`bench/results/review/tone-rain-polish/5-2_sea_crop.png`: game / shipped / rain wetness off). The film reflects the
+dark storm sky, so more specular would darken and flatten the sea further, not make it read wet. No rule added; the
+lightning exposure was not touched. A possible follow-up goes the other way: no puddle patches or puddle darkening on
+the sea (it is water already, and puddles in a sea follow a floor noise), keeping only the film, checked with a burst
+for scroll shimmer.
 
 ### Wet blood
 The game's blood stains are not traced as geometry (docs/particles.md; reflection hits do read them: docs/path-tracing.md, "Blood stains in reflections"): it stamps them from a GPU ring buffer of up to 100,000
@@ -273,6 +313,7 @@ Bench variants: `vfx.<field>`, `wet.<field>`, `pl.soft`, `pl.softDistance`.
 | Glow sprites bilinear | `-ultrart-glow-smooth on\|off` (bench `plugin._smoothGlow=0`) | on | the game's "glow" sprite textures filtered bilinear while traced ("Glow sprites") |
 | Rain wetness / wetness / puddles | `-ultrart-wet-rain on\|off`, `-ultrart-wet-rain-strength F`, `-ultrart-wet-puddles F` | on / 0.8 / 0.45 | |
 | Soft puddles | `-ultrart-wet-soft on\|off` (bench `wet.soft=0`) | on | soft edges, soaked margin, glossier wet floor ("Soft puddles") |
+| Ripple tilt | bench `wet.rippleTilt=F`, `wet.ripplesOld=1` (the 2026-11-15 rings) | 0.12 | largest tilt of the raindrop ripples ("Ripple rings", 2026-11-20) |
 | Wet blood / drying time | `-ultrart-wet-blood on\|off`, `-ultrart-wet-blood-dry S` | on / 40 s | |
 | Blood stains in reflections | `-ultrart-stain-reflections on\|off` | on | ([path-tracing.md](path-tracing.md), "Blood stains in reflections") |
 
