@@ -11,6 +11,9 @@ Prints luminance statistics and writes two PNGs:
                     the frame's peak (where the HDR highlights are)
   <name>.sdr.png    the frame shown as an SDR display would at paper white (everything above clips), to compare with
                     the game's own screenshot; --sdr prints the difference to it
+  <name>.peak.png   the whole frame scaled so the display peak is white (linear light, sRGB encoded): what is brighter
+                    than what on the HDR display, with hue, e.g. an effect against the wall behind it (--peak, nits,
+                    default the frame's brightest channel)
 """
 import argparse
 import os
@@ -43,6 +46,7 @@ def main():
     ap.add_argument('--paper', type=float, default=200.0, help='paper white of the run, nits')
     ap.add_argument('--out')
     ap.add_argument('--sdr', help="the game's screenshot of the same frame")
+    ap.add_argument('--peak', type=float, help="display peak for <name>.peak.png, nits (default: the frame's brightest channel)")
     a = ap.parse_args()
     nits, code = read(a.file)
     h, w, _ = nits.shape
@@ -61,6 +65,9 @@ def main():
     rgb709 = np.maximum(nits @ TO_709.T, 0.0)
     sdr = np.clip(rgb709 / a.paper, 0.0, 1.0) ** (1.0 / 2.2)
     Image.fromarray((sdr * 255.0 + 0.5).astype(np.uint8)).save(base + '.sdr.png')
+    x = np.clip(rgb709 / (a.peak or max(float(rgb709.max()), 1.0)), 0.0, 1.0)
+    pk = np.where(x <= 0.0031308, x * 12.92, 1.055 * x ** (1.0 / 2.4) - 0.055)
+    Image.fromarray((pk * 255.0 + 0.5).astype(np.uint8)).save(base + '.peak.png')
 
     peak = max(float(lum.max()), a.paper * 1.01)
     grey = (np.clip(lum / a.paper, 0.0, 1.0) ** (1.0 / 2.2))[..., None] * np.array([0.6, 0.6, 0.6], dtype=np.float32)
@@ -71,7 +78,7 @@ def main():
     heat = stops[i[..., 0]] * (1.0 - (x - i)) + stops[i[..., 0] + 1] * (x - i)
     img = np.where(lum[..., None] > a.paper * 1.05, heat, grey)
     Image.fromarray((np.clip(img, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)).save(base + '.nits.png')
-    print(f'  wrote {base}.sdr.png and {base}.nits.png (false colour from {a.paper:.0f} to {peak:.0f} nits)')
+    print(f'  wrote {base}.sdr.png, {base}.peak.png and {base}.nits.png (false colour from {a.paper:.0f} to {peak:.0f} nits)')
 
     if a.sdr:
         ref = np.asarray(Image.open(a.sdr).convert('RGB'), dtype=np.float32) / 255.0

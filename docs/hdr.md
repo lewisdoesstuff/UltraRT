@@ -119,7 +119,9 @@ HDR on, its final pass is pass 4 of `Vfx.shader`: the same code as pass 3, which
 - **Effects** (`HDREffects`): the share of the pixel's light the transparents added (luminance after over before, in
   linear light) times how bright the result is (brightest channel from 0.6 to 1, squared) scales the pixel by
   `HDREffects^2.2`. A dim glow over a bright wall has a small share and leaves the wall alone; smoke and blood darken and
-  get nothing.
+  get nothing. Over a near-white image the share is replaced by how much of the room left above the pixel the effect
+  filled, and pixels that show nothing of an effect inside it take its share from both sides (2026-11-20, "Effects over
+  bright surfaces" below).
 - **Bloom** (`HDRBloom`): the SDR bloom adds its glow under a soft shoulder that ends at white. The HDR glow is the same
   shoulder with `HDRBloom` more room (up to the peak), and the gain is the HDR value over the SDR one, only where the SDR
   result is near white (brightest channel 0.75-1) and the glow itself is strong (it added 0.03-0.15 or more). Without the
@@ -144,6 +146,56 @@ runs (no UAV, no extra copy).
 The muzzle flash is not covered: it is a transparent on the HUD camera, drawn after the viewmodel composite, and a diff
 of that camera's transparents would also catch whatever HUD the game draws there. The beam, its sparks and its light on
 the world are covered.
+
+### Effects over bright surfaces (2026-11-20, `t3/0-3-beam-core-fix`)
+The user, on the HDR display, at 0-3's beam room (`LightPillarNew` additive pillars, `coneGain` 1.6): the pillars were
+flat yellow and see-through, the wall's stripes showing through them as if drawn in front, in `relight` and
+`pathtrace`. SDR screenshots never showed it (bench screenshots are the SDR image; the user's were Steam F12 shots, which
+Steam takes from the HDR10 swapchain and tone maps).
+
+**Cause.** The traced room is far brighter than the game's, so behind the pillars the SDR image is near white (the hot
+wall band and its strips, (255, 240-255, 190-230)). The pillar adds over that and clips, so its share of the pixel's
+light, which set its `HDREffects` gain, came out small exactly there: measured in the HDR10 frame, a pillar pixel over a
+dark wall got a uniform x4.4 (to the peak), over the band x4.3 / 2.4 / 2.4 (R / G / B). Red was the wall's own composite
+gain (it lifts red most), green and blue the pillar's reduced effect gain, so the band showed through in pink at the
+same brightness as the pillar around it.
+
+**Change** (`Vfx.shader` pass 4, `EffectShare`; HDR only, the SDR image is unchanged):
+- Where the image under the effect was bright (brightest channel 0.5-0.85 fading in), the share is at least the share of
+  the room left above the pixel that the effect filled, in the channel where it filled most (`(late - pre) / (1 - pre)`,
+  needing a change of 0.01-0.04 or more). A debug view of `late - pre` showed the pillar changing at least one channel
+  almost everywhere over the band (green and blue; all three in its core).
+- *Blind* pixels: where the image was so near white in the channels the effect adds to that nothing of it shows (a
+  yellow pillar over a white strip), a pixel whose share is under 0.6, with `pre` above 0.85 and `late` above 0.9 in
+  its brightest channel, takes the weaker side's share of the strongest of 12 opposite-pair taps (4 axes x 3 radii:
+  0.8 %, 2.2 % and 5 % of the screen height). Inside a pillar both sides are pillar; a wall pixel beside one has it on one
+  side only and keeps its own. Without this the near-camera pillars kept wall-coloured blotches.
+- A first try counted only channels the effect drove to white (`late` >= 0.97); that left the pixels where it filled
+  most but not all of the room, as blotches.
+
+**Measured** (main install, the user's display: 1170 nit peak, paper white 250; `bench/suites/0-3-beams.json` 0-3 user
+view / mid room / back wall and `0-3-beams-others.json` 1-4 lamps, 3-1 eye beams, 6-2 pose 1; `-ultrart-hdr-capture raw`,
+before `bench/results/20261120-201923_0-3-beams` and `-202653_0-3-beams-others` (master e55513a), after
+`-204914_*`). Mean luminance of the frame, nits / share above paper white / share within 10 % of the peak, before / after:
+
+| Pose | Mode | Mean | > paper white % | >= 90 % of peak % |
+|---|---|---|---|---|
+| 0-3 user view | relight | 195 / 206 | 19.0 / 19.0 | 10.9 / 14.6 |
+| | pathtrace | 190 / 200 | 19.1 / 19.1 | 11.8 / 15.1 |
+| 0-3 mid room | pathtrace | 207 / 232 | 23.8 / 21.0 | 14.4 / 15.0 |
+| 0-3 back wall (pillars beside the camera) | pathtrace | 404 / 468 | 44.2 / 44.3 | 28.4 / 41.1 |
+| 1-4 pose 1 lamps | pathtrace | 11 / 11 | 0.07 / 0.07 | 0 / 0 |
+| 3-1 eye beams | pathtrace | 69 / 85 | 11.7 / 12.3 | 1.4 / 5.0 |
+| 6-2 pose 1 (window beams) | pathtrace | 10 / 10 | 0.02 / 0.03 | 0.04 / 0.04 |
+
+The added area at the peak is the pillars over the walls (and 3-1's LightPillar beam over the lit floor), which now get
+the same gain as the rest of the pillar. Pillar pixels over the band: x4.46 in all channels (was 4.3 / 2.4 / 2.4).
+Relight and pathtrace behave the same. 1-4's glow sprites and 6-2's window beams don't change. The user confirmed the
+pillars on the display ("the beam issues seem solved"). Stills: `bench/results/review/0-3-beams/`.
+
+Left: a few faint whiter streaks in the pillars right beside the camera, where the wall behind was white in every
+channel and wider than the largest tap; the pillar's core gradient is mostly gone in HDR as in SDR (the brighter traced
+room clips its red and green; only its blue, the core's whiteness, varies).
 
 ### Per mode
 | Mode | HDR content |
@@ -173,9 +225,15 @@ bright scene is darkened less, since its highlights have the display's headroom.
 - `bench.ps1 -Suite hdr-quick,hdr-look -Slot alt -Extra '-ultrart-hdr','on','-ultrart-hdr-capture','raw'` logs, for
   every screenshot, statistics of the R10G10B10A2 frame that was handed to DXGI (read back from the real back buffer
   after the pass) and the pass's cost, and writes the frame as `<screenshot>.png.hdr10.bin`.
-- `python tools/hdr/hdr10-view.py <file> --paper <nits> --sdr <screenshot.png>` decodes one: luminance percentiles, the
-  share of pixels above paper white, a false-colour map of where they are, and the difference to the game's own
-  screenshot.
+- `python tools/hdr/hdr10-view.py <file> --paper <nits> --sdr <screenshot.png> [--peak <nits>]` decodes one: luminance
+  percentiles, the share of pixels above paper white, a false-colour map of where they are, the difference to the game's
+  own screenshot, and `<name>.peak.png`, the frame scaled so the peak is white (what is brighter than what on the
+  display, with hue: an effect against the wall behind it).
+- **The game must be on the HDR display.** The bench window opens on the display Unity remembers; on 2026-11-20 it opened
+  on an SDR one at 1920x1080 (`hdr.log`: `HDR output not used: HDR is off for the game's display`) and wrote no HDR10
+  frame. Add `'-monitor','1','-screen-width','2560','-screen-height','1440'` to `-Extra` (bench.ps1 puts the user's
+  display prefs back afterwards). Pass `-Extra` from PowerShell: through bash, `powershell -File bench.ps1 -Extra
+  'a','b'` arrives as one string and the flags are ignored.
 
 ## Measured (2026-11-18, RTX 5070 Ti, 2560x1440, the display in HDR: peak 456 nits, Windows SDR white 240 nits)
 - **Stand-alone test**: the app sees `R8G8B8A8`, the capture reads 240 nits for white and a 145.9 nit mean for half grey
@@ -259,6 +317,13 @@ its UAV write); the viewmodel composite is unchanged at 0.03 ms. Together about 
 with HDR off.
 
 ## Known gaps
+- **0-3's hot walls are coral / pink in HDR** (found 2026-11-20, not changed). The composite's gain is per channel with a
+  floor of 1: the leading red of a hot orange rises 2x or more while green and blue keep what the SDR rolloff whitened
+  them to, and the SDR colour also has the highlight hue's warm turn, which the HDR colour hardly gets (wall highlights
+  in the HDR10 frame: hue 20-29 degrees against the SDR image's 35-37). A version that kept the SDR hue (luminance from
+  the HDR curve, saturation raised towards the HDR colour's) turned them orange, but the user found the room then
+  "very bright, but rather pale" beside the saturated pillars: a fifth of the frame lifted to 600-1100 nits. Lifting
+  saturated highlights less is the next idea. Dropped for now; the pillar fix above is independent of it.
 - Not judged by eye yet: everything above is measured from the frame handed to DXGI, including the 2026-11-18 effects,
   bloom and defaults work (the development display is the user's, but nobody looked at it during these runs).
 - The muzzle flash and other transparents the HUD camera draws on the gun stay at paper white (see "Effects and bloom").
