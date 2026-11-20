@@ -1,0 +1,102 @@
+{
+ "Name": "stained-glass",
+ "Note": "Stained-glass projection (docs/materials.md): the game, sg.strength=0 (before) and the default, in relight and pathtrace; relight+sg.debug=3 paints magenta wherever a window's beam lands (unshadowed). 1-4's V2 arena (the floor in front of the west window, and the user's pose 4), 6-2's Grand Hall (pose 1), P-2's entrance hall floor.",
+ "Scenarios": [
+  {
+   "Name": "1-4 arena west",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 3,
+    "Load": "checkpoint",
+    "Position": [
+     -8.0,
+     -16.54,
+     590.0
+    ],
+    "Yaw": -25.0,
+    "Pitch": -14.0
+   },
+   "Modes": [
+    "off",
+    "relight+sg.strength=0",
+    "relight",
+    "pathtrace+sg.strength=0",
+    "pathtrace",
+    "relight+sg.debug=3"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "1-4 pose 4",
+   "Scene": "Level 1-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-1-4-4.json",
+    "Duration": 3,
+    "Load": "checkpoint"
+   },
+   "Modes": [
+    "off",
+    "relight+sg.strength=0",
+    "relight",
+    "pathtrace+sg.strength=0",
+    "pathtrace",
+    "relight+sg.debug=3"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "6-2 pose 1",
+   "Scene": "Level 6-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-6-2-1.json",
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "relight+sg.strength=0",
+    "relight",
+    "pathtrace+sg.strength=0",
+    "pathtrace",
+    "relight+sg.debug=3"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "P-2 hall floor",
+   "Scene": "Level P-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/p-2-vent-smoke.json",
+    "Position": [
+     -2.85,
+     -17.5,
+     38.069
+    ],
+    "Yaw": -21.8,
+    "Pitch": -25,
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "relight+sg.strength=0",
+    "relight",
+    "pathtrace+sg.strength=0",
+    "pathtrace",
+    "relight+sg.debug=3"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

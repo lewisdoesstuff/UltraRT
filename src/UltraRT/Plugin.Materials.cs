@@ -83,6 +83,7 @@ namespace UltraRT
                 if (args[i].ToLowerInvariant() == "-ultrart-glass") glass.enabled = args[i + 1] != "off";
             Logger.LogInfo($"Lit weights: {u}");
             Logger.LogInfo($"Stained glass: {glass}");
+            ParseStainedGlassArgs(); // stained-glass projection (Plugin.StainedGlass.cs)
         }
 
         private void MaterialsUpdate()

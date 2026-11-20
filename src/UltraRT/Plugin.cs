@@ -438,6 +438,7 @@ namespace UltraRT
             LoadVfxShaders(bundle);
             LoadWetShaders(bundle);
             LoadStainShader(bundle);
+            LoadStainedGlassShader(bundle); // stained-glass projection (Plugin.StainedGlass.cs)
 
             _bundle = bundle;
             _debugShader = debug;
@@ -552,6 +553,8 @@ namespace UltraRT
             _vfx?.Reset();
             ViewmodelReset();
             LightOverridesReset(); // Plugin.LightOverrides.cs
+            SgClear(); // stained-glass windows (Plugin.StainedGlass.cs)
+            _sgBuiltFor = null;
         }
 
         private Denoiser _denoiser;
@@ -1484,6 +1487,7 @@ namespace UltraRT
                 BindTransparents(shader, denoised, viewProj, w, h); // water and glass (Plugin.Transparent.cs)
                 BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
                 BindStains(shader, kind == Kind.Denoised || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
+                BindStainedGlass(shader); // stained-glass windows project their mosaic (Plugin.StainedGlass.cs)
                 BindPathTrace(shader, full, rr);
                 PathTraceLightsEnd();
             }
