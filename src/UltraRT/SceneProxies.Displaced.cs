@@ -54,6 +54,10 @@ namespace UltraRT
 
         private const int ParamsPerSlot = 5;
 
+        /// <summary>Channels of a displaced copy that hold its rest pose (object space, float3): the hit shader evaluates the
+        /// game's RAIN term there, as the game's pixel shader does (Proxy.shader, RestSurface).</summary>
+        private const VertexAttribute RestChannelNormal = VertexAttribute.TexCoord6, RestChannelPosition = VertexAttribute.TexCoord7;
+
         private sealed class Displaced
         {
             public DynamicProxy Entry;
@@ -191,6 +195,11 @@ namespace UltraRT
             var rest = new RestVertex[vc];
             Mesh dst;
             int[][] subIdx = new int[src.subMeshCount][];
+            // The rest pose also rides in the copy as two extra channels (object space; RestChannelNormal / RestChannelPosition),
+            // for the hit shader's terms that the game evaluates on the undisplaced surface (the RAIN term: rain on displaced
+            // surfaces). Only where the source leaves both channels free; the hit shader reads them only from meshes that
+            // have them.
+            bool restChannels = !src.HasVertexAttribute(RestChannelNormal) && !src.HasVertexAttribute(RestChannelPosition);
             if (src.isReadable)
             {
                 var pos = src.vertices; var nrm = src.normals; var col = src.colors; var uv = src.uv;
@@ -203,6 +212,11 @@ namespace UltraRT
                 }
                 for (int sm = 0; sm < src.subMeshCount; sm++) subIdx[sm] = src.GetIndices(sm, true);
                 dst = Object.Instantiate(src);
+                if (restChannels)
+                {
+                    dst.SetUVs(RestChannelNormal - VertexAttribute.TexCoord0, rest.Select(r => r.Nrm).ToList());
+                    dst.SetUVs(RestChannelPosition - VertexAttribute.TexCoord0, rest.Select(r => r.Pos).ToList());
+                }
             }
             else
             {
@@ -247,10 +261,25 @@ namespace UltraRT
                     subIdx[sm] = list;
                 }
                 dst = new Mesh { name = src.name, indexFormat = src.indexFormat };
-                dst.SetVertexBufferParams(vc, src.GetVertexAttributes());
+                var attrs = src.GetVertexAttributes().ToList();
+                // The rest-pose channels in a stream of their own (Unity meshes have at most 4 streams).
+                int restStream = streams.Length;
+                if (restChannels && restStream < 4)
+                {
+                    attrs.Add(new VertexAttributeDescriptor(RestChannelNormal, VertexAttributeFormat.Float32, 3, restStream));
+                    attrs.Add(new VertexAttributeDescriptor(RestChannelPosition, VertexAttributeFormat.Float32, 3, restStream));
+                }
+                else restChannels = false;
+                dst.SetVertexBufferParams(vc, attrs.ToArray());
                 const MeshUpdateFlags quiet = MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontNotifyMeshUsers;
                 for (int s = 0; s < streams.Length; s++)
                     if (streams[s] != null) dst.SetVertexBufferData(streams[s], 0, 0, streams[s].Length, s, quiet);
+                if (restChannels)
+                {
+                    var restData = new Vector3[vc * 2];
+                    for (int i = 0; i < vc; i++) { restData[2 * i] = rest[i].Nrm; restData[2 * i + 1] = rest[i].Pos; }
+                    dst.SetVertexBufferData(restData, 0, 0, restData.Length, restStream, quiet);
+                }
                 dst.SetIndexBufferParams(idx.Length, src.indexFormat);
                 if (src.indexFormat == IndexFormat.UInt32) dst.SetIndexBufferData(idx, 0, 0, idx.Length, quiet);
                 else dst.SetIndexBufferData(idx.Select(x => (ushort)x).ToArray(), 0, 0, idx.Length, quiet);

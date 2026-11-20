@@ -204,6 +204,9 @@ game rains on, and under roofs it stops by itself. `RainWetness` adds, at every 
   crest and trough across the ring's band, flat inside), the tilt is limited to `wet.rippleTilt` (0.12, about 7
   degrees; a third of that off the puddles), and off the puddles it tilts the surface's own normal ("Ripple rings").
 
+On `VERTEX_DISPLACEMENT` surfaces (3-1 / 3-2 / P-1 flesh) all of this is evaluated on the surface's rest pose, as the
+game does, so it moves with the surface (since 2026-11-20; docs/scene-proxies.md, "Rain on displaced surfaces").
+
 Metals keep their own specular weight and most of their roughness: raising it turned P-2's metal floor black under
 its dark sky (a metal's reflection replaces its diffuse colour). REFLECTION materials keep the game's model. Rain is
 wherever the game sets it: P-2 (1,245 of 1,427 rain-capable materials at the vent pose), 8-2's streets, 7-3's
@@ -296,6 +299,36 @@ blood is fresh.
 Bench: the effect kind `bloodstain` writes stains onto the floor and walls ahead (as a splatter's drops do when they
 land), since the bench's `blood` splatter rarely lands in view.
 
+### Wet blood on moving surfaces (2026-11-20, `t3/3-1-flesh-glossy-layer`)
+User report (pathtrace, 3-1's big acid room near the end, `9 - Uphill Battle`, seen during an agent's test runs): "flesh
+textures (which move around a bunch) look strange with PT on ... it almost looks like the glossy layer of blood on the
+flesh doesn't move with the shifting flesh". Then: "they're the bloodstains ... this may be an issue in the vanilla game,
+but they're just more noticeable in ours".
+
+Cause. The game stamps its stains as decals from world-space boxes onto its depth buffer. Flesh with
+`VERTEX_DISPLACEMENT` slides through world space (the flesh family: amplitude 1-2 m, flow (1, 1, 1), docs/scene-proxies.md
+"Vertex displacement"), and the transform never moves, so a stain stays where it was stamped while the flesh moves under
+it. Vanilla shows that too, as a flat red tint. The wet-blood film made the same patches dark, near-mirror and fully
+specular (roughness 0.12, weight 1), which reads as a glossy layer that does not move with the flesh. The level's gore
+zones stamp their stains as the level (or a checkpoint) loads, and the stamp hook counts those as fresh: 74 stains at
+Uphill Battle's checkpoint, wet for 40 s after every load. Agent test runs, which load a level per stop, always saw them
+wet.
+
+Found with frame sequences of held shots (`bench/suites/flesh-gloss.json`: live 60 fps takes of a static camera, the
+temporal mean over each shot; what moves with the flesh blurs, a layer that does not stays sharp) and debug views: the
+patches are sharp in the pathtrace mean and sit over every view the game composites its stains onto (albedo, normals,
+motion, spec-params), with the same outline in the game's own frames. Innocent, by A/B in the same launches: the flesh
+subsurface term (`mat.fleshSss=0` only lowers the patches' contrast), rain wetness (`wet.rain=0`, `plugin._rainOn=0`),
+the material maps (`mat.enabled=0`), displacement and its motion vectors (`plugin._displace=0`,
+`plugin._displaceMotion=0`), the denoiser (UltraRT's shows them too), and the acid under the floor (RR's remodulation
+albedo, `plugin._rrFinishDebug=1`, is the same with camera rays stopping at acid or not).
+
+Fix: no wet-blood film on surfaces the game displaces. The hit shader flags a displaced copy (its mesh carries the rest
+pose in uv7, docs/scene-proxies.md "Rain on displaced surfaces") with `ULTRART_FLAG_DISPLACED` (payload flags bit 7), and
+`PathTrace`'s ray generation skips the film there; the game's stain is drawn over the flesh as in vanilla. Everything
+else keeps wet blood. Bench `wet.bloodOnDisplaced=1` puts it back (A/B in one launch). Cost: one vertex-declaration read
+per closest hit; nothing measurable.
+
 ## Settings
 
 Settings menu: section "Screen effects" (and the wet entries after it). Config sections `[ScreenEffects]`, `[Wet]`.
@@ -314,6 +347,8 @@ Bench variants: `vfx.<field>`, `wet.<field>`, `pl.soft`, `pl.softDistance`.
 | Rain wetness / wetness / puddles | `-ultrart-wet-rain on\|off`, `-ultrart-wet-rain-strength F`, `-ultrart-wet-puddles F` | on / 0.8 / 0.45 | |
 | Soft puddles | `-ultrart-wet-soft on\|off` (bench `wet.soft=0`) | on | soft edges, soaked margin, glossier wet floor ("Soft puddles") |
 | Ripple tilt | bench `wet.rippleTilt=F`, `wet.ripplesOld=1` (the 2026-11-15 rings) | 0.12 | largest tilt of the raindrop ripples ("Ripple rings", 2026-11-20) |
+| Rain at the rest pose | bench `wet.restPose=0` (the old, world-fixed pattern) | on | rain and wetness on displaced surfaces follow the surface (docs/scene-proxies.md, "Rain on displaced surfaces") |
+| Wet blood on displaced surfaces | bench `wet.bloodOnDisplaced=1` (before 2026-11-20) | off | ("Wet blood on moving surfaces") |
 | Wet blood / drying time | `-ultrart-wet-blood on\|off`, `-ultrart-wet-blood-dry S` | on / 40 s | |
 | Blood stains in reflections | `-ultrart-stain-reflections on\|off` | on | ([path-tracing.md](path-tracing.md), "Blood stains in reflections") |
 
@@ -383,7 +418,9 @@ move between captures, which is most of its difference; the mean is 2% up.
 - One shared debris age; enviro gibs (broken props) do not glow.
 - Underwater was tuned on 7-1's pool from a teleport pose (unloaded surroundings, white water colour); 5-1 needs a
   recorded approach to check. The surface height is the collider's top: sloped or moving water is approximated.
-- Wet blood: primary hits only (a mirror does not show stains glossy); stains loaded from a checkpoint are dry; the
+- Wet blood: primary hits only (a mirror does not show stains glossy); not on displaced surfaces ("Wet blood on moving
+  surfaces"); stains loaded from a checkpoint are dry, but stains a level stamps as it loads (3-1's gore zones: 74 at
+  Uphill Battle's checkpoint) count as fresh for 40 s; the
   mesh-based stain fallback (compute shaders off) is not handled. Pre-placed `Bloodstain_Fallback` meshes stay matte.
 - Rain puddles follow a noise, not the geometry: no height data exists to find real low spots.
 - The swapped fire and explosion materials do not write the game's outline and view-normal targets (the game's

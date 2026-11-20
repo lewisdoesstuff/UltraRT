@@ -1,0 +1,44 @@
+{
+  "Version": 1,
+  "Name": "3-2-walls-floor",
+  "Scene": "Level 3-2",
+  "Note": "Static shots of 3-2's moving-walls hallway (pose of bench/recordings/late-3-2-moving-walls.json), looking down at the flesh floor both ways. bench/suites/flesh-gloss.json.",
+  "Keys": [
+    {
+      "Player": [
+        0.184523687,
+        -159.453171,
+        315.4854
+      ],
+      "Yaw": -179.2,
+      "Pitch": -35,
+      "Fov": 0,
+      "Duration": 1.6,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        0.184523687,
+        -159.453171,
+        315.4854
+      ],
+      "Yaw": 0.8,
+      "Pitch": -35,
+      "Fov": 0,
+      "Duration": 1.6,
+      "Ease": "cut"
+    },
+    {
+      "Player": [
+        0.184523687,
+        -159.453171,
+        315.4854
+      ],
+      "Yaw": 0.8,
+      "Pitch": -35,
+      "Fov": 0,
+      "Duration": 0.1,
+      "Ease": "linear"
+    }
+  ]
+}

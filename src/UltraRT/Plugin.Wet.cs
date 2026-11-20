@@ -32,6 +32,10 @@ namespace UltraRT
         /// <summary>-ultrart-wet-soft on|off (bench wet.soft=0 for the old look): soft puddle edges with a wet margin and a glossier wet
         /// floor, in place of the four values above (docs/vfx.md, "Soft puddles"). On since the review of 2026-11-17.</summary>
         public bool soft = true;
+        /// <summary>Rain (drops, trails, wetness, puddles) on VERTEX_DISPLACEMENT surfaces is evaluated on their rest pose, as the
+        /// game's shader does, so it moves with the shifting surface (bench wet.restPose=0: at the displaced hit, before
+        /// 2026-11-20; docs/scene-proxies.md, "Rain on displaced surfaces").</summary>
+        public bool restPose = true;
 
         /// <summary>Wet blood: fresh stains are glossy and darker, and dry to the game's matte look.</summary>
         public bool blood = true;
@@ -41,6 +45,11 @@ namespace UltraRT
         public float bloodWetness = 1f, bloodDarken = 0.3f;
         /// <summary>Gloss of fully wet blood: roughness, reflectance at normal incidence, specular weight.</summary>
         public float bloodRoughness = 0.12f, bloodF0 = 0.12f, bloodWeight = 1f;
+        /// <summary>Wet blood on surfaces the game moves with VERTEX_DISPLACEMENT (3-1 / 3-2 / P-1 flesh). Off: the game's stain
+        /// decal stays where it was stamped while the surface slides under it (vanilla does that too, as a flat tint), and a
+        /// glossy film there read as a layer that does not move with the flesh (docs/vfx.md, "Wet blood on moving
+        /// surfaces"). Bench wet.bloodOnDisplaced=1 is the behaviour before 2026-11-20.</summary>
+        public bool bloodOnDisplaced;
         /// <summary>At most this many of the newest stains are drawn into the wetness mask.</summary>
         public int bloodMaxStains = 4096;
         /// <summary>Blood stains show in reflections (Plugin.Stains.cs): reflection hits get the game's blood composite.</summary>
@@ -116,7 +125,7 @@ namespace UltraRT
             }
             _cmd.SetRayTracingTextureParam(shader, "_BloodWetTex", on ? (Texture)_bloodWet.Mask : Texture2D.blackTexture);
             _cmd.SetRayTracingVectorParam(shader, "_BloodWetParams", on ? new Vector4(Mathf.Clamp01(s.bloodWetness), _guardScale.x, _guardScale.y, Mathf.Clamp01(s.bloodDarken)) : Vector4.zero);
-            _cmd.SetRayTracingVectorParam(shader, "_BloodWetGloss", new Vector4(Mathf.Clamp(s.bloodRoughness, 0.02f, 1f), Mathf.Clamp01(s.bloodF0), Mathf.Clamp01(s.bloodWeight), 0f));
+            _cmd.SetRayTracingVectorParam(shader, "_BloodWetGloss", new Vector4(Mathf.Clamp(s.bloodRoughness, 0.02f, 1f), Mathf.Clamp01(s.bloodF0), Mathf.Clamp01(s.bloodWeight), s.bloodOnDisplaced ? 1f : 0f));
             if (on && Time.realtimeSinceStartup >= _bloodNextLog)
             {
                 _bloodNextLog = Time.realtimeSinceStartup + 10f;
@@ -144,7 +153,7 @@ namespace UltraRT
                 ? new Vector4(0.4f, 0.3f, 0.15f, 1f)
                 : new Vector4(Mathf.Clamp(s.puddleEdge, 0.01f, 1f), Mathf.Clamp01(s.puddleMargin), Mathf.Clamp01(s.wetRoughness), Mathf.Clamp01(s.wetWeight)));
             // x the 2026-11-15 ripples (A/B), y largest ripple tilt.
-            Shader.SetGlobalVector(Wet3Id, new Vector4(s.ripplesOld ? 1f : 0f, Mathf.Clamp(s.rippleTilt, 0f, 1f), 0f, 0f));
+            Shader.SetGlobalVector(Wet3Id, new Vector4(s.ripplesOld ? 1f : 0f, Mathf.Clamp(s.rippleTilt, 0f, 1f), s.restPose ? 1f : 0f, 0f));
         }
     }
 }

@@ -279,7 +279,8 @@ Shader "UltraRT/Proxy"
             // wet surface without standing water (Plugin.Wet.cs).
             float4 _UltraRTWet2;
             // x 1 = the ripples of 2026-11-15 (bench A/B: a steep cone per drop, and the detail normal halved over the
-            // drop's whole disc), y largest tilt of the ripple normal (radians, about), Plugin.Wet.cs.
+            // drop's whole disc), y largest tilt of the ripple normal (radians, about), z 1 = rain on displaced surfaces at their
+            // rest pose (RestSurface), Plugin.Wet.cs.
             float4 _UltraRTWet3;
 
             float WetHash(float2 p)
@@ -356,6 +357,24 @@ Shader "UltraRT/Proxy"
                 // Off the puddles a third of it (lerp 0.35..1 above): the film is thin and rougher.
                 float t = max(_UltraRTWet3.y, 1e-3) * saturate(_UltraRTWet.w) * lerp(0.35, 1.0, puddle), m = length(slope);
                 slope *= t / sqrt(t * t + m * m);
+            }
+
+            // The game evaluates its RAIN term on the undisplaced surface: the Master vertex shader passes the rest-pose world
+            // position and normal (TEXCOORD9 / 10) next to the displaced ones, and the pixel shader projects the drops and
+            // trails with those (DXBC, docs/scene-proxies.md "Rain on displaced surfaces"). So the wet pattern rides along
+            // with VERTEX_DISPLACEMENT surfaces (3-1 / 3-2 / P-1 flesh). A displaced copy carries its rest pose in uv6
+            // (normal) and uv7 (position), object space (SceneProxies.Displaced.cs); every other mesh is at rest already.
+            void RestSurface(uint3 tri, float3 b, inout float3 P, inout float3 N)
+            {
+                if (_UltraRTWet3.z < 0.5 || !UnityRayTracingHasVertexAttribute(kVertexAttributeTexCoord7)) return;
+                float3 pr = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributeTexCoord7) * b.x
+                          + UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributeTexCoord7) * b.y
+                          + UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributeTexCoord7) * b.z;
+                float3 nr = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributeTexCoord6) * b.x
+                          + UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributeTexCoord6) * b.y
+                          + UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributeTexCoord6) * b.z;
+                P = mul(ObjectToWorld3x4(), float4(pr, 1.0));
+                if (dot(nr, nr) > 1e-12) N = normalize(mul(nr, (float3x3)WorldToObject3x4()));
             }
 
             float3 RainAlbedo(float3 albedo, float3 P, float3 N)
@@ -699,6 +718,7 @@ Shader "UltraRT/Proxy"
                             + UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributeNormal) * b.y
                             + UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributeNormal) * b.z;
                 uint flags = 0;
+                if (UnityRayTracingHasVertexAttribute(kVertexAttributeTexCoord7)) flags |= ULTRART_FLAG_DISPLACED; // a displaced copy (RestSurface)
                 if (dot(nObj, nObj) < 1e-8)
                 {
                     nObj = cross(p1 - p0, p2 - p0);
@@ -739,10 +759,12 @@ Shader "UltraRT/Proxy"
                 if (_Rain > 0.5)
                 {
                     float3 hitP = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-                    albedo.rgb = RainAlbedo(albedo.rgb, hitP, nGame);
+                    float3 rainN = nGame;
+                    RestSurface(tri, b, hitP, rainN);
+                    albedo.rgb = RainAlbedo(albedo.rgb, hitP, rainN);
                     if (litWeight > 0.5)
                     {
-                        RainWetness(hitP, nGame, wantDetail, wet, puddle, wetSlope);
+                        RainWetness(hitP, rainN, wantDetail, wet, puddle, wetSlope);
                         // A wet surface is darker (water fills the pores); standing water darker still.
                         albedo.rgb *= 1.0 - 0.18 * wet - 0.15 * puddle;
                     }

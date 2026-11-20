@@ -1,0 +1,138 @@
+{
+ "Name": "flesh-gloss",
+ "Note": "3-1 / 3-2 moving flesh under pathtrace (docs/vfx.md 'Wet blood on moving surfaces', docs/scene-proxies.md 'Rain on displaced surfaces'): live 60 fps frame sequences of held shots: the game, the fix, wet blood on displaced surfaces again (wet.bloodOnDisplaced=1) and the old behaviour (+ wet.restPose=0) in one launch. The level's gore zones stamp stains at load, which count as fresh for 40 s. Analyse with a temporal mean over each shot: a layer that does not move with the flesh stays sharp. 0-1 metal blood: wet blood on an ordinary floor must be unchanged.",
+ "Scenarios": [
+  {
+   "Name": "3-1 uphill floor",
+   "Scene": "Level 3-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/3-1-uphill-top.json",
+    "Load": "checkpoint",
+    "Position": [
+     -203.0,
+     -41.75,
+     736.5
+    ],
+    "Yaw": 180,
+    "Pitch": -50,
+    "Duration": 1
+   },
+   "Modes": [
+    "pathtrace"
+   ],
+   "Cinematic": {
+    "File": "../cinematics/3-1-uphill-floor.json",
+    "Fps": 60,
+    "TimeScale": 1,
+    "Preroll": 60,
+    "OutputScale": 0.5,
+    "Encode": false,
+    "Render": false,
+    "Takes": [
+     {
+      "Name": "off",
+      "Mode": "off",
+      "View": "pathtrace",
+      "Aa": 1
+     },
+     {
+      "Name": "pt",
+      "Mode": "live",
+      "View": "pathtrace"
+     },
+     {
+      "Name": "pt_oldblood",
+      "Mode": "live",
+      "View": "pathtrace+wet.bloodOnDisplaced=1"
+     },
+     {
+      "Name": "pt_old",
+      "Mode": "live",
+      "View": "pathtrace+wet.bloodOnDisplaced=1+wet.restPose=0"
+     },
+     {
+      "Name": "pt_noblood",
+      "Mode": "live",
+      "View": "pathtrace+wet.blood=0"
+     },
+     {
+      "Name": "relight",
+      "Mode": "live",
+      "View": "relight"
+     },
+     {
+      "Name": "relight_old",
+      "Mode": "live",
+      "View": "relight+wet.bloodOnDisplaced=1+wet.restPose=0"
+     }
+    ]
+   }
+  },
+  {
+   "Name": "3-2 walls floor",
+   "Scene": "Level 3-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/late-3-2-moving-walls.json",
+    "Areas": "../recordings/late-3-2-moving-walls-areas.json",
+    "Duration": 1
+   },
+   "Modes": [
+    "pathtrace"
+   ],
+   "Cinematic": {
+    "File": "../cinematics/3-2-walls-floor.json",
+    "Fps": 60,
+    "TimeScale": 1,
+    "Preroll": 60,
+    "OutputScale": 0.5,
+    "Encode": false,
+    "Render": false,
+    "Takes": [
+     {
+      "Name": "off",
+      "Mode": "off",
+      "View": "pathtrace",
+      "Aa": 1
+     },
+     {
+      "Name": "pt",
+      "Mode": "live",
+      "View": "pathtrace"
+     },
+     {
+      "Name": "pt_old",
+      "Mode": "live",
+      "View": "pathtrace+wet.bloodOnDisplaced=1+wet.restPose=0"
+     }
+    ]
+   }
+  },
+  {
+   "Name": "0-1 metal blood",
+   "Scene": "Level 0-1",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/0-1-metal.json",
+    "Duration": 5
+   },
+   "Effects": {
+    "Kinds": [
+     "bloodstain"
+    ],
+    "Every": 0,
+    "ShotDelay": 0.5
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+wet.bloodOnDisplaced=1",
+    "pathtrace+wet.blood=0"
+   ],
+   "Screenshots": [
+    3
+   ]
+  }
+ ]
+}

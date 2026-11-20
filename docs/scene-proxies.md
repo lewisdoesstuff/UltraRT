@@ -106,6 +106,30 @@ The code is in `src/UltraRT/SceneProxies.Displaced.cs` and `Displace.compute`.
   - The emitter table (emissive lights, lava) keeps the rest-pose triangles.
   - Material keyword changes at run time are not followed.
 
+### Rain on displaced surfaces (2026-11-20, `t3/3-1-flesh-glossy-layer`)
+
+3-1, 3-2 and P-1's flesh materials carry the game's `RAIN` keyword (3-1: 57 of 183 rain-capable proxy sources raining,
+3-2: 34 of 91), so the hit shader's rain term (drops, trails) and our wetness (wet film, puddles, ripples; docs/vfx.md,
+"Rain") run on surfaces that move. The game evaluates `RAIN` on the **rest pose**: the Master vertex shader passes the
+undisplaced world position and normal as TEXCOORD9 / TEXCOORD10 next to the displaced ones (TEXCOORD1 / 2), and the
+pixel shader's rain projection reads 9 and 10 (DXBC of the `RAIN VERTEX_DISPLACEMENT` variants, read as in "The game's
+function"; its ceiling test uses the rest normal too). So the game's wet pattern rides along with the shifting surface.
+Its CAUSTICS term reads the displaced position (TEXCOORD1), as ours does. Ours took the displaced hit point and normal,
+so the pattern stood still in world space while the flesh slid through it.
+
+Each displaced copy now also carries its rest pose: uv6 = rest normal, uv7 = rest position (object space, float3;
+`SceneProxies.Displaced.cs`, `RestChannelNormal` / `RestChannelPosition`; readable meshes via `SetUVs`, the others in a
+vertex stream of their own). `Proxy.shader`'s `RestSurface` reads them where a raining hit's mesh has uv7 and hands the
+rain and wetness functions that position and normal. Other meshes are at rest already. A source that uses uv6 or uv7
+itself gets no rest channels (none in the levels checked). Memory: 24 bytes per displaced vertex (3-1: 63,552 vertices,
+1.5 MB). Cost: six vertex fetches per raining hit on a displaced copy; nothing elsewhere. Bench `wet.restPose=0` is the
+old behaviour. The same uv7 marks displaced copies for the ray generation (`ULTRART_FLAG_DISPLACED`): no wet-blood film
+there (docs/vfx.md, "Wet blood on moving surfaces").
+
+Found while chasing that report, not its cause: at 3-1's Uphill Battle the spec-params view is the same with
+`wet.restPose` 0 and 1 (the floor near the camera is held still by PreventClipping, and the wet film is uniform there).
+It matters where rain patterns (drops, trails, puddles, ripples) lie on flesh that moves.
+
 ### Validation
 
 Suites:

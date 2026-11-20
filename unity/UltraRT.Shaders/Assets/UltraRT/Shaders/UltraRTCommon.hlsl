@@ -77,6 +77,10 @@ struct RayPayload
 // that is not in emissionHalf: its rgb in uvHalf (r | g << 16) and emissionHalf.y >> 16 (b), as halves; primitive >> 24 = 1 + the
 // caustic volume to shadow it from (0 = unshadowed). PayloadCaustic.
 #define ULTRART_FLAG_CAUSTIC 0x80000000u
+// hit -> ray gen: the surface is one the game moves with VERTEX_DISPLACEMENT (a displaced copy: its mesh carries the rest
+// pose in uv7, SceneProxies.Displaced.cs). The game's blood stains do not stick to it, so fresh-blood gloss is not applied
+// there (PathTrace, _BloodWetGloss.w; docs/vfx.md "Wet blood on moving surfaces").
+#define ULTRART_FLAG_DISPLACED 0x80u
 #define ULTRART_FLAG_DETAIL 0x8u // ray gen -> hit: apply per-texel detail (primary rays only; reflection, bounce, cache and
                                  // volumetric rays skip it). Hit -> ray gen: p.normal carries a per-texel detail normal; on
                                  // primary rays (WANT_MOTION) the vertex normal is in p.primitive bits 0-23 (PackOct24)
