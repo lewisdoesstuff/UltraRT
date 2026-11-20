@@ -13,7 +13,7 @@ namespace UltraRT
     /// preloader patcher (src/UltraRT.Preload) presents the game as HDR10. This file is the plugin's side:
     ///   - settings: [Display] HDR (read by the patcher: needs a restart), HDRPaperWhite, HDRPeak, HDRHighlights, and
     ///     -ultrart-hdr [on|off|force], -ultrart-hdr-paperwhite N, -ultrart-hdr-peak N, -ultrart-hdr-highlights on|off,
-    ///     -ultrart-hdr-emissive X, -ultrart-hdr-lava X, -ultrart-hdr-sky X, -ultrart-hdr-effects X, -ultrart-hdr-bloom X, -ultrart-hdr-white X, -ultrart-hdr-boost X, -ultrart-hdr-gamma srgb|2.2, -ultrart-hdr-debug,
+    ///     -ultrart-hdr-emissive X, -ultrart-hdr-lava X, -ultrart-hdr-sky X, -ultrart-hdr-effects X, -ultrart-hdr-bloom X, -ultrart-hdr-white X, -ultrart-hdr-hue sdr|channel|floor, -ultrart-hdr-saturation X, -ultrart-hdr-boost X, -ultrart-hdr-gamma srgb|2.2, -ultrart-hdr-debug,
     ///     -ultrart-hdr-capture [raw]
     ///   - the gain map: the composite (Denoise.compute Composite, RayReconstruction.compute Finish) writes, per pixel, what
     ///     an HDR display should show over what the SDR image shows; the native present pass multiplies it in.
@@ -35,7 +35,7 @@ namespace UltraRT
         [StructLayout(LayoutKind.Sequential)]
         private struct HdrParams
         {
-            public float paperNits, peakNits, gamma22, tolLo, tolHi, sdrBoost, debug, gainMax, gainStrength, pad0, pad1, pad2;
+            public float paperNits, peakNits, gamma22, tolLo, tolHi, sdrBoost, debug, gainMax, gainStrength, gainFloor, pad1, pad2;
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int HdrIntFn();
@@ -76,6 +76,8 @@ namespace UltraRT
         private IntPtr _hdrLatePtr;
         private float _hdrWhite = 0f;                          // composite value that reaches the peak (0 = the SDR white point)
         private float _hdrGainMax = 16f, _hdrSdrBoost = 0f;
+        private float _hdrSaturation = 0.3f;                   // highlight colour sdr: share of the saturation the SDR rolloff took that HDR gives back (0 = the SDR colour's, 1 = the HDR curve's)
+        private float _hdrGainMode = 0f;                       // highlight colour (UltraRTHdrGain mode): 0 = SDR hue, HDR luminance and saturation; 1 = per channel, gain >= 1 (before 2026-11-20); 2 = per channel
         private bool _hdrGamma22 = true, _hdrDebug;
         private int _hdrCaptureMode;                           // bench: 1 = log statistics of the HDR frame at each screenshot, 2 = + raw frame
         private HdrParams _hdrSent;
@@ -145,6 +147,13 @@ namespace UltraRT
                     case "-ultrart-hdr-boost": if (F(out var bo)) _hdrSdrBoost = bo; break;
                     case "-ultrart-hdr-gamma": _hdrGamma22 = (Next() ?? "2.2").ToLowerInvariant() != "srgb"; break;
                     case "-ultrart-hdr-debug": _hdrDebug = true; break;
+                    case "-ultrart-hdr-saturation": if (F(out var sa)) _hdrSaturation = Mathf.Clamp01(sa); break;
+                    case "-ultrart-hdr-hue":
+                    {
+                        var v = (Next() ?? "sdr").ToLowerInvariant();
+                        _hdrGainMode = v == "floor" || v == "legacy" ? 1f : v == "channel" || v == "hdr" ? 2f : 0f;
+                        break;
+                    }
                     case "-ultrart-hdr-capture": _hdrCaptureMode = (Next() ?? "").ToLowerInvariant() == "raw" ? 2 : 1; break;
                 }
             }
@@ -223,10 +232,11 @@ namespace UltraRT
             {
                 paperNits = _hdrPaperWhite, peakNits = _hdrPeak, gamma22 = _hdrGamma22 ? 1f : 0f, tolLo = 0.06f, tolHi = 0.25f,
                 sdrBoost = _hdrSdrBoost, debug = _hdrDebug ? 1f : 0f, gainMax = _hdrGainMax, gainStrength = _hdrHighlights ? 1f : 0f,
+                gainFloor = Mathf.Abs(_hdrGainMode - 1f) < 0.5f ? 1f : 0f,
             };
             var s = _hdrSent; // field by field: ValueType.Equals would box every frame
             if (!force && p.paperNits == s.paperNits && p.peakNits == s.peakNits && p.gamma22 == s.gamma22 && p.sdrBoost == s.sdrBoost &&
-                p.debug == s.debug && p.gainMax == s.gainMax && p.gainStrength == s.gainStrength) return;
+                p.debug == s.debug && p.gainMax == s.gainMax && p.gainStrength == s.gainStrength && p.gainFloor == s.gainFloor) return;
             _hdrSent = p;
             _hdrSetParams(ref p);
         }
@@ -274,7 +284,7 @@ namespace UltraRT
             // Display peak in the composite's units (display gamma, 1 = SDR white).
             float top = Mathf.Pow(Mathf.Max(1f, HdrPeakNits() / HdrPaperNits()), 1f / 2.2f);
             var p = new Vector4(1f, top, _hdrWhite, _hdrGainMax);
-            var e = new Vector4(Mathf.Max(0f, _hdrEmissive - 1f), 0.5f, 0.9f, 0f);
+            var e = new Vector4(Mathf.Max(0f, _hdrEmissive - 1f), 0.5f, 0.9f, _hdrGainMode);
             if (rr)
             {
                 _rr.HdrTarget = _hdrGainTex; _rr.HdrParams = p; _rr.HdrEmissive = e;
