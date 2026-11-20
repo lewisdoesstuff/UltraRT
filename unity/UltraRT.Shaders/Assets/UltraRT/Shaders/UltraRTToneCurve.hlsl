@@ -141,13 +141,15 @@ float UltraRTHdrPack(float3 c)
 //   scale  >= 1: HDR-only brightening of this pixel before the curve (glowing surfaces, see UltraRTHdrEmissive)
 //   hp     x on, y top = the display peak in the same units ((peak / paper white)^(1/2.2)), z the value that reaches the
 //          peak (0 = the SDR white point), w largest gain
+//   mode   highlight colour (-ultrart-hdr-hue): 0 = the SDR colour's hue at the HDR colour's luminance and saturation
+//          (default since 2026-11-20), 1 = the HDR colour per channel with no gain below 1 (before), 2 = the HDR colour
+//          per channel
 // The HDR curve is the same shoulder with more room: identical to the SDR curve up to the knee (gain exactly 1, so the
 // look of everything that isn't a highlight is unchanged), then it rolls off to the display peak instead of to SDR white.
-// Returns rgb = the per-channel gain in linear light (>= 1; per channel, so a highlight that went to white in SDR gets
-// its colour back: the channel that leads is raised, the others stay at the little the SDR rolloff gave them, which
-// in linear light is next to nothing beside it), a = the SDR colour packed (UltraRTHdrPack), by which the present pass recognises that the pixel is
-// still the composite's.
-float4 UltraRTHdrGain(float3 hdr, float3 shown, float scale, float white, float4 params, float4 hp)
+// Returns rgb = the per-channel gain in linear light (per channel, so a highlight the SDR rolloff whitened gets its
+// saturation back: the channel that leads is raised, the others may drop below the SDR image's), a = the SDR colour
+// packed (UltraRTHdrPack), by which the present pass recognises that the pixel is still the composite's.
+float4 UltraRTHdrGain(float3 hdr, float3 shown, float scale, float white, float4 params, float4 hp, float mode)
 {
     float3 h = max(hdr, 0.0) * max(scale, 1.0);
     float top = max(hp.y, 1.0);
@@ -174,9 +176,43 @@ float4 UltraRTHdrGain(float3 hdr, float3 shown, float scale, float white, float4
     }
     hc = min(hc, top);
     float3 sl = pow(saturate(shown), 2.2), hl = pow(hc, 2.2);
+    if (mode < 0.5)
+    {
+        // Hue from the SDR image (docs/hdr.md, "Highlight colour"). The curve works in display gamma: the rolloff pulls a
+        // hot colour towards its luminance there, and the HDR curve, with more room, pulls less. In linear light that is a
+        // different hue, not only more saturation: 0-3's hot orange walls came out red-orange and, with blue at the SDR
+        // rolloff's level, salmon, while the SDR image (and the game) show them amber. So the HDR colour keeps the SDR
+        // colour's hue (in linear light, around its luminance; the highlight hue's warm turn included) and takes the
+        // HDR colour's luminance and saturation: the SDR colour, brighter and as saturated as the display has room for.
+        // Where the SDR colour is near neutral (a highlight that went to white) its hue says little: the HDR colour's.
+        const float3 Y = float3(0.2126, 0.7152, 0.0722);
+        float ls = dot(sl, Y), lh = dot(hl, Y);
+        if (ls > 1e-4 && lh > 1e-4)
+        {
+            float3 cs = sl / ls - 1.0, ch = hl / lh - 1.0;
+            float ms = length(cs), mh = length(ch);
+            float3 d = lerp(mh > 1e-4 ? ch / mh : 0.0, ms > 1e-4 ? cs / ms : 0.0, smoothstep(0.03, 0.15, ms));
+            float md = length(d);
+            if (md > 1e-4)
+            {
+                d /= md;
+                // As saturated as the HDR colour (never less than the SDR colour), inside the gamut (no channel below 0)
+                // and under the peak.
+                float m = max(mh, ms), tl = pow(top, 2.2) / lh;
+                [unroll] for (int k = 0; k < 3; k++)
+                {
+                    if (d[k] < -1e-4) m = min(m, -1.0 / d[k]);
+                    if (d[k] > 1e-4) m = min(m, (tl - 1.0) / d[k]);
+                }
+                hl = lh * (1.0 + d * max(m, 0.0));
+            }
+        }
+    }
     float3 g = float3(sl.r > 1e-4 ? hl.r / sl.r : 1.0, sl.g > 1e-4 ? hl.g / sl.g : 1.0, sl.b > 1e-4 ? hl.b / sl.b : 1.0);
     if (any(isnan(g)) || any(isinf(g))) g = 1.0;
-    return float4(clamp(g, 1.0, max(hp.w, 1.0)), UltraRTHdrPack(shown));
+    // Per channel, and below 1 where the SDR rolloff whitened a channel more than the HDR curve does (mode 1, before
+    // 2026-11-20: never below 1, which kept that whitening in the HDR image).
+    return float4(clamp(g, abs(mode - 1.0) < 0.5 ? 1.0 : 0.0, max(hp.w, 1.0)), UltraRTHdrPack(shown));
 }
 
 // Glowing surfaces in HDR. The game's emissive art is authored for SDR: a light fixture, a screen or lava is "white" at 1,

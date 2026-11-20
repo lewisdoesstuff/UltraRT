@@ -30,6 +30,7 @@ See also: [relight.md](relight.md) ("HDR displays": why Unity itself can't do it
 | `HDRBloom` | `-ultrart-hdr-bloom X` | 1 | room above SDR white for bloom's glow, in display units (1 = up to twice SDR white in display gamma, or the peak). 0 = as in SDR |
 | `HDRHighlights` | `-ultrart-hdr-highlights on\|off` | true | the gain map as a whole; off = the SDR image at paper white |
 | | `-ultrart-hdr-white X` | 0 | composite value (display gamma, 1 = SDR white) that reaches the peak; 0 = the tone curve's white point (3). Lower = harsher |
+| | `-ultrart-hdr-hue sdr\|channel\|floor` | sdr | colour of the composite's highlights: `sdr` = the SDR image's hue at the HDR curve's luminance and saturation (since 2026-11-20, "Highlight colour"); `channel` = the HDR curve's colour per channel; `floor` = per channel with no gain below 1 (before 2026-11-20). Bench `plugin._hdrGainMode=0\|2\|1` |
 | | `-ultrart-hdr-gamma srgb\|2.2` | 2.2 | how the SDR image is decoded |
 | | `-ultrart-hdr-boost X` | 0 | frames without a gain map (off, menus): highlights above 0.7 scaled up to 1 + X |
 | | `-ultrart-hdr-debug` | | tints the pixels that got gain magenta |
@@ -81,9 +82,9 @@ writes `UltraRTHdrGain` (`UltraRTToneCurve.hlsl`) to a float texture:
   channel, so a highlight that clipped to white in SDR gets its colour back.
   With the `film` tone curve (the default since 2026-11-18, docs/relight.md "Highlight rolloff") the HDR colour is the
   same function with the display peak as its top: a saturated highlight keeps its pure colour for as long as the
-  display has room and whitens only above that. The gain is still at least 1, so the little the SDR rolloff added to
-  the other two channels stays; in linear light it is next to nothing beside the raised channel. The packed colour is
-  the rolled-off SDR colour, so the present pass's hue test is unaffected. Not yet looked at on an HDR display.
+  display has room and whitens only above that. Since 2026-11-20 the gain may be below 1 in a channel (what the SDR
+  rolloff whitened it to does not stay), and the colour keeps the SDR image's hue ("Highlight colour" below). The packed
+  colour is the rolled-off SDR colour, so the present pass's hue test is unaffected.
 - a = the SDR colour the composite wrote, packed into the one channel (`UltraRTHdrPack`: 6 bits of luma, 5 bits of
   r - b).
 
@@ -132,7 +133,9 @@ HDR on, its final pass is pass 4 of `Vfx.shader`: the same code as pass 3, which
   pixels also get their own packed colour, so the world's gain behind them can't leak onto them.
 
 The map is announced with the same plugin event as the composite's (`HdrFrame.flags` bit 1), from the effects pass's
-command buffer; the present pass keeps the two apart and shows each pixel at the brighter of the two results. Its colour
+command buffer; the present pass keeps the two apart and shows each pixel at the brighter of the two results, per channel,
+where the late map has gain (fading in from 1 to 1.25; before 2026-11-20 on every pixel, so its result, the SDR image where
+it has no gain, put back what the composite's gain had taken from a channel). Its colour
 test uses half the darkening tolerance: the map covers large areas (bloom, lava), and the game's translucent HUD panel
 drawn over them must fail it. Fixed factors know nothing of the display, so the late map's result and the game-pixel
 branch (`HDRLava`, `HDRSky`) are rolled off towards the peak (`SoftPeak`: the brightest channel is untouched up to halfway
@@ -196,6 +199,52 @@ pillars on the display ("the beam issues seem solved"). Stills: `bench/results/r
 Left: a few faint whiter streaks in the pillars right beside the camera, where the wall behind was white in every
 channel and wider than the largest tap; the pillar's core gradient is mostly gone in HDR as in SDR (the brighter traced
 room clips its red and green; only its blue, the core's whiteness, varies).
+
+### Highlight colour (2026-11-20, `t3/hdr-color-and-3-1-bright`)
+The user, on the HDR display at 0-3's beam room: the hot walls pale pinkish-orange (coral) and very bright, beside the
+saturated yellow pillars, where the SDR image and the game show them yellow-amber. Not a regression: a 30522b5 build
+(before the day's highlight hue, flesh, beam and RR changes) gives the same HDR10 frame (upper-left wall panel 1128 / 476
+/ 175 nits R / G / B, hue 18 degrees); the user had looked at 0-3 in SDR the day before. The highlight hue (0 or 0.5)
+moves it by under a degree.
+
+**Cause** (two parts, measured in the HDR10 frame; hue = the angle in linear Rec.709 light, 0 = red, 60 = yellow):
+1. *The gain floor.* The composite's gain was clamped to 1 or more per channel, and the late map's result (the SDR image
+   itself where it has no gain) floored every pixel at the SDR image. On a hot wall the SDR rolloff lifts blue to whiten
+   it; the HDR curve, with more room, whitens far less, so its blue is below the SDR image's, and the floor kept the SDR
+   blue (HDR / SDR on the wall panels: red x2.97, green x1.75, blue x1.04). Red plus that blue is the coral.
+2. *Hue in linear light.* The curve works in display gamma. Its rolloff pulls a colour towards its luminance there and
+   keeps the display-gamma hue, but in linear light (what the display emits) a strongly desaturated colour and a barely
+   desaturated one of the same display hue are different hues: the panels' SDR colour is hue 32-33, the HDR curve's
+   colour 21 (red-orange) once the floor is gone. The game's own frame shows them at 31.
+
+**Change** (`UltraRTToneCurve.hlsl` `UltraRTHdrGain`, `Hdr.cpp` present pass; the SDR image is unchanged):
+- The HDR colour keeps the SDR colour's hue (linear light, around its luminance; the highlight hue's warm turn included)
+  and takes the HDR curve's luminance and saturation (its chroma, never less than the SDR colour's), inside the gamut and
+  under the peak. Where the SDR colour is near neutral (a highlight that went to white) the HDR colour's own hue is used.
+  Below the knee the two are the same colour, so nothing changes there.
+- The composite's gain may go below 1 per channel (down to 0), and the late map's result counts only where it has gain.
+  HUD, gun and smoke still fail the colour test and stay SDR.
+- No brightness limit: the HDR luminance is the curve's, as before (wall panel p50 / p90 387 / 706 nits before and after).
+  `-ultrart-hdr-hue channel` (per channel, no floor) and `floor` (the old map) remain for comparison.
+
+**Measured** (alt install, 2560x1440 HDR10, Windows SDR white 380 nits, peak 1170; `pathtrace` with DLSS RR unless
+noted; before = `plugin._hdrGainMode=1` in the same launch, `bench/results/20261120-211806_hcf-v_alt`, `channel` from
+`-211413_hcf-a_alt`; stills `bench/results/review/hdr-color-fix/`). Hot half of each region, mean HDR colour:
+
+| 0-3 region | Game (`off`) | SDR image | HDR before | HDR `channel` | HDR `sdr` (default) |
+|---|---|---|---|---|---|
+| user view, upper-left wall panel | hue 30.6, sat 1.00 | hue 33.0, sat 0.58 | 1133 / 496 / 167 nits, hue 19.6, sat 0.85 | 1133 / 496 / 125, hue 21.4, sat 0.89 | 1004 / 540 / 111, hue 28.7, sat 0.89 |
+| user view, upper-right panel | 31.3 | 32.9 | hue 20.8 | 22.2 | 29.4 |
+| user view, upper-left panel, `relight` | | 33.0 | | | 980 / 543 / 114, hue 29.7 |
+| mid room, upper-left panel | | 31.8, sat 0.61 | 1145 / 491 / 147, hue 19.8 | | 1028 / 531 / 67, hue 28.8, sat 0.93 |
+| mid room, light-strip band | | 24.2 | hue 12.3 | | hue 24.0 |
+
+The frames' "above paper white" shares move by under a point (0-3 user view 18.4 -> 17.7 %, mid room 22.9 -> 22.2 %,
+back wall 43.4 -> 43.2 %); 1-4 lamps, 6-2 pose 1 and 3-1 eye beams by under 0.1. The pillars over the hot wall band stay
+solid at the peak (back wall: as before). 3-1's bone bridge floor in front of the eye beam was pink in HDR and is now
+yellow, as the beam lights it. The HUD's pixels are as before (paper white). 1-1 fire: the effect's own gain is
+unchanged (x3 over the flame); the composite's emissive strips lose the light the floor added (x2.6 -> x2.2 in
+luminance), which was the floor's error, not the curve's.
 
 ### Per mode
 | Mode | HDR content |
@@ -317,13 +366,15 @@ its UAV write); the viewmodel composite is unchanged at 0.03 ms. Together about 
 with HDR off.
 
 ## Known gaps
-- **0-3's hot walls are coral / pink in HDR** (found 2026-11-20, not changed). The composite's gain is per channel with a
-  floor of 1: the leading red of a hot orange rises 2x or more while green and blue keep what the SDR rolloff whitened
-  them to, and the SDR colour also has the highlight hue's warm turn, which the HDR colour hardly gets (wall highlights
-  in the HDR10 frame: hue 20-29 degrees against the SDR image's 35-37). A version that kept the SDR hue (luminance from
-  the HDR curve, saturation raised towards the HDR colour's) turned them orange, but the user found the room then
-  "very bright, but rather pale" beside the saturated pillars: a fifth of the frame lifted to 600-1100 nits. Lifting
-  saturated highlights less is the next idea. Dropped for now; the pillar fix above is independent of it.
+- 0-3's coral walls: fixed 2026-11-20 ("Highlight colour"). An earlier try that kept the SDR hue but raised saturation
+  only part of the way towards the HDR colour's was "very bright, but rather pale"; the fix takes the HDR saturation in
+  full. How bright hot walls get (a fifth of 0-3's frame above paper white) is the curve's and was not changed: the user
+  asked for no brightness cap. Not yet judged on the display.
+- 3-1 (the eye-beam staircase, 2026-11-20) is too bright against the game in SDR as well, so it is not an HDR matter. It
+  is the same in a 30522b5 build, and flesh scatter, the highlight hue and RR's front emitters change nothing there.
+  Auto exposure's game match reads the traced surfaces 2.7 EV above the game's (`game -4.1 vs RT -1.45 log2`) and, with
+  its down side off since 2026-11-18, does not correct it. Left for a separate look (the user: the game's denser haze
+  there is part of it).
 - Not judged by eye yet: everything above is measured from the frame handed to DXGI, including the 2026-11-18 effects,
   bloom and defaults work (the development display is the user's, but nobody looked at it during these runs).
 - The muzzle flash and other transparents the HUD camera draws on the gun stay at paper white (see "Effects and bloom").

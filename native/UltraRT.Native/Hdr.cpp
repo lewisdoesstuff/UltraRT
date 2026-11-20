@@ -66,7 +66,8 @@ namespace
         float debug;       // 1 = tint the pixels that got gain
         float gainMax;
         float gainStrength; // 0..1
-        float pad0, pad1, pad2;
+        float gainFloor;    // 1 = the composite's gain is never below 1 and the late map's result floors the pixel at the SDR image (before 2026-11-20)
+        float pad1, pad2;
     };
 
     // ---- log (any thread)
@@ -135,6 +136,7 @@ cbuffer C : register(b0)
     float tolLo, tolHi, sdrBoost, debugMode;
     float gainMax, linearGain, gainStrength, lateOn;
     float4 lateUV;
+    float gainFloor, cpad0, cpad1, cpad2;
 };
 Texture2D<float4> Src : register(t0);
 Texture2D<float4> Gain : register(t1);
@@ -199,7 +201,7 @@ float4 PS(VO i) : SV_Target
             float t = smoothstep(0.7, 1.0, max(s.r, max(s.g, s.b)));
             rel = SoftPeak(base * (1.0 + (clamp(g.r, 1.0, gainMax) - 1.0) * t * t * w), top);
         }
-        else rel = base * lerp(1.0, clamp(g.rgb, 1.0, gainMax), w);
+        else rel = base * lerp(1.0, clamp(g.rgb, gainFloor, gainMax), w);
         mapped = true;
     }
     if (lateOn > 0.5)
@@ -209,7 +211,11 @@ float4 PS(VO i) : SV_Target
         float4 g = Late.SampleLevel(PointClamp, i.uv * lateUV.xy + lateUV.zw, 0);
         // Half the darkening tolerance: the late map covers large areas (bloom, lava under a fire), and the game's translucent
         // HUD panel over them must not pass. Nothing but the HUD, menus and the viewmodel's transparents is drawn after it.
-        rel = max(rel, SoftPeak(base * lerp(1.0, clamp(g.rgb, 1.0, gainMax), Match(g.a, s, 0.5)), top));
+        float3 lg = lerp(1.0, clamp(g.rgb, 1.0, gainMax), Match(g.a, s, 0.5));
+        float3 lr = max(rel, SoftPeak(base * lg, top));
+        // Only where the late map has gain: elsewhere its result is the SDR image itself, and the per-channel max would
+        // put back what the composite's gain took away (the SDR rolloff's whitening of a hot wall).
+        rel = gainFloor > 0.5 ? lr : lerp(rel, lr, smoothstep(1.0, 1.25, max(lg.r, max(lg.g, lg.b))));
         mapped = true;
     }
     float applied = 1.0;
@@ -233,6 +239,7 @@ float4 PS(VO i) : SV_Target
         float tolLo, tolHi, sdrBoost, debugMode;
         float gainMax, linearGain, gainStrength, lateOn;
         float lateScaleX, lateScaleY, lateOffsetX, lateOffsetY;
+        float gainFloor, cpad0, cpad1, cpad2;
     };
 
     double PqToNits(double v)
@@ -708,6 +715,7 @@ float4 PS(VO i) : SV_Target
             c.linearGain = (fr.flags & 1) ? 1.0f : 0.0f;
             c.gainStrength = prm.gainStrength;
             c.lateOn = haveLate ? 1.0f : 0.0f;
+            c.gainFloor = prm.gainFloor > 0.5f ? 1.0f : 0.0f;
             c.lateScaleX = fl.uvScaleX; c.lateScaleY = fl.uvScaleY; c.lateOffsetX = fl.uvOffsetX; c.lateOffsetY = fl.uvOffsetY;
 
             D3D12_GPU_DESCRIPTOR_HANDLE table = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
