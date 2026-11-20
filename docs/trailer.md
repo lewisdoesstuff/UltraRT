@@ -115,7 +115,7 @@ Clips (`Type`):
 | Type | Fields |
 |---|---|
 | `shot` | `Source`, `In`, `Out` (seconds of the source), `Speed` |
-| `wipe` | `Before`, `After` (two renders of one path), `In`, `Out`, `Wipe` (`Keys`: `[time, position]` pairs, position 0 = all before, 1 = all after, smoothed between keys; `Slant`: lean of the divider, 0 = vertical; `Flip`: "after" on the right, so the wipe comes in from the right; `Line`: the divider's width), `Labels` (before, after) |
+| `wipe` | `Before`, `After` (two renders of one path), `In`, `Out`, `Wipe` (`Keys`: `[time, position]` pairs, position 0 = all before, 1 = all after, smoothed between keys; `Slant`: lean of the divider, 0 = vertical; `Flip`: "after" on the right, so the wipe comes in from the right; `Line`: the divider's width; `Border`, `Shade`: the dark edge either side of it, 1.5 px at 720p and the picture at 0.3 of its brightness by default, `"Border": 0` for none), `Labels` (before, after) |
 | `title` | `Duration`, `Text`, `Sub`, `Small`, `Size`; optional `Source` (+ `Dim`, `Blur`, `Saturation`) puts it over a dimmed shot instead of black |
 
 Every clip takes `Name`, `Caption` (a string, or `{ "Text", "Sub", "At", "For" }`: bottom left), `Tag` (bottom right, e.g.
@@ -798,7 +798,11 @@ newest match wins, so re-rendering one shot with the `-redo` suite replaces just
 | `Scenario` | fields for every bench scenario (`"Enemies": "blind", "EnemyOutlines": false`: since 2026-11-20 every shot has the game's enemy outlines off, in the game's image and the traced one; docs/ultrakill-rendering.md, "Enemy outlines") |
 | `Labels`, `Graphics`, `Music` | passed to the edit list |
 
-Shots: `Kind` is `title` / `end` (a card: `Card` holds the title clip's fields), `beauty` (one traced take), `switch`
+Shots: `Kind` is `title` / `end` (a card: `Card` holds the title clip's fields; a `title` can also stand in the middle of the
+trailer as a placeholder), `video` (a video file, e.g. a gameplay recording: `Source` (a path, absolute or under bench/results),
+`In`, optional `Speed`, and `Caption`, `Tag`, `TagAt`, `Labels`, `FadeIn`, `FadeOut`, `Transition` passed to the edit list's
+`shot` clip; no bench scenario is written; a `shot` with a `Source` and no `File` is the same; `"Labels": null` drops the
+state badge), `beauty` (one traced take), `switch`
 (the game's image, then a hard switch to the traced one after `Off` seconds) or `sweep` (the divider crosses once,
 starting after `Off` seconds and taking `Sweep`; `Slant`, `Flip` as in a wipe). `Bars` (+ `Lead` / `Seconds`) is the
 length; `File` the path in bench/cinematics; `Path` and `Scenario` go to the bench scenario, `Cinematic` to its
@@ -809,6 +813,10 @@ as in the edit list. With `Render`, a comparison shot can set `"Cinematic": { "O
 images cover the whole take and `In` can still move after the render (v5's 0-3 and organ shots). `"Slot": "main"` renders
 the shot in the main install (the user's save, so the user's gun colours) in a run of its own: suite
 `trailer-final-<tier>-main`, sources `*_trailer-final-<tier>-main*/...` (a main-slot results folder has no `_alt` suffix).
+
+A placeholder for footage that comes later and its swap are one line each in the plan, at the same bars:
+`{ "Kind": "title", "Name": "combat", "Bars": 4, "Card": { "Text": "COMBAT FOOTAGE SLOT", "AccentFrom": 99 } }` becomes
+`{ "Kind": "video", "Name": "combat", "Bars": 4, "Source": "D:/recordings/combat.mp4", "In": 12.0 }`.
 
 ### How the footage is made
 
@@ -840,10 +848,11 @@ assets (`LevelNamePopup`, `HudMessageReceiver`, `HudOpenEffect`, the fonts bundl
 | Element | In the game | In the trailer |
 |---|---|---|
 | Font | VCR OSD Mono, white, a hard dark underlay offset down and right | the same font file, extracted by `scripts/trailer-font.py` to `bench\results\trailer\fonts` (not in git); `TRAILER_FONT` overrides; Consolas stands in without it |
-| Level title | canvas 720 units high; the layer line (`PRELUDE /// FIRST`) 26 units, centred 245 above the middle; the name (`INTO THE FIRE`) 46 units, 210 above; typed at 100 letters a second, half a second between the lines, 3 s hold, 1 s fade | `"Tag": ["PRELUDE /// FIRST", "INTO THE FIRE"]`: the same layout and timing at 0.85 of the size, with the level's real strings (read from each level's MapInfo). Shown the first time a level appears. |
+| Level title | canvas 720 units high; the layer line (`PRELUDE /// FIRST`) 26 units, centred 245 above the middle; the name (`INTO THE FIRE`) 46 units, 210 above; typed at 100 letters a second, half a second between the lines, 3 s hold, 1 s fade | `"Tag": ["PRELUDE /// FIRST", "INTO THE FIRE"]`: the same timing and the game's 35-unit line gap at 0.85 of the size, with the level's real strings (read from each level's MapInfo). Shown the first time a level appears. Since v6 (2026-11-20) higher than the game has it: the layer line at 0.06 of the height, level with the state badge's middle, the name at 0.11 (v1-v5d: 0.16 and 0.21, the game's place, which put the name over the subject of a centred shot: Gabriel's wings in 6-2, the tree's trunk in 7-3, 0-3's doorway). On a soft dark edge (`legible`: a tight feathered outline plus a wide faint shade that follows the words, no box) and a darker drop shadow (0.9, was 0.59), so the white type keeps an edge on 0-3's sunlit ceiling, 4-4's slats and 8-3's white ceiling. |
 | Feature caption | HUD message: a rounded black box at 59 % opacity, low in the middle, that snaps open from 5 % (width first, then height), text typed with a block cursor | `Caption`: the same box and motion; heading in capitals, an optional sub line under it |
-| State badge | - | top left, the same box: `RT OFF` grey with a hollow marker, `PATH TRACED` white with an accent marker; it snaps open again and flashes when the picture under it changes (at the switch, or when the divider passes it) |
-| Cards | - | on black, laid out as a level title: sub line typed first, then `ULTRART` under it in large type ("RT" in the accent colour), further lines typed, small print faded in. `Beats`: when the sub line, the title and the first further line start. |
+| State badge | - | top left, the same box: `RT OFF` grey with a hollow marker, `PATH TRACED` white with an accent marker. Since v6 (2026-11-20) it is open from a clip's first frame to its last, so a cut swaps it in place; it snaps open (HudOpenEffect) and flashes only when the state changes mid-clip (at the switch, or when the divider passes it). v1-v5d snapped every clip's first badge open from an empty box (0.16 s) and faded every badge out over the last 0.15 s before the cut. A switch or wipe whose switch comes in the first 0.3 s shows the after badge for the whole clip. |
+| Cards | - | on black, laid out as a level title: sub line typed first, then `ULTRART` under it in large type ("RT" in the accent colour), further lines (`Lines`, e.g. a tagline) typed, small print (`Small`, a list of lines at 0.85 of the height and down) faded in. `Beats`: when the sub line, the title and the first further line start. Since v6 the first further line has a gap of 2.5 % of the height under the title (it touched the title's baseline), and a title wider than 90 % of the picture is set smaller to fit (a placeholder such as `COMBAT FOOTAGE SLOT`). |
+| Wipe divider | - | the white line (`Line`, 2 px at 720p) with a dark edge either side since v6 (`Border` 1.5 px at 720p, the picture at `Shade` 0.3 of its brightness), so it stays visible over 4-4's sunlit hall and the museum's white walls. Pixels away from the line cost what they did before (the expression tests the distance first): 2026-11-20, 1440p at 30 fps with overlays, a 1.1 s museum sweep took 51 s (53 s without the border); clip times vary by about 10 s from run to run. |
 
 No logo and no art of the game is used; the title card says "a ray tracing mod for ULTRAKILL" (v1-v4: "a path tracing
 mod" and "unofficial /// work in progress"), and the end card's small print says how the footage was captured and that
