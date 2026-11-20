@@ -179,6 +179,8 @@ namespace UltraRT
             m.Bool("Effects", "Lava", "Ray-traced lava and acid", () => LavaCfg.active, v => LavaCfg.active = v, "-ultrart-nolava");
             m.Float("Effects", "Caustics", "Water caustics (strength, 0 = off)", 0f, 3f, 2, () => SceneProxies.Caustics.strength, v => SceneProxies.Caustics.strength = Mathf.Max(v, 0f), "-ultrart-caustics");
             m.Bool("Effects", "CausticShadows", "Water caustics: shadows", () => SceneProxies.Caustics.shadows, v => SceneProxies.Caustics.shadows = v, "-ultrart-caustics-noshadow");
+            m.Float("Effects", "RippleCaustics", "Ripple caustics under water (strength, 0 = off)", 0f, 2f, 2, () => SceneProxies.Caustics.ripple, v => SceneProxies.Caustics.ripple = Mathf.Max(v, 0f), "-ultrart-ripple-caustics");
+            m.Float("Effects", "WaterAbsorption", "Deep water absorption (per metre, 0 = off)", 0f, 1.5f, 2, () => SceneProxies.Transparents.waterAbsorb, v => SceneProxies.Transparents.waterAbsorb = Mathf.Max(v, 0f), "-ultrart-water-absorb");
 
             // Screen-space effects (docs/vfx.md)
             m.Group = "Screen effects";

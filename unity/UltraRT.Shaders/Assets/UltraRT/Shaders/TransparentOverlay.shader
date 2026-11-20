@@ -6,9 +6,12 @@
 //       background B: dst = W a + B (1 - a). Shifting the background by the rippled refraction offset is
 //       dst + (1 - a) (B(uv') - B(uv)); a signed term, so it is added and subtracted in two blended passes.
 //       B is a copy of the colour target taken after the RT composite, before any transparents (_UltraRTPreAlpha).
-//   3   Absorb (blood only): dst * T, T = 1 - (1 - a) s (1 - tint): what shows through the game's thin alpha-blended
-//       blood (the floor, relit and much brighter than the game's own) is absorbed toward the blood's colour, so a river
-//       of blood reads as thick liquid. Multiplicative, so it is safe on 8-bit targets.
+//   3   Absorb: dst * T, multiplicative, so it is safe on 8-bit targets.
+//       Blood: T = 1 - (1 - a) s (1 - tint): what shows through the game's thin alpha-blended blood (the floor, relit and
+//       much brighter than the game's own) is absorbed toward the blood's colour, so a river of blood reads as thick liquid.
+//       Water: Beer-Lambert over the path through the water to the game's opaque depth (docs/reflections.md, "Water
+//       absorption"): T = lerp(deep, 1, exp(-sigma x path)) on the share (1 - a) the game lets through, deep = the
+//       water's average colour (hue only) x a floor, so shallow edges stay clear and deep water darkens and tints.
 //   4   Reflect: dst * (1 - w) + w * R, with R the ray-traced reflection (PathTrace.raytrace, TransparentGen) at trace
 //       resolution and w = Fresnel(ripple normal) x weight, faded by fog.
 // Everything is skipped unless the plugin traced this camera's frame (_UltraRTTransOn, camera position match).
@@ -74,6 +77,7 @@ Shader "UltraRT/TransparentOverlay"
         float _Weight;
         float _Absorb;
         float _LimboFade, _NearClip, _FarClip;
+        float4 _UltraRTWaterAbsorb;      // global: x sigma (1/m, 0 = off), y transmittance floor of deep water, z tint saturation, w longest path (m)
         sampler2D _FadeDither;
         StructuredBuffer<float3> _FadePositions; // global, LimboWater.cs: [0] the player, then enemies
         int _FadePositionsCount;
@@ -143,7 +147,7 @@ Shader "UltraRT/TransparentOverlay"
             o.wpos = wpos;
             o.wn = wn;
             o.uv = TRANSFORM_TEX(v.uv, _MainTex);
-            o.eye = -UnityObjectToViewPos(v.vertex.xyz).z;
+            o.eye = -mul(UNITY_MATRIX_V, float4(wpos, 1.0)).z; // of the displaced vertex (the game's depth has its waves)
             return o;
         }
 
@@ -262,6 +266,25 @@ Shader "UltraRT/TransparentOverlay"
             {
                 float3 v, ng, n;
                 float dist;
+                [branch] if (_Kind > 0.5 && _Kind < 1.5)
+                {
+                    // Water: Beer-Lambert absorption over the path to the opaque surface behind.
+                    if (_UltraRTWaterAbsorb.x <= 0.0 || _UltraRTDepthParams.z < 0.5 || !Surface(i, v, dist, ng, n)) discard;
+                    float behind = LinearEyeDepth(_UltraRTGameDepth.SampleLevel(my_point_clamp_sampler, i.pos.xy / _ScreenParams.xy, 0).r) - i.eye;
+                    if (behind <= 0.0) discard;
+                    // Eye depth to path length along the view ray (a grazing look crosses more water).
+                    float path = min(behind * dist / max(i.eye, 1e-3), _UltraRTWaterAbsorb.w);
+                    // The water's colour: its texture's average (a coarse mip) x _Color. Red "water" is 6-2's blood pools
+                    // (Water 5): left alone, as are grey/white surfaces past the saturation knob.
+                    float3 col = tex2Dlod(_MainTex, float4(i.uv, 0, 8)).rgb * _Color.rgb;
+                    float mx = max(col.r, max(col.g, col.b));
+                    if (mx <= 1e-3 || col.r > 1.5 * max(col.g, col.b)) discard;
+                    float3 hue = lerp(1.0, col / mx, _UltraRTWaterAbsorb.z);
+                    float a = saturate(tex2D(_MainTex, i.uv).a * _Color.a * _Opacity);
+                    float3 tr = lerp(_UltraRTWaterAbsorb.y * hue, 1.0, exp(-_UltraRTWaterAbsorb.x * path));
+                    float k = (1.0 - a) * FogVisibility(dist) * LimboCoverage(i);
+                    return float4(1.0 - k * (1.0 - tr), 1.0);
+                }
                 if (_Kind < 1.5 || _Absorb <= 0.0 || !Surface(i, v, dist, ng, n)) discard;
                 float4 tex = tex2D(_MainTex, i.uv) * _Color;
                 float a = saturate(tex.a * _Opacity);

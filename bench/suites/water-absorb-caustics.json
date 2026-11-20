@@ -1,0 +1,225 @@
+{
+  "Name": "water-absorb-caustics",
+  "Note": "Water absorption and ripple caustics (docs/caustics.md section 6, docs/reflections.md 'Water absorption'): off / before (both off) / after in relight and pathtrace, plus each feature alone off in pathtrace.",
+  "Scenarios": [
+    {
+      "Name": "1-3 start water",
+      "Scene": "Level 1-3",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-3-start-water.json",
+        "Duration": 4
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight",
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "pathtrace+trans.waterAbsorb=0",
+        "pathtrace+caustics.ripple=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "2-1 water",
+      "Scene": "Level 2-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/u1118-2-1-1.json",
+        "Duration": 4
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight",
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "pathtrace+trans.waterAbsorb=0",
+        "pathtrace+caustics.ripple=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "7-1 pool",
+      "Scene": "Level 7-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          75.5,
+          22,
+          522
+        ],
+        "Yaw": 0,
+        "Pitch": -15,
+        "Duration": 4,
+        "Load": "none"
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight",
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "pathtrace+trans.waterAbsorb=0",
+        "pathtrace+caustics.ripple=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "7-1 pool seq pt",
+      "Scene": "Level 7-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          75.5,
+          22,
+          522
+        ],
+        "Yaw": 0,
+        "Pitch": -15,
+        "Duration": 3,
+        "Load": "none"
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "pathtrace"
+      ],
+      "Screenshots": [
+        2.0,
+        2.1,
+        2.2,
+        2.3,
+        2.4,
+        2.5
+      ],
+      "ShotSettle": 0
+    },
+    {
+      "Name": "8-2 pool oblique",
+      "Scene": "Level 8-2",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/8-2-a.json",
+        "Position": [
+          0,
+          -11.6,
+          335
+        ],
+        "Yaw": 0,
+        "Pitch": -40,
+        "Duration": 4
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight",
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "pathtrace+trans.waterAbsorb=0",
+        "pathtrace+caustics.ripple=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "1-4 bridge down",
+      "Scene": "Level 1-4",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/1-4-drift-a.json",
+        "Position": [
+          -0.3,
+          -13.5,
+          389.3
+        ],
+        "Yaw": -35,
+        "Pitch": -35,
+        "Duration": 4
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight",
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "pathtrace+trans.waterAbsorb=0",
+        "pathtrace+caustics.ripple=0"
+      ],
+      "Screenshots": [
+        2.5
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "5-1 shaft E",
+      "Scene": "Level 5-1",
+      "Path": {
+        "Type": "static",
+        "Duration": 3,
+        "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+        "LookActivate": true,
+        "LookDistance": 0.5,
+        "LookYaw": 90,
+        "Pitch": -10
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight",
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "pathtrace+trans.waterAbsorb=0",
+        "pathtrace+caustics.ripple=0"
+      ],
+      "Screenshots": [
+        1.5
+      ],
+      "ShotSettle": 0.8
+    },
+    {
+      "Name": "5-1 shaft water",
+      "Scene": "Level 5-1",
+      "Path": {
+        "Type": "static",
+        "Duration": 3,
+        "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+        "LookActivate": true,
+        "LookDistance": 0.5,
+        "LookYaw": 218,
+        "Pitch": -25
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "off",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight",
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "pathtrace+trans.waterAbsorb=0",
+        "pathtrace+caustics.ripple=0"
+      ],
+      "Screenshots": [
+        1.5
+      ],
+      "ShotSettle": 0.8
+    }
+  ]
+}

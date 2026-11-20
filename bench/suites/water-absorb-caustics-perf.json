@@ -1,0 +1,68 @@
+{
+  "Name": "water-absorb-caustics-perf",
+  "Note": "GPU cost of water absorption + ripple caustics: before/after alternating segments (run with -Perf under a perf hold).",
+  "Scenarios": [
+    {
+      "Name": "5-1 shaft water",
+      "Scene": "Level 5-1",
+      "Path": {
+        "Type": "static",
+        "Duration": 12,
+        "LookAt": "IntroParent/Intro/Intro C - Second Cave/Hint",
+        "LookActivate": true,
+        "LookDistance": 0.5,
+        "LookYaw": 218,
+        "Pitch": -25
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight"
+      ],
+      "Segment": 1.5
+    },
+    {
+      "Name": "2-1 water",
+      "Scene": "Level 2-1",
+      "Path": {
+        "Type": "static",
+        "Approach": "../recordings/u1118-2-1-1.json",
+        "Duration": 12
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight"
+      ],
+      "Segment": 1.5
+    },
+    {
+      "Name": "7-1 pool down",
+      "Scene": "Level 7-1",
+      "Path": {
+        "Type": "static",
+        "Position": [
+          75.5,
+          23,
+          526
+        ],
+        "Yaw": 0,
+        "Pitch": -50,
+        "Duration": 12,
+        "Load": "none"
+      },
+      "Enemies": "blind",
+      "Modes": [
+        "pathtrace+caustics.ripple=0+trans.waterAbsorb=0",
+        "pathtrace",
+        "relight+caustics.ripple=0+trans.waterAbsorb=0",
+        "relight"
+      ],
+      "Segment": 1.5
+    }
+  ]
+}

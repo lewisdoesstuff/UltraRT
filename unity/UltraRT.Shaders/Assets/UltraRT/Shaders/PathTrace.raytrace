@@ -238,6 +238,35 @@ float3 CausticShadowed(RayPayload p, float3 pos, float3 nv)
     return c;
 }
 
+// Ripple caustics (docs/caustics.md, section 6): light focused by the ripples of a water plane onto what lies under it,
+// from the same four waves as the water's reflection (UltraRTWater.hlsl, WaterRippleCaustic). A deterministic factor on
+// the camera hit's albedo, like a texture: it multiplies the real light and shadow at the hit (direct, sky and bounce),
+// adds no ray and no noise, and both denoisers and DLSS RR keep it sharp (they demodulate by albedo), where a factor on
+// the lighting would be blurred by the denoiser's spatial filter and smeared by RR's history as it moves.
+StructuredBuffer<float4> _UltraRTWaterPlanes; // global (SceneProxies.UpdateRippleCaustics): (min x, min z, max x, max z), (surface y, lowest receiver y, 0, 0)
+float4 _UltraRTRipple;                         // global: x strength (0 = off), y plane count, z gain, w deepest receiver (m)
+float RippleCausticAt(float3 pos, float3 nv, float viewDist, float footprint)
+{
+    float m = 1.0;
+    uint count = (uint)_UltraRTRipple.y;
+    for (uint i = 0u; i < count; i++)
+    {
+        float4 r = _UltraRTWaterPlanes[2u * i];
+        if (pos.x < r.x || pos.x > r.z || pos.z < r.y || pos.z > r.w) continue; // no reads in the operands: fine in HLSL 2018
+        float4 h = _UltraRTWaterPlanes[2u * i + 1u];
+        float depth = h.x - pos.y;
+        if (depth <= 0.0 || pos.y < h.y) continue;
+        // In from the surface over 0.15 m, out over the last 40 % of the deepest receiver depth and with the ripples'
+        // own view fade; floors in full, walls at a third (the projection is vertical), nothing on faces looking down.
+        float w = _UltraRTRipple.x * saturate(depth / 0.15) * saturate((_UltraRTRipple.w - depth) / (0.4 * _UltraRTRipple.w))
+                * saturate(1.0 - viewDist / max(_UltraRTWater.z, 1.0)) * saturate(0.35 + nv.y);
+        [branch] if (w > 0.0)
+            m = max(lerp(1.0, WaterRippleCaustic(WaterPlaneUV(pos), depth, _UltraRTWater.x, _UltraRTRipple.z, footprint), w), 0.0);
+        break;
+    }
+    return m;
+}
+
 // Texture LOD (docs/materials.md, "Texture LOD"; Plugin.Materials.cs): _UltraRTTexLod2.y = the spread angle a diffuse
 // bounce adds to the ray cone (its sample stands for a wide lobe: the hit's albedo is averaged accordingly).
 float4 _UltraRTTexLod2;
@@ -441,6 +470,12 @@ void RayGenBody(bool full)
                     p.flags = (p.flags & ~(3u << 1)) | (ULTRART_REFL_SPECULAR << 1);
                 }
             }
+        }
+        // Ripple caustics under water planes (fullbright surfaces ignore light, so they get none).
+        [branch] if (_UltraRTRipple.y > 0.5 && p.alpha > 0.0)
+        {
+            float fp = tTotal * pixelAngle / max(abs(dot(nv, ray.Direction)), 0.2); // this texel on the surface (m)
+            albedo *= lerp(1.0, RippleCausticAt(pos, nv, tTotal, fp), p.alpha);
         }
         emission = PayloadEmission(p) * _EmissionScale;
         if ((p.flags & ULTRART_FLAG_CAUSTIC) != 0u) emission += CausticShadowed(p, pos, nv) * _EmissionScale;

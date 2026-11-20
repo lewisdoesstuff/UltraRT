@@ -14,6 +14,16 @@ namespace UltraRT
         /// <summary>-ultrart-caustics-noshadow: camera hits trace one ray toward the dominant CausticVolume, so V1, enemies
         /// and rocks shadow the pattern (caustics.shadows=0: unshadowed, as the game draws it).</summary>
         public bool shadows = true;
+        /// <summary>-ultrart-ripple-caustics X / bench caustics.ripple: caustics of our own water ripples on what lies under
+        /// a water plane (docs/caustics.md, section 6), as a factor on the camera hit's albedo; 1 = as tuned, 0 = off.</summary>
+        public float ripple = 1f;
+        /// <summary>How much more the light focuses than the reflection's ripple slopes alone would give (those focus only
+        /// 7 m down). Depth x gain is soft-limited at 8 in the shader.</summary>
+        public float rippleGain = 4f;
+        /// <summary>Deepest receiver (m below the surface); faded out over the last 40 %.</summary>
+        public float rippleDepth = 6f;
+        /// <summary>Most water planes per frame (the nearest; the ray generation shader loops over them).</summary>
+        public int ripplePlanes = 16;
     }
 
     /// <summary>
@@ -194,6 +204,90 @@ namespace UltraRT
             Shader.SetGlobalVector(IdCausticGlobal, new Vector4(CausticMaterials > 0 ? Mathf.Max(Caustics.strength, 0f) : 0f, n, Caustics.shadows ? 1f : 0f, 0f));
         }
 
+        // ---------------------------------------------------------------- ripple caustics (docs/caustics.md, section 6)
+
+        private const int MaxRipplePlanes = 32;
+        private static readonly int IdWaterPlanes = Shader.PropertyToID("_UltraRTWaterPlanes");
+        private static readonly int IdRipple = Shader.PropertyToID("_UltraRTRipple");
+        private static ComputeBuffer _rippleBuffer; // static and never released, like _causticBuffer
+        private readonly List<Renderer> _rippleWater = new List<Renderer>();
+        private readonly Vector4[] _rippleData = new Vector4[MaxRipplePlanes * 2];
+        private readonly Vector4[] _rippleUploaded = new Vector4[MaxRipplePlanes * 2];
+        private readonly float[] _rippleDist = new float[MaxRipplePlanes];
+        private int _rippleCount = -1, _rippleLogs;
+
+        /// <summary>A water renderer (dynamic or static-batched) whose surface throws ripple caustics. Red "water" (6-2's
+        /// blood pools, Water 5) is left out.</summary>
+        private void NoteRippleWater(Renderer r)
+        {
+            if (r == null || _rippleWater.Contains(r)) return;
+            var m = r.sharedMaterials.LastOrDefault(x => TransparentClassifier.Of(x) == TransparentKind.Water);
+            var c = m != null && m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
+            if (c.r > 2f * Mathf.Max(c.g, c.b)) return; // 6-2: (1, 0, 0); 1-3's Water 2 is (1, 0.73, 0.73) and stays
+            _rippleWater.Add(r);
+        }
+
+        /// <summary>
+        /// Per traced frame: the nearest active water surfaces (up to <see cref="CausticSettings.ripplePlanes"/>) into the
+        /// global _UltraRTWaterPlanes, as horizontal planes from their renderer bounds: the top is the surface; a thin plane
+        /// lights receivers down to the deepest receiver depth, a water box (taller than 1 m) only inside itself. None while
+        /// the camera is in water: the underwater screen effect draws its own caustics there (docs/vfx.md).
+        /// </summary>
+        public void UpdateRippleCaustics(Vector3 cam, float fadeDistance)
+        {
+            if (_rippleBuffer == null)
+            {
+                _rippleBuffer = new ComputeBuffer(MaxRipplePlanes * 2, 16);
+                _rippleBuffer.SetData(_rippleUploaded);
+            }
+            var s = Caustics;
+            int n = 0, cap = Mathf.Clamp(s.ripplePlanes, 0, MaxRipplePlanes);
+            if (s.ripple > 0f && cap > 0 && _rippleWater.Count > 0 && !InsideWater(cam))
+            {
+                float reach = fadeDistance + 5f;
+                foreach (var r in _rippleWater)
+                {
+                    if (r == null || !r.enabled || !r.gameObject.activeInHierarchy) continue;
+                    var b = r.bounds;
+                    float d = Mathf.Sqrt(b.SqrDistance(cam));
+                    if (d > reach) continue;
+                    // Insertion into the nearest `cap`.
+                    int at = n;
+                    while (at > 0 && _rippleDist[at - 1] > d) at--;
+                    if (at >= cap) continue;
+                    int last = Mathf.Min(n, cap - 1);
+                    for (int k = last; k > at; k--)
+                    {
+                        _rippleDist[k] = _rippleDist[k - 1];
+                        _rippleData[2 * k] = _rippleData[2 * k - 2];
+                        _rippleData[2 * k + 1] = _rippleData[2 * k - 1];
+                    }
+                    var mn = b.min; var mx = b.max;
+                    float lowest = b.size.y > 1f ? mn.y - 0.25f : mx.y - s.rippleDepth;
+                    _rippleDist[at] = d;
+                    _rippleData[2 * at] = new Vector4(mn.x, mn.z, mx.x, mx.z);
+                    _rippleData[2 * at + 1] = new Vector4(mx.y, lowest, 0f, 0f);
+                    if (n < cap) n++;
+                }
+            }
+            bool changed = n != _rippleCount;
+            for (int i = 0; !changed && i < 2 * n; i++) changed = _rippleData[i] != _rippleUploaded[i];
+            if (changed)
+            {
+                System.Array.Copy(_rippleData, _rippleUploaded, 2 * n);
+                if (n > 0) _rippleBuffer.SetData(_rippleUploaded, 0, 0, 2 * n);
+                if (n != _rippleCount && _rippleLogs < 40)
+                {
+                    _rippleLogs++;
+                    string near = n > 0 ? System.FormattableString.Invariant($", nearest surface y {_rippleUploaded[1].x:F2} over x {_rippleUploaded[0].x:F1}..{_rippleUploaded[0].z:F1} z {_rippleUploaded[0].y:F1}..{_rippleUploaded[0].w:F1}, receivers down to y {_rippleUploaded[1].y:F2}") : "";
+                    _log.LogInfo($"Ripple caustics: {n} water plane(s) of {_rippleWater.Count}{near}");
+                }
+            }
+            _rippleCount = n;
+            Shader.SetGlobalBuffer(IdWaterPlanes, _rippleBuffer);
+            Shader.SetGlobalVector(IdRipple, new Vector4(n > 0 ? s.ripple : 0f, n, Mathf.Max(s.rippleGain, 0f), Mathf.Max(s.rippleDepth, 0.5f)));
+        }
+
         private void LogCaustics()
         {
             if (_causticLog.Count == 0) return;
@@ -209,6 +303,9 @@ namespace UltraRT
             _causticCount = -1;
             CausticMaterials = 0;
             Shader.SetGlobalVector(IdCausticGlobal, Vector4.zero);
+            _rippleWater.Clear();
+            _rippleCount = -1;
+            Shader.SetGlobalVector(IdRipple, Vector4.zero);
         }
     }
 }
