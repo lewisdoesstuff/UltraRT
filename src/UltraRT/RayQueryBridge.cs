@@ -189,12 +189,23 @@ namespace UltraRT
         public void BeginRtasBuild(CommandBuffer cmd) => cmd.IssuePluginEventAndData(_eventFunc, _eventBase + 2, IntPtr.Zero);
         public void EndRtasBuild(CommandBuffer cmd) => cmd.IssuePluginEventAndData(_eventFunc, _eventBase + 3, IntPtr.Zero);
 
+        /// <summary>
+        /// Puts the camera's render targets back after a dispatch event (set by the plugin: the main camera's colour, outline
+        /// and view-normal targets and its depth). The dispatch events are configured with ModifiesCommandBuffersState
+        /// (RayQuery.cpp: we change the descriptor heaps, root signature and PSO on Unity's list), and with that flag Unity
+        /// also drops its render-target bindings: every draw recorded after the event in the same camera command buffer
+        /// (the RT composite, the volumetric and veil composites) went nowhere, so the screen showed the game's frame
+        /// (2026-11-21, docs/performance.md "The RayQuery bridge hid the composite"; GpuTimer.cpp had the same trap).
+        /// </summary>
+        public static Action<CommandBuffer> RestoreTargets;
+
         public void DispatchVolumetrics(CommandBuffer cmd, ref VolRqFrame f)
         {
             int slot = _volSlot;
             _volSlot = (_volSlot + 1) % _ring;
             _setVol(slot, ref f);
             cmd.IssuePluginEventAndData(_eventFunc, _eventBase + 0, (IntPtr)slot);
+            RestoreTargets?.Invoke(cmd);
         }
 
         public void DispatchParticleLight(CommandBuffer cmd, ref PlRqFrame f)
@@ -203,6 +214,7 @@ namespace UltraRT
             _plSlot = (_plSlot + 1) % _ring;
             _setPl(slot, ref f);
             cmd.IssuePluginEventAndData(_eventFunc, _eventBase + 1, (IntPtr)slot);
+            RestoreTargets?.Invoke(cmd);
         }
     }
 }

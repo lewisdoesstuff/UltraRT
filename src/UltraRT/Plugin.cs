@@ -220,7 +220,10 @@ namespace UltraRT
                 // Native D3D12 cs_6_5 inline RayQuery bridge (Volumetrics + ParticleLight): bypasses Unity's DispatchRays SBT rebuild.
                 var nativePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", GpuTimer.DllName);
                 if (RayQueryBridge.TryCreate(nativePath, out _rayQuery, out var rqError))
+                {
                     Logger.LogInfo($"RayQuery bridge: {_rayQuery.Status}");
+                    RayQueryBridge.RestoreTargets = RestoreCameraTargets; // the camera's targets back after each dispatch event
+                }
                 else
                     Logger.LogInfo($"RayQuery bridge unavailable (using .raytrace fallback): {rqError}");
             }

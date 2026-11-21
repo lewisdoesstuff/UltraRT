@@ -254,8 +254,18 @@ namespace UltraRT
             Logger.LogInfo(sb.ToString());
         }
 
+        /// <summary>After a RayQuery bridge event (RayQueryBridge.RestoreTargets): the main camera's targets back, as the
+        /// camera had them bound (PostProcessV2_Handler's colour, outline and view-normal buffers and its depth).</summary>
+        private void RestoreCameraTargets(UnityEngine.Rendering.CommandBuffer cmd)
+        {
+            var depth = BeamCameraTargets();
+            if (depth != null) cmd.SetRenderTarget(_beamCamTargets, depth);
+            else cmd.SetRenderTarget(UnityEngine.Rendering.BuiltinRenderTextureType.CameraTarget);
+        }
+
         /// <summary>The camera's own targets at AfterForwardAlpha (colour, outline buffer, view normals) and its depth, to
         /// put back after the beam meshes are drawn into their buffer (as BloodWet does); null depth = not available.</summary>
+
         private RenderTexture BeamCameraTargets()
         {
             var pp = MonoSingleton<PostProcessV2_Handler>.Instance;
