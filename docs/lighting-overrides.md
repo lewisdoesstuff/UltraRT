@@ -897,6 +897,10 @@ and pose 2 has a second beam that looks like a floating light aimed at the windo
   of their own and their beam (`Corner Room/Cube (13)`) is part of a 10,535-vertex combined mesh the fit can't read, so
   no light was added there (a question for the user).
 
+- **Corner Room again** (playtest 2026-11-20, 6-2 pose 1 at (8.4, 11.5, 427.7): "a light beam on one window but not
+  another"): the beam is that combined mesh's, made for the far window only; the game frame shows the same. Vanilla, left
+  as it is (docs/materials.md section 14).
+
 ## 1-4's Arena (2026-11-19, `t3/remove-glints-blood-arena-fix`)
 
 The user (playtest 2026-11-19): "1-4's arena seems way too bright". The pose: the tour stop "Arena" (teleport menu

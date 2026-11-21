@@ -24,9 +24,12 @@ int _UltraRTStainedGlassCount;
 // x strength (0 = off), y leading floor (gamma colour below it passes nothing), z saturation, w debug: 1 no shadow ray,
 // 2 also white wherever a beam reaches (the texture ignored), 3 bright magenta there (no cosine, no texture)
 float4 _UltraRTStainedGlassParams;
+// x daylight factor (linear light, 0-1: the level's sky; Plugin.StainedGlass.cs, SgDayFactor), y softness: blur radius
+// on the pane (m) per metre from it, z the softness's largest radius (m), w unused
+float4 _UltraRTStainedGlassParams2;
 Texture2DArray<float4> _UltraRTStainedGlassTex;
 SamplerState my_point_clamp_sampler_UltraRTStainedGlassTex;
-SamplerState my_linear_clamp_sampler_UltraRTStainedGlassTex; // under water only (the blur taps)
+SamplerState my_linear_clamp_sampler_UltraRTStainedGlassTex; // the softness / under-water blur taps
 
 // Under water (docs/materials.md, "Stained-glass projection", "Under water"): x absorption per metre of the light's path
 // in the water (trans.waterAbsorb x sg.waterAbsorbScale; 0 = none), y transmittance floor of deep water
@@ -122,51 +125,50 @@ float3 StainedGlassLight(float3 pos, float3 n, float3 nv, float footprint, inout
         float2 uv = float2(dot(x, bu.xyz) * bu.w + 0.5, dot(x, bv.xyz) * bv.w + 0.5);
         if (any(uv <= 0.0) || any(uv >= 1.0)) continue;
         if (_UltraRTStainedGlassParams.w > 2.5) return float3(20, 0, 20); // debug 3: magenta wherever a beam reaches
-        float3 c;
-        [branch] if (!wet)
-        {
-            // Point sampled at full resolution (no mips: Plugin.StainedGlass.cs, SgBake), like the game's pixel-art panes.
-            float4 g = _UltraRTStainedGlassTex.SampleLevel(my_point_clamp_sampler_UltraRTStainedGlassTex, float3(uv, a.w), 0);
-            if (_UltraRTStainedGlassParams.w > 1.5) g = float4(1, 1, 1, 1);
-            // g: the pane's (gamma) colour, alpha-premultiplied by the bake's coverage (0 off the glass): StainedGlassPass.
-            c = ToLight(StainedGlassPass(g, leadFloor, sat) * (strength * RelightExposure())) * ndl;
-        }
-        else
+        // Softness (dry and wet): the window's light comes from the whole sky behind it, so the mosaic blurs with the
+        // distance it travelled (_UltraRTStainedGlassParams2.y m on the pane per metre, capped); under water the
+        // ripples and the light's spread in the water add theirs (_UltraRTStainedGlassWater2.x per metre of path).
+        float rad = min(_UltraRTStainedGlassParams2.y * t, _UltraRTStainedGlassParams2.z);
+        float tr = 1.0;
+        [branch] if (wet)
         {
             // The light's path in the water: refracted at the (mean) surface, n 1.33.
             float cosA = saturate(L.y);
             float cosW = sqrt(saturate(1.0 - (1.0 - cosA * cosA) / (1.33 * 1.33)));
             float path = min(wetDepth / max(cosW, 0.05), _UltraRTStainedGlassWater.z);
-            // Blur with the path: ripples finer than the band limit and the light's own spread smear the leading.
-            // A Vogel disc of 8 bilinear taps, turned at random per sample (the denoiser / DLSS RR average it).
-            float r = _UltraRTStainedGlassWater2.x * path; // radius on the pane (m)
-            float3 acc = 0;
-            [branch] if (r < 0.5 * e.w)
-            {
-                float4 g = _UltraRTStainedGlassTex.SampleLevel(my_point_clamp_sampler_UltraRTStainedGlassTex, float3(uv, a.w), 0);
-                if (_UltraRTStainedGlassParams.w > 1.5) g = float4(1, 1, 1, 1);
-                acc = ToLight(StainedGlassPass(g, leadFloor, sat));
-            }
-            else
-            {
-                float2 rad = r * float2(bu.w, bv.w);
-                float rot = Rand(rng) * 6.2831853;
-                [unroll] for (int k = 0; k < 8; k++)
-                {
-                    float sn, cs;
-                    sincos(rot + 2.3999632 * k, sn, cs);
-                    float2 o = sqrt((k + 0.5) / 8.0) * float2(cs, sn) * rad;
-                    float4 g = _UltraRTStainedGlassTex.SampleLevel(my_linear_clamp_sampler_UltraRTStainedGlassTex, float3(saturate(uv + o), a.w), 0);
-                    if (_UltraRTStainedGlassParams.w > 1.5) g = float4(1, 1, 1, 1);
-                    acc += ToLight(StainedGlassPass(g, leadFloor, sat));
-                }
-                acc *= 0.125;
-            }
+            rad += _UltraRTStainedGlassWater2.x * path;
             // Beer-Lambert as the overlay's water absorption (docs/reflections.md, "Water absorption"), grey (the pane
             // gives the colour), and the share the surface reflects away.
-            float tr = lerp(_UltraRTStainedGlassWater.y, 1.0, exp(-_UltraRTStainedGlassWater.x * path)) * (1.0 - SchlickFresnel(0.02, cosA));
-            c = acc * ToLight((strength * RelightExposure()).xxx) * (ndl * tr); // ToLight is a power: it factors
+            tr = lerp(_UltraRTStainedGlassWater.y, 1.0, exp(-_UltraRTStainedGlassWater.x * path)) * (1.0 - SchlickFresnel(0.02, cosA));
         }
+        float3 acc = 0;
+        [branch] if (rad < 0.5 * e.w)
+        {
+            // Point sampled at full resolution (no mips: Plugin.StainedGlass.cs, SgBake), like the game's pixel-art panes.
+            float4 g = _UltraRTStainedGlassTex.SampleLevel(my_point_clamp_sampler_UltraRTStainedGlassTex, float3(uv, a.w), 0);
+            if (_UltraRTStainedGlassParams.w > 1.5) g = float4(1, 1, 1, 1);
+            // g: the pane's (gamma) colour, alpha-premultiplied by the bake's coverage (0 off the glass): StainedGlassPass.
+            acc = ToLight(StainedGlassPass(g, leadFloor, sat));
+        }
+        else
+        {
+            // A Vogel disc of 8 bilinear taps, turned at random per sample (the denoiser / DLSS RR average it). The
+            // leading is applied per tap, so the lines soften rather than grey out.
+            float2 rd = rad * float2(bu.w, bv.w);
+            float rot = Rand(rng) * 6.2831853;
+            [unroll] for (int k = 0; k < 8; k++)
+            {
+                float sn, cs;
+                sincos(rot + 2.3999632 * k, sn, cs);
+                float2 o = sqrt((k + 0.5) / 8.0) * float2(cs, sn) * rd;
+                float4 g = _UltraRTStainedGlassTex.SampleLevel(my_linear_clamp_sampler_UltraRTStainedGlassTex, float3(saturate(uv + o), a.w), 0);
+                if (_UltraRTStainedGlassParams.w > 1.5) g = float4(1, 1, 1, 1);
+                acc += ToLight(StainedGlassPass(g, leadFloor, sat));
+            }
+            acc *= 0.125;
+        }
+        // ToLight is a power: it factors. Daylight (_UltraRTStainedGlassParams2.x) scales the light linearly.
+        float3 c = acc * ToLight((strength * RelightExposure()).xxx) * (ndl * tr * _UltraRTStainedGlassParams2.x);
         float w = dot(c, lw);
         if (w <= 1e-6) continue;
         wSum += w;

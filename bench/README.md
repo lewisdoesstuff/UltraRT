@@ -116,7 +116,9 @@ against the game's frames (docs/lighting-overrides.md, "Scoreboard").
 | `railbeam` | the railcannon's beam prefab as a fake shot to the wall ahead (needs a railcannon in the save; the alt save has none) |
 | `parry` | the parry light burst alone (CombatLights), 1.2 m ahead: the game's own parry would freeze the capture (0.25 s hit-stop) and white it out |
 | `parrygame` | the game's own `TimeController.ParryFlash` (its light, the hit-stop, the white flash): the hook's path. Capture 0.4 s or more later to miss the white frame |
-| `lightning`, `boltlight` | 5-2's decorative bolt most in front of the camera: `lightning` starts it as the game does (`FlashStart`; the strike and its flash 0.3 s later, so `ShotDelay` ~0.36), `boltlight` only the bolt light, at once |
+| `lightning`, `boltlight` | the decorative bolt most in front of the camera (5-2's and P-2's `LightningStrikeDecorative_Animated`; levels with only plain `LightningStrikeDecorative` bolts get those): `lightning` starts it as the game does (`FlashStart`; the strike and its flash 0.3 s later, so `ShotDelay` ~0.36-0.38), `boltlight` only the bolt light, at once |
+| `gasoline` | 24 of the game's `GasolineProjectile`s (the Firestarter's fuel, as the Spread Gasoline cheat spawns it) dropped from 1.5 m onto the floor `Distance` ahead: gasoline stains |
+| `gasignite` | `StainVoxelManager.IgniteAll`: every gasoline stain burns (`BurningVoxel`, FireSimple flames, 6 s). `bench/suites/playtest-1121.json` uses `PeriodicKinds` `gasoline` every 2 s and `Kinds` `gasignite` 1 s before the capture |
 
 `"Weapon": N` (scenario) holds weapon slot N (1 = revolver) from the take-over on (`GunControl.SwitchWeapon`, then 1 s for the draw animation); `"WeaponVariant"` picks the variant in that slot by the start of its object's name (`"Shotgun Grenade"`, `"Hammer Pump"`, `"Revolver Twirl"`, ...; the log lists the `Guns/` objects), otherwise the save's last variant is held (the alt install's slot 2 is the impact hammer). Both installs' saves hold the rocket launcher, so `revolver` effects need `"Weapon": 1` to fire the revolver itself. `"GunBob": 1` swings the gun as walking does (see "Motion noise").
 

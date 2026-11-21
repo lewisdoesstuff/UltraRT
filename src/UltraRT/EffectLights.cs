@@ -53,6 +53,11 @@ namespace UltraRT
         public float flameGain = 0.5f;
         /// <summary>The flicker range of a flame-driven light (flickerRange for the others).</summary>
         public float flameFlickerRange = 0.5f;
+        /// <summary>A flame sprite with no light of its own (FireObjectPool's FireSimple: the gasoline fire's flames) gets a
+        /// virtual light this many times brighter than other glowing effects: its sprite averages ~0.06, an intensity of
+        /// ~1, while the same flame's lit variant ("Fire") carries a light of 5. 6 since 2026-11-21 (4: pathtrace barely lit
+        /// 4-4's corridor; 8: near white; docs/emissive-lights.md, "Player-made fire").</summary>
+        public float flameVirtualGain = 6f;
 
         // ---- Combat lights (CombatLights.cs; docs/emissive-lights.md, "Combat lights")
 
@@ -65,8 +70,17 @@ namespace UltraRT
         /// <summary>Range of a beam light (m; at least 1.2 x the spacing of the chain), and the spacing (3 to 6 lights per
         /// segment, fewer on a segment shorter than 3 m).</summary>
         public float beamRange = 6f, beamSpacing = 5f;
-        /// <summary>Game seconds from full to dark (a RevolverBeam's line stays about 0.33 s; its light fades in 0.2 s).</summary>
-        public float beamFade = 0.15f;
+        /// <summary>Game seconds from full to dark (a RevolverBeam's line stays about 0.33 s; its light fades in 0.2 s).
+        /// 0.15 until 2026-11-21 ("the light from gunshots lasts far too long"): the intensity envelope is (1 - age / fade)^2
+        /// and the light goes as intensity^2.2, so at 0.1 the light is down to 17% at 33 ms and 5% at 50 ms.</summary>
+        public float beamFade = 0.1f;
+        /// <summary>Gunshot flashes (docs/emissive-lights.md, "Gunshot flashes"): the game's own lights of a shot (the
+        /// RevolverBeam's light at the gun, 20 fading at 100 per second, and MuzzleFlash prefabs: shotgun, nailgun, enemy
+        /// guns) are held at full for gunFlashHold game seconds, then fade exponentially to 5% over gunFlashFade. The
+        /// game's linear 0.2 s fade, raised to ^2.2 by the light model, stayed torch-bright at the gun for ~0.18 s.
+        /// false = the game's own fade.</summary>
+        public bool gunFlash = true;
+        public float gunFlashHold = 0.02f, gunFlashFade = 0.06f;
         /// <summary>At most this many beam lights per frame (newest beams first; flashes and effect lights come before).</summary>
         public int beamMaxLights = 24;
         /// <summary>Parry burst: a light ~1.2 m in front of the camera at every parry, on real time (the game's hit-stop
@@ -85,6 +99,11 @@ namespace UltraRT
         public float lightningIntensity = 12f, lightningRangePerDistance = 2f, lightningMinRange = 30f;
         /// <summary>Game seconds of the main decay (re-strikes at ~0.06 and ~0.13 s).</summary>
         public float lightningFade = 0.18f;
+        /// <summary>Scenes whose decorative bolts strike inside the play space (comma-separated scene names): their bolt
+        /// lights are unshadowed and x lightningInsideGain. P-2's tunnel of blood (6 - Soul Tunnel): its bolts stand in the
+        /// tunnel behind walls of blood, and the game's own flash (25 / range 1000) leaves the walkway as it was.</summary>
+        public string lightningInsideScenes = "Level P-2";
+        public float lightningInsideGain = 3f;
         /// <summary>Weight of each kind in the air (volumetrics, LightPolicy.Medium).</summary>
         public float beamMedium = 0.5f, parryMedium = 0.2f, lightningMedium = 0.25f;
         /// <summary>Auto exposure holds still while a beam, parry or bolt flash lights the frame and for this many real
@@ -126,6 +145,8 @@ namespace UltraRT
             public Light Light;
             public bool InSnapshot; // the current GatherLights scan has it: GatherLights packs it
             public bool On;         // was on when last checked (on lights are checked every frame, off ones every 4th)
+            public bool Gun;        // a gunshot's light (RevolverBeam, MuzzleFlash): the snappy envelope, never left to GatherLights
+            public float OnAt;      // game time it came on (Gun lights)
         }
         private Tracked[] _tracked = new Tracked[256];
         private int _trackedCount;
@@ -195,6 +216,7 @@ namespace UltraRT
         // water. Matched against material and texture names (lower case).
         private static readonly string[] Excluded = { "smoke", "dust", "gas", "fog", "cloud", "mist", "steam", "checkpoint", "water", "splash", "glass", "shockwave", "hole", "lava", "pillar" };
         private const float MaxRadius = 6f;
+        private const float MaxFlameExtent = 40f; // flames up to this bounds extent still get a light (Measure)
         private const int ViewmodelLayer = 13;
 
         private readonly List<Light> _tmpLights = new List<Light>(16);
@@ -204,6 +226,10 @@ namespace UltraRT
         private readonly Stopwatch _sw = new Stopwatch();
         private double _cpuMs;
         private int _logFrames, _logAppended, _logVirtual, _logMaxVirtual, _logFlicker, _logs;
+        // Selection passes in the log window: emitters near the camera that were measured, covered by a game light, skipped
+        // as on their own light, too weak, or not a sprite / particle system.
+        private int _logNear, _logCovered, _logOnLight, _logWeak, _logKind, _logUnmeasured;
+        private string _logUnmeasuredSample = "";
         private float _flickerMin = float.MaxValue, _flickerMax, _nextLog;
 
         /// <summary>Called for every renderer found to glow (scene scan and spawns), before any virtual-light filtering.</summary>
@@ -262,13 +288,40 @@ namespace UltraRT
             _cpuMs += _sw.Elapsed.TotalMilliseconds;
         }
 
+        private static string PathOf(Transform t)
+        {
+            string p = t.name;
+            int n = 0;
+            for (var x = t.parent; x != null && n < 6; x = x.parent, n++) p = x.name + "/" + p;
+            return p;
+        }
+
         private void Track(Light l)
         {
             if (_trackedIndex.ContainsKey(l) || _trackedCount >= MaxTracked) return;
             if (_trackedCount == _tracked.Length) Array.Resize(ref _tracked, _tracked.Length * 2);
             _trackedIndex[l] = _trackedCount;
-            _tracked[_trackedCount++] = new Tracked { Light = l }; // spawned after the current scan, so not in it
+            // Spawned after the current scan, so not in it. Checked on the next frame (On): a muzzle light lives ~50-200 ms,
+            // and an off light waits up to 4 frames.
+            _tracked[_trackedCount++] = new Tracked { Light = l, On = true, Gun = IsGunLight(l), OnAt = -1f };
         }
+
+        /// <summary>A gunshot's own light: on a RevolverBeam (the shot's light at the gun) or in a MuzzleFlash prefab.</summary>
+        private static bool IsGunLight(Light l)
+        {
+            try
+            {
+                if (l.GetComponentInParent<RevolverBeam>(true) != null || l.GetComponentInParent<MuzzleFlash>(true) != null) return true;
+                var root = l.transform.root;
+                return l.name.IndexOf("muzzle", StringComparison.OrdinalIgnoreCase) >= 0 || (root != null && root.name.IndexOf("muzzle", StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>GatherLights leaves this light to <see cref="Append"/> (a gunshot light with its own envelope), even
+        /// when its 4 Hz scan caught it.</summary>
+        public bool OwnsLight(Light l) =>
+            Settings.gunFlash && Settings.spawnedLights && _trackedCount > 0 && _trackedIndex.TryGetValue(l, out int k) && _tracked[k].Gun;
 
         /// <summary>Once per RT scene build: collect the level's own glowing effects (torch flames, ambient embers).</summary>
         private void CollectSceneEmitters()
@@ -492,10 +545,14 @@ namespace UltraRT
                 _log.LogInfo($"Effect lights: CPU {_cpuMs / _logFrames * 1000.0:F1} us/frame; tracked lights {_trackedCount}, appended {(double)_logAppended / _logFrames:F2}/frame; " +
                              $"virtual {(double)_logVirtual / _logFrames:F2}/frame (max {_logMaxVirtual}) from {_emitters.Count} emitters; " +
                              $"flickering lights {(double)_logFlicker / _logFrames:F1}/frame (x{(_flickerMax > 0 ? _flickerMin : 1):F2}..{(_flickerMax > 0 ? _flickerMax : 1):F2}); spawn queue drops {EffectSpawns.Dropped}" +
+                             (_logNear > 0 ? $"; candidates measured {_logNear} (covered {_logCovered}, own light {_logOnLight}, weak {_logWeak}, kind {_logKind})" : "") +
+                             (_logUnmeasured > 0 && _logs < 40 ? $"; near but nothing drawn {_logUnmeasured}:{_logUnmeasuredSample}" : "") +
                              (_logs < 40 && _selected.Count > 0 ? $"; selected now: {string.Join(", ", _selected.Take(6).Select(e => $"{e.Kind} '{e.Name}' I {e.Smoothed * Settings.intensityScale:F1}"))}" : "") +
-                             (_logs < 40 && _flickers.Count > 0 ? $"; flicker now: {string.Join(", ", _flickers.Take(8).Select(e => $"{e.Kind} '{(e.Go != null ? e.Go.name : "destroyed")}'/'{e.Name}' r {e.Radius:F2} -> light '{(e.CoverLight != null ? e.CoverLight.name : "-")}'"))}" : ""));
+                             (_logs < 40 && _flickers.Count > 0 ? $"; flicker now: {string.Join(", ", _flickers.Take(8).Select(e => $"{e.Kind} '{(e.Go != null ? PathOf(e.Go.transform) : "destroyed")}'/'{e.Name}' r {e.Radius:F2} -> light '{(e.CoverLight != null ? PathOf(e.CoverLight.transform) : "-")}'{(e.CoverLight != null ? $" I {e.CoverLight.intensity:F1} range {e.CoverLight.range:F1} {(e.CoverLight.transform.position - e.Pos).magnitude:F2} m" : "")}"))}" : ""));
                 _logs++;
                 _cpuMs = 0; _logFrames = 0; _logAppended = 0; _logVirtual = 0; _logMaxVirtual = 0; _logFlicker = 0;
+                _logNear = _logCovered = _logOnLight = _logWeak = _logKind = _logUnmeasured = 0;
+                _logUnmeasuredSample = "";
                 _flickerMin = float.MaxValue; _flickerMax = 0f;
             }
             return count;
@@ -503,6 +560,7 @@ namespace UltraRT
 
         private int AppendTracked(IList<Light> snapshot, int snapshotVersion, Vector4[] data, uint[] masks, Light[] packed, int count, int max)
         {
+            var s = Settings;
             if (!ReferenceEquals(snapshot, _snapshot) || snapshotVersion != _snapshotVersion)
             {
                 // A new scan (the plugin's active-light set, refreshed at 4 Hz): GatherLights packs what it found; mark those.
@@ -516,7 +574,7 @@ namespace UltraRT
             for (int i = 0; i < _trackedCount; i++)
             {
                 ref var t = ref _tracked[i];
-                if (t.InSnapshot) continue;
+                if (t.InSnapshot && !(t.Gun && s.gunFlash)) continue;
                 if (!t.On && ((i + _frame) & 3) != 0) continue; // off lights: every 4th frame
                 var l = t.Light;
                 if (l == null)
@@ -534,12 +592,22 @@ namespace UltraRT
                     continue;
                 }
                 t.On = l.isActiveAndEnabled && l.intensity > 0f;
-                if (!t.On || count >= max) continue;
+                if (!t.On) { t.OnAt = -1f; continue; }
+                float env = 1f;
+                if (t.Gun && s.gunFlash)
+                {
+                    // Crisp: full for the hold, then exp to 5% over the fade (game time: a paused game holds it).
+                    if (t.OnAt < 0f) t.OnAt = Time.time;
+                    float age = Time.time - t.OnAt - Mathf.Max(0f, s.gunFlashHold);
+                    env = age <= 0f ? 1f : Mathf.Exp(-age / Mathf.Max(s.gunFlashFade / 3f, 1e-3f));
+                    if (env < 0.02f) continue;
+                }
+                if (count >= max) continue;
                 if (l.type != LightType.Point && l.type != LightType.Spot) continue;
                 var tr = l.transform;
                 var pos = tr.position;
                 var fwd = tr.forward;
-                var c = l.color * l.intensity;
+                var c = l.color * (l.intensity * env);
                 Vector4 l3;
                 if (l.type == LightType.Spot)
                 {
@@ -589,15 +657,26 @@ namespace UltraRT
                     // item's own Light already lights the scene from the player (Torch.Update), so no second light.
                     if (e.Go.layer == ViewmodelLayer) { e.Smoothed = 0f; e.Mean = -1f; continue; }
                     float d2 = PortalView.SqrDistance(e.T.position, camPos); // or to the camera's image through a portal
-                    if (d2 > cull2 || !Measure(e)) continue;
+                    if (d2 > cull2) continue;
+                    if (!Measure(e))
+                    {
+                        _logUnmeasured++;
+                        if (_logUnmeasuredSample.Length < 600)
+                            _logUnmeasuredSample += $" '{PathOf(e.T)}' {e.Kind} sprite {(e.SR != null && e.SR.sprite != null ? "yes" : "no")} extents {e.R.bounds.extents.magnitude:F1};";
+                        continue;
+                    }
                     if (_frame - e.CoverFrame > 60) { e.CoverLight = FindCoveringLight(e, data, packed, count); e.CoverFrame = _frame; }
+                    _logNear++;
                     if (e.CoverLight != null)
                     {
+                        _logCovered++;
                         if (s.flicker && _flickers.Count < MaxFlickers && (e.Kind == Kind.Sprite || e.Kind == Kind.Particles)) _flickers.Add(e);
                         continue;
                     }
-                    if (!s.virtualLights || e.OnLight || e.Strength < s.minStrength) continue;
-                    if (!s.virtualTrailsAndMeshes && e.Kind != Kind.Sprite && e.Kind != Kind.Particles) continue;
+                    if (e.OnLight) { _logOnLight++; continue; }
+                    if (e.Strength < s.minStrength) { _logWeak++; continue; }
+                    if (!s.virtualLights) continue;
+                    if (!s.virtualTrailsAndMeshes && e.Kind != Kind.Sprite && e.Kind != Kind.Particles) { _logKind++; continue; }
                     e.Score = e.Strength * (e.Radius + 0.5f) / (1f + d2 / 25f) * (was ? 1.5f : 1f);
                     Insert(e, Math.Max(0, s.maxVirtual));
                 }
@@ -617,7 +696,7 @@ namespace UltraRT
                 if (e.R == null || !e.Go.activeInHierarchy || !e.R.enabled || e.Strength <= 0f) { e.Smoothed = 0f; continue; }
                 // Particle counts jump: follow rises at once (flashes start immediately), decay over a few frames.
                 e.Smoothed = e.Strength > e.Smoothed ? e.Strength : Mathf.Lerp(e.Smoothed, e.Strength, 0.35f);
-                var c = e.Hue * (e.Smoothed * s.intensityScale);
+                var c = e.Hue * (e.Smoothed * s.intensityScale * (e.Flame && e.Kind == Kind.Sprite ? Mathf.Max(0f, s.flameVirtualGain) : 1f));
                 float range = Mathf.Clamp(e.Radius * s.rangePerSize, s.minRange, s.maxRange);
                 int j = count * 4;
                 data[j] = new Vector4(e.Pos.x, e.Pos.y, e.Pos.z, range);
@@ -744,7 +823,12 @@ namespace UltraRT
             e.Pos = b.center;
             e.Radius = Mathf.Min(b.extents.magnitude, MaxRadius);
             float m = MaxC(col);
-            if (m <= 1e-5f || b.extents.magnitude > MaxRadius * 2f) { e.Strength = 0f; return false; }
+            // Oversized glows are skipped (a sky-sized sprite is no light), except flames: the gasoline fire's FireSimple
+            // flames (BurningVoxel: scaled x4 under the stain's voxel) have bounds of 15-17 m. Their light sits low in the
+            // flame, where it burns on the floor, not at the middle of the billboard.
+            bool big = b.extents.magnitude > MaxRadius * 2f;
+            if (m <= 1e-5f || (big && (!e.Flame || b.extents.magnitude > MaxFlameExtent))) { e.Strength = 0f; return false; }
+            if (big) e.Pos = new Vector3(b.center.x, b.min.y + Mathf.Min(b.extents.y * 0.5f, 1.5f), b.center.z);
             e.Hue = col * (1f / m);
             // A quad whose average (premultiplied) colour reaches 0.25 is a full-strength glow; flames cover about that much.
             e.Strength = Mathf.Clamp01(m * 4f) * fill;

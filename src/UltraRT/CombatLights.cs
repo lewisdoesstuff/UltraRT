@@ -17,9 +17,10 @@ namespace UltraRT
     ///     gets its own chain.
     ///  2. Parry. TimeController.ParryFlash (every parry: punches, projectiles, coins) gets a crisp burst ~1.2 m in front of
     ///     the camera, on unscaled time: bright through the game's 0.25 s hit-stop (Time.timeScale = 0), then a fast fade.
-    ///  3. Lightning. 5-2's decorative bolts (LightningStrikeDecorative_Animated) and explosive strikes
-    ///     (LightningStrikeExplosive: the Ferryman's) get a brief blue-white bolt light along the bolt, with a re-strike
-    ///     flicker, on top of the game's own 1 s flash light.
+    ///  3. Lightning. 5-2's decorative bolts (LightningStrikeDecorative_Animated), the plain decorative bolts
+    ///     (LightningStrikeDecorative: P-2's tunnel of blood) and explosive strikes (LightningStrikeExplosive: the
+    ///     Ferryman's) get a brief bolt light along the bolt (blue-white, or the game flash's own hue), with a re-strike
+    ///     flicker, on top of the game's own flash light.
     /// All three are packed after the effect lights (<see cref="EffectLights"/>), so they never take a slot from an
     /// explosion or a muzzle flash, and capped. Every envelope ends on real time too, so a paused game never keeps one on.
     /// </summary>
@@ -63,6 +64,7 @@ namespace UltraRT
             public float Age, RealAge;
             public float Seed;
             public int Id;
+            public bool Unshadowed; // a bolt inside the play space (EffectLightSettings.lightningInsideScenes: P-2's tunnel)
         }
 
         private readonly List<Flash> _flashes = new List<Flash>(8);
@@ -72,12 +74,19 @@ namespace UltraRT
         internal static readonly List<Vector3> PendingParries = new List<Vector3>(4);
         internal static readonly List<Vector3> PendingStrikes = new List<Vector3>(4); // explosive strikes: the ground point
         internal static readonly List<LightningStrikeDecorative_Animated> Armed = new List<LightningStrikeDecorative_Animated>(4);
+        /// <summary>Plain decorative bolts whose FlashStart ran (the strike and the game's flash are immediate).</summary>
+        internal static readonly List<LightningStrikeDecorative> PendingDecor = new List<LightningStrikeDecorative>(4);
         private readonly List<float> _armedAge = new List<float>(4);
 
         private static readonly AccessTools.FieldRef<LightningStrikeDecorative_Animated, Light> FlashField =
             SafeFieldRef<LightningStrikeDecorative_Animated, Light>("flash");
         private static readonly AccessTools.FieldRef<LightningStrikeDecorative_Animated, AnimatedTexture> AnimField =
             SafeFieldRef<LightningStrikeDecorative_Animated, AnimatedTexture>("lightningAnim");
+
+        private static readonly AccessTools.FieldRef<LightningStrikeDecorative, Light> DecorFlashField =
+            SafeFieldRef<LightningStrikeDecorative, Light>("flash");
+        private static readonly AccessTools.FieldRef<LightningStrikeDecorative, SpriteRenderer> DecorSpriteField =
+            SafeFieldRef<LightningStrikeDecorative, SpriteRenderer>("lightning");
 
         private static AccessTools.FieldRef<T, F> SafeFieldRef<T, F>(string name) where T : class
         {
@@ -101,7 +110,7 @@ namespace UltraRT
         public void Clear()
         {
             _beams.Clear(); _beamIds.Clear(); _flashes.Clear();
-            PendingParries.Clear(); PendingStrikes.Clear(); Armed.Clear(); _armedAge.Clear(); ForcedBolts.Clear();
+            PendingParries.Clear(); PendingStrikes.Clear(); Armed.Clear(); _armedAge.Clear(); ForcedBolts.Clear(); PendingDecor.Clear(); ForcedDecor.Clear();
             _holdUntil = -1f; _holdStart = -1f;
         }
 
@@ -195,6 +204,8 @@ namespace UltraRT
 
         /// <summary>Bolt lights to start now for these decorative bolts (bench: the light alone, at the bolt's place).</summary>
         internal static readonly List<LightningStrikeDecorative_Animated> ForcedBolts = new List<LightningStrikeDecorative_Animated>(2);
+        /// <summary>The same for plain decorative bolts (P-2's tunnel of blood).</summary>
+        internal static readonly List<LightningStrikeDecorative> ForcedDecor = new List<LightningStrikeDecorative>(2);
 
         // ---------------------------------------------------------------- per frame
 
@@ -207,6 +218,7 @@ namespace UltraRT
                 Clear();
                 _sceneHandle = scene;
                 if (Settings.beamLights > 0f) { try { CollectSceneBeams(); } catch (Exception e) { _log.LogWarning($"Combat lights: scene beams: {e.Message}"); } }
+                try { LogSceneBolts(); } catch (Exception e) { _log.LogWarning($"Combat lights: scene bolts: {e.Message}"); }
             }
             float dt = Time.deltaTime, rdt = Time.unscaledDeltaTime;
             bool paused = Time.timeScale <= 0f;
@@ -299,6 +311,75 @@ namespace UltraRT
 
             foreach (var fb in ForcedBolts) if (fb != null) StartBolt(fb);
             ForcedBolts.Clear();
+            foreach (var db in PendingDecor) if (db != null) StartDecorBolt(db);
+            PendingDecor.Clear();
+            foreach (var db in ForcedDecor) if (db != null) StartDecorBolt(db);
+            ForcedDecor.Clear();
+        }
+
+        /// <summary>Once per scene: the level's decorative bolts, for the log (which kind, where, the game's flash).</summary>
+        private void LogSceneBolts()
+        {
+            var plain = UnityEngine.Object.FindObjectsOfType<LightningStrikeDecorative>(true);
+            var anim = UnityEngine.Object.FindObjectsOfType<LightningStrikeDecorative_Animated>(true);
+            if (plain.Length == 0 && anim.Length == 0) return;
+            var sb = new System.Text.StringBuilder($"Combat lights: decorative bolts in the scene: {anim.Length} animated, {plain.Length} plain");
+            for (int i = 0; i < plain.Length && i < 6; i++)
+            {
+                var b = plain[i];
+                var fl = DecorFlashField != null ? DecorFlashField(b) : null;
+                var sr = DecorSpriteField != null ? DecorSpriteField(b) : null;
+                var p = b.transform.position;
+                sb.Append($"; '{BoltPath(b.transform)}' at ({p.x:F0}, {p.y:F0}, {p.z:F0})");
+                if (fl != null) sb.Append($" flash {fl.type} range {fl.range:F0} colour ({fl.color.r:F2}, {fl.color.g:F2}, {fl.color.b:F2}) at ({fl.transform.position.x:F0}, {fl.transform.position.y:F0}, {fl.transform.position.z:F0})");
+                if (sr != null) { var bb = sr.bounds; sb.Append($" sprite y {bb.min.y:F0}..{bb.max.y:F0} colour ({sr.color.r:F2}, {sr.color.g:F2}, {sr.color.b:F2})"); }
+            }
+            for (int i = 0; i < anim.Length && i < 8; i++)
+            {
+                var b = anim[i];
+                var fl = FlashField != null ? FlashField(b) : null;
+                var p = b.transform.position;
+                sb.Append($"; animated '{BoltPath(b.transform)}' at ({p.x:F0}, {p.y:F0}, {p.z:F0})");
+                if (fl != null) sb.Append($" flash '{BoltPath(fl.transform)}' shadows {fl.shadows}");
+            }
+            _log.LogInfo(sb.ToString());
+        }
+
+        private static string BoltPath(Transform t)
+        {
+            string p = t.name;
+            for (var x = t.parent; x != null; x = x.parent) p = x.name + "/" + p;
+            return p;
+        }
+
+        /// <summary>A plain decorative bolt (LightningStrikeDecorative.FlashStart: the strike and its flash at once): a bolt
+        /// light along its sprite, in the hue of the game's flash light (P-2's tunnel of blood).</summary>
+        private void StartDecorBolt(LightningStrikeDecorative bolt)
+        {
+            if (Settings.lightningFlash <= 0f) return;
+            var sr = DecorSpriteField != null ? DecorSpriteField(bolt) : null;
+            var fl = DecorFlashField != null ? DecorFlashField(bolt) : null;
+            Vector3 a, top;
+            if (sr != null)
+            {
+                var bb = sr.bounds;
+                a = new Vector3(bb.center.x, bb.min.y, bb.center.z);
+                top = new Vector3(bb.center.x, bb.max.y, bb.center.z);
+            }
+            else { a = bolt.transform.position; top = a + Vector3.up * 40f; }
+            // The game flash's hue when it has one (a red flash stays red, with a little white); white-ish flashes keep the
+            // storm's blue-white.
+            Color hue = BoltHue;
+            if (fl != null)
+            {
+                var c = fl.color;
+                float mx = Mx(c), mn = Mathf.Min(c.r, Mathf.Min(c.g, c.b));
+                if (mx > 1e-3f && (mx - mn) / mx > 0.25f) hue = Color.Lerp(c * (1f / mx), Color.white, 0.15f);
+            }
+            AddFlash(new Flash { Kind = FlashKind.Bolt, A = a, B = top, Hue = hue, Radius = 0.5f, Seed = UnityEngine.Random.value, Unshadowed = InsideScene() });
+            if (_logBolts++ < 8)
+                _log.LogInfo($"Combat lights: decorative bolt '{bolt.name}' base ({a.x:F0}, {a.y:F0}, {a.z:F0}) top y {top.y:F0}, hue ({hue.r:F2}, {hue.g:F2}, {hue.b:F2}); " +
+                             (fl != null ? $"game flash {fl.type} I {fl.intensity:F1} range {fl.range:F0}" : "no game flash"));
         }
 
         private static readonly Color BoltHue = new Color(0.72f, 0.84f, 1f);
@@ -316,13 +397,28 @@ namespace UltraRT
                 top = new Vector3(bb.center.x, bb.max.y, bb.center.z);
             }
             else { a = bolt.transform.position; top = a + Vector3.up * 60f; }
-            AddFlash(new Flash { Kind = FlashKind.Bolt, A = a, B = top, Hue = BoltHue, Radius = 0.5f, Seed = UnityEngine.Random.value });
+            bool unshadowed = InsideScene();
+            AddFlash(new Flash { Kind = FlashKind.Bolt, A = a, B = top, Hue = BoltHue, Radius = 0.5f, Seed = UnityEngine.Random.value, Unshadowed = unshadowed });
             if (_logBolts++ < 8)
             {
                 var fl = FlashField != null ? FlashField(bolt) : null;
-                _log.LogInfo($"Combat lights: lightning bolt '{bolt.name}' base ({a.x:F0}, {a.y:F0}, {a.z:F0}) top y {top.y:F0}; " +
+                _log.LogInfo($"Combat lights: lightning bolt '{bolt.name}' base ({a.x:F0}, {a.y:F0}, {a.z:F0}) top y {top.y:F0}{(unshadowed ? ", unshadowed" : "")}; " +
                              (fl != null ? $"game flash {fl.type} I {fl.intensity:F1} range {fl.range:F0} colour ({fl.color.r:F2}, {fl.color.g:F2}, {fl.color.b:F2}) at ({fl.transform.position.x:F0}, {fl.transform.position.y:F0}, {fl.transform.position.z:F0})" : "no game flash"));
             }
+        }
+
+        /// <summary>Bolts that strike inside the play space (P-2's tunnel of blood: the bolts stand in the tunnel, walled in
+        /// by blood): unshadowed (the walls would keep them off the walkway) and x lightningInsideGain (5-2's bolt light
+        /// rides on the game's own flash, which lights the pier; in the tunnel nothing else lights the strike).</summary>
+        private bool InsideScene()
+        {
+            var list = Settings.lightningInsideScenes;
+            if (string.IsNullOrEmpty(list)) return false;
+            string scene;
+            try { scene = SceneHelper.CurrentScene; } catch (Exception) { return false; } // "Level P-2" (the Unity scene's name is an asset id)
+            foreach (var n in list.Split(','))
+                if (n.Trim().Length > 0 && string.Equals(n.Trim(), scene, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
         }
 
         private void AddFlash(Flash f)
@@ -391,7 +487,7 @@ namespace UltraRT
                         float env = Mathf.Exp(-f.Age / tau);
                         if (f.Age > t1) env = Mathf.Max(env, 0.75f * Mathf.Exp(-(f.Age - t1) / tau));
                         if (f.Age > t2) env = Mathf.Max(env, 0.45f * Mathf.Exp(-(f.Age - t2) / tau));
-                        float k = env * s.lightningFlash * s.lightningIntensity;
+                        float k = env * s.lightningFlash * s.lightningIntensity * (f.Unshadowed ? Mathf.Max(0f, s.lightningInsideGain) : 1f);
                         if (k < 0.02f) continue;
                         // Brightness at the camera independent of the bolt's distance: the camera sits at a fixed fraction
                         // of the range (falloff 1 / (1 + 25 d^2 / r^2)), so the intensity sets what the player sees lit.
@@ -402,7 +498,7 @@ namespace UltraRT
                         {
                             // The upper part of the bolt: the sprite's bounds of 5-2's bolts reach below the sea (base y -66).
                             float t = j == 0 ? 0.35f : j == 1 ? 0.6f : 0.85f;
-                            Pack(data, masks, packed, ids, medium, first, ref count, Vector3.Lerp(f.A, f.B, t), range, f.Hue * (k / n), f.Radius, f.Id + j, s.lightningMedium);
+                            Pack(data, masks, packed, ids, medium, first, ref count, Vector3.Lerp(f.A, f.B, t), range, f.Hue * (k / n), f.Radius, f.Id + j, s.lightningMedium, f.Unshadowed);
                         }
                         lit = true;
                     }
@@ -480,13 +576,13 @@ namespace UltraRT
         }
 
         private static void Pack(Vector4[] data, uint[] masks, Light[] packed, int[] ids, float[] medium, int first, ref int count,
-                                 Vector3 p, float range, Color c, float radius, int id, float med)
+                                 Vector3 p, float range, Color c, float radius, int id, float med, bool unshadowed = false)
         {
             int j = count * 4;
             data[j] = new Vector4(p.x, p.y, p.z, Mathf.Max(range, 0.1f));
             data[j + 1] = new Vector4(c.r, c.g, c.b, 0f);
             data[j + 2] = new Vector4(0f, -1f, 0f, Mathf.Max(radius, 0.01f)); // soft-shadow radius: thin beams, crisp shadows
-            data[j + 3] = new Vector4(-1f, 1f, 0f, 0f);                       // point light, shadowed
+            data[j + 3] = new Vector4(-1f, 1f, unshadowed ? 0.75f : 0f, 0f);  // point light, shadowed (0.75: unshadowed, not a fill)
             masks[count] = ~0u;
             packed[count] = null;
             ids[count] = id;
@@ -511,6 +607,7 @@ namespace UltraRT
             Try(harmony, typeof(TimeController), "ParryFlash", nameof(ParryFlashPostfix), false, "parry");
             Try(harmony, typeof(LightningStrikeDecorative_Animated), "FlashStart", nameof(FlashStartPostfix), false, "bolt");
             Try(harmony, typeof(LightningStrikeExplosive), "Start", nameof(ExplosiveStartPrefix), true, "strike");
+            Try(harmony, typeof(LightningStrikeDecorative), "FlashStart", nameof(DecorFlashStartPostfix), false, "decorative bolt");
         }
 
         private static void Try(Harmony harmony, Type type, string method, string hook, bool prefix, string label)
@@ -544,6 +641,17 @@ namespace UltraRT
                 if (!Lightning || __instance == null || CombatLights.Armed.Count >= 8 || CombatLights.Armed.Contains(__instance)) return;
                 Strikes++;
                 CombatLights.Armed.Add(__instance);
+            }
+            catch (Exception) { /* never break the storm */ }
+        }
+
+        private static void DecorFlashStartPostfix(LightningStrikeDecorative __instance)
+        {
+            try
+            {
+                if (!Lightning || __instance == null || CombatLights.PendingDecor.Count >= 4 || CombatLights.PendingDecor.Contains(__instance)) return;
+                Strikes++;
+                CombatLights.PendingDecor.Add(__instance);
             }
             catch (Exception) { /* never break the storm */ }
         }

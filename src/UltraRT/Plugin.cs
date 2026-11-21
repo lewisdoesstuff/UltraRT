@@ -663,6 +663,7 @@ namespace UltraRT
                 if ((rl != null && (rl.Disabled || rl.Intensity * rl.Toggle <= 0f)) || SoloHides(l) || ReferenceEquals(l, _fitSkip)) continue;
                 // A light that lights the air only goes after every light surfaces see (_surfLightCount).
                 if (rl != null && !rl.Surfaces) { if (rl.Medium > 0f) _mediumOnly.Add(l); continue; }
+                if (_effectLights != null && _effectLights.OwnsLight(l)) continue; // a gunshot light: its own envelope (EffectLights)
                 PackSceneLight(l, rl, mainSun);
             }
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
@@ -1164,6 +1165,7 @@ namespace UltraRT
                     tint = new Color(t.r * k, t.g * k, t.b * k);
                 }
             }
+            SgNoteSky(tex, tint); // stained glass follows the sky's brightness (Plugin.StainedGlass.cs, SgDayFactor)
             if (tex == null)
             {
                 _cmd.SetRayTracingTextureParam(shader, "_SkyTex", Texture2D.blackTexture);

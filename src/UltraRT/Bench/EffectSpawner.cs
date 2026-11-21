@@ -154,6 +154,34 @@ namespace UltraRT.Bench
                     if (light != null) light.enabled = true;
                     break;
                 }
+                case "gasoline":
+                {
+                    // The Firestarter's fuel as the game spreads it (the Spread Gasoline cheat's projectile): 24 blobs dropped
+                    // from 1.5 m over the floor ahead, in a ~2 m wide puddle; each leaves a gasoline stain (StainVoxelManager).
+                    if (_gasPrefab == null) _gasPrefab = AssetHelper.LoadPrefab("Assets/Prefabs/Attacks and Projectiles/GasolineProjectile.prefab");
+                    if (_gasPrefab == null) throw new InvalidOperationException("no GasolineProjectile prefab");
+                    var p = InFront(cam, distance);
+                    if (Physics.Raycast(p, Vector3.down, out var floor, 10f, ~(1 << 2), QueryTriggerInteraction.Ignore)) p = floor.point;
+                    for (int i = 0; i < 24; i++)
+                    {
+                        var o = UnityEngine.Random.insideUnitCircle * 1.2f;
+                        var go = UnityEngine.Object.Instantiate(_gasPrefab, p + new Vector3(o.x, 1.5f, o.y), Quaternion.Euler(90f, 0f, 0f));
+                        go.SetActive(true);
+                        if (go.TryGetComponent<Rigidbody>(out var rb)) rb.velocity = Vector3.down * 8f;
+                    }
+                    if (_gasLogs++ < 2) Log?.LogInfo($"EffectSpawner: gasoline dropped at ({p.x:F1}, {p.y:F1}, {p.z:F1})");
+                    break;
+                }
+                case "gasignite":
+                {
+                    // Sets every gasoline stain alight, as a fire or explosion touching it does (BurningVoxel: FireSimple
+                    // flames from FireObjectPool, 6 s, then a 2 s die-down).
+                    var svm = MonoSingleton<StainVoxelManager>.Instance;
+                    if (svm == null) throw new InvalidOperationException("no StainVoxelManager");
+                    svm.IgniteAll();
+                    if (_gasLogs++ < 4) Log?.LogInfo("EffectSpawner: gasoline ignited");
+                    break;
+                }
                 case "blood":
                 {
                     // A body-sized blood splatter from the game's gore pool (spray particles, drops, stains where it lands).
@@ -348,7 +376,27 @@ namespace UltraRT.Bench
                         float dot = Vector3.Dot((l.transform.position - cam.position).normalized, cam.forward);
                         if (dot > bestDot) { bestDot = dot; best = l; }
                     }
-                    if (best == null) throw new InvalidOperationException("no LightningStrikeDecorative_Animated in this level");
+                    if (best == null)
+                    {
+                        // No animated bolt (5-2's): the plain decorative ones (P-2's tunnel of blood), strike and flash at once.
+                        LightningStrikeDecorative plain = null;
+                        foreach (var l in UnityEngine.Object.FindObjectsOfType<LightningStrikeDecorative>())
+                        {
+                            if (l == null) continue;
+                            float dot = Vector3.Dot((l.transform.position - cam.position).normalized, cam.forward);
+                            if (dot > bestDot) { bestDot = dot; plain = l; }
+                        }
+                        if (plain == null) throw new InvalidOperationException("no decorative lightning in this level");
+                        if (kind == "boltlight") UltraRT.CombatLights.ForcedDecor.Add(plain);
+                        else
+                        {
+                            if (DecorFlashStart == null) throw new InvalidOperationException("LightningStrikeDecorative.FlashStart not found");
+                            DecorFlashStart.Invoke(plain, null);
+                        }
+                        if (_boltLogs++ < 3)
+                            Log?.LogInfo($"EffectSpawner: {kind} on plain bolt '{GameControl.PathOf(plain.transform)}' ({Vector3.Distance(plain.transform.position, cam.position):F0} m, in front {bestDot:F2})");
+                        break;
+                    }
                     if (kind == "boltlight") UltraRT.CombatLights.ForcedBolts.Add(best);
                     else
                     {
@@ -402,7 +450,10 @@ namespace UltraRT.Bench
             }
         }
 
-        private static int _parryLogs, _boltLogs;
+        private static int _parryLogs, _boltLogs, _gasLogs;
+        private static readonly System.Reflection.MethodInfo DecorFlashStart =
+            typeof(LightningStrikeDecorative).GetMethod("FlashStart", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+        private static GameObject _gasPrefab;
         private static readonly System.Reflection.MethodInfo FlashStart =
             typeof(LightningStrikeDecorative_Animated).GetMethod("FlashStart", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
         private static readonly System.Reflection.FieldInfo BuildupTime =
