@@ -844,6 +844,11 @@ black in the strength-0 frame (max channel <= 10) gain 2-3 of 255 there, under t
 between two identical captures of 0-1 metal (no flesh) moves those pixels by 23-30 (gun sway). P-1's start, where
 the only flesh is gibs, is unchanged within the noise.
 
+**Not the moving-flesh artefact** (2026-11-20). The report "the glossy layer of blood doesn't move with the shifting
+flesh" (3-1's Uphill Battle, pathtrace) was fresh-blood gloss on the game's stain decals, which stay in world space while
+displaced flesh slides under them (docs/vfx.md, "Wet blood on moving surfaces"). `mat.fleshSss=0` left the static
+patches in place; it only lowered their contrast, because the scatter brightens the flesh around them.
+
 **GPU cost** (2026-11-20, `bench/results/20261120-181953_flesh-sss-perf`, `-Perf`, exclusive lock, main slot,
 2560x1440, trace scale 0.5, RTX 5070 Ti; strength 0 and 1 alternating every 1.5 s in one pass). Trace dispatch, ms:
 
