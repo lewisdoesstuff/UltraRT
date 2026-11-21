@@ -9,6 +9,10 @@ Shader "UltraRT/Portal"
         _PortalNoRecursion ("Hidden in portal views (appearsInRecursions off)", Float) = 0
         _PortalSeesLayer ("Portal view sees layer 30 (canSeePortalLayer)", Float) = 1
         _PortalMirror ("Portal mirror (exit = entry)", Float) = 0
+        _PortalNoSelf ("Hidden in its own view (canSeeItself off)", Float) = 0
+        _PortalInfinite ("supportInfiniteRecursion", Float) = 0
+        _PortalMaxRec ("maxRecursions (the game's, before the raster trim)", Float) = 3
+        _PortalSky ("Sky slot behind this side (0 = the level's sky)", Float) = 0
     }
 
     SubShader
@@ -44,6 +48,10 @@ Shader "UltraRT/Portal"
             float _PortalNoRecursion;
             float _PortalSeesLayer;
             float _PortalMirror;
+            float _PortalNoSelf;
+            float _PortalInfinite;
+            float _PortalMaxRec;
+            float _PortalSky;
 
             // Only rays crossing the side from its back half-space along its forward axis enter it (PortalMath.Raycast);
             // from behind, the quad is not there.
@@ -66,8 +74,12 @@ Shader "UltraRT/Portal"
                 p.normal = -WorldRayDirection();
                 p.albedo = 0;
                 p.alpha = 0;
-                // Bit 0: ray gen adds layer-30 geometry to the next segment's mask; bit 1: the side is a mirror.
-                p.material = (_PortalSeesLayer > 0.5 ? 1u : 0u) | (_PortalMirror > 0.5 ? 2u : 0u);
+                // Bit 0: ray gen adds layer-30 geometry to the next segment's mask; bit 1: the side is a mirror; bit 2:
+                // canSeeItself off; bit 3: supportInfiniteRecursion; bits 8-15: maxRecursions; bits 16-23: the sky slot
+                // behind the side (overrideSkyboxEnter/Exit; UltraRTPortals.hlsl, ULTRART_PORTAL_*).
+                p.material = (_PortalSeesLayer > 0.5 ? 1u : 0u) | (_PortalMirror > 0.5 ? 2u : 0u) | (_PortalNoSelf > 0.5 ? 4u : 0u)
+                           | (_PortalInfinite > 0.5 ? 8u : 0u) | ((uint)clamp(_PortalMaxRec, 0.0, 255.0) << 8)
+                           | ((uint)clamp(_PortalSky, 0.0, 255.0) << 16);
                 p.motion = 0;
             }
             ENDHLSL

@@ -1,0 +1,44 @@
+{
+ "Name": "portal-recursion-sky",
+ "Note": "docs/portals.md section 18 (2026-11-21): the user's 8-3 playtest poses 144-146. Portal recursion rules and the endless Loop Drop shaft (plugin._portalRules=0 = before), the Limbo sky behind the Dimensional Arena's portals (was fogged orange), light through the Fallway doorway (bursts; ls.farFull=0 = before), and the Clockwork Crushers' side loops (maxRecursions 1, canSeeItself off).",
+ "Scenarios": [
+  {
+   "Name": "8-3 portal light",
+   "Scene": "Level 8-3",
+   "Path": { "Type": "static", "Approach": "../recordings/8-3-portal-light-1121.json", "Duration": 6 },
+   "Modes": [ "off", "pathtrace", "pathtrace+ls.farFull=0" ],
+   "Screenshots": [ 3 ],
+   "Burst": 48,
+   "BurstModes": [ "off", "pathtrace", "pathtrace+ls.farFull=0" ]
+  },
+  {
+   "Name": "8-3 drop down",
+   "Scene": "Level 8-3",
+   "Path": { "Type": "static", "Approach": "../recordings/8-3-infinite-drop-1121.json", "Position": [200.0, 44.0, 76.0], "Yaw": -27.08, "Pitch": -80, "Duration": 6 },
+   "Modes": [ "off", "pathtrace", "pathtrace+plugin._portalRules=0", "pathtrace+plugin._portalFeedback=0" ],
+   "Screenshots": [ 3 ]
+  },
+  {
+   "Name": "8-3 drop up",
+   "Scene": "Level 8-3",
+   "Path": { "Type": "static", "Approach": "../recordings/8-3-infinite-drop-1121.json", "Position": [205.0, 44.0, 70.0], "Yaw": -27.08, "Pitch": 70, "Duration": 6 },
+   "Modes": [ "off", "pathtrace", "pathtrace+plugin._portalRules=0", "relight" ],
+   "Screenshots": [ 3 ]
+  },
+  {
+   "Name": "8-3 limbo portal",
+   "Scene": "Level 8-3",
+   "Path": { "Type": "static", "Approach": "../recordings/8-3-limbo-portal-1121.json", "Duration": 4, "FreezeAtPose": true },
+   "Modes": [ "off", "pathtrace", "relight", "pathtrace+plugin._portalRasterSkip=0" ],
+   "Screenshots": [ 2 ]
+  },
+  {
+   "Name": "8-3 crushers",
+   "Scene": "Level 8-3",
+   "Path": { "Type": "static", "Load": "checkpoint", "Approach": "../recordings/v5c-8-3-crushers.json", "Duration": 4 },
+   "Modes": [ "off", "pathtrace", "pathtrace+plugin._portalRules=0+plugin._portalNoSelf=0" ],
+   "Enemies": "blind",
+   "Screenshots": [ 2 ]
+  }
+ ]
+}

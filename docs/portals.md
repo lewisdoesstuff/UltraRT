@@ -97,7 +97,12 @@ Where it is used:
 | Flag / variant | Effect |
 |---|---|
 | `-ultrart-noportals`, bench `plugin._portals=0` | no portal quads: rays go straight through, as before (A/B) |
-| `-ultrart-portal-hops N`, bench `plugin._portalHops=N` | teleports per ray (3); past it rays ignore portals |
+| `-ultrart-portal-hops N`, bench `plugin._portalHops=N` | teleports per ray (3); past it rays ignore portals. Since 2026-11-21 the floor of the per-portal limit (section 18) |
+| bench `plugin._portalRules=0` | one global hop limit instead of the game's per-portal rules (`maxRecursions`, `canSeeItself`, `supportInfiniteRecursion`; section 18) |
+| bench `plugin._portalNoSelf=0` | a side whose `canSeeItself` is off is hit again right after crossing it, as before 2026-11-21 (section 18) |
+| bench `plugin._portalInfHops=N` | teleports through `supportInfiniteRecursion` loops (12) |
+| bench `plugin._portalFeedback=0` | the end of an infinite loop stays black instead of showing last frame's image (section 18) |
+| bench `plugin._portalCheapHops=N` | past N hops a surface gets one light sample and no reflection ray (4; 0 = never) |
 | `-ultrart-noportallayer` | don't trace layer-30 renderers |
 | `-ultrart-rtmirrors`, bench `plugin._rtMirrors=1` | camera rays reflect off portal mirrors instead of keeping the game's mirror view (settings menu: "Ray-traced mirrors", [settings.md](settings.md)) |
 | `SceneProxies.PortalAddDelay` | 2 frames before a new portal quad goes into the RTAS |
@@ -155,7 +160,7 @@ The far side is now as calm as the near side. "Side 2" has a flickering lamp in 
 - **Sliding door**: the false-start doorway's slab slides on wall-clock time, so at some moments it covers the whole doorway and `compdebug 5` has no portal pixels there. That is correct, not a miss; check the raw RT image or another moment.
 - **Bounce and reflection rays from a surface seen through a portal** start a fresh path: they don't see layer-30 props.
 - **Lights through portals**: built on 2026-11-20 (section 15): images of the scene lights, one hop, clipped to the exit's opening, shadowed on both sides. Bounce light through a doorway was already right (bounce rays follow portals); emitters (glowing surfaces) are not imaged.
-- **Per-portal overrides** the game applies to a portal view are not applied to rays: `overrideSkyboxEnter/Exit`, `canSeeItself`, per-portal `maxRecursions` (one global limit of 3 instead), the fog-end distance cull, and `supportInfiniteRecursion`'s fake textures. `appearsInRecursions` and `canSeePortalLayer` are honoured. Fog overrides (and the level's fog behind a portal) are applied by the veil pass since 2026-11-18, for the first portal on a camera ray (docs/scene-proxies.md, "Blended veils").
+- **Per-portal overrides** the game applies to a portal view: `appearsInRecursions` and `canSeePortalLayer` are honoured; since 2026-11-21 also `canSeeItself`, per-portal `maxRecursions`, `supportInfiniteRecursion` (deeper loops and last frame's image at their end) and `overrideSkyboxEnter/Exit` for camera rays that miss behind the side (section 18). Not applied: the fog-end distance cull. Fog overrides (and the level's fog behind a portal) are applied by the veil pass since 2026-11-18, for the first portal on a camera ray (docs/scene-proxies.md, "Blended veils").
 - **Moving portals and crossing a portal** had no temporal handling until 2026-11-18: see section 8.
 - **The game's own cubemap reflection** (`GameCubeTerm`; for pattern cubes since hybrid went on 2026-11-19) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
 - **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere. Blood stains are
@@ -265,7 +270,8 @@ user's sway recording in front of the 8-2 portal look the same old and new; what
 not explained yet (open).
 
 **Not portal-aware yet** (from the audit, by value): volumetrics (the froxel march and its composite stop at the
-portal plane), the sky (one global sky; a portal into another sky shows the camera's), hybrid's game cube term (eye
+portal plane), the sky (one global sky; a portal into another sky shows the camera's; *since 2026-11-21 a side's
+`overrideSkybox` is used for camera rays behind it, section 18*), hybrid's game cube term (eye
 position; moot since hybrid went on 2026-11-19), the player light and muzzle flash (imaged through portals since 2026-11-20 with every other light, section 15), the backdrop exclusion by player position
 at scene build.
 
@@ -401,6 +407,8 @@ relight alike. The opening at the hall's end (`Portals A`) has no glass and is u
 **Still lighter than the game.** The game's side walls are a dense grey frost with the looped hall barely visible. The
 side portals have `maxRecursions` 1; rays use the global limit of 3 hops (section 7, "Per-portal overrides"), so
 they see the hall repeat further and more clearly than the game's single recursion does. Not changed here.
+*2026-11-21: rays now follow the side loops' `maxRecursions` 1 and `canSeeItself` off (section 18): one repetition, then
+the level behind the side, as the game.*
 
 **Not done:** the far-side panes get no reflection (the overlay's Fresnel term) and are lit like the hit behind them,
 not by their own light; the sky behind a pane is the game's pixel anyway (sky pixels are left to the game). Cost: up
@@ -691,3 +699,123 @@ probe's mesh field, and the layer-30 renderer list in the log.
 **Tried and dropped:** re-aiming the game's `AlwaysLookAtCamera` billboards at each portal view before the dynamic sync
 (the game does this for its own portal cameras in `PortalManagerV2.OnPreRenderCallback`). It made no visible
 difference to Providence or the 8-3 sprites, so it was removed.
+
+## 19. Recursion rules, infinite loops, the sky behind portals, light through portals (2026-11-21, `t3/portal-infinite-skybox-lighting`)
+
+The user's 8-3 playtest of 2026-11-21, three poses (`BepInEx\ultrart\poses.jsonl` lines 144-146; routes copied to
+`bench/recordings/8-3-portal-light-1121.json`, `8-3-infinite-drop-1121.json`, `8-3-limbo-portal-1121.json`; suite
+`bench/suites/portal-recursion-sky.json`).
+
+### Recursion rules (`UltraRTPortals.hlsl`, `TraceScene`)
+
+**How the game does it** (`PortalRenderV2.BurstRenderData`, `Render`, decompiled): the main view has `maxDepth` 4. A view
+rendered through side P is pushed with `depth + 1` and `maxDepth = P.maxRecursions`, and is only drawn while
+`depth <= maxDepth`: the k-th crossing behind P happens while `k - 1 <= P.maxRecursions`. In a view through side P, P
+itself is not drawn when `canSeeItself` is off (`!canSeeItself && i == handleIndex`). In the deepest view, sides with
+`supportInfiniteRecursion` are drawn with pass 1 of the portal material: `fakeEnterTex` / `fakeExitTex`, a 256 px copy of
+the side's composite from an earlier frame (`Portal.TryStoreTexture`), so a loop looks endless.
+
+**Rays now do the same** (default; bench `plugin._portalRules=0` = the old single limit):
+- The portal hit reports the side's rules in `p.material` (`Portal.shader`): bit 2 `canSeeItself` off, bit 3
+  `supportInfiniteRecursion`, bits 8-15 `maxRecursions`, bits 16-23 the side's sky slot. `maxRecursions` is the game's own
+  value from before the raster trim (`SceneProxies.OriginalMaxRecursions`; the trim sets it to 0 while RT runs).
+- Crossing k + 1 is allowed when `k <= maxRecursions` of the side crossed last, and `k < max(3, min(maxRecursions + 1, 12))`:
+  the global `_UltraRTPortalHops` (3) stays the depth an ordinary portal gets, so ordinary portals cost what they did
+  (`maxRecursions` 3 now gives the game's 4 crossings; 8-3's Clockwork Crushers loops, `maxRecursions` 1, give 2).
+- A side met again right after crossing it, with `canSeeItself` off, is not there: the ray goes on past it (not a hop).
+  8-3's `SidewaysLoop 1/2` and the Dimensional Arena's `DimensionPortal` have it off.
+- Past the limit, ordinary sides are ignored as before (the level behind them shows).
+- **Infinite loops.** After crossing a `supportInfiniteRecursion` side, crossings go on to `_UltraRTPortalInfHops`
+  (bench `plugin._portalInfHops`, 12). At that limit the ray stops at the side (`path.capped`): an unlit black surface for
+  bounce and cache rays, and for the camera ray PathTrace shows **last frame's image of the same point of the side, where
+  the camera sees it directly** (`_UltraRTPrevImage`, `_UltraRTPrevViewProj`: the composite's input of the previous frame
+  and the matrix that maps a world point into it; one visibility ray checks that nothing stands between the camera and
+  that point). That image already holds the whole stack, so the loop repeats without end, as the game's fake textures
+  do. Bench `plugin._portalFeedback=0` leaves the end black.
+- **Cheaper shading deep in a loop**: surfaces behind more than `plugin._portalCheapHops` (4) hops skip pathtrace's extra
+  light samples (`PtMoreDirect`) and the reflection ray. They are a few hundred small, far pixels.
+
+**8-3's Loop Drop** (`Pre-Space/Rooms/9 - Loop Drop/9 Nonstuff/Portal`: 40 x 40 m, enter at y 25 facing down, exit at
+y 65 facing up, `maxRecursions` 3, `supportInfiniteRecursion`): looking up the shaft (`8-3 drop up`, camera at
+(205, 44, 70) pitch 70), rays used to stop after 3 hops and go on straight into the empty space above the room: a flat
+black square at the vanishing point (the user's screenshot; `plugin._portalRules=0` in the suite still shows it). Now the
+shaft goes on to the vanishing point like the game's, and ends in last frame's image of itself (blue sky at the far end). Looking down (`8-3 drop down`) the same. The user's own pose (line 145) puts the bench
+camera in the roof beams above the shaft (the pose stores the player's position, the shaft is beside it), so the suite
+uses two poses inside the shaft.
+
+### The sky behind a portal: no fog (`PathTrace.raytrace`, `VeilTrace.raytrace`)
+
+The Supermarket/Limbo portal (Dimensional Arena, pose 146): through the portal the RT showed a flat orange where the game
+shows Limbo's blue sky. The orange was fog. With the raster skip (section 17) PathTrace writes the sky behind a portal as an emitter 4 km behind it;
+the veil pass (fog behind portals) then fogged it with the near side's portal fog (`B1 - Dimensional Hallway` enter side:
+orange, 0-300 m) at 4 km: all fog. The game never fogs its sky (sky walls and the skybox). Now that pixel is marked
+`NoFog` for the fog pass, and the veil pass treats it as sky (instance 0x7F, no motion, more than 3.5 km past the first
+portal). Before / after on the pose: the sky pixels went from orange (253, 191, 85) to the traced sky.
+
+**Still open: that traced sky is too bright.** Behind the portal it reads (255, 255, 255) in `_raw` and (221, 223, 216) in
+the final against the game's (167, 193, 192) (final run below). It is not this change: the base build (1352613) gives the
+same white `_raw` there (its final was the orange fog over it). The RT sky in the Dimensional Arena is the Limbo diorama's
+`LimboSkySky` material, which the game only ever shows shrunk through `_LimboSky`; its tint and exposure read as RT
+radiance come out several times the colour the sky walls show. `plugin._portalRasterSkip=0` (the game's own portal view)
+shows the game's colour (162, 192, 193).
+
+**Per-portal skies.** `Portal.overrideSkyboxEnter/Exit` (the sky the game's portal camera renders that side's view with)
+is now read: the first override sky material in a level becomes sky slot 1 (`SceneProxies.PortalSkyMaterials`,
+`_PortalSkyTex`, `UltraRTSky.hlsl` `PortalSkyRadiance`), the side reports its slot, and a camera ray that misses after
+crossing it gets that sky. **No portal in 8-2 or 8-3 sets one** (every side's log line says `sky -`); 8-3's Limbo is
+drawn by sky walls (`LIMBO_WALLS`, a screen-space render of the `LimboSkybox` diorama; the portals have
+`updateLimboSkybox`), and the RT sky there is the diorama's `LimboSkySky` sphere (FindSkyMaterial). One slot only, since
+no level found so far uses any (a second override in a level is logged and falls back to the level's sky). Bounce rays
+still see the level's one sky.
+
+### Light through portals: the light grid (`LightSampling.cs`, `LightGrid.compute`, `UltraRTLights.hlsl`)
+
+Suspected first: Wave 3's world-space light grid is centred on the camera (32 x 16 x 32 cells of 4 m: +-64 m, +-32 m in
+y), and surfaces seen through a portal are often hundreds of metres away in world space. Outside the grid a point fell
+back to the global table **with the grid's 8 RIS candidates instead of 16**. Changed (docs/light-sampling.md, "Light
+grid and portals"): a point outside every grid gets the full 16 (`ls.farFull`, on). Up to 3 more grids around the
+camera's images through portals (`ls.portalGrids=3`) are built in but **off by default**: no gain, and the frame-time
+hitches below.
+
+**Measured: no gain on the user's poses.** Pose 144 (Fallway doorway, 48-frame bursts, masked sigma / block sigma, two
+runs of the default in one launch): default 0.25 / 0.14 and 0.28 / 0.16; old grid (`ls.portalGrids=0+ls.farFull=0`)
+0.28 / 0.16; grid off 0.28 / 0.16; grid with 16 candidates 0.27 / 0.15. The spread between two runs of the same mode
+is as large as every difference. The doorway at pose 144 leads into `4 - Fallway` 60 m away, inside the camera's grid
+for most of its length. What the user sees as lower quality there is distance (fewer traced pixels per surface at RR's
+resolution, section 16), not light selection. Frame mean against the game: |final - off| 7.8-7.9 (new) / 7.3 (old) /
+7.4-8.2 (grid off) out of 255, within run-to-run spread. The final run (portal grids off, below) gives 0.30 / 0.18 with
+`farFull` and 0.31 / 0.19 without.
+
+**Looking down the Loop Drop** (`8-3 drop down`, bursts): with the rules masked sigma / block 1.04 / 0.61, all pixels
+2.67 / 1.89, the shaft region 7.58 / 5.51; `plugin._portalRules=0` 0.88 / 0.46, 3.69 / 2.70, 10.90 / 7.99. Over the
+whole frame and the shaft the deep stack is less noisy than what the 3-hop limit showed behind it (the room past the
+portal, lit straight on); the pixels the game keeps still are a little noisier.
+
+### Cost (2560 x 1440, exclusive perf lock, `-Perf`, 2026-11-21)
+
+GPU total / average frame ms. "old" = base 1352613.
+
+| Pose | old | new, portal grids on | new (default, portal grids off) |
+|---|---|---|---|
+| 8-3 portal light (pose 144) | 5.34 / 12.19 | 5.45 / 12.27 | 5.34 / 12.30 |
+| 8-3 drop up | 5.71 / 7.63 | 5.82 / 7.88 | 5.75 / 7.83 |
+| 8-3 b | 5.77 / 9.73 | 5.87 / 9.75 | 5.80 / 9.46 |
+
+The 12 hops of the endless shaft cost about 0.05 ms on the drop pose: the deep hops are a few hundred pixels, cheap-shaded.
+The worst frames (36-41 ms) were all in the passes with portal grids on.
+
+### Checks (final run `20261121-224314_portal-recursion-sky_alt`, `bench/suites/portal-recursion-sky.json`)
+
+|final - off| (frame mean, out of 255):
+
+| Scenario | pathtrace | before (variant) |
+|---|---|---|
+| 8-3 crushers | 26.2 | 33.8 (`_portalRules=0+_portalNoSelf=0`) |
+| 8-3 drop down | 14.8 | 15.6 (`_portalRules=0`), 16.0 (`_portalFeedback=0`) |
+| 8-3 drop up | 19.9 | 20.9 (`_portalRules=0`) |
+| 8-3 limbo portal | 33.7 (overbright sky, above) | 32.3 (`_portalRasterSkip=0`) |
+| 8-3 portal light | 7.9 | 8.1 (`ls.farFull=0`) |
+
+Earlier runs of the base build and this branch on the same poses: 8-3 b 37.5 (old) / 36.5 (new), 8-2's portal side 1
+14.5 / 14.3. The crushers' side loops (`maxRecursions` 1, `canSeeItself` off) now show the room past the loop where the old
+3-hop limit showed the loop's own walls again, like the game.

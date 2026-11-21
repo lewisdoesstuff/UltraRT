@@ -80,6 +80,7 @@ void RayGen()
             // Trace only portal quads in the tiny VeilRtas, capped by the game's depth on hop 0 so portals behind walls
             // never trigger, and by PathTrace's total path distance (_VeilNormalDepth.w) after teleporting.
             float tTotal = -1.0;
+            bool skyMark = false; // the texel tTotal came from is PathTrace's sky behind a portal (instance 0x7F, no motion)
             ray.TMax = min(gameT + max(0.05, gameT * 0.01), 1.0e5);
             [loop] for (uint hop = 0u; hop < (uint)_UltraRTPortalHops; hop++)
             {
@@ -99,6 +100,7 @@ void RayGen()
                     int2 tc = clamp((int2)(tuv * float2(tw, th)), 0, int2((int)tw - 1, (int)th - 1));
                     float bestErr = 1.0e30;
                     tTotal = _VeilNormalDepth[tc].w;
+                    skyMark = ((uint)_VeilInstanceId[tc].x & 0x7Fu) == 0x7Fu && _VeilInstanceId[tc].y == 0;
                     [unroll] for (int dy = -1; dy <= 1; dy++)
                     [unroll] for (int dx = -1; dx <= 1; dx++)
                     {
@@ -107,7 +109,12 @@ void RayGen()
                         if (ix > 0xFFFFu && ix < 0x80000000u)
                         {
                             float err = abs(f16tof32(ix >> 16) - path.firstT);
-                            if (err < bestErr) { bestErr = err; tTotal = _VeilNormalDepth[k].w; }
+                            if (err < bestErr)
+                            {
+                                bestErr = err;
+                                tTotal = _VeilNormalDepth[k].w;
+                                skyMark = ((uint)_VeilInstanceId[k].x & 0x7Fu) == 0x7Fu && _VeilInstanceId[k].y == 0;
+                            }
                         }
                     }
                 }
@@ -125,6 +132,9 @@ void RayGen()
                 ray.TMax = tTotal >= 0.0 ? max(0.0, tTotal - path.travelled + 0.05) : 1.0e5;
             }
             if (path.hops > 0u) p.t = tTotal >= 0.0 ? max(0.0, tTotal - path.travelled) : -1.0;
+            // The sky behind a portal (PathTrace writes it as an emitter 4 km behind the portal, instance 0x7F): sky, no fog.
+            // The game's sky is never fogged; at 4 km the portal's own fog made 8-3's Limbo sky a flat orange (2026-11-21).
+            if (path.hops > 0u && skyMark && tTotal > path.firstT + 3500.0) p.t = -1.0;
         }
     }
     else

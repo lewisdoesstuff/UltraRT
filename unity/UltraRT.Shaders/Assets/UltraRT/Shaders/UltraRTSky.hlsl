@@ -41,6 +41,25 @@ float3 SkyRadiance(float3 d)
     return _SkyTex.SampleLevel(sampler_linear_repeat_SkyTex, SkyUV(d), 0).rgb * _SkyTint.rgb;
 }
 
+// The sky a portal side overrides (Portal.overrideSkyboxEnter / Exit; SceneProxies.PortalSkyMaterials, docs/portals.md
+// "Per-portal skies"): slot 1 = _PortalSkyTex x _PortalSky.rgb, rotated by _PortalSky.w radians (w <= -999: none, the
+// level's sky). One slot: no portal of 8-2 or 8-3 overrides its sky (2026-11-21), so more were not worth the bindings.
+Texture2D _PortalSkyTex;
+float4 _PortalSky;
+
+// The sky behind a portal side whose slot is `slot` (UltraRTPortals.hlsl, PortalPath.sky; 0 = the level's sky).
+float3 PortalSkyRadiance(uint slot, float3 d)
+{
+    [branch] if (slot == 1u && _PortalSky.w > -999.0)
+    {
+        float s = sin(_PortalSky.w), c = cos(_PortalSky.w);
+        float3 r = float3(c * d.x - s * d.z, d.y, s * d.x + c * d.z);
+        float2 uv = float2(atan2(r.x, r.z) * (0.5 / kSkyPi) + 0.5, asin(clamp(r.y, -1.0, 1.0)) * (1.0 / kSkyPi) + 0.5);
+        return _PortalSkyTex.SampleLevel(sampler_linear_repeat_SkyTex, uv, 0).rgb * _PortalSky.rgb;
+    }
+    return SkyRadiance(d);
+}
+
 // The sky as a light (lighting space: linear in linear transport), times the relight sky scale.
 float3 SkyLightRadiance(float3 d)
 {

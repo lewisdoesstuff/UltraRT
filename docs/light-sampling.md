@@ -4,7 +4,7 @@ Direct lighting with a fixed number of shadow rays per pixel, independent of the
 
 Files:
 - `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/UltraRTLights.hlsl`: the light model (moved out of `PathTrace.raytrace`), the reference `DirectAll` and RIS (the reservoirs and temporal reuse went with ReSTIR on 2026-11-19). Included by `PathTrace.raytrace`.
-- `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/LightGrid.compute`: camera-centered `32×16×32` 4 m world-space light grid (ReGIR-lite, since 2026-11-21): stores up to 8 local shadowed light indices per cell (`uint4`, 256 KB VRAM) for a 50/50 unbiased MIS mixture with the global alias table when >12 shadowed lights are active, allowing `risCandidatesGrid` = 8 instead of 16. Bench A/B: `ls.grid=0`.
+- `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/LightGrid.compute`: camera-centered `32×16×32` 4 m world-space light grid (ReGIR-lite, since 2026-11-21; plus up to 3 around the camera's images through portals since the same evening, "Light grid and portals"): stores up to 8 local shadowed light indices per cell (`uint4`, 256 KB VRAM) for a 50/50 unbiased MIS mixture with the global alias table when >12 shadowed lights are active, allowing `risCandidatesGrid` = 8 instead of 16. Bench A/B: `ls.grid=0`.
 - `src/UltraRT/LightSampling.cs`: settings, the per-frame alias table, light-grid dispatch, and fill-light list, and light-set change detection (until 2026-11-19 also the light index remap between frames and the ping-ponged reservoir buffers).
 
 ## Why
@@ -342,6 +342,31 @@ Unity's RayTracingShader appears to allow at most 8 UAVs per `.raytrace`. A 9th 
 - `_packedLights[i]` is the `Light` whose data is at `_lightData[i*4 .. i*4+3]` for `i < _lightCount`. Entries past `_lightCount` are ignored.
 - The primary rays are the same as the denoiser's: through pixel centres via `_InvViewProj` (jittered only while accumulating).
 - `MaxLights` ≤ 65535, since light indices are 16 bits in the reservoir and the alias table.
+
+## Light grid and portals (2026-11-21)
+
+The world-space light grid (`LightGrid.compute`, Wave 3) covers 32 x 16 x 32 cells of 4 m around the camera: +-64 m, and
++-32 m in y. A point inside it draws half its RIS candidates from its cell's 8 strongest lights and half from the global
+alias table (an exact 50/50 mixture), and the primary hit draws `risCandidatesGrid` (8) candidates instead of
+`risCandidates` (16). Two problems for surfaces seen through a portal, which are often hundreds of metres from the camera
+in world space (docs/portals.md, section 9):
+
+- **Outside the grid** a point had no cell, so it drew only from the global table, and still only 8 candidates: half the
+  sampling it had before the grid. Now `_RisCandidatesFar` (= `risCandidates`, bench `ls.farFull=0` = the old 8) is used
+  for a point outside every grid (`RisCandidatesFar`, `DirectLighting`).
+- **Portal grids** (built, **off by default**: `ls.portalGrids=3` turns them on). Up to that many more grids of the same size are built each frame around the camera's images
+  through portals (`SceneProxies.PortalViewpoints`, now with each image's forward axis): centred 32 m ahead of the image,
+  nearest image first, skipping an image whose centre an existing grid already holds well inside it. The grids share one
+  buffer (grid k at k x 16384 cells, 1 MB in all); `_LightGridOrigin1..3` (w <= 0: unused) say where they are, and a point
+  takes the first grid that holds it (`LightGridCell`). One `BuildGrid` dispatch per grid (`_GridBase`).
+
+Measured on the user's 8-3 portal pose (docs/portals.md, section 18): no difference beyond run-to-run noise between the
+old grid, the portal grids, the grid off and the grid with 16 candidates (48-frame bursts, masked sigma 0.25-0.28 for
+all; two runs of the same mode gave 0.25 and 0.28). Cost (exclusive `-Perf`, 2560x1440, RTX 5070 Ti, GPU total,
+2026-11-21): the portal grids +0.07 to +0.11 ms on 8-3 portal poses, and the only frames over 16.7 ms of the run (worst
+36-41 ms, 1% low 35-51 fps against 70-81) were in the passes with them on. So they stay off; `farFull` stays on (it only
+changes points outside the camera's grid, within the GPU timer's noise). `ls.grid=0` was not worse than the grid at any
+8-3 pose tested here either.
 
 ## Known limitations / next steps
 - The bounce uses plain RIS with no reuse. A light-tile or world-space grid of reservoirs would help when dim rooms are mostly bounce-lit.

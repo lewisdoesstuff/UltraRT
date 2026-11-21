@@ -22,6 +22,13 @@ RWTexture2D<float4> _Reflection;  // rgb reflected radiance; a: reflection hit d
 
 float4x4 _InvViewProj;
 float4   _CamPos;
+// The end of an infinite portal loop (docs/portals.md, "Recursion rules"): last frame's traced image and the view-projection
+// it was made with. A capped pixel shows the image at the camera's direct view of the same portal side, as the game's
+// fake recursion textures do. _UltraRTPortalFeedback 0: none (the cap stays black).
+Texture2D _UltraRTPrevImage;
+float4x4  _UltraRTPrevViewProj;
+float     _UltraRTPortalFeedback;
+int       _UltraRTPortalCheapHops; // surfaces seen through more portals than this skip the extra light samples and the reflection ray (0 = never)
 int      _Mode;          // 0 full, 1 direct only, 2 indirect only
 uint     _FrameIndex;
 uint     _AccumFrames;   // frames already accumulated (0 = reset)
@@ -344,13 +351,53 @@ void RayGenBody(bool full)
         // emitter far behind the portal (albedo 0, emission = the sky in display units, like the game's sky pixel, no
         // exposure), with the portal's distance in the instance word: every composite matches it on the portal plane
         // like any surface behind a portal, and the denoisers carry it like a glowing wall.
-        c = SkyRadiance(ray.Direction);
+        c = PortalSkyRadiance(path.sky, ray.Direction); // a side's own sky (overrideSkyboxEnter / Exit), else the level's
         lighting = 0;
         albedo = 0;
         emission = c;
         _NormalDepth[id] = float4(-camDir, path.travelled + 4000.0);
         _InstanceId[id] = int2((int)(0x7Fu | (min(f32tof16(max(path.firstT, 1e-3)), 0x7BFFu) << 16)), 0);
-        _Surface[id] = PackSurface(albedo, emission, 0u, 0u, 0.0);
+        // Unfogged: the game's sky behind a portal is the far view's skybox or sky wall, which its fog leaves alone; the fog
+        // pass (VolumetricsComposite) would fog it by the game's depth behind the portal plane instead. That painted 8-3's
+        // Limbo sky behind the Dimensional Arena's portals in the near side's flat orange fog (playtest 2026-11-21).
+        _Surface[id] = PackSurface(albedo, emission, 0u, ULTRART_FLAG_NOFOG, 0.0);
+        _Reflection[id] = float4(0, 0, 0, -1);
+    }
+    else if (path.capped)
+    {
+        // The end of an infinite portal loop (8-3's Loop Drop): the ray met the loop's side once more at the hop limit.
+        // The game pastes last frame's view of that side there (supportInfiniteRecursion's fake textures); so does this:
+        // the same point of the side, where the camera sees it directly, in last frame's image. Its view through the side
+        // holds the whole stack, so the shaft repeats without end. Black where the camera doesn't see the point (off
+        // screen or behind something).
+        float3 hReal = ray.Origin + ray.Direction * p.t;
+        float3 fb = 0;
+        [branch] if (_UltraRTPortalFeedback > 0.5)
+        {
+            float4 clip = mul(_UltraRTPrevViewProj, float4(hReal, 1.0));
+            float2 fuv = clip.w > 1e-4 ? clip.xy / clip.w * 0.5 + 0.5 : -1.0;
+            if (all(fuv > 0.002) && all(fuv < 0.998))
+            {
+                RayDesc v;
+                v.Origin = _CamPos.xyz;
+                v.Direction = normalize(hReal - _CamPos.xyz);
+                v.TMin = 0.0;
+                v.TMax = max(length(hReal - _CamPos.xyz) - 0.05, 0.0);
+                RayPayload vp = (RayPayload)0;
+                vp.t = 1.0; // the miss shader sets -1: nothing between the camera and the point
+                TraceRay(_Scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES | RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+                         0x0Du, 0, 1, 0, v, vp); // geometry and fixtures
+                if (vp.t < 0.0) fb = max(_UltraRTPrevImage.SampleLevel(my_linear_clamp_sampler, fuv, 0).rgb, 0.0);
+            }
+        }
+        c = fb;
+        lighting = 0;
+        albedo = 0;
+        emission = fb;
+        float tCap = path.travelled + p.t;
+        _NormalDepth[id] = float4(-camDir, tCap);
+        _InstanceId[id] = int2((int)(0x7Fu | (min(f32tof16(max(path.firstT, 1e-3)), 0x7BFFu) << 16)), 0);
+        _Surface[id] = PackSurface(albedo, emission, 0u, ULTRART_FLAG_NOFOG, 0.0);
         _Reflection[id] = float4(0, 0, 0, -1);
     }
     else if (p.t < 0.0)
@@ -404,7 +451,10 @@ void RayGenBody(bool full)
         FleshSssBegin((p.flags >> 24) & 0x1Fu, -ray.Direction);
         TranslucentBegin(p.flags); // thin translucent sheets (lamp shades): lit from behind too (UltraRTLights.hlsl)
         float3 direct = DirectLighting(pos, n, layer, rng);
-        if (full) PtMoreDirect(direct, pos, n, layer, rng); // pathtrace: more light samples per pixel (RIS)
+        // Deep in a portal loop (more hops than _UltraRTPortalCheapHops): a few pixels, far away and small; one light
+        // sample and no reflection ray there (docs/portals.md, "Recursion rules").
+        bool deep = _UltraRTPortalCheapHops > 0 && path.hops > (uint)_UltraRTPortalCheapHops;
+        if (full && !deep) PtMoreDirect(direct, pos, n, layer, rng); // pathtrace: more light samples per pixel (RIS)
         FleshSssEnd();
         TranslucentEnd();
         // Stained-glass windows: their mosaic projected into the room, one shadow ray (UltraRTStainedGlass.hlsl).
@@ -428,7 +478,7 @@ void RayGenBody(bool full)
         // either the specular OR diffuse secondary path with balanced probability (unbiased in expectation).
         bool slPickSpec = false, slSkipSpec = false;
         float slInvPdf = 1.0;
-        if (full && _PtParams3.w > 0.5 && _Mode == 0 && !cacheWrite && _ReflParams.x > 0.5)
+        if (full && _PtParams3.w > 0.5 && _Mode == 0 && !cacheWrite && _ReflParams.x > 0.5 && !deep)
         {
             SurfaceMaterial slMat = MaterialFromPayload(p.material, p.flags);
             if (slMat.mode != ULTRART_REFL_NONE)
@@ -625,7 +675,7 @@ void RayGenBody(bool full)
         // One reflection ray where the specular term is worth it (the same weights the composites use).
         SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
         float4 refl = float4(0, 0, 0, -1);
-        if (_ReflParams.x > 0.5 && mat.mode != ULTRART_REFL_NONE && _Mode != 2 && !slSkipSpec)
+        if (_ReflParams.x > 0.5 && mat.mode != ULTRART_REFL_NONE && _Mode != 2 && !slSkipSpec && !deep)
         {
             float NdotV = saturate(dot(n, -ray.Direction));
             float3 specW;
