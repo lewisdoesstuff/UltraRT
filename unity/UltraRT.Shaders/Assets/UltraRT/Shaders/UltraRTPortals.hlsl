@@ -37,6 +37,10 @@ int _UltraRTPortalHops; // teleports per ray (SceneProxies.PortalHops, default 3
 // 1: camera rays reflect off portal mirrors like any portal (-ultrart-rtmirrors); 0 (default): they stop there and the
 // game's mirror view is kept. Global, set every frame.
 int _UltraRTMirrors;
+// 1 while the game's raster portal views are skipped (PortalRasterSkip.cs; docs/portals.md, "Raster skip"): the trace then
+// owns every pixel seen through a portal, the sky behind one included (PathTrace writes it as a far emitter), and the
+// composites accept a through-portal sample wherever nothing stands in front of the portal plane. Global, every frame.
+int _UltraRTPortalOwn;
 
 // V1's third-person model (instance mask ULTRART_MASK_PLAYER, SceneProxies.Player.cs). Which rays see it (Plugin's
 // _playerRays, global, set every frame; 0 = none): 1 reflection rays, 2 bounce rays, 4 shadow rays, 8 camera rays after

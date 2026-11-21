@@ -50,6 +50,7 @@ namespace UltraRT
 
         private readonly Dictionary<Light, LightResolved> _resolved = new Dictionary<Light, LightResolved>();
         private SceneProxies _resolvedScene;
+        private readonly List<Light> _resolvedDrop = new List<Light>();
         private int _resolvedFixtureVersion = -1, _resolvedToggleVersion = -1, _resolvedPowerVersion = -1;
 
         // Review switches.
@@ -366,7 +367,19 @@ namespace UltraRT
             int fv = _proxies != null ? _proxies.FixtureVersion : -1;
             // Handover: a light is handed over once its part is in the emissive table (Plugin.Handover.cs).
             int pv = _emissive != null ? _emissive.PowerVersion : 0;
-            if (pv != _resolvedPowerVersion) { _resolvedPowerVersion = pv; if (_lightOv.Classes.HasHandovers) _resolved.Clear(); }
+            if (pv != _resolvedPowerVersion)
+            {
+                _resolvedPowerVersion = pv;
+                // Only a light whose rule hands it over depends on the power version (ApplyHandover). Clearing the whole set
+                // re-resolved every light (path, rules, policies: 3-7 ms in an 8-3 fight, 187 ms at the level's start) each
+                // time a handed part's triangles came into the emissive table (docs/performance.md, "Combat stalls").
+                if (_lightOv.Classes.HasHandovers)
+                {
+                    _resolvedDrop.Clear();
+                    foreach (var kv in _resolved) if (kv.Value?.RuleObject?.Handover != null) _resolvedDrop.Add(kv.Key);
+                    foreach (var l in _resolvedDrop) _resolved.Remove(l);
+                }
+            }
             if (_ovCacheVersion == _lightOv.Version && ReferenceEquals(_resolvedScene, _proxies) && _resolvedFixtureVersion == fv && _resolvedToggleVersion == _toggleVersion) return;
             bool switched = _resolvedToggleVersion != _toggleVersion; // a review switch: a cut, not a drift
             _ovCacheVersion = _lightOv.Version;

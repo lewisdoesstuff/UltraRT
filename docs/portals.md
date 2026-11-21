@@ -86,7 +86,7 @@ Where it is used:
 
 **Measured**: the game's depth buffer at a portal pixel holds the portal quad's plane (the `Portal Draw` quad writes depth; `-ultrart-compdebug 5` is solid green over every portal and mirror tested). The RT path through the portal is longer than that, so before this change the composite threw RT away at most portal pixels and kept the game's portal view unlit by RT, and wherever the straight-through hit happened to be within the depth tolerance it applied the wrong room. Primary rays that crossed a portal store the distance to the first portal surface in the high half of `_InstanceId.x` (half float; the denoiser and reflection filter only use the instance's low 7 bits, and the low 16 bits keep the instance). `Composite.shader`'s depth test and its depth-guided upsampling accept a match with either distance, so RT applies at portal pixels whichever depth the game writes there. Everything else (objects in front of a portal, glow quads) is tested as before.
 
-**Mirrors keep the game's view** (default, every mode). The game's portal mirrors show V1 lit by the game and at full resolution; a traced reflection is half resolution, denoised, lacks particles and blood, and V1 is often dark under RT lights. So camera rays stop at a portal mirror: `TraceScene` with the request `ULTRART_TRACE_STOP_AT_MIRROR` (set by PathTrace's primary ray unless `_UltraRTMirrors` is 1) returns a miss there with `path.mirrorT`, the mirror side's hit shader reporting itself in `p.material` bit 1 (`_PortalMirror`). The pixel is written like sky, which every composite (ratio, replace, the temporal upsampler) leaves to the game, so the game's mirror view shows unchanged; water and glass are traced only up to the mirror. Bounce, reflection and cache rays and the debug views still follow mirrors. `-ultrart-rtmirrors` (bench `plugin._rtMirrors=1`) traces camera rays through mirrors as before: relight/pt-dn then show the RT reflection (lit like the rest of the frame, V1 included via mask 0x80), hybrid applies its shadow ratio over the game's mirror view. Cost is the same either way (8-3 secret mirror, relight: 5.14 vs 5.17 ms GPU).
+**Mirrors keep the game's view** (default, every mode). The game's portal mirrors show V1 lit by the game and at full resolution; a traced reflection is half resolution, denoised, lacks particles and blood, and V1 is often dark under RT lights. So camera rays stop at a portal mirror: `TraceScene` with the request `ULTRART_TRACE_STOP_AT_MIRROR` (set by PathTrace's primary ray unless `_UltraRTMirrors` is 1) returns a miss there with `path.mirrorT`, the mirror side's hit shader reporting itself in `p.material` bit 1 (`_PortalMirror`). The pixel is written like sky, which every composite (ratio, replace, the temporal upsampler) leaves to the game, so the game's mirror view shows unchanged; water and glass are traced only up to the mirror. Bounce, reflection and cache rays and the debug views still follow mirrors. `-ultrart-rtmirrors` (bench `plugin._rtMirrors=1`) traces camera rays through mirrors as before: relight/pt-dn then show the RT reflection (lit like the rest of the frame, V1 included via mask 0x80), hybrid applies its shadow ratio over the game's mirror view. Cost is the same either way (8-3 secret mirror, relight: 5.14 vs 5.17 ms GPU). **Since 2026-11-21 the raster skip (section 17, on by default) skips the game's mirror views too, so camera rays are traced through mirrors whenever the skip is on**, as with `-ultrart-rtmirrors`. With `-ultrart-portal-raster-skip off` the behaviour above applies again.
 
 **Temporal upsampling** (pt-dn, relight; `Upsample.compute`): it matches trace samples to the game's depth per screen pixel the same way, so a through-portal sample is matched on its portal distance; history is reprojected from the far-side point instead of the game's (portal plane) point, and that depth is stored for next frame's validation, so the view through a portal doesn't smear like a picture painted on the portal.
 
@@ -105,6 +105,7 @@ Where it is used:
 | `SceneProxies.MaxPortalSides` | 1024 |
 | `-ultrart-portal-lights on\|off`, bench `plugin._portalLights=0\|1`, settings menu Advanced > Lighting "Lights shine through portals" (`[Lighting] PortalLights`) | scene lights imaged through portals (section 15; on) |
 | bench `plugin._portalLightMax=N`, `plugin._portalLightLoopSpan=M`, `plugin._portalLightGuards=0` | images per frame (16), the loop guard's span (100 m), all guards off (diagnostic) |
+| `-ultrart-portal-raster-skip on\|off`, bench `plugin._portalRasterSkip=0` | skip the game's raster portal views while RT replaces them (section 17; on) |
 | bench `plugin._portalRasterTrim=0` | disable deep `PortalRenderV2` raster recursion trimming (on by default since 2026-11-21: while RT replaces opaque portal views, non-mirror portals are capped to `maxRecursions = 0, appearsInRecursions = false` so depth-0 raster views, depth, skyboxes, particles and all mirrors stay intact while skipping redundant depth 1..3 raster renders; RT still reads the saved original `appearsInRecursions` for full 3-hop ray-traced portals, and originals are restored immediately when RT turns off or unloads) |
 
 `-ultrart-compdebug 5` (portal depth diagnostic) and `6` (game / RT albedo alignment overlay) were views of the hybrid
@@ -548,3 +549,63 @@ its row of wall sconces and the lion statue far down it). Measured, alt slot, 25
   lighting at poses 3 and 5 is unchanged (0.134 -> 0.135, 0.120 -> 0.120). Review sheets
   `bench/results/review/8-1-fixes/8-1_pose_3_lobby_portal.jpg`, `8-1_pose_5_hallway.jpg` (local).
 
+
+## 17. Raster skip: the game's portal views are not rendered while RT replaces them (2026-11-21, `t3/portal-raster-skip-and-hitches`)
+
+The game renders every visible portal view with a second camera (`PortalRenderV2.Render`, called from the main camera's
+`OnPreRender`): a full forward render of the far side per view, the blood/oil and sky composites, and the composite into
+`Portal Composite Color`. In the replace modes (pathtrace, relight) every opaque pixel of those views is overwritten by the
+trace, because the camera ray follows the portal (section 3). In 8-3 b that thrown-away work was about 6 ms on the render
+thread per frame.
+
+**What is skipped** (`src/UltraRT/PortalRasterSkip.cs`, a Harmony prefix on `PortalRenderV2.Render`). While RT replaces
+the view, the prefix runs only the part of `Render` that feeds the main view: `UpdatePortalLights` (the portal-aware light
+upload that the game's transparents with `PORTAL_LIGHTS` still use), then clears the per-frame light lists. It skips the
+portal-camera renders and the composite.
+
+**What is kept:**
+- `PortalManagerV2.LateUpdate` / `PortalRenderV2.Setup`: the portal mesh, the depth prepass and the main camera's `Portal Draw`
+  quads, which put the portal plane into the game's depth.
+- The scene, traversal and portal tracking (`totalPortalMesh` included).
+
+**When the game's own render runs instead:**
+- A frame where a view looks through a portal side that is not in the RTAS yet (`SceneProxies.IsPortalSideTraced`: a new
+  portal is added after `PortalAddDelay` frames). `Render` then runs unchanged for that frame.
+- The frame RT turns off (F7), the mode leaves a replace mode, or the plugin unloads (`PortalRasterSkip.Active` is set
+  before every main-camera `OnPreRender`).
+
+**What the trace has to do itself while the skip is on** (`_UltraRTPortalOwn` = 1):
+- **Mirrors are traced.** The game's mirror view (section 4, "Mirrors keep the game's view") is one of the skipped views, so
+  `SceneProxies.TraceMirrors` is forced on and camera rays reflect off portal mirrors. V1 shows in them through mask 0x80
+  (8-3 secret mirror, both modes).
+- **Sky through a portal.** A camera ray that misses after crossing a portal writes the sky (`SkyRadiance`) as a far emitter
+  (`PathTrace.raytrace`), with the portal distance in `_InstanceId`. Without the skip the composites left a miss to the game,
+  and the game's pixel there was its own portal view; with the skip that pixel holds no view.
+- **Matching at the portal plane.** The game's depth at a portal pixel is the plane, but nothing of the game's stands behind
+  it any more. RR's `Finish`, `Upsample.compute` and `Composite.shader` therefore also accept a through-portal sample when
+  the game's depth is at or behind the portal plane. When no 3x3 sample matches and the centre sample went through a portal,
+  that sample is taken (an occluder in the doorway is traced too and would have matched).
+- **Exposure.** The auto exposure's game match (`Exposure.compute`) skips pixels behind a portal, because the game's colour
+  there is no longer an image of the far side.
+
+**Checks** (alt, SDR, `bench/suites/portal-raster-skip.json`, 2026-11-21, after the RayQuery composite fix below):
+- 8-2 portal side 1 and 2 and the 8-2 hallway portal look the same with the skip on and off, in pathtrace and relight.
+- 8-3 b's theatre traces with no black regions, and `off` after RT shows the game's own portal views unchanged.
+- 8-3 secret mirror: V1 traced and lit.
+- The 8-3 doorway's noise-textured strip covers different parts of the opening per shot with the skip on and off: it moves.
+- Transparents and doorways: no black regions found.
+
+Earlier screenshots that seemed to show black portals and dark mirrors with the skip were the RayQuery bridge bug
+(docs/performance.md, "The RayQuery bridge hid the composite"): the composite was not drawn at all.
+
+**Measured** (exclusive `-Perf`, main, 2560x1440, trace scale 0.5, RTX 5070 Ti, one launch, `bench/results/20261121-203500_*`):
+
+| Scenario | Mode | skip off ms (fps) | skip on ms (fps) | render thread `frame` ms (off -> on) | `off` (vanilla) ms |
+|---|---|---|---|---|---|
+| 8-2 portal side 1 | pathtrace | 12.15 (82) | **9.87 (101)** | 10.54 -> 8.18 | 5.29 |
+| 8-2 portal side 1 | relight | 13.93 (72) | **9.70 (103)** | 12.25 -> 7.12 | |
+| 8-3 b | pathtrace | 12.52 (80) | **8.61 (116)** | 10.74 -> 7.03 | 8.67 |
+| 8-3 b | relight | 14.57 (69) | **9.19 (109)** | 12.57 -> 6.22 | |
+| 8-3 combat | pathtrace | 13.33 (75), 164 frames > 16.7 ms | **11.46 (87)**, 122 frames > 16.7 ms | 10.92 -> 9.20 | 5.88 |
+
+8-3 b pathtrace now runs at vanilla's frame time. The settings row is in section 5.

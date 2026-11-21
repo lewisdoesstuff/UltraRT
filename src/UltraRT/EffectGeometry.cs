@@ -131,6 +131,8 @@ namespace UltraRT
         /// <summary>Instances in the RTAS after the last <see cref="Update"/>.</summary>
         public int Active { get; private set; }
         public int Tracked => _entries.Count;
+        /// <summary>Frame of the first effect proxy added to the RTAS since the last scene reset (-1: none yet).</summary>
+        public static int FirstAddFrame = -1;
 
         public EffectGeometry(ManualLogSource log) { _log = log; }
 
@@ -256,6 +258,7 @@ namespace UltraRT
                         rtas.AddInstance(e.Proxy, OneEnabled, enableTriangleCulling: false,
                             frontTriangleCounterClockwise: false, mask: SceneProxies.TransparentMask, id: 0);
                         e.InRtas = true;
+                        if (FirstAddFrame < 0) FirstAddFrame = Time.frameCount;
                         if (_addLogs++ < 24)
                             _log.LogInfo($"Effect geometry: + {e.Kind} '{Bench.GameControl.PathOf(e.R.transform)}' mat '{(e.Source != null ? e.Source.name + "' / '" + e.Source.shader.name : "-")}' " +
                                          $"{e.Mesh.vertexCount} verts, bounds {e.Proxy.bounds.center:F1} size {e.Proxy.bounds.size:F1}, {Mathf.Sqrt(e.Dist):F1} m away");
@@ -445,6 +448,7 @@ namespace UltraRT
         {
             foreach (var e in _entries) { e.InRtas = false; e.Wait = 0; }
             _rtas = next;
+            FirstAddFrame = -1;
             Active = 0;
             Shader.SetGlobalInt(CountId, 0);
         }

@@ -235,6 +235,8 @@ namespace UltraRT
                 Logger.LogInfo(Patches.GenericInstantiateHooked ? "Instantiate hooks installed (incl. generic Instantiate<T>)"
                     : $"Instantiate hooks installed; generic Instantiate<T> not hooked ({Patches.GenericInstantiateError}), the periodic rescan covers it");
                 Logger.LogInfo(Patches.PortalClonesHooked ? "Portal clone hook installed (PortalAwareRenderer.CreateClone)" : $"Portal clones not hooked: {Patches.PortalClonesError}");
+                PortalRasterSkip.Patch(new HarmonyLib.Harmony(Info.Metadata.GUID + ".portalskip")); // docs/portals.md, "Raster skip"
+                Logger.LogInfo(PortalRasterSkip.Hooked ? "Portal raster skip hook installed (PortalRenderV2.Render)" : $"Portal raster skip not hooked: {PortalRasterSkip.Error}");
                 // Native float HDR (Plugin.Hdr.cs): only when the HDR swapchain hooks are in, so an SDR game is never patched.
                 if (_hdrInstalled) HdrGameTarget.Patch(new HarmonyLib.Harmony(Info.Metadata.GUID + ".hdr"), Logger);
             }
@@ -343,6 +345,7 @@ namespace UltraRT
                     case "-ultrart-noportallayer": SceneProxies.TracePortalLayer = false; break;
                     case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
                     case "-ultrart-rtmirrors": _rtMirrors = true; break;
+                    case "-ultrart-portal-raster-skip": { var v = (Next() ?? "").ToLowerInvariant(); _portalRasterSkip = v != "off" && v != "0" && v != "false"; break; } // PortalRasterSkip.cs
                     case "-ultrart-portal-lights": { var v = (Next() ?? "").ToLowerInvariant(); _portalLights = v != "off" && v != "0" && v != "false"; break; } // Plugin.PortalLights.cs
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
                     case "-ultrart-v1-unlit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.PlayerModelUnlit); break;
@@ -573,6 +576,9 @@ namespace UltraRT
                 Logger.LogInfo($"ResetScene: disposed in {sw.Elapsed.TotalMilliseconds:F1} ms");
             }
             _proxies = null;
+            PortalRasterSkip.Active = false; // the game's portal views render again until the next traced frame
+            _glSlowLogs = 0; _longFrameLogs = 0;
+            PortalRasterSkip.Proxies = null;
             Patches.CollectSpawns = false;
             Patches.PendingSpawns.Clear();
             _spawnCursor = 0;
@@ -618,6 +624,12 @@ namespace UltraRT
                 var cam = playerCam != null ? playerCam : Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
                 Logger.LogInfo($"RT layer mask from {(cam != null ? Bench.GameControl.PathOf(cam.transform) : "none")}: 0x{(cam != null ? cam.cullingMask : ~0):X8}");
                 SceneProxies.MergeStaticDynamic = _mergeStaticDynamic;
+                SceneProxies.WarmHitGroups = _warmHitGroups;
+                SceneProxies.WarmHitShaders.Clear();
+                SceneProxies.WarmHitShaders.Add(_proxyShader);
+                SceneProxies.WarmHitShaders.Add(_effectProxyShader);
+                SceneProxies.WarmHitShaders.Add(SceneProxies.LavaShader);
+                SceneProxies.WarmHitShaders.Add(SceneProxies.PortalShader);
                 _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy) { EmitterGlowOf = EmitterGlow, AtlasPartWanted = AtlasPartWanted };
                 _proxies.SetDisplaceShader(_displaceCs);
                 _proxies.Build();
@@ -637,7 +649,30 @@ namespace UltraRT
             }
         }
 
+        // GatherLights' steps, for its slow-frame log (docs/performance.md, "Combat stalls"): ticks per step this frame.
+        private readonly long[] _glTicks = new long[12];
+        private static readonly string[] GlStepNames = { "scan", "fixtures", "sun", "pack", "lava", "added", "effect", "enemyGlow", "portalImages", "medium+upload", "(of effect: spawns", "append)" };
+        private int _glSlowLogs;
+        private int _glPacked;
+        private void GlMark(int step, ref long t) { long n = Perf.Now; _glTicks[step] += n - t; t = n; }
+
         private void GatherLights()
+        {
+            System.Array.Clear(_glTicks, 0, _glTicks.Length);
+            long gt = Perf.Now, g0 = gt;
+            GatherLightsBody(ref gt);
+            double ms = (Perf.Now - g0) * Perf.TickMs;
+            if (ms > 4.0 && _glSlowLogs < 40)
+            {
+                _glSlowLogs++;
+                var sb = new System.Text.StringBuilder();
+                sb.Append($"Lights section slow: {ms:F2} ms at frame {Time.frameCount} ({_activeLights.Count} active of {_proxies.Lights.Count} tracked, {_glPacked} scene lights packed, {_lightCount} in all, enemy glow {EnemyGlowLights}):");
+                for (int i = 0; i < _glTicks.Length; i++) sb.Append($" {GlStepNames[i]} {_glTicks[i] * Perf.TickMs:F2}");
+                Logger.LogInfo(sb.ToString());
+            }
+        }
+
+        private void GatherLightsBody(ref long gt)
         {
             // Lights and sky spheres are tracked by SceneProxies (scene build, spawned hierarchies, rescans). Scanning the
             // scene for them here (FindObjectsOfType<Light/Renderer> every second) cost several ms per call in 8-3.
@@ -659,6 +694,7 @@ namespace UltraRT
                     if (l != null && l.isActiveAndEnabled) _activeLights.Add(l);
                 if (_logLightToggles) LogLightToggles();
             }
+            GlMark(0, ref gt);
             // Layout must match PathTrace.raytrace: 4 x float4 per light (see the comment on _Lights there).
             UpdateFixtureLifts();
             if (_logFixtures && _camera != null && Time.realtimeSinceStartup > _nextLightDump)
@@ -674,6 +710,7 @@ namespace UltraRT
             for (int i = 0; i < _lightMedium.Length; i++) _lightMedium[i] = 1f;
             BeginLightOverrides(); // per-level light overrides (Plugin.LightOverrides.cs; relight look only)
             _proxies.UpdateOrbHolders(); // statue orbs: their lights pass through the statue holding them (SceneProxies.Orbs.cs)
+            GlMark(1, ref gt);
             // The main sun: the brightest directional light from above the horizon (LowSideLight below).
             Light mainSun = null;
             float mainSunLum = -1f;
@@ -684,6 +721,7 @@ namespace UltraRT
                 if (lum > mainSunLum) { mainSunLum = lum; mainSun = l; }
             }
             _mediumOnly.Clear();
+            GlMark(2, ref gt);
             foreach (var l in _activeLights)
             {
                 if (_lightCount >= MaxLights) break;
@@ -695,11 +733,18 @@ namespace UltraRT
                 if (_effectLights != null && _effectLights.OwnsLight(l)) continue; // a gunshot light: its own envelope (EffectLights)
                 PackSceneLight(l, rl, mainSun);
             }
+            _glPacked = _lightCount;
+            GlMark(3, ref gt);
             DimLavaLights(); // Plugin.Lava.cs: point lights faking the lava glow
+            GlMark(4, ref gt);
             AppendAddedLights(); // Plugin.LightOverrides.cs: area lights and sky portals the overrides add
+            GlMark(5, ref gt);
             AppendEffectLights(); // Plugin.Effects.cs: spawned effect lights and virtual lights for glowing effects
+            GlMark(6, ref gt);
             AppendEnemyGlowLights(); // Plugin.EnemyGlow.cs: the glowing parts of skinned enemies
+            GlMark(7, ref gt);
             AppendPortalLightImages(); // Plugin.PortalLights.cs: lights imaged through portals (they light the room behind the exit)
+            GlMark(8, ref gt);
             // Lights [0, _surfLightCount) light surfaces (every surface pass binds that count); the ones after it only
             // the air (the volumetric pass takes _lightCount). docs/lighting-overrides.md, "Classes and rules".
             _surfLightCount = _lightCount;
@@ -731,6 +776,7 @@ namespace UltraRT
                 Shader.SetGlobalFloat(UltraRTLinearLightsId, 0f);
             }
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, uploadLights);
+            GlMark(9, ref gt);
         }
 
         private int _surfLightCount;
@@ -981,6 +1027,13 @@ namespace UltraRT
         private bool _rtMirrors;      // -ultrart-rtmirrors (bench: plugin._rtMirrors=1): camera rays reflect off portal mirrors instead of keeping the game's mirror view
         /// <summary>Trim redundant deep PortalRenderV2 raster recursions on non-mirror portals while RT replaces opaque portal views. Bench plugin._portalRasterTrim=0.</summary>
         private bool _portalRasterTrim = true;
+        /// <summary>Skip the game's raster portal views (PortalRenderV2.Render) while RT replaces them; mirrors and the sky behind
+        /// portals are then traced (docs/portals.md, "Raster skip"). -ultrart-portal-raster-skip on|off, bench plugin._portalRasterSkip=0.</summary>
+        private bool _portalRasterSkip = true;
+        /// <summary>One hidden instance per hit-group shader in the RTAS from the scene build on, so a new shader mid-level
+        /// (the first effect billboard) doesn't rebuild every RT pipeline (SceneProxies.WarmHitGroups.cs). Bench plugin._warmHitGroups=0.</summary>
+        private bool _warmHitGroups = true;
+        private static readonly int PortalOwnId = Shader.PropertyToID("_UltraRTPortalOwn");
         // Which rays see V1's third-person model (SceneProxies.PlayerMask; docs/reflections.md, "The player in reflections"):
         // 1 reflection rays (incl. water/glass), 2 bounce rays, 4 shadow rays, 8 camera rays after a portal hop (8-x
         // mirrors, as the game's portal views). Camera rays never see it directly (bit 16 does that; only a third-person cinematic shot sets it: _cineShowPlayer). -ultrart-player-rays N, bench plugin._playerRays=N.
@@ -1043,8 +1096,16 @@ namespace UltraRT
             bool rtReplaceActive = _proxies?.Rtas != null && _viewEnabled && _ptShader != null && _compositeMat != null
                 && _proxies.Rtas.GetInstanceCount() > 0 && Modes[_mode].kind == Kind.Denoised;
             _proxies?.ApplyPortalRasterTrim(rtReplaceActive);
+            // Raster skip: our callback runs before PortalManagerV2's (registered at plugin start, the game's per level), so
+            // this frame's PortalRenderV2.Render already sees the new state, also on the frame RT turns off.
+            SceneProxies.PortalRasterSkip = _portalRasterSkip;
+            bool skip = rtReplaceActive && _portalRasterSkip && _portals && PortalRasterSkip.Hooked && _proxies.PortalSidesInRtas > 0;
+            PortalRasterSkip.Proxies = _proxies;
+            PortalRasterSkip.Active = skip;
+            Shader.SetGlobalInt(PortalOwnId, skip ? 1 : 0);
             if (_proxies?.Rtas == null || !_viewEnabled || _ptShader == null || _compositeMat == null) return;
             if (_proxies.Rtas.GetInstanceCount() == 0) return; // dispatching against an empty RTAS hangs the GPU
+            LogLongFrame();
 
             try { Trace(); }
             catch (Exception e)
@@ -1053,6 +1114,22 @@ namespace UltraRT
                 Logger.LogError($"Trace failed, disabling view: {e}");
                 _viewEnabled = false;
             }
+        }
+
+        // Frames over 100 ms while tracing (docs/performance.md, "Combat stalls"): what changed in the RTAS around them.
+        private int _longFrameLogs, _lfLastInstances, _lfPrevInstances;
+        private void LogLongFrame()
+        {
+            int inst = (int)_proxies.Rtas.GetInstanceCount();
+            float dt = Time.unscaledDeltaTime * 1000f;
+            if (dt > 100f && _longFrameLogs < 20)
+            {
+                _longFrameLogs++;
+                Logger.LogInfo($"Long frame: {dt:F1} ms at frame {Time.frameCount}, t {Time.realtimeSinceStartup:F2} s; RTAS instances {inst} (last frames {_lfPrevInstances}, {_lfLastInstances}); " +
+                               $"effect proxies {_effectGeometry?.Active ?? -1} (first added at frame {EffectGeometry.FirstAddFrame}); warm hit groups {_proxies.WarmHitGroupCount}; portal views skipped {PortalRasterSkip.Skipped}, run {PortalRasterSkip.RanVanilla}");
+            }
+            _lfPrevInstances = _lfLastInstances;
+            _lfLastInstances = inst;
         }
 
         private void EnsureTargets(int w, int h)
@@ -1068,6 +1145,7 @@ namespace UltraRT
             EnsureGBuffer(ref _gNormalDepth, w, h, RenderTextureFormat.ARGBHalf, "UltraRT NormalDepth");
             // x instance index, y packed world-space motion (docs/denoiser.md, "Motion vectors").
             EnsureGBuffer(ref _gInstanceId, w, h, RenderTextureFormat.RGInt, "UltraRT InstanceId");
+            AutoExposure.PortalInstanceIds = _gInstanceId; // the game match skips portal pixels while the portal views are skipped
             // PathTrace writes albedo + emission + material + lit weight packed into _gSurface (Unity's 8-UAV limit,
             // freeing 2 UAV slots for the folded radiance cache), and the reflection into _gReflection.
             // ReflectionFilter's resolve unpacks _gAlbedo / _gEmission and writes _gSpecular.
@@ -1427,7 +1505,8 @@ namespace UltraRT
             _proxies.UpdateVeils(); // the same for the veil proxies (SceneProxies.Veils.cs)
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;
-            SceneProxies.TraceMirrors = _rtMirrors;
+            // The game's mirror views are skipped with the other portal views: camera rays reflect off the mirrors instead.
+            SceneProxies.TraceMirrors = _rtMirrors || PortalRasterSkip.Active;
             SceneProxies.MovingPortalMotion = _portalMotion;
             SceneProxies.MovingPortalEdges = _portalEdges;
             Shader.SetGlobalFloat("_UltraRTPortalStart", _portalStart);

@@ -359,3 +359,25 @@ picked at random), not investigated further.
 
 `bench/suites/viewmodel-mannequins.json`: the 7-1 mannequin room turns (docs/scene-proxies.md, "Posed mannequins"),
 P-2 revolver shots and 7-3 shots with `plugin._vmReflGraze=0` as the before.
+
+## 8. The RayQuery bridge: not for the viewmodel (2026-11-21, `t3/portal-raster-skip-and-hitches`)
+
+Wave 3 moved volumetrics and particle light onto native inline `RayQuery` compute (docs/performance.md, Wave 3 item 1),
+which removed Unity's per-`DispatchRays` shader-table rebuild for those passes. The viewmodel pass still pays that
+rebuild. Its render-thread time (exclusive `-Perf`, 2026-11-21, `bench/results/20261121-203500_*`) is 0.40-0.67 ms in
+the 0-x, 1-4 and 6-2 poses, 0.76-0.97 ms at 8-3 b and 8-2's portal, and 0.92-1.01 ms in 8-3 combat. Of that,
+`vm-rays` (the `DispatchRays`) is 0.31-0.90 ms, while its GPU time is 0.27-0.63 ms. It does not move as cleanly:
+
+- Volumetrics and particle light only ask whether a segment is blocked. The viewmodel's reflection and bounce rays
+  (`Viewmodel.raytrace`, `TraceReflection` and the cosine bounce) shade the surface they hit with its albedo, emission,
+  alpha, normal and layer. Those values come from each scene material's `UltraRTHit` closest-hit shader (Unity's
+  shader pass and its per-material properties, bound through the shader table). A native `cs_6_5` shader sees only
+  the instance, primitive and barycentrics. It cannot run those hit shaders or read Unity's material bindings.
+- Moving only the shadow rays to `RayQuery` leaves the `DispatchRays` for reflection and bounce, so the rebuild stays.
+- The bridge would need its own copy of every material's surface data (a per-instance material table plus vertex
+  attributes for the UVs and normals). That is a second material system kept in sync with the first, for under 1 ms of
+  render-thread time in the heaviest scenes.
+
+Not implemented. A cheaper option, if this time matters later, is to trace the viewmodel's rays inside PathTrace's own
+dispatch (one shader-table build per frame instead of two). docs/performance.md, "One dispatch for the auxiliary
+passes", explains why that is not simple either.

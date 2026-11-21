@@ -118,6 +118,16 @@ namespace UltraRT
         private readonly Dictionary<Portal, (int maxRec, bool appears)> _savedPortalRec = new Dictionary<Portal, (int, bool)>();
         private bool _portalRasterTrimmed;
 
+        /// <summary>
+        /// Skip the game's raster portal views while RT replaces them (PortalRasterSkip.cs; docs/portals.md, "Raster skip").
+        /// -ultrart-portal-raster-skip on|off, bench plugin._portalRasterSkip=0.
+        /// </summary>
+        public static bool PortalRasterSkip = true;
+
+        /// <summary>The portal side (Portal instance id, exit side) is in the RTAS, so camera rays go through it.</summary>
+        public bool IsPortalSideTraced(int portalInstanceId, bool exitSide) =>
+            _portalSides.TryGetValue(((long)portalInstanceId << 1) | (exitSide ? 1L : 0L), out var s) && s.InRtas && s.Seen;
+
         private bool OriginalAppearsInRecursions(Portal portal)
         {
             if (portal == null) return false;

@@ -231,6 +231,10 @@ namespace UltraRT
         /// from trace uv to its uv (xy scale around the centre = the guard band, z 1 = flip y) and the game's fog
         /// (x 1 = on, y mode 1 linear / 2 exp / 3 exp2, z start or density, w end). Set by the plugin every frame.</summary>
         public Texture GameColor;
+        /// <summary>The trace's instance ids (high half = distance to the first portal): while the game's portal views are
+        /// skipped, the game's frame is empty behind portals, so the game match leaves those pixels out (docs/portals.md, "Raster skip").</summary>
+        public static Texture PortalInstanceIds;
+        private static readonly int IdAEInstanceId = Shader.PropertyToID("_AEInstanceId");
         public Vector4 GameMap, GameFog;
         /// <summary>Last read-back game match state: game mean log2, RT mean log2 (same pixels), correction EV, pixels.</summary>
         public Vector4 LastMatch { get; private set; }
@@ -317,6 +321,7 @@ namespace UltraRT
             cmd.SetComputeBufferParam(cs, _kHistogram, IdExposure, _exposure);
             bool match = GameColor != null && (s.gameMatchUp > 0f || s.gameMatchDown > 0f || s.colorMatch > 0f);
             cmd.SetComputeTextureParam(cs, _kHistogram, IdGameColor, match ? GameColor : Texture2D.blackTexture);
+            if (PortalInstanceIds != null) cmd.SetComputeTextureParam(cs, _kHistogram, IdAEInstanceId, PortalInstanceIds);
             cmd.SetComputeVectorParam(cs, IdGameMap, match ? GameMap : Vector4.zero);
             cmd.SetComputeVectorParam(cs, IdGameFog, GameFog);
             cmd.SetComputeVectorParam(cs, IdParams5, new Vector4(match ? Mathf.Max(0f, s.EffectiveGameMatchUp) : 0f, match ? Mathf.Max(0f, s.EffectiveGameMatchDown) : 0f,

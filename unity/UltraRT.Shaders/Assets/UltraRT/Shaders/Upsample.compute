@@ -40,6 +40,9 @@ float4x4 _InvScreenVP;  // (projection * worldToCamera)^-1, screen (no guard ban
 float4x4 _PrevScreenVP; // last frame's projection * worldToCamera
 float4 _CamPos;
 float4 _CamFwd;
+// 1 while the game's raster portal views are skipped (docs/portals.md, "Raster skip"): a through-portal sample also
+// matches a game pixel behind its portal plane (the plane is all the game has there; nothing stands in front of it).
+int _UltraRTPortalOwn;
 float4 _Params;    // x exact-hit sharpness (exp(-x d^2), d in screen px), y max history weight, z spatial falloff (exp(-z d^2)), w history valid
 float4 _Params2;   // x depth match tolerance (relative), y (absolute, m), z clip box padding (fraction of its size), w min matching samples to clip
 float4 _Params3;   // x reprojection depth tolerance (relative), y Catmull-Rom history (0/1), z weight added by the spatial estimate, w debug view
@@ -130,13 +133,31 @@ void Taau(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_G
     uint motion = 0;
     float zRepro = zg; // depth of the point to reproject: the game's surface, or the far side of a portal
     int n = 0;
+    // Raster skip (docs/portals.md, "Raster skip"): the game drew no view through the portal, so its depth there says
+    // nothing about what lies behind the opening. When no sample of the 3x3 matches the game's depth (an occluder in the
+    // doorway is traced too and would) and the nearest one went through a portal, the through-portal samples are taken.
+    bool ownPortal = false;
+    [branch] if (_UltraRTPortalOwn != 0)
+    {
+        bool anyMatch = false;
+        [unroll] for (int j0 = 0; j0 < 9; j0++)
+        {
+            int2 l0 = clamp(lb + int2(j0 % 3, j0 / 3), 0, TILE - 1);
+            float z0 = gsColZ[(uint)(l0.y * TILE + l0.x)].a;
+            anyMatch = anyMatch || (z0 >= 0.0 && abs(z0 - zg) <= tol);
+        }
+        int2 lc = clamp(kn - kb, 0, TILE - 1);
+        uint lci = (uint)(lc.y * TILE + lc.x);
+        ownPortal = !anyMatch && gsColZ[lci].a >= 0.0 && gsZv[lci] > gsColZ[lci].a + 1e-3;
+    }
     [unroll] for (int j = 0; j < 9; j++)
     {
         int2 l = clamp(lb + int2(j % 3, j / 3), 0, TILE - 1);
         uint li = (uint)(l.y * TILE + l.x);
         float4 cz = gsColZ[li];
         float err = abs(cz.a - zg);
-        if (cz.a < 0.0 || err > tol) continue;
+        if (cz.a < 0.0) continue;
+        if (err > tol && !(_UltraRTPortalOwn != 0 && gsZv[li] > cz.a + 1e-3 && (ownPortal || zg > cz.a - tol))) continue;
         float2 d = gsPos[li] - pc;
         float d2 = dot(d, d);
         // Noise-free input (the demodulation colour): only exact hits count, except on moving objects. There the history

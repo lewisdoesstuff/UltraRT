@@ -202,6 +202,8 @@ namespace UltraRT
             public bool Flame;        // named like a fire: heat haze rises from it (CollectFlames)
             public Vector3 DrivePos;  // flame-driven light: the smoothed centre
             public int DriveFrame = -100000;
+            public Color LastSprite = new Color(-1f, 0f, 0f, 0f); // last known sprite / animation-frame average (r < 0: none):
+            public Color LastFrame = new Color(-1f, 0f, 0f, 0f);  // used while a new one is still being read back (ReadAverage)
         }
 
         private readonly List<Emitter> _emitters = new List<Emitter>(256);
@@ -245,7 +247,7 @@ namespace UltraRT
         private int _logFrames, _logAppended, _logVirtual, _logMaxVirtual, _logFlicker, _logs;
         // Selection passes in the log window: emitters near the camera that were measured, covered by a game light, skipped
         // as on their own light, too weak, or not a sprite / particle system.
-        private int _logNear, _logCovered, _logOnLight, _logWeak, _logKind, _logUnmeasured;
+        private int _logNear, _logCovered, _logOnLight, _logWeak, _logKind, _logUnmeasured, _logReads, _logSyncReads;
         private string _logUnmeasuredSample = "";
         private int _ownLightLogged;
         private float _flickerMin = float.MaxValue, _flickerMax, _nextLog;
@@ -443,25 +445,79 @@ namespace UltraRT
         /// <summary>Average of rgb x alpha (what an additive blend adds per pixel of the quad), from a 16x16 Blit + ReadPixels.</summary>
         internal Color TexAverage(Texture tex) => _texCache.TryGetValue(tex, out var c) ? c : (_texCache[tex] = Downsample(tex, Vector2.one, Vector2.zero));
 
-        /// <summary>The same for one sprite (its rectangle of a sprite sheet). Cached per sprite: animated flames swap sprites.</summary>
-        private Color SpriteAverage(Sprite s)
+        /// <summary>
+        /// The same for one sprite (its rectangle of a sprite sheet), or for an animation frame swapped in through a
+        /// property block, without stalling: false while the first read of it is in flight (1-3 frames).
+        ///
+        /// Measure runs every frame, and explosions and flames step through a new sprite or frame texture most frames until
+        /// each has been seen once. A synchronous ReadPixels per new one made the CPU wait for the GPU's queue: 4-7 ms per
+        /// frame for runs of 30+ frames in 8-3 combat (2026-11-21, docs/performance.md "Combat lights"). Cached per sprite /
+        /// texture, as before.
+        /// </summary>
+        private bool ReadAverage(Sprite s, out Color c)
         {
-            if (_spriteCache.TryGetValue(s, out var c)) return c;
+            if (_spriteCache.TryGetValue(s, out c)) return true;
             var tex = s.texture;
-            if (tex == null) c = Color.white;
-            else
+            if (tex == null) { c = _spriteCache[s] = Color.white; return true; }
+            var r = s.textureRect;
+            return Request(s, tex, new Vector2(r.width / tex.width, r.height / tex.height), new Vector2(r.x / tex.width, r.y / tex.height), out c);
+        }
+
+        private bool ReadAverage(Texture tex, out Color c)
+        {
+            if (_texCache.TryGetValue(tex, out c)) return true;
+            return Request(tex, tex, Vector2.one, Vector2.zero, out c);
+        }
+
+        private readonly HashSet<UnityEngine.Object> _pendingReads = new HashSet<UnityEngine.Object>();
+
+        private bool Request(UnityEngine.Object key, Texture tex, Vector2 scale, Vector2 offset, out Color c)
+        {
+            c = Color.white;
+            if (!SystemInfo.supportsAsyncGPUReadback || tex.dimension != TextureDimension.Tex2D)
             {
-                var r = s.textureRect;
-                c = Downsample(tex, new Vector2(r.width / tex.width, r.height / tex.height), new Vector2(r.x / tex.width, r.y / tex.height));
+                c = Downsample(tex, scale, offset); // the old path (or white for a non-2D texture)
+                if (key is Sprite sp) _spriteCache[sp] = c; else _texCache[(Texture)key] = c;
+                return true;
             }
-            _spriteCache[s] = c;
-            return c;
+            if (!_pendingReads.Add(key)) return false;
+            _logReads++;
+            var rt = RenderTexture.GetTemporary(TexRes, TexRes, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
+            try
+            {
+                Graphics.Blit(tex, rt, scale, offset);
+                AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBAFloat, req =>
+                {
+                    _pendingReads.Remove(key);
+                    if (key == null) return; // destroyed meanwhile
+                    var avg = Color.white;
+                    if (!req.hasError)
+                    {
+                        var px = req.GetData<Color>();
+                        Color sum = Color.clear;
+                        for (int i = 0; i < px.Length; i++) { var p = px[i]; sum += new Color(p.r * p.a, p.g * p.a, p.b * p.a, 0f); }
+                        avg = sum * (1f / Mathf.Max(px.Length, 1));
+                        avg.a = 1f;
+                    }
+                    if (key is Sprite sk) _spriteCache[sk] = avg; else _texCache[(Texture)key] = avg;
+                });
+            }
+            catch (Exception e)
+            {
+                _pendingReads.Remove(key);
+                _log.LogWarning($"Effect lights: texture '{tex.name}': {e.Message}");
+                if (key is Sprite sp) _spriteCache[sp] = Color.white; else _texCache[(Texture)key] = Color.white;
+                return true;
+            }
+            finally { RenderTexture.ReleaseTemporary(rt); }
+            return false;
         }
 
         private Color Downsample(Texture tex, Vector2 scale, Vector2 offset)
         {
             var avg = Color.white;
             if (tex.dimension != TextureDimension.Tex2D) return avg;
+            _logSyncReads++;
             var fmt = SystemInfo.SupportsRenderTextureFormat(RenderTextureFormat.ARGBFloat) ? RenderTextureFormat.ARGBFloat : RenderTextureFormat.ARGBHalf;
             var rt = RenderTexture.GetTemporary(TexRes, TexRes, 0, fmt, RenderTextureReadWrite.Linear);
             var prev = RenderTexture.active;
@@ -578,14 +634,15 @@ namespace UltraRT
                 _nextLog = Time.realtimeSinceStartup + 5f;
                 _log.LogInfo($"Effect lights: CPU {_cpuMs / _logFrames * 1000.0:F1} us/frame; tracked lights {_trackedCount}, appended {(double)_logAppended / _logFrames:F2}/frame; " +
                              $"virtual {(double)_logVirtual / _logFrames:F2}/frame (max {_logMaxVirtual}) from {_emitters.Count} emitters; " +
-                             $"flickering lights {(double)_logFlicker / _logFrames:F1}/frame (x{(_flickerMax > 0 ? _flickerMin : 1):F2}..{(_flickerMax > 0 ? _flickerMax : 1):F2}); spawn queue drops {EffectSpawns.Dropped}" +
+                             $"flickering lights {(double)_logFlicker / _logFrames:F1}/frame (x{(_flickerMax > 0 ? _flickerMin : 1):F2}..{(_flickerMax > 0 ? _flickerMax : 1):F2}); spawn queue drops {EffectSpawns.Dropped}; " +
+                             $"texture reads {_logReads} async, {_logSyncReads} sync" +
                              (_logNear > 0 ? $"; candidates measured {_logNear} (covered {_logCovered}, own light {_logOnLight}, weak {_logWeak}, kind {_logKind})" : "") +
                              (_logUnmeasured > 0 && _logs < 40 ? $"; near but nothing drawn {_logUnmeasured}:{_logUnmeasuredSample}" : "") +
                              (_logs < 40 && _selected.Count > 0 ? $"; selected now: {string.Join(", ", _selected.Take(6).Select(e => $"{e.Kind} '{e.Name}' I {e.Smoothed * Settings.intensityScale:F1}"))}" : "") +
                              (_logs < 40 && _flickers.Count > 0 ? $"; flicker now: {string.Join(", ", _flickers.Take(8).Select(e => $"{e.Kind} '{(e.Go != null ? PathOf(e.Go.transform) : "destroyed")}'/'{e.Name}' r {e.Radius:F2} -> light '{(e.CoverLight != null ? PathOf(e.CoverLight.transform) : "-")}'{(e.CoverLight != null ? $" I {e.CoverLight.intensity:F1} range {e.CoverLight.range:F1} {(e.CoverLight.transform.position - e.Pos).magnitude:F2} m" : "")}"))}" : ""));
                 _logs++;
                 _cpuMs = 0; _logFrames = 0; _logAppended = 0; _logVirtual = 0; _logMaxVirtual = 0; _logFlicker = 0;
-                _logNear = _logCovered = _logOnLight = _logWeak = _logKind = _logUnmeasured = 0;
+                _logNear = _logCovered = _logOnLight = _logWeak = _logKind = _logUnmeasured = _logReads = _logSyncReads = 0;
                 _logUnmeasuredSample = "";
                 _flickerMin = float.MaxValue; _flickerMax = 0f;
             }
@@ -853,7 +910,10 @@ namespace UltraRT
                 {
                     var sp = e.SR.sprite;
                     if (sp == null) { e.Strength = 0f; return false; }
-                    var a = SpriteAverage(sp);
+                    // A sprite or frame still being read back (ReadAverage): the emitter's last one, or nothing this frame.
+                    if (ReadAverage(sp, out var a)) e.LastSprite = a;
+                    else if (e.LastSprite.r >= 0f) a = e.LastSprite;
+                    else { e.Strength = 0f; return false; }
                     var c = e.SR.color;
                     col = new Color(col.r * a.r * c.r * c.a, col.g * a.g * c.g * c.a, col.b * a.b * c.b * c.a, 1f);
                     // Flames animate with AnimatedTexture, which swaps _MainTex frames through a property block.
@@ -863,7 +923,9 @@ namespace UltraRT
                         var frame = _mpb.GetTexture(MainTexId);
                         if (frame != null)
                         {
-                            var f = TexAverage(frame);
+                            if (ReadAverage(frame, out var f)) e.LastFrame = f;
+                            else if (e.LastFrame.r >= 0f) f = e.LastFrame;
+                            else { e.Strength = 0f; return false; }
                             col = new Color(col.r * f.r, col.g * f.g, col.b * f.b, 1f);
                         }
                     }

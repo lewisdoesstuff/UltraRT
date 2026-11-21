@@ -50,6 +50,9 @@
     <Reference Include="UnityEngine.UI" HintPath="$(ManagedDir)\UnityEngine.UI.dll" Private="false" />
     <Reference Include="UnityEngine.UIModule" HintPath="$(ManagedDir)\UnityEngine.UIModule.dll" Private="false" />
     <Reference Include="Unity.TextMeshPro" HintPath="$(ManagedDir)\Unity.TextMeshPro.dll" Private="false" />
+    <!-- PortalRasterSkip.cs: PortalRenderV2.renderDatas / NativePortalScene.renderPortals are NativeLists of Mathematics structs. -->
+    <Reference Include="Unity.Collections" HintPath="$(ManagedDir)\Unity.Collections.dll" Private="false" />
+    <Reference Include="Unity.Mathematics" HintPath="$(ManagedDir)\Unity.Mathematics.dll" Private="false" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(PluginConfiguratorDll)' != ''">

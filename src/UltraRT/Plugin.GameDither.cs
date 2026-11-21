@@ -65,6 +65,7 @@ namespace UltraRT
         {
             ReleaseGameDither();
             Shader.SetGlobalVector(OutDitherId, Vector4.zero);
+            PortalRasterSkip.Active = false; // the game's portal views render again (docs/portals.md, "Raster skip")
         }
     }
 }
