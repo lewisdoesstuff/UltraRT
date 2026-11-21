@@ -15,6 +15,9 @@ namespace UltraRT
     internal sealed partial class SceneProxies
     {
         public static bool ViewProbe;
+        /// <summary>-ultrart-skin-probe TEXT: at every bench screenshot, the skinned renderers whose path contains TEXT, and the
+        /// game's skinned vertices against the proxy's (<see cref="ProbeSkinnedExtents"/>).</summary>
+        public static string SkinProbeFilter;
         private static readonly MaterialPropertyBlock ProbeBlock = new MaterialPropertyBlock();
 
         public IEnumerable<string> DescribeView(Camera cam, float coneDeg = 30f, float maxDist = 40f, int max = 60)
@@ -83,24 +86,28 @@ namespace UltraRT
         /// against our proxy's, as world-space boxes (the buffer is in root-bone space without scale), for every active
         /// skinned source matching <paramref name="filter"/>. Logged when the readbacks arrive.
         /// </summary>
-        public void ProbeSkinnedExtents(string filter, System.Action<string> log)
+        public void ProbeSkinnedExtents(string filter, System.Action<string> log, int max = int.MaxValue)
         {
+            int listed = 0;
             foreach (var d in _dynamic)
             {
                 if (d.SkinnedSource == null || d.SkinnedProxy == null || !d.SkinnedSource.gameObject.activeInHierarchy) continue;
                 string path = GameControlPath(d.SkinnedSource.transform);
                 if (path.IndexOf(filter, System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+                if (listed++ >= max) break;
                 var root = d.Root != null ? d.Root : d.SkinnedSource.transform;
                 var rootM = Matrix4x4.TRS(root.position, root.rotation, Vector3.one);
                 var mesh = d.SkinnedSource.sharedMesh;
                 int posOffset = mesh != null ? Mathf.Max(0, mesh.GetVertexAttributeOffset(VertexAttribute.Position)) : 0;
                 bool sameBones = d.SkinnedProxy.bones.Length == d.SkinnedSource.bones.Length && d.SkinnedProxy.bones.Zip(d.SkinnedSource.bones, (a, b) => a == b).All(x => x);
                 string head = $"skin '{path}' enabled={d.SkinnedSource.enabled} mesh={mesh?.name}/{d.SkinnedProxy.sharedMesh?.name} sameBones={sameBones} quality={d.SkinnedSource.quality}/{d.SkinnedProxy.quality} " +
-                              $"motionVectors={d.SkinnedSource.skinnedMotionVectors} root='{root.name}'";
-                foreach (var (which, smr) in new[] { ("game", d.SkinnedSource), ("proxy", d.SkinnedProxy) })
+                              $"motionVectors={d.SkinnedSource.skinnedMotionVectors} root='{root.name}' bones={d.SkinnedSource.bones.Length}/{d.SkinnedProxy.bones.Length} " +
+                              $"anim={(d.SkinnedSource.GetComponentInParent<Animator>() is Animator an ? $"{an.cullingMode} enabled={an.enabled} hasTransformHierarchy={an.hasTransformHierarchy}" : "-")} " +
+                              $"isVisible={d.SkinnedSource.isVisible}/{d.SkinnedProxy.isVisible} inRtas={d.Visible} placedAt={(Vector3)d.CurM.GetColumn(3):F2} rootAt={root.position:F2}";
+                foreach (var (which, smr, prev) in new[] { ("game", d.SkinnedSource, false), ("proxy", d.SkinnedProxy, false), ("game prev", d.SkinnedSource, true), ("proxy prev", d.SkinnedProxy, true) })
                 {
                     GraphicsBuffer vb = null;
-                    try { vb = smr.GetVertexBuffer(); } catch (System.Exception e) { log($"{head} {which}: GetVertexBuffer: {e.Message}"); }
+                    try { vb = prev ? smr.GetPreviousVertexBuffer() : smr.GetVertexBuffer(); } catch (System.Exception e) { log($"{head} {which}: GetVertexBuffer: {e.Message}"); }
                     if (vb == null) { log($"{head} {which}: no skinned buffer this frame"); continue; }
                     int stride = vb.stride, count = vb.count;
                     var buf = vb;

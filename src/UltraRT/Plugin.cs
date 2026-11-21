@@ -362,6 +362,8 @@ namespace UltraRT
                     case "-ultrart-refl-cache": { var v = Next(); _reflSettings.cacheShading = v == "off" ? 0 : v == "always" ? 2 : 1; break; }
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
                     case "-ultrart-viewprobe": SceneProxies.ViewProbe = true; break;
+                    case "-ultrart-skin-probe": SceneProxies.SkinProbeFilter = Next(); break; // bench screenshots: game vs proxy skinned vertices (SceneProxies.Probe.cs)
+                    case "-ultrart-nosettle-readd": SceneProxies.SkinnedSettleReAdd = false; break; // skinned instances are not re-added when a pose change settles (docs/scene-proxies.md, "Posed mannequins")
                     case "-ultrart-glow-smooth": _smoothGlow = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
                     case "-ultrart-nomatsync": SceneProxies.MaterialSync = false; break;
                     case "-ultrart-albedo-emission-glow": SceneProxies.LitAlbedoEmission = false; break;
@@ -1396,7 +1398,7 @@ namespace UltraRT
                 var mv = _proxies.Motion;
                 Logger.LogInfo($"RT scene sync CPU avg {_cpuMs / _cpuFrames:F3} ms/frame; motion vectors {(MotionVectors.Enabled ? "on" : "off")}: " +
                                $"{mv.SlotCount} slots, {mv.CopiesLastFrame} skinned pose copies/frame, {mv.SkinVertices} pose vertices, " +
-                               $"{(double)mv.RigidUpdates / _cpuFrames:F1} rigid updates/frame, {(double)_proxies.SkinnedTransformUpdateCount / _cpuFrames:F1} skinned transform updates/frame, {_proxies.NewInstancesReAdded} new rigid instances re-added ({_proxies.NewMeshInstancesReAdded} with a mesh new to the RTAS; scene total), motion CPU {mv.Ticks * 1000.0 / Stopwatch.Frequency / _cpuFrames:F3} ms/frame; " +
+                               $"{(double)mv.RigidUpdates / _cpuFrames:F1} rigid updates/frame, {(double)_proxies.SkinnedTransformUpdateCount / _cpuFrames:F1} skinned transform updates/frame, {_proxies.NewInstancesReAdded} new rigid instances re-added ({_proxies.NewMeshInstancesReAdded} with a mesh new to the RTAS; scene total), {_proxies.SkinnedSettleReAdds} skinned re-added after a pose settled, motion CPU {mv.Ticks * 1000.0 / Stopwatch.Frequency / _cpuFrames:F3} ms/frame; " +
                                $"deferred proxies: {_proxies.DeferredMade} made in {_proxies.DeferredMs:F1} ms (queue max {_proxies.DeferredMaxQueue}, now {_proxies.DeferredCount}), " +
                                $"{_proxies.HierarchiesAdded} hierarchies ({Patches.SpawnCount} instantiated), {_proxies.Lights.Count} lights tracked ({_activeLights.Count} on); " +
                                $"emissive: {_emissive.AliasBuilds} alias rebuilds ({_emissive.AliasTicks * 1000.0 / Stopwatch.Frequency:F1} ms), {_emissive.ActiveUpdates} active-set updates, " +
