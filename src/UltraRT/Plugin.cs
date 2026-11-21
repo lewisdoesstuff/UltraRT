@@ -289,6 +289,7 @@ namespace UltraRT
                     case "-ultrart-skinned-noupdate": SceneProxies.SkinnedTransformUpdates = false; break;
                     case "-ultrart-nodisplace": SceneProxies.DisplacementBuild = false; break; // VERTEX_DISPLACEMENT geometry keeps its rest pose
                     case "-ultrart-nostaticlift": SceneProxies.LiftStaticDisplaced = false; break; // static-batched displaced water keeps its rest pose (StaticGroups.Lifted.cs)
+                    case "-ultrart-nostaticlift-opaque": SceneProxies.LiftStaticOpaque = false; break; // static-batched displaced flesh keeps its rest pose (StaticGroups.Lifted.cs)
                     case "-ultrart-displace-range": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _displaceRange); break; // m; < 0: original meshes (displacement off at run time)
                     case "-ultrart-spawn-test": _spawnTest = true; break;
                     case "-ultrart-gputimer": _useGpuTimer = true; break;
@@ -330,6 +331,7 @@ namespace UltraRT
                     case "-ultrart-v1-unlit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.PlayerModelUnlit); break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
                     case "-ultrart-v1-glow": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _v1Glow); break; // V1's wings in reflections (SceneProxies.Player.cs)
+                    case "-ultrart-v1-eye-glow": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _v1EyeGlow); break; // V1's camera lens in reflections
                     case "-ultrart-v1-weapon-glow": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _v1WeaponGlow); break; // the held gun's glow in reflections
                     case "-ultrart-handover-tint": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _handoverTint); break; // fullbright handover parts take their lights' colour (Plugin.Handover.cs)
                     case "-ultrart-norain": _rainOn = false; break;
@@ -370,6 +372,7 @@ namespace UltraRT
                     case "-ultrart-glow-smooth": _smoothGlow = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
                     case "-ultrart-nomatsync": SceneProxies.MaterialSync = false; break;
                     case "-ultrart-albedo-emission-glow": SceneProxies.LitAlbedoEmission = false; break;
+                    case "-ultrart-novertexblend": SceneProxies.VertexBlendTextures = false; break; // Master VERTEX_BLENDING: _MainTex only (SceneProxies.cs)
                     case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
                     case "-ultrart-guard":
                         float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _guardX);
@@ -939,6 +942,9 @@ namespace UltraRT
         // x _v1Glow; the third-person gun mirrors the viewmodel's emission x _v1WeaponGlow (0 = off). Bench plugin._v1Glow=F.
         private float _v1Glow = 2.5f;
         private float _v1WeaponGlow = 1f;
+        // V1's camera lens (the yellow eye on its head) glows x _v1EyeGlow in RT (SceneProxies.PlayerEyeGlow; 0 = lit as before
+        // 2026-11-21). Bench plugin._v1EyeGlow=F.
+        private float _v1EyeGlow = 2.5f;
         private static readonly int PlayerRaysId = Shader.PropertyToID("_UltraRTPlayerRays");
         private static readonly int PlayerBoxMinId = Shader.PropertyToID("_UltraRTPlayerBoxMin"), PlayerBoxMaxId = Shader.PropertyToID("_UltraRTPlayerBoxMax");
         private static readonly int PlayerEyeId = Shader.PropertyToID("_UltraRTPlayerEye");
@@ -1380,6 +1386,7 @@ namespace UltraRT
             Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? (_playerRays & 15) | (_cineShowPlayer ? 16 : 0) : 0); // 16: third-person cinematic shots
             SceneProxies.PlayerEmissionGain = _v1Glow;
             SceneProxies.PlayerWeaponGlow = _v1WeaponGlow;
+            SceneProxies.PlayerEyeGlow = _v1EyeGlow;
             _proxies.UpdatePlayerGlow(); // the wings' gain, the held gun's glow mirrored from the viewmodel
             var eye = _camera.transform.position; // the player's own spot lights end their shadow rays here (UltraRTLights.hlsl)
             Shader.SetGlobalVector(PlayerEyeId, new Vector4(eye.x, eye.y, eye.z, _playerLightEyeClip ? 1f : 0f));

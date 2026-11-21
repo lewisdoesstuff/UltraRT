@@ -58,6 +58,7 @@ Shader "UltraRT/Vfx"
             float4 _VfxWaterColor;             // rgb water colour (display), w fog darkening per metre of depth
             float4 _VfxWaterLight;             // xyz direction to the light above the surface (unit), w shaft strength
             float4 _VfxWaterParams;            // x caustics strength, y shaft distance (m), z 1 / shaft scale (1/m), w unused
+            float4 _VfxWaterFog;               // x fog colour level (x the water colour), y share of it left at depth, zw unused
             float  _UltraRTFlipY;
             float  _VfxDebug;                  // 1 bloom only, 2 distortion field
             RWTexture2D<float4> _VfxHdrGain : register(u1); // pass 4: rgb gain (linear, >= 1), a = the SDR colour packed
@@ -315,9 +316,12 @@ Shader "UltraRT/Vfx"
                     }
                     shaft *= _VfxWaterLight.w / max(_VfxWaterParams.y, 1.0);
                 }
-                // Fog: distance fades into the water colour, which darkens with the camera's depth.
+                // Fog: distance fades into the water colour, which darkens with the camera's depth down to a floor
+                // (_VfxWaterFog.y of it). Until 2026-11-21 the fog went to near black (water colour x 0.02-0.14) and
+                // darkened at 0.12 /m: 87 m down in 5-1's flooded cave every wall 30 m away was half black, where the
+                // game's own underwater view (and the cave seen through the glass) is a clear cyan (docs/vfx.md, "Underwater").
                 float dark = exp(-depthCam * _VfxWaterColor.w);
-                float3 fogC = _VfxWaterColor.rgb * (0.02 + 0.12 * dark);
+                float3 fogC = _VfxWaterColor.rgb * _VfxWaterFog.x * lerp(_VfxWaterFog.y, 1.0, dark);
                 float vis = exp(-min(dist, 400.0) * sigma);
                 c = lerp(fogC, c, vis);
                 c += (_VfxWaterColor.rgb * 0.5 + 0.5) * shaft * dark;

@@ -1022,3 +1022,16 @@ of `src/UltraRT/ultrart-materials.json` cover 7-4's exclusive materials without 
 - **Flesh interior** (`CentaurMeat`, `CentaurBrainMeat`): glossy wet crimson flesh (`class: Flesh`, roughness 0.22, f0
   0.04, specWeight 0.85) catching specular highlights from the electric-cyan overhead shaft and crimson belly lights.
 - **Printed sign** (`Cent_HotPipeSign`): `"detail": 0` to keep text crisp without embossed normal noise.
+
+## 19. Vertex blending on Master materials (2026-11-21, `t3/playtest-visual-fixes`)
+
+ULTRAKILL/Master's `VERTEX_BLENDING` mixes a second texture (`_BlendTex` x `_BlendColor`) into the albedo by the vertex
+colour's red: the StaticSceneOptimizer atlas path already did this in the hit shader (`|normal.w| - 1` as the weight), but
+for ordinary Master materials only the reflection class followed the blend ("`_SurfaceType` table", docs/reflections.md),
+and the albedo was `_MainTex` everywhere. `Proxy.shader` now samples `_BlendTex` at the main texture's uv where
+`_VertexBlend` is set (SceneProxies.cs, for Master materials with the keyword in their list and a `_BlendTex`) and blends
+lerp(`_BlendTex` x `_BlendColor`, `_MainTex`, vertex colour r) x `_Color`. Missing vertex colours read as white (all main).
+The formula is the atlas path's, not decompiled for this variant; it matched the game at 3-1's teeth doorway (`MouthBlend`,
+the case that showed it: docs/scene-proxies.md, "3-1's mouth doors"), and 3-1's noisy room and 3-2's moving walls look
+the same as before. 3-1: 26 proxy materials blend, 3-2: 12 (`vertex-blended N` in the scene build's summary line).
+`-ultrart-novertexblend`: as before. The per-texel detail maps follow `_MainTex` also where the blend texture shows.

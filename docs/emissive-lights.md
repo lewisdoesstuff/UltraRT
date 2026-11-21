@@ -291,6 +291,33 @@ at all. Now:
 
 Sheet `4-4_gasoline_fire.jpg` in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`.
 
+### Flames with their own light (2026-11-21, `t3/playtest-visual-fixes`)
+
+User, playtest of 2026-11-21, 1-1 pose 1 (`bench/recordings/u1121-1-1-1.json`): behind both wall torches the shadow on
+the orange wall was a bright saturated crimson instead of a dark warm shadow, in `pathtrace` and `relight`.
+
+**Cause.** Every 1-1 torch flame (`BigTorch/Fire/LookAtCamera/FireSprite`, `FireMaterial`) was also a virtual light.
+The test that leaves a flame to its own game light ("covered", `FindCoveringLight`) goes by distance: the light must sit
+within 1 m + a quarter of the sprite's radius of the sprite's bounds centre (1.6 m here). The sprite's centre is 1.7-2.3
+m from the `Fire` light in the cup (log line `is on its own light ... m from the effect's centre`), so no torch was ever
+covered (`candidates measured 721 (covered 0, ...)`) and each got a virtual light in the sprite's own average colour,
+deep red. Since 3538105 (`flameVirtualGain` 6, "Player-made fire") that light is six times stronger. Where the torch's
+own light was shadowed by its bowl, the red light, higher up at the sprite's centre, still reached the wall: with
+`lc.class.fixture=0` the walls round every torch were plain red. (This also means flame-driven lights, "Flame-driven
+lights" below, have not been driving 1-1's torches: they need a covered flame. The recent runs' logs show 0.0 flickering
+lights per frame almost everywhere. Not changed here.)
+
+**Fix** (`EffectLights.cs`): an emitter with a Light on itself or one of its 3 nearest parents (`FindOwnLight`: the torch's
+`Fire`) gets no virtual light while that light is on (counted as `own light` in the log). Flames without a light (the
+gasoline fire's `FireSimple`) keep theirs. `fx.flameOwnLight` (true; bench `fx.flameOwnLight=0` = before).
+
+Measured (alt install, SDR, trace scale 0.5, run `20261121-153104_tmp-pvf-after`, before/after in one launch): the bowl's
+shadow on the wall is a dark warm brown in `pathtrace` and `relight`, no red; frame mean 93.5 -> 88.7 (`pathtrace`), the
+game 54.6; virtual lights per frame 7 -> 3.4 (the rest are other glows). A patch inside the shadow: (255, 123, 31) ->
+(179, 118, 30) in `pathtrace`, (255, 142, 36) -> (205, 133, 32) in `relight`. Sheet:
+`bench/results/review/playtest-visual-fixes/1-1_pose_1_torch_shadow.png` (the game, before, after `pathtrace`, after `relight`). Every torch,
+brazier or lamp sprite parented under its own light is treated the same way.
+
 ## 3. Flame flicker
 
 When a game light sits on a flame sprite or particle system (a torch FireSprite on its Fire light, or a pooled Fire), the flame drives that light. Its packed intensity is multiplied by (the flame's brightness x radius²) / its running mean over about 1 s, clamped to 0.65 to 1.35. At most 16 such flames near the camera are measured, every frame.
@@ -473,6 +500,7 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | | `gunFlash`, `gunFlashHold`, `gunFlashFade` | on, 0.02, 0.06 | gunshot lights' crisp envelope ("Gunshot flashes") |
 | | `lightningInsideScenes`, `lightningInsideGain` | `Level P-2`, 3 | bolts inside the play space: unshadowed, x gain ("Lightning flash") |
 | | `flameVirtualGain` | 6 | flame sprites without a light ("Player-made fire") |
+| | `flameOwnLight` | true | no virtual light for an emitter whose own Light (on it or up to 3 parents above) is on ("Flames with their own light") |
 
 Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5. Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
 

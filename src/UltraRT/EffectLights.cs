@@ -58,6 +58,10 @@ namespace UltraRT
         /// ~1, while the same flame's lit variant ("Fire") carries a light of 5. 6 since 2026-11-21 (4: pathtrace barely lit
         /// 4-4's corridor; 8: near white; docs/emissive-lights.md, "Player-made fire").</summary>
         public float flameVirtualGain = 6f;
+        /// <summary>A glowing effect with a Light of its own on it or up to 3 parents above it (a torch's FireSprite under
+        /// its Fire light) gets no virtual light while that light is on (2026-11-21; false = before: only the distance
+        /// cover test, which missed every 1-1 torch). Bench fx.flameOwnLight=0.</summary>
+        public bool flameOwnLight = true;
 
         // ---- Combat lights (CombatLights.cs; docs/emissive-lights.md, "Combat lights")
 
@@ -171,6 +175,8 @@ namespace UltraRT
             public Color Base;        // visible colour without the sprite / fill (premultiplied, gamma)
             public string Name;
             public bool OnLight;      // its spawned hierarchy has a Light: never a virtual light, only flicker
+            public bool OwnLogged;
+            public Light OwnLight;    // a Light on the emitter or up to 3 parents above it (a torch's Fire): while it is on, no virtual light
             public int NextCheck;     // inactive emitters are looked at every 16th frame
             public Light CoverLight;  // the game light sitting on it (null: none)
             public int CoverFrame = -100000;
@@ -230,6 +236,7 @@ namespace UltraRT
         // as on their own light, too weak, or not a sprite / particle system.
         private int _logNear, _logCovered, _logOnLight, _logWeak, _logKind, _logUnmeasured;
         private string _logUnmeasuredSample = "";
+        private int _ownLightLogged;
         private float _flickerMin = float.MaxValue, _flickerMax, _nextLog;
 
         /// <summary>Called for every renderer found to glow (scene scan and spawns), before any virtual-light filtering.</summary>
@@ -379,6 +386,7 @@ namespace UltraRT
             {
                 R = r, PS = ps, SR = r as SpriteRenderer, Go = r.gameObject, T = r.transform, Kind = kind, Id = id, Base = col, Name = m.name,
                 OnLight = onLight, Flame = IsFlame(m.name) || IsFlame(r.name) || (r.transform.parent != null && IsFlame(r.transform.parent.name)),
+                OwnLight = FindOwnLight(r.transform),
             });
         }
 
@@ -469,6 +477,21 @@ namespace UltraRT
 
         private static float MaxC(Color c) => Mathf.Max(c.r, Mathf.Max(c.g, c.b));
 
+        /// <summary>A Light on the renderer's object or on one of its 3 nearest parents (BigTorch/Fire [Light] /
+        /// LookAtCamera / FireSprite). Not further up: a room's lights are siblings higher in the tree.</summary>
+        private static Light FindOwnLight(Transform t)
+        {
+            for (int i = 0; i < 4 && t != null; i++, t = t.parent)
+            {
+                var l = t.GetComponent<Light>();
+                if (l != null && (l.type == LightType.Point || l.type == LightType.Spot)) return l;
+            }
+            return null;
+        }
+
+        private bool OwnLightOn(Emitter e) =>
+            Settings.flameOwnLight && e.OwnLight != null && e.OwnLight.isActiveAndEnabled && e.OwnLight.intensity > 0f;
+
         private static bool IsFlame(string name)
         {
             if (string.IsNullOrEmpty(name)) return false;
@@ -515,7 +538,7 @@ namespace UltraRT
                 {
                     // A new level. Tracked lights and emitters of the old one are destroyed and drop out by themselves; the
                     // ones spawned while this level loaded (FireObjectPool fills its pool in Awake) must stay.
-                    _matCache.Clear(); _texCache.Clear(); _spriteCache.Clear();
+                    _matCache.Clear(); _texCache.Clear(); _spriteCache.Clear(); _ownLightLogged = 0;
                     _scene = scene;
                     if (Settings.virtualLights || Settings.flicker) CollectSceneEmitters();
                 }
@@ -673,7 +696,24 @@ namespace UltraRT
                         if (s.flicker && _flickers.Count < MaxFlickers && (e.Kind == Kind.Sprite || e.Kind == Kind.Particles)) _flickers.Add(e);
                         continue;
                     }
-                    if (e.OnLight) { _logOnLight++; continue; }
+                    // A flame whose own game light is on (a torch's FireSprite under its Fire light) already lights the room:
+                    // no second light. The cover test above goes by distance (1 m + a quarter of the sprite's radius), and a
+                    // torch's sprite bounds centre sits 1.5-2.5 m above its light in the cup, so 1-1's torches were never
+                    // covered and each got a virtual light from its red sprite: x6 since 2026-11-21 (flameVirtualGain), a
+                    // crimson "shadow" behind every torch where the torch's own light was shadowed (docs/emissive-lights.md,
+                    // "Flames with their own light").
+                    if (e.OnLight || OwnLightOn(e))
+                    {
+                        _logOnLight++;
+                        if (!e.OnLight && _ownLightLogged < 8 && !e.OwnLogged)
+                        {
+                            e.OwnLogged = true;
+                            _ownLightLogged++;
+                            _log.LogInfo($"Effect lights: '{PathOf(e.T)}' {e.Kind} '{e.Name}' is on its own light '{PathOf(e.OwnLight.transform)}' " +
+                                         $"(I {e.OwnLight.intensity:F1}, {(e.OwnLight.transform.position - e.Pos).magnitude:F2} m from the effect's centre, cover reach {Settings.coverDistance + 0.25f * e.Radius:F2} m): no virtual light");
+                        }
+                        continue;
+                    }
                     if (e.Strength < s.minStrength) { _logWeak++; continue; }
                     if (!s.virtualLights) continue;
                     if (!s.virtualTrailsAndMeshes && e.Kind != Kind.Sprite && e.Kind != Kind.Particles) { _logKind++; continue; }

@@ -175,6 +175,11 @@ P-2 pose 1 GPU total 7.24 -> 7.23 ms, `rr` slot 1.83 -> 1.82 ms; 1-4 lamps 4.20 
 measurable. Not verified in HDR (the display was not in HDR mode during the runs; the HDR path uses the same
 screen-resolution emission).
 
+2026-11-21: 0-3's emissive wall strips showing through the yellow light pillars (playtest of 2026-11-21) were not this
+change: `plugin._rrEmitOutside=0` showed the same strips, as did `relight`. They were the game's additive cones over a
+traced room brighter than the game's (docs/lighting-overrides.md, "Light cones over bright emitters"). P-2 pose 1 is
+unchanged by that fix (frame mean 133.4 -> 133.6).
+
 ### Exact jitter grid
 
 With Halton jitter a screen pixel rarely gets a sample on its centre at 3x. At an integer upscale N (trace scale 1/2,

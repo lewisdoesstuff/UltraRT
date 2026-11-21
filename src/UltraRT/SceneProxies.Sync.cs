@@ -468,6 +468,7 @@ namespace UltraRT
 
         private void DisposeSync()
         {
+            DisposeEyeMasks(); // V1's lens emission textures (SceneProxies.Player.cs)
             foreach (var m in _ownMaterials) if (m != null) Object.Destroy(m);
             _ownMaterials.Clear();
             RetireMaterials(true);

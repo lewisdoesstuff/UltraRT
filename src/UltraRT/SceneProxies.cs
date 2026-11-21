@@ -43,6 +43,17 @@ namespace UltraRT
         public static bool SkipStaticBatches;
         public int AlphaTestedMaterials { get; private set; }
         public int LitAlbedoEmissionMaterials { get; private set; }
+        public int VertexBlendMaterials { get; private set; }
+
+        /// <summary>ULTRAKILL/Master VERTEX_BLENDING materials sample their secondary texture (_BlendTex) where vertex colour r
+        /// falls (Proxy.shader _VertexBlend). -ultrart-novertexblend (read when proxy materials are made): _MainTex only, as
+        /// before 2026-11-21.</summary>
+        public static bool VertexBlendTextures = true;
+
+        /// <summary>The keyword is in the material's list. Material.IsKeywordEnabled is false for keywords the shader does
+        /// not declare as such (ULTRAKILL/Master's _VERTEXCOLORS_ON, _ALPHABLEND_ON), so read the list.</summary>
+        private static bool HasKeyword(Material m, string keyword) =>
+            m.IsKeywordEnabled(keyword) || System.Array.IndexOf(m.shaderKeywords, keyword) >= 0;
 
         /// <summary>Winding convention for RT back-face culling (-ultrart-ccw flips it).</summary>
         public static bool FrontCounterClockwise;
@@ -293,7 +304,7 @@ namespace UltraRT
                          $"in {StaticInstancesActive}/{_staticPartsTotal} group instances, dynamic {dynamicRecords} in {_active.Count} instances)");
             _log.LogInfo($"Proxies: {batches.Count} static batches (from {stats.Batched} renderers), {stats.Dynamic} dynamic, {stats.Skinned} skinned; " +
                          $"skipped layer={stats.SkippedLayer} material={stats.SkippedMaterial} mesh={stats.SkippedMesh} backdrop={stats.SkippedBackdrop}; " +
-                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}, lit albedo-as-emissive {LitAlbedoEmissionMaterials}), light fixtures {FixtureCount}");
+                         $"RTAS instances={Rtas.GetInstanceCount()} size={Rtas.GetSize() / (1024.0 * 1024.0):F1} MB, proxy materials={_materialCache.Count} (alpha-tested {AlphaTestedMaterials}, lit albedo-as-emissive {LitAlbedoEmissionMaterials}, vertex-blended {VertexBlendMaterials}), light fixtures {FixtureCount}");
             _log.LogInfo(CutoutAudit());
             _log.LogInfo($"Orb fixtures (lamp balls around their light, EmitterMask{(OrbEmitters ? "" : ": off")}): {OrbFixtures.Count}" +
                          (OrbFixtures.Count > 0 ? ": " + string.Join(", ", OrbFixtures.Keys.Take(8).Select(o => o != null ? GameControlPath(o.transform) : "-")) : ""));
@@ -1408,6 +1419,16 @@ namespace UltraRT
             {
                 m.SetFloat("_AtlasMode", 1f);
                 if (src.HasProperty("_BlendTex") && Tex2D(src, "_BlendTex") is Texture blend) m.SetTexture("_BlendTex", blend);
+            }
+            // ULTRAKILL/Master VERTEX_BLENDING: the secondary texture where vertex colour r falls (Proxy.shader, _VertexBlend).
+            // Until 2026-11-21 only the material class followed it, so 3-1's mouth doors (MouthBlend) showed their teeth
+            // texture over the quad's flesh corners (docs/materials.md, "Vertex blending").
+            else if (VertexBlendTextures && HasKeyword(src, "VERTEX_BLENDING") && src.HasProperty("_BlendTex") && Tex2D(src, "_BlendTex") is Texture vb)
+            {
+                m.SetFloat("_VertexBlend", 1f);
+                m.SetTexture("_BlendTex", vb);
+                m.SetColor("_BlendColor", src.HasProperty("_BlendColor") ? src.GetColor("_BlendColor") : Color.white);
+                VertexBlendMaterials++;
             }
 
             // ULTRAKILL/Master emission

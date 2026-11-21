@@ -14,6 +14,7 @@
   },
   "exposure": {
     "coneGain": 1.6,
-    "note": "The light pillars (the game's additive cones) x1.6 while traced: the traced room behind them is brighter than the game's (user, 2026-11-18: 'too transparent')."
+    "coneCover": 1.5,
+    "note": "The light pillars (the game's additive cones) x1.6 while traced: the traced room behind them is brighter than the game's (user, 2026-11-18: 'too transparent'). coneCover 1.5 (2026-11-21): the traced room behind a pillar is darkened by 1.5 x the pillar's added light before the game draws it, so the emissive wall strips no longer show through (user, pose 1)."
   }
 }

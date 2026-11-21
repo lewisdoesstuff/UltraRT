@@ -98,6 +98,9 @@ And `"followGameUp": F` (2026-11-18, `t3/level-look-3`): the exposure follows th
 "Playtest of 2026-11-18" below).
 And `"coneGain": F` (2026-11-18, `t3/playtest-lights`): the game's light cones (additive `LightPillar*` materials)
 x F while frames are traced (see "Playtest items, third part" below).
+And `"coneCover": K` (2026-11-21, `t3/playtest-visual-fixes`): the light cones also hide the traced image behind them:
+before the game draws a cone, the veil pass darkens the traced image behind it by `1 - saturate(K x the cone's brightest
+added channel)` (see "Light cones over bright emitters" below). 0 or absent = the cones only add, as the game draws them.
 And `"waterWaves": F` (2026-11-18, `t3/playtest-materials`): the traced water's ripples x F in the level (8-2: 0.25,
 docs/reflections.md, "8-2's pool").
 
@@ -1783,3 +1786,33 @@ a level's own subtitles (6-2's) stay in the frame, in every mode alike.
 - Sky portals at windows (the format's `kind` field is there; no runtime sky colour, no sampling change).
 - Auto-generated camera poses around rooms (the fit uses saved bench poses only).
 - More levels: the fit is clearly better in 7-3, 1-1 and 0-1, neutral in 2-2 / 3-2 / 6-1 on screen.
+
+## Light cones over bright emitters (2026-11-21, `t3/playtest-visual-fixes`)
+
+User, playtest of 2026-11-21, 0-3 pose 1 (`bench/recordings/u1121-0-3-1.json`): the horizontal emissive strips and a
+light panel on the wall behind the giant yellow light pillars showed through the pillars as pale lines, in `pathtrace`
+and `relight`.
+
+**Cause.** The pillars are the game's additive `LightPillar*` cones (`coneGain` 1.6 in `Level 0-3.json`), drawn by the
+game over the traced image. The traced room behind them is far brighter than the game's, and the strips are near white,
+so a cone that only adds cannot hide them: the image under it clips to white over the strips and to yellow over the
+walls. Not the screen-resolution emission of 73ab5e4 (docs/dlss.md, "Emission outside RR"): `plugin._rrEmitOutside=0`
+showed the same strips, and so did `relight`, which does not use RR.
+
+**Tried first:** letting the cone's own blend cover the image (DstBlend `OneMinusSrcAlpha`, alpha x K, colour / K, so
+the added light stays the same). The camera target is 8-bit, so the shader's output colour is clamped to 1 before the
+blend: the colour / K lost its red and green and the pillars turned pale (K 0.6) or beige and thin (K 0.9).
+
+**Fix** (`Plugin.Veils.cs` `ConeCover`, `VeilTrace.raytrace`): the veil pass, which already collects the cones as
+additive layers along each camera ray (docs/scene-proxies.md, "Blended veils"), now runs on every pixel when the level
+sets `"coneCover"`, and keeps the traced image x (1 - saturate(K x the brightest channel of the cones' added light)) in
+front of the surface. The game's cone then adds as always. `Level 0-3.json`: `coneCover` 1.5. Bench
+`plugin._coneCoverOverride=K` (0 = before). No other level sets it, so the pass still needs a portal everywhere else.
+
+Measured (alt install, SDR, trace scale 0.5, run `20261121-154246_tmp-pvf-after2`, before/after in one launch): the
+strips and the panel are gone from inside the pillars in `pathtrace` (K 1.5 and 3 look the same) and in `relight`, and
+the pillars keep their yellow edges and white core. The frame mean does not change (145.4 / 145.3 / 145.4 for K 0 / 1.5 /
+3, the game 107.7). Sheet: `bench/results/review/playtest-visual-fixes/0-3_pose_1_pillars.png` (the game, K 0, K 1.5, K 3). Cost: one
+more DispatchRays at half resolution in 0-3 (the veil pass, measured at +0.2-0.3 ms GPU in "Blended veils"); not measured
+under the perf lock here (the visual run's frame times moved by more than that between modes doing the same work). HDR:
+not checked (the pass blends on the SDR image; docs/hdr.md "Effects over bright surfaces" covers the pillars' gain).

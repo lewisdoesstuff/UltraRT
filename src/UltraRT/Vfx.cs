@@ -68,8 +68,12 @@ namespace UltraRT
         public bool underwater = true;
         /// <summary>Screen wobble (fraction of the screen).</summary>
         public float waterWobble = 0.0012f;
-        /// <summary>Fog density (1/m) and how fast the fog colour darkens with the camera's depth (1/m).</summary>
-        public float waterFog = 0.025f, waterDarken = 0.12f;
+        /// <summary>Fog density (1/m) and how fast the fog colour darkens with the camera's depth (1/m). 0.025 and 0.12
+        /// until 2026-11-21 (with a near-black fog colour: 5-1's deep cave went dark; docs/vfx.md, "Underwater").</summary>
+        public float waterFog = 0.012f, waterDarken = 0.03f;
+        /// <summary>Fog colour = the water's colour x waterFogLight, darkening with depth to waterDeepFloor of that (was
+        /// 0.02-0.14 of the water colour before 2026-11-21).</summary>
+        public float waterFogLight = 0.6f, waterDeepFloor = 0.5f;
         /// <summary>Light shafts from the surface, caustics on surfaces, and the pattern's size (m).</summary>
         public float waterShafts = 0.6f, waterCaustics = 0.5f, waterPatternSize = 9f;
         /// <summary>Shafts are marched this far (m).</summary>
@@ -163,7 +167,7 @@ namespace UltraRT
             IdCounts = Shader.PropertyToID("_VfxCounts"), IdBoxMin = Shader.PropertyToID("_VfxHeatBoxMin"), IdBoxMax = Shader.PropertyToID("_VfxHeatBoxMax"),
             IdPoints = Shader.PropertyToID("_VfxHeatPoints"), IdHeat = Shader.PropertyToID("_VfxHeat"), IdShock = Shader.PropertyToID("_VfxShock"),
             IdShockP = Shader.PropertyToID("_VfxShockP"), IdWater = Shader.PropertyToID("_VfxWater"), IdWaterColor = Shader.PropertyToID("_VfxWaterColor"),
-            IdWaterLight = Shader.PropertyToID("_VfxWaterLight"), IdWaterParams = Shader.PropertyToID("_VfxWaterParams"), IdDebug = Shader.PropertyToID("_VfxDebug"),
+            IdWaterLight = Shader.PropertyToID("_VfxWaterLight"), IdWaterParams = Shader.PropertyToID("_VfxWaterParams"), IdWaterFog = Shader.PropertyToID("_VfxWaterFog"), IdDebug = Shader.PropertyToID("_VfxDebug"),
             IdHdrFx = Shader.PropertyToID("_VfxHdrFx"), IdHdrTop = Shader.PropertyToID("_VfxHdrTop");
 
         public Vfx(Shader shader, VfxSettings settings)
@@ -373,6 +377,7 @@ namespace UltraRT
             var l = f.waterLightDir.sqrMagnitude > 1e-4f ? f.waterLightDir.normalized : Vector3.up;
             m.SetVector(IdWaterLight, new Vector4(l.x, l.y, l.z, s.waterShafts));
             m.SetVector(IdWaterParams, new Vector4(s.waterCaustics, s.waterShaftDistance, 1f / Mathf.Max(0.5f, s.waterPatternSize), 0));
+            m.SetVector(IdWaterFog, new Vector4(Mathf.Max(0f, s.waterFogLight), Mathf.Clamp01(s.waterDeepFloor), 0, 0));
 
             cmd.CopyTexture(target, _scene);
             cmd.SetGlobalTexture(IdScene, _scene);
