@@ -432,7 +432,10 @@ namespace UltraRT
             // Only once the part's triangles are in the emissive table: a part that is not traced (or not yet) must not
             // cost the light.
             if (!HandoverFulfilled(hl)) return "part not traced";
-            r.Intensity *= Mathf.Max(0f, h.Keep);
+            r.HandedFull = r.Intensity;
+            float keep = Mathf.Max(0f, h.Keep);
+            r.HandedLinear = Mathf.Pow(keep, 2.2f) + 2f * LightClasses.HandoverGain * (h.Gain > 0f ? h.Gain : 1f) * _handoverGain;
+            r.Intensity *= keep;
             if (h.Keep > 0f && h.KeepMedium.HasValue) r.Medium = Mathf.Max(0f, h.KeepMedium.Value);
             return h.Keep > 0f ? "hybrid" : "handed";
         }

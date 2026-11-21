@@ -34,6 +34,14 @@ namespace UltraRT
             public LightRule RuleObject;
             /// <summary>Handover (Plugin.Handover.cs): "handed", "hybrid", "no part", or null.</summary>
             public string Handed;
+            /// <summary>Handed or hybrid: the light's strength before the handover's "keep" (Plugin.PortalLights.cs images
+            /// the whole fixture through portals with it: the part's triangles light nothing behind a portal).</summary>
+            public float HandedFull = -1f;
+            /// <summary>Handed or hybrid: what the light and its part give together, in linear power of the light at
+            /// <see cref="HandedFull"/>: keep^2.2 (the kept light; keep scales the gamma colour) + 2 x the part's gain (an
+            /// emitter facing the room, Lambertian with EmissiveLights' lightScale 4, gives its hemisphere twice what a point
+            /// light of the same total gives there). Plugin.PortalLights.cs images the fixture with it.</summary>
+            public float HandedLinear;
 
             public string PolicyText()
             {

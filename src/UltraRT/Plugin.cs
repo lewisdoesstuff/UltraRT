@@ -725,13 +725,20 @@ namespace UltraRT
                 if (lum > mainSunLum) { mainSunLum = lum; mainSun = l; }
             }
             _mediumOnly.Clear();
+            _handedOff.Clear();
             GlMark(2, ref gt);
             foreach (var l in _activeLights)
             {
                 if (_lightCount >= MaxLights) break;
                 if (l == null || !l.isActiveAndEnabled || l.intensity <= 0f) continue;
                 var rl = ResolveLight(l); // class, policy and the light's own entry (Plugin.LightClasses.cs)
-                if ((rl != null && (rl.Disabled || rl.Intensity * rl.Toggle <= 0f)) || SoloHides(l) || ReferenceEquals(l, _fitSkip)) continue;
+                if ((rl != null && (rl.Disabled || rl.Intensity * rl.Toggle <= 0f)) || SoloHides(l) || ReferenceEquals(l, _fitSkip))
+                {
+                    // Handed over in full (keep 0): its fixture's part carries the light, but not through a portal
+                    // (Plugin.PortalLights.cs images it from here).
+                    if (rl != null && !rl.Disabled && rl.Toggle > 0f && rl.HandedFull > 0f && rl.Surfaces && !SoloHides(l) && !ReferenceEquals(l, _fitSkip)) _handedOff.Add(l);
+                    continue;
+                }
                 // A light that lights the air only goes after every light surfaces see (_surfLightCount).
                 if (rl != null && !rl.Surfaces) { if (rl.Medium > 0f) _mediumOnly.Add(l); continue; }
                 if (_effectLights != null && _effectLights.OwnsLight(l)) continue; // a gunshot light: its own envelope (EffectLights)

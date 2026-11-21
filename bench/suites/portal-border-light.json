@@ -1,0 +1,112 @@
+{
+ "Name": "portal-border-light",
+ "Note": "docs/portals.md section 20 (2026-11-21): the lighting seam at the 8-3 Fallway doorway (pose 144) and 10 m back in the hallway, with bursts; the Clockwork Crushers' loops and two 8-2 portals for the guards. Before = plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0 (the loop guard by the exit's plane alone, handed-over fixtures not imaged).",
+ "Scenarios": [
+  {
+   "Name": "8-3 portal light",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-portal-light-1121.json",
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0",
+    "relight"
+   ],
+   "Screenshots": [
+    3
+   ],
+   "Burst": 32,
+   "BurstModes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+   ]
+  },
+  {
+   "Name": "8-3 back a",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-portal-light-1121.json",
+    "Position": [
+     -352.0,
+     2.5,
+     474.0
+    ],
+    "Yaw": 100,
+    "Pitch": -2,
+    "Duration": 6
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+   ],
+   "Screenshots": [
+    3
+   ],
+   "Burst": 32,
+   "BurstModes": [
+    "pathtrace",
+    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+   ]
+  },
+  {
+   "Name": "8-3 crushers",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Load": "checkpoint",
+    "Approach": "../recordings/v5c-8-3-crushers.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+   ],
+   "Enemies": "blind",
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "8-2 portal side 1",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-2-portal-side1.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "8-2 hallway portal",
+   "Scene": "Level 8-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1118-8-2-4.json",
+    "Duration": 4
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}
