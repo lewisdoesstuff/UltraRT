@@ -3,6 +3,13 @@
   "note": "Light classes for every level (docs/lighting-overrides.md, 'Classes and rules'). The first matching rule gives a light its class. 'classes' holds what RT does with a class everywhere; a level's own file can add rules and class policies for that level.",
   "emitters": [
     {
+      "name": "dome lamp discs",
+      "material": "^Basic Color - White NoFog$",
+      "path": "(^|/)Dome/Inner$",
+      "glow": 4,
+      "note": "The white disc under the 'dome lamps' (FerryLamp*/Dome/Inner): 5-3, 8-1, 8-2, 8-3, 8-4. The path limits the glow to the discs: their level-atlas slots (SceneProxies.AtlasVariant) and, where a disc is not baked, a copy of its proxy material (SceneProxies.PathGlowVariants), because the material is also on 0-3's EnergyBeamHuge cylinder, a 0-E cube's submesh and 8-3's white arch in B7 (Arch (1)) (survey of every level and prefab bundle, 2026-11-21). User playtest 2026-11-21 (8-3: the rim glowed, the disc stayed grey); docs/lighting-overrides.md, 'Baked fixture parts'. 8-1 keeps its own material rule (Level 8-1.json)."
+    },
+    {
       "name": "start and final room wall strips",
       "material": "^FinalFrame",
       "scale": 4.5,

@@ -217,6 +217,7 @@ namespace UltraRT
             var proxyMats = new Material[mats.Length];
             for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
             CausticVariants(r, proxyMats);
+            PathGlowVariants(r, mats, proxyMats);
             var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
             AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, null);
             TrackSync(_dynamic[_dynamic.Count - 1], mats, mesh);
@@ -660,6 +661,7 @@ namespace UltraRT
                 var proxyMats = new Material[mats.Length];
                 for (int i = 0; i < mats.Length; i++) proxyMats[i] = ProxyOrDisabled(mats[i]);
                 CausticVariants(src.Renderer, proxyMats);
+                PathGlowVariants(src.Renderer, mats, proxyMats);
                 var proxy = CreateMeshProxy(src.Renderer.name + " [UltraRT]", src.Renderer.transform, src.Mesh, proxyMats);
                 AddDynamic(src.Renderer, proxy, SubmeshFlags(mats, src.Mesh.subMeshCount), mats, null);
                 TrackSync(_dynamic[_dynamic.Count - 1], mats, src.Mesh);

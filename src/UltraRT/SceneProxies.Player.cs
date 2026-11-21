@@ -55,6 +55,7 @@ namespace UltraRT
         {
             _playerModelRoot = null;
             _playerAnimator = null;
+            FindPlayerHand(null);
             if (!TracePlayerModel) return;
             var anims = MonoSingleton.GetInstance(typeof(PlayerAnimations)) as PlayerAnimations; // NoAutoInstance: never creates one
             if (anims == null) anims = Object.FindObjectsByType<PlayerAnimations>(FindObjectsInactive.Include, FindObjectsSortMode.None).FirstOrDefault();
@@ -73,6 +74,7 @@ namespace UltraRT
                 _log.LogInfo($"  player renderer '{GameControlPath(r.transform)}' {r.GetType().Name} layer {r.gameObject.layer} active {r.gameObject.activeInHierarchy} " +
                              $"enabled {r.enabled} mats [{string.Join(", ", r.sharedMaterials.Select(m => m != null ? $"{m.name} ({m.shader?.name}; {string.Join(" ", m.shaderKeywords)})" : "null"))}]");
             ApplyPlayerAnimatorCulling();
+            FindPlayerHand(anims); // the held item's place in V1's left hand (SceneProxies.HeldItem.cs)
         }
 
         private void ApplyPlayerAnimatorCulling()
@@ -96,6 +98,10 @@ namespace UltraRT
             _glowAppliedGain = -1f;
             _playerBody = null;
             _playerBodyVerts = 0;
+            _playerLeftHand = null;
+            _heldMirrors.Clear();
+            _heldItem = null;
+            _heldShown = null;
         }
 
         /// <summary>

@@ -27,9 +27,9 @@ namespace UltraRT
         /// <summary>Proxy materials that glow by a rule.</summary>
         public int GlowMaterials => _glowProxies.Count;
 
-        private void ApplyEmitterGlow(Material src, Material m)
+        private void ApplyEmitterGlow(Material src, Material m, Vector2? glow = null)
         {
-            var g = EmitterGlowOf != null ? EmitterGlowOf(src) : Vector2.zero;
+            var g = glow ?? (EmitterGlowOf != null ? EmitterGlowOf(src) : Vector2.zero);
             bool had = _glowProxies.Contains(m);
             // A material with emission of its own keeps it: its light is scaled by the rule's "scale" instead.
             if (g.x > 0f && (had || m.GetFloat("_EmissiveIntensity") <= 0f))
@@ -50,6 +50,42 @@ namespace UltraRT
             }
         }
 
+        /// <summary>Plain proxy materials are shared by every renderer of a source material, so an emitter rule with a glow
+        /// and a path (the dome lamps' discs, "Dome/Inner") reaches a renderer through a copy of the proxy material of its
+        /// own: one per (proxy material, glow), with the proxy's name (handover parts are found by it). Atlas slots get
+        /// theirs in AtlasVariant.</summary>
+        private void PathGlowVariants(Renderer source, Material[] srcMats, Material[] proxyMats)
+        {
+            if (EmitterGlowAt == null || source == null || srcMats == null) return;
+            for (int i = 0; i < proxyMats.Length && i < srcMats.Length; i++)
+            {
+                var src = srcMats[i];
+                var pm = proxyMats[i];
+                if (src == null || pm == null || pm == _disabledMaterial || _atlasProxies.Contains(pm)) continue;
+                Vector2 g;
+                try { g = EmitterGlowAt(src, source); } catch { continue; }
+                if (g.x <= 0f) continue;
+                var key = (pm, g);
+                if (!_pathGlowProxies.TryGetValue(key, out var v) || v == null)
+                {
+                    v = new Material(pm) { name = pm.name };
+                    _pathGlowProxies[key] = v;
+                    _pathGlowSources[v] = (src, source);
+                    if (IsTwoSided(pm)) _twoSidedProxies.Add(v);
+                    if (IsSkyWall(pm)) _skyWallProxies.Add(v);
+                    _ownMaterials.Add(v); // destroyed with the scene (SceneProxies.Sync.cs)
+                    ApplyEmitterGlow(src, v, g);
+                    PathGlowProxies++;
+                    _log.LogInfo($"Emitter glow by path: '{GameControlPath(source.transform)}' slot {i} '{src.name}' glows x{g.x:0.##} (own proxy material)");
+                }
+                proxyMats[i] = v;
+            }
+        }
+
+        private readonly Dictionary<(Material, Vector2), Material> _pathGlowProxies = new Dictionary<(Material, Vector2), Material>();
+        private readonly Dictionary<Material, (Material src, Renderer r)> _pathGlowSources = new Dictionary<Material, (Material, Renderer)>();
+        public int PathGlowProxies;
+
         /// <summary>The rules changed: every proxy material again. The caller rebuilds the emissive triangle table.</summary>
         public void SyncEmitterGlow()
         {
@@ -57,7 +93,29 @@ namespace UltraRT
                 if (kv.Key != null && kv.Value != null && !_atlasProxies.Contains(kv.Value)) ApplyEmitterGlow(kv.Key, kv.Value);
             // Atlas slots of a fixture part (AtlasVariant): their variant follows the original material's rule.
             foreach (var kv in _atlasPartOriginals)
-                if (kv.Key != null && kv.Value != null) ApplyEmitterGlow(kv.Value, kv.Key);
+            {
+                if (kv.Key == null || kv.Value == null) continue;
+                // A variant made for a glow rule with a path follows that rule (its renderer's path), else the material's.
+                Vector2? g = null;
+                if (_atlasPartSources.TryGetValue(kv.Key, out var r) && r != null && EmitterGlowAt != null)
+                {
+                    var pg = EmitterGlowAt(kv.Value, r);
+                    if (pg.x > 0f) g = pg;
+                }
+                ApplyEmitterGlow(kv.Value, kv.Key, g);
+            }
+            // Plain proxies' copies made for a glow rule with a path (PathGlowVariants): that rule again, at their renderer.
+            foreach (var kv in _pathGlowSources)
+            {
+                if (kv.Key == null || kv.Value.src == null) continue;
+                Vector2? g = null;
+                if (kv.Value.r != null && EmitterGlowAt != null)
+                {
+                    var pg = EmitterGlowAt(kv.Value.src, kv.Value.r);
+                    if (pg.x > 0f) g = pg;
+                }
+                ApplyEmitterGlow(kv.Value.src, kv.Key, g);
+            }
         }
     }
 }

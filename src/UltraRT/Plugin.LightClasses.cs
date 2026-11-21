@@ -101,6 +101,28 @@ namespace UltraRT
             return _lightOv.Classes.EmitterGlow(name, main != null ? main.name : "");
         }
 
+        /// <summary>SceneProxies.EmitterGlowAt: the emitter mask of an atlas slot of <paramref name="renderer"/> whose original
+        /// is <paramref name="src"/>, from rules that name a path (8-3's dome discs: "Dome/Inner", not the white arch that
+        /// shares the material). Zero when no rule with a path applies (then the material's own glow, EmitterGlow, decides).</summary>
+        private readonly Dictionary<Material, bool> _pathGlowMaterials = new Dictionary<Material, bool>();
+        private object _pathGlowRulesKey;
+
+        private Vector2 EmitterGlowAt(Material src, Renderer renderer)
+        {
+            if (!_lightOverrides || _lightOv == null || src == null || renderer == null) return Vector2.zero;
+            // Most materials have no rule with a path: answered from a cache (cleared when the emitter rules change).
+            if (!ReferenceEquals(_pathGlowRulesKey, _lightOv.Classes.EmitterKey)) { _pathGlowRulesKey = _lightOv.Classes.EmitterKey; _pathGlowMaterials.Clear(); }
+            if (_pathGlowMaterials.TryGetValue(src, out bool has) && !has) return Vector2.zero;
+            string name = CleanMaterialName(src.name);
+            foreach (var kv in _variantGlow)
+                if (VariantNameMatches(name, kv.Key)) return Vector2.zero; // a bench variant (lc.glow.TEXT=G) decides for the material
+            var main = src.HasProperty("_MainTex") ? src.GetTexture("_MainTex") : null;
+            string tex = main != null ? main.name : "";
+            if (!_pathGlowMaterials.TryGetValue(src, out has)) _pathGlowMaterials[src] = has = _lightOv.Classes.HasPathGlow(name, tex);
+            if (!has) return Vector2.zero;
+            return _lightOv.Classes.EmitterGlow(name, tex, LightOverrides.NormalizedPath(renderer.transform));
+        }
+
         /// <summary>EnsureLightOverrides: the emissive triangle table is built with the emitter scales; rebuild it when they change.</summary>
         private void SyncEmitterScales()
         {

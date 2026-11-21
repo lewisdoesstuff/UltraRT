@@ -191,9 +191,15 @@ namespace UltraRT
 
         /// <summary>
         /// StaticSceneOptimizer moves baked geometry to "baked" layers (24 -> 6, 8 -> 7). Lights' culling masks refer to
-        /// the original layers, so map back.
+        /// the original layers; until 2026-11-21 the instances were traced under those (6 -> 24, 7 -> 8). They keep their
+        /// own layers now, and every light's mask gains bit 6 where it has 24 and bit 7 where it has 8 (Plugin.Noise.cs,
+        /// BakedLayerBits), so the optimizer's global lights, which light baked geometry whatever their masks, can light
+        /// layers 6/7 without also lighting the live layer-8/24 objects their masks leave out (8-3's Space: the Fake End
+        /// room's walls were lit by the three Space suns, black in the game). <see cref="BakedOwnLayers"/> false: the old
+        /// mapping (read at scene build).
         /// </summary>
-        private static int OriginalLayer(int layer) => layer == 6 ? 24 : layer == 7 ? 8 : layer;
+        public static bool BakedOwnLayers = true;
+        private static int OriginalLayer(int layer) => BakedOwnLayers ? layer : layer == 6 ? 24 : layer == 7 ? 8 : layer;
 
         private bool LayerIncluded(int layer) => ((_cameraMask >> layer) & 1) != 0 || layer == 6 || layer == 7;
 
@@ -375,12 +381,23 @@ namespace UltraRT
             // the slot gets a variant of its own named after the original, so a handover can find its triangles and an
             // emitter rule's "glow" can light it, as for a plain proxy material.
             string part = AtlasPartOf(original);
+            // An emitter rule with a glow and a path (the dome lamps' discs, "Dome/Inner"): the slots of matching renderers get
+            // a glowing part variant of their own; the material's other slots (8-3's white arch) do not glow.
+            Vector2 pathGlow = Vector2.zero;
+            if (EmitterGlowAt != null)
+            {
+                try { pathGlow = EmitterGlowAt(original, source); } catch { pathGlow = Vector2.zero; }
+                if (pathGlow.x > 0f && part == null) part = MaterialClassifier.CleanName(original);
+            }
+            string partKey = part != null && pathGlow.x > 0f
+                ? part + "|glow " + pathGlow.x.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "," + pathGlow.y.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                : part;
             if (!DumpMaterialClasses && !alphaTest && lit < 0f && !noFog && transmit <= 0f && part == null && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
 
             var key = (atlasProxy, p, secondary, alphaTest, Mathf.RoundToInt(lit * 255f), noFog, Mathf.RoundToInt(transmit * 100f));
             Material v;
-            if (part != null ? _atlasPartVariants.TryGetValue((key, part), out v) : _atlasVariants.TryGetValue(key, out v)) return v;
-            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}{(lit >= 0f ? $" / lit {lit:0.##}" : "")}{(noFog ? " / no fog" : "")}{(part != null ? $" / part {part}" : "")}" };
+            if (part != null ? _atlasPartVariants.TryGetValue((key, partKey), out v) : _atlasVariants.TryGetValue(key, out v)) return v;
+            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}{(lit >= 0f ? $" / lit {lit:0.##}" : "")}{(noFog ? " / no fog" : "")}{(part != null ? $" / part {part}" : "")}{(pathGlow.x > 0f ? $" / glow {pathGlow.x:0.##}" : "")}" };
             MaterialParams.Apply(v, p, secondary);
             if (noFog) v.SetFloat(IdNoFog, 1f);
             if (transmit > 0f) { v.SetFloat(IdTransmit, transmit); v.name += $" / transmit {transmit:0.##}"; GlassAtlasSlots++; }
@@ -398,10 +415,11 @@ namespace UltraRT
             RegisterRainVariant(atlasProxy, v);
             if (part != null)
             {
-                _atlasPartVariants[(key, part)] = v;
+                _atlasPartVariants[(key, partKey)] = v;
                 _atlasPartNames[v] = part;
                 _atlasPartOriginals[v] = original;
-                ApplyEmitterGlow(original, v);
+                if (pathGlow.x > 0f) { _atlasPartSources[v] = source; AtlasPathGlowVariants++; }
+                ApplyEmitterGlow(original, v, pathGlow.x > 0f ? pathGlow : (Vector2?)null);
             }
             else _atlasVariants[key] = v;
             return v;
@@ -413,6 +431,12 @@ namespace UltraRT
             new Dictionary<((Material, MaterialParams, MaterialParams?, bool, int, bool, int), string), Material>();
         private readonly Dictionary<Material, string> _atlasPartNames = new Dictionary<Material, string>();
         private readonly Dictionary<Material, Material> _atlasPartOriginals = new Dictionary<Material, Material>();
+        /// <summary>Part variants made for a glow rule with a path: the first renderer they were made for (its path decides the
+        /// glow again when the rules change, SyncEmitterGlow).</summary>
+        private readonly Dictionary<Material, Renderer> _atlasPartSources = new Dictionary<Material, Renderer>();
+        /// <summary>Original material + renderer -> the glow of emitter rules with a path (Plugin.EmitterGlowAt).</summary>
+        public Func<Material, Renderer, Vector2> EmitterGlowAt;
+        public int AtlasPathGlowVariants;
         /// <summary>Original material -> true when a slot of it needs its own atlas variant: a handover part name, or an
         /// emitter rule with "glow". Set by the plugin.</summary>
         public Func<Material, bool> AtlasPartWanted;
@@ -607,6 +631,7 @@ namespace UltraRT
                 var proxyMats = new Material[mats.Length];
                 for (int i = 0; i < mats.Length; i++) proxyMats[i] = player ? PlayerProxyOrDisabled(mats[i]) : ProxyOrDisabled(mats[i]);
                 if (!player) CausticVariants(r, proxyMats); // mode-2 caustics: per-renderer bounds centre
+                if (!player) PathGlowVariants(r, mats, proxyMats); // emitter glow rules with a path (SceneProxies.Glow.cs)
                 var proxy = CreateMeshProxy(r.name + " [UltraRT]", r.transform, mesh, proxyMats);
                 AddDynamic(r, proxy, SubmeshFlags(mats, mesh.subMeshCount), mats, player ? PlayerMask : portalLayer ? PortalLayerMask : (uint?)null);
                 TrackSync(_dynamic[_dynamic.Count - 1], mats, mesh);
@@ -1174,6 +1199,34 @@ namespace UltraRT
             });
         }
 
+        /// <summary>Cubemap to a lat-long 2D texture (the plugin's sky converter), for <see cref="ApplyCubeSun"/>. Set by the plugin.</summary>
+        public Func<Texture, Texture> CubeToLatLong;
+        public int CubeSunMaterials;
+
+        /// <summary>ULTRAKILL/Sun (8-3's sun, <c>Space/Skybox/Spheres/Sun/PlanetSphere</c>): an opaque, unlit sphere whose
+        /// colour is a cubemap (<c>_Cubemap</c>, swirled by <c>_FlowCube</c>); its <c>_Color</c> is black and it has no
+        /// <c>_MainTex</c>, so the proxy was a black, lit ball (user, playtest of 2026-11-21: "a dark charcoal-grey sphere"
+        /// where the game shows a golden sun). The proxy gets the cubemap as a lat-long texture (the sphere mesh's uv0 is a
+        /// lat-long map, as on the other PlanetSphere planets) with a white colour, and is fullbright (LitWeightOf).</summary>
+        private bool ApplyCubeSun(Material src, Material m)
+        {
+            if (!IsCubeSun(src) || CubeToLatLong == null) return false;
+            var cube = src.GetTexture("_Cubemap");
+            Texture ll = null;
+            try { ll = CubeToLatLong(cube); } catch (Exception e) { _log.LogWarning($"Cubemap sun '{src.name}': {e.Message}"); }
+            if (ll == null) { _log.LogInfo($"Cubemap sun '{src.name}': cubemap '{cube?.name}' not converted; stays as it was"); return false; }
+            m.SetTexture("_MainTex", ll);
+            m.SetTextureScale("_MainTex", Vector2.one);
+            m.SetTextureOffset("_MainTex", Vector2.zero);
+            m.SetColor("_Color", Color.white);
+            CubeSunMaterials++;
+            _log.LogInfo($"Cubemap sun '{src.name}' ({src.shader.name}): cubemap '{cube.name}' as a lat-long albedo, fullbright");
+            return true;
+        }
+
+        private static bool IsCubeSun(Material src) =>
+            src != null && src.shader != null && src.shader.name == "ULTRAKILL/Sun" && src.HasProperty("_Cubemap") && src.GetTexture("_Cubemap") is Cubemap;
+
         private Material ProxyOrDisabled(Material src) => Traceable(src) ? Proxy(src) : _disabledMaterial;
 
         /// <summary>V1's materials as lit variants (SceneProxies.Player.cs), keyed by source material.</summary>
@@ -1433,6 +1486,7 @@ namespace UltraRT
                 m.SetTextureOffset("_MainTex", src.GetTextureOffset("_MainTex"));
             }
             if (src.HasProperty("_Color")) m.SetColor("_Color", src.GetColor("_Color"));
+            bool cubeSun = ApplyCubeSun(src, m); // 8-3's sun: its colour is a cubemap (see ApplyCubeSun)
             ApplyScrolling(src, m);
             ApplyCaustics(src, m); // the game's caustic pattern (SceneProxies.Caustics.cs)
             if (SourceAlphaTested(src))
@@ -1498,6 +1552,8 @@ namespace UltraRT
                 m.SetColor("_EmissiveColor", src.GetColor("_EmissionColor"));
                 m.SetFloat("_EmissiveIntensity", 1f);
             }
+
+            if (cubeSun) m.SetFloat("_EmissiveIntensity", 0f); // drawn fullbright below; not a light in the emissive table
 
             // Fullbright: ULTRAKILL/Master without VERTEX_LIGHTING is never lit by the game (Gabriel, screens, unlit props).
             // Enemies keep part of the RT lighting, so they still sit in the scene's shadows; "lit" rules set any material's

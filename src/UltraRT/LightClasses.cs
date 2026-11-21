@@ -205,7 +205,9 @@ namespace UltraRT
         [JsonProperty("texture", NullValueHandling = NullValueHandling.Ignore)] public string Texture;
         /// <summary>Regex on the hierarchy path of the object the surface belongs to: the rule's "scale" is for those
         /// objects only (two fixtures that share a material). Objects baked into a static batch have no path and never
-        /// match. A rule with a path gives no "glow": the mask is the material's.</summary>
+        /// match the scale. With "glow" (2026-11-21): the glow reaches only the level-atlas slots (baked geometry) of
+        /// renderers whose path matches (SceneProxies.AtlasVariant gives them a part variant of their own); plain proxy
+        /// materials are shared by every renderer of the material and never take a glow from a rule with a path.</summary>
         [JsonProperty("path", NullValueHandling = NullValueHandling.Ignore)] public string Path;
         [JsonProperty("scale")] public float Scale = 1f;
         /// <summary>Emitter mask: above 0, a surface the game does not mark as emissive glows with its albedo times
@@ -231,6 +233,12 @@ namespace UltraRT
         }
 
         public bool SceneMatches(string scene) { Compile(); return _scene == null || _scene.IsMatch(scene ?? ""); }
+
+        public bool MatchesMaterial(string material, string texture)
+        {
+            Compile();
+            return (_material == null || _material.IsMatch(material ?? "")) && (_texture == null || _texture.IsMatch(texture ?? ""));
+        }
 
         /// <summary><paramref name="path"/> null: the material's rules only (those without a path).</summary>
         public bool Matches(string material, string texture, string path)
@@ -303,15 +311,30 @@ namespace UltraRT
             return 1f;
         }
 
-        /// <summary>The emitter mask of a surface (first matching emitter rule): x glow (0 = none), y threshold.</summary>
-        public Vector2 EmitterGlow(string material, string texture)
+        /// <summary>The emitter mask of a surface (first matching emitter rule): x glow (0 = none), y threshold.
+        /// <paramref name="path"/> null: the material's rules only (rules with a path are skipped); else the path of
+        /// the renderer, for an atlas slot (rules with a path must match it).</summary>
+        public Vector2 EmitterGlow(string material, string texture, string path = null)
         {
             foreach (var r in _emitters)
             {
-                try { if (r.Matches(material, texture, null)) return new Vector2(Mathf.Max(0f, r.Glow), r.Chroma > 0f ? 1f + Mathf.Clamp01(r.Chroma) : Mathf.Clamp01(r.Threshold)); }
+                try { if (r.Matches(material, texture, path)) return new Vector2(Mathf.Max(0f, r.Glow), r.Chroma > 0f ? 1f + Mathf.Clamp01(r.Chroma) : Mathf.Clamp01(r.Threshold)); }
                 catch (ArgumentException e) { _log.LogError($"Emitter rule '{r.Name}': bad pattern: {e.Message}"); }
             }
             return Vector2.zero;
+        }
+
+        /// <summary>Is there an emitter rule with a "glow" and a "path" for this material (so an atlas slot's glow depends
+        /// on its renderer's path)?</summary>
+        public bool HasPathGlow(string material, string texture)
+        {
+            foreach (var r in _emitters)
+            {
+                if (r.Glow <= 0f || string.IsNullOrEmpty(r.Path)) continue;
+                try { if (r.MatchesMaterial(material, texture)) return true; }
+                catch (ArgumentException) { }
+            }
+            return false;
         }
         private readonly Dictionary<string, LightPolicy> _levelClasses = new Dictionary<string, LightPolicy>(StringComparer.OrdinalIgnoreCase);
         private DateTime _stamp, _layerStamp;
