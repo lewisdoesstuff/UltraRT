@@ -105,6 +105,7 @@ Where it is used:
 | `SceneProxies.MaxPortalSides` | 1024 |
 | `-ultrart-portal-lights on\|off`, bench `plugin._portalLights=0\|1`, settings menu Advanced > Lighting "Lights shine through portals" (`[Lighting] PortalLights`) | scene lights imaged through portals (section 15; on) |
 | bench `plugin._portalLightMax=N`, `plugin._portalLightLoopSpan=M`, `plugin._portalLightGuards=0` | images per frame (16), the loop guard's span (100 m), all guards off (diagnostic) |
+| bench `plugin._portalRasterTrim=0` | disable deep `PortalRenderV2` raster recursion trimming (on by default since 2026-11-21: while RT replaces opaque portal views, non-mirror portals are capped to `maxRecursions = 0, appearsInRecursions = false` so depth-0 raster views, depth, skyboxes, particles and all mirrors stay intact while skipping redundant depth 1..3 raster renders; RT still reads the saved original `appearsInRecursions` for full 3-hop ray-traced portals, and originals are restored immediately when RT turns off or unloads) |
 
 `-ultrart-compdebug 5` (portal depth diagnostic) and `6` (game / RT albedo alignment overlay) were views of the hybrid
 mode's ratio composite and went with it on 2026-11-19, as did `portals-align.json` and `perf-8-3-portals.json` (whose

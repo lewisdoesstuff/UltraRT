@@ -284,7 +284,7 @@ namespace UltraRT
             var inputs = new DlssRR.Inputs
             {
                 radiance = _gRadiance, albedo = _gAlbedo, emission = _gEmission, specular = _gSpecular, normalDepth = _gNormalDepth,
-                instanceId = _gInstanceId, surface = _gSurface, reflection = _gReflection, litWeight = _gLitWeight, gameDepth = _depthCopy,
+                instanceId = _gInstanceId, surface = _gSurface, reflection = _gReflection, litWeight = _gSurface, gameDepth = _depthCopy,
                 camera = _camera, viewProj = viewProj, guardPx = guardPx, guardScale = _guardScale, reflParams = _reflSettings.ShaderParams,
                 exposure = _autoExposure?.ExposureBuffer,
                 frameTime = Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime,
@@ -309,7 +309,7 @@ namespace UltraRT
                 float dt = _aeBenchClock && Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
                 if (CombatFlashHoldsExposure()) dt = 0f; // a parry / beam / lightning flash: hold (Plugin.Effects.cs)
                 BindGameMatch(); // the game's frame before our composite: game match and area colour match, as without RR
-                _autoExposure.Execute(_cmd, _aeSettings, filtered, albedo, null, _gNormalDepth, _gLitWeight, w, h, dt);
+                _autoExposure.Execute(_cmd, _aeSettings, filtered, albedo, null, _gNormalDepth, _gSurface, w, h, dt);
                 _gpu?.End(_cmd, SlotExposure);
             }
             return true;

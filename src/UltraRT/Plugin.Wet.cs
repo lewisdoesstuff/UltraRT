@@ -52,6 +52,8 @@ namespace UltraRT
         public bool bloodOnDisplaced;
         /// <summary>At most this many of the newest stains are drawn into the wetness mask.</summary>
         public int bloodMaxStains = 4096;
+        /// <summary>Bench A/B (wet.bloodFullRes=1): draw the wetness mask at full screen res instead of trace resolution.</summary>
+        public bool bloodFullRes;
         /// <summary>Blood stains show in reflections (Plugin.Stains.cs): reflection hits get the game's blood composite.</summary>
         public bool stainReflections = true;
         /// <summary>Stains further than this from the camera (m) are left out of the reflection lookup.</summary>
@@ -110,13 +112,13 @@ namespace UltraRT
         }
 
         /// <summary>Trace, before the ray dispatch: draws the wetness mask of the fresh stains (when there are any) and binds it.</summary>
-        private void BindBloodWet(UnityEngine.Experimental.Rendering.RayTracingShader shader)
+        private void BindBloodWet(UnityEngine.Experimental.Rendering.RayTracingShader shader, int traceW = 0, int traceH = 0)
         {
             var s = _wetSettings;
             bool on = false;
             if (_bloodWet != null && s.blood && s.bloodWetness > 0f)
             {
-                try { on = _bloodWet.Render(_cmd, _camera, s); }
+                try { on = _bloodWet.Render(_cmd, _camera, s, traceW, traceH); }
                 catch (Exception e)
                 {
                     Logger.LogWarning($"Wet blood failed, switching it off: {e}");

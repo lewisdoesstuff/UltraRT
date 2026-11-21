@@ -70,6 +70,8 @@ namespace UltraRT
         public bool levelFallback = true;
         /// <summary>Slots in the hash table = 2^capacityLog2 (52 bytes each: 2^20 = 52 MB).</summary>
         public int capacityLog2 = 20;
+        /// <summary>Fold cache updates into PathTrace.raytrace (eliminates CacheUpdate.raytrace DispatchRays). Bench cache.folded=0 for A/B.</summary>
+        public bool folded = true;
         public RadianceCacheDebug debugView = RadianceCacheDebug.None;
     }
 
@@ -88,6 +90,12 @@ namespace UltraRT
         public bool Active => Settings.enabled && Settings.mode != RadianceCacheMode.Off && UpdateShader != null && _resolve != null;
         public int Capacity => _capacity;
         public long GpuBytes => _keys == null ? 0 : (long)_capacity * BytesPerSlot;
+        internal ComputeBuffer KeysBuffer => _keys ?? _dummyKeys;
+        internal ComputeBuffer ResolvedBuffer => _resolved ?? _dummyResolved;
+        internal int ActiveModeValue => Active ? (int)Settings.mode : 0;
+        internal Vector4 GridParams => new Vector4(Mathf.Max(0.05f, Settings.cellSize), 1f / Mathf.Max(0.5f, Settings.lodDistance),
+            Settings.normalOffset, Settings.levelFallback ? 1f : 0f);
+        internal Vector4 QueryParams => new Vector4(Mathf.Max(1f, Settings.minSamples), Mathf.Max(0f, Settings.queryJitter), 0f, 0f);
 
         private const int BytesPerSlot = 4 + 32 + 16; // key, accumulators, resolved
         private const float FixedScale = 2048f; // ULTRART_CACHE_SCALE in UltraRTCache.hlsl
@@ -95,7 +103,7 @@ namespace UltraRT
         private ComputeShader _resolve;
         private int _kResolve = -1, _kClear = -1;
         private ComputeBuffer _keys, _accum, _resolved;
-        private ComputeBuffer _dummyKeys, _dummyResolved;
+        private ComputeBuffer _dummyKeys, _dummyAccum, _dummyResolved;
         private RenderTexture _dummyTex;
         private int _capacity;
         private bool _needsClear = true;
@@ -111,6 +119,7 @@ namespace UltraRT
             IdCapacity = Shader.PropertyToID("_CacheCapacity"),
             IdGrid = Shader.PropertyToID("_CacheGrid"),
             IdQuery = Shader.PropertyToID("_CacheQuery"),
+            IdFold = Shader.PropertyToID("_CacheFold"),
             IdTrace = Shader.PropertyToID("_CacheTrace"),
             IdUpdate = Shader.PropertyToID("_CacheUpdate"),
             IdCandidates = Shader.PropertyToID("_CacheCandidates"),
@@ -128,6 +137,8 @@ namespace UltraRT
         {
             _dummyKeys = new ComputeBuffer(8, 4) { name = "UltraRT Cache keys (unused)" };
             _dummyKeys.SetData(new uint[8]);
+            _dummyAccum = new ComputeBuffer(64, 4) { name = "UltraRT Cache accum (unused)" };
+            _dummyAccum.SetData(new uint[64]);
             _dummyResolved = new ComputeBuffer(8, 16) { name = "UltraRT Cache resolved (unused)" };
             _dummyResolved.SetData(new uint[32]);
             _dummyTex = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBHalf) { enableRandomWrite = true, name = "UltraRT Cache debug (unused)" };
@@ -177,7 +188,29 @@ namespace UltraRT
         {
             var s = Settings;
             bool active = Active;
-            if (active && !update && _keys != null) { BindLookup(cmd, pathTrace, true); return; }
+            if (active && s.folded)
+            {
+                EnsureBuffers();
+                if (_needsClear)
+                {
+                    BindResolve(cmd);
+                    cmd.SetComputeIntParam(_resolve, IdCapacity, _capacity);
+                    cmd.DispatchCompute(_resolve, _kClear, _capacity / 256, 1, 1);
+                    _needsClear = false;
+                }
+                BindLookup(cmd, pathTrace, true);
+                cmd.SetRayTracingBufferParam(pathTrace, IdAccum, _accum);
+                int stride = Mathf.Clamp(s.updateStride, 1, 16);
+                cmd.SetRayTracingVectorParam(pathTrace, IdFold, new Vector4(update ? stride : 0f, Mathf.Max(0f, s.feedback), Mathf.Clamp01(s.albedoMax), Mathf.Clamp(s.maxSample, 1f, 1000f)));
+                return;
+            }
+            if (active && !update && _keys != null)
+            {
+                BindLookup(cmd, pathTrace, true);
+                cmd.SetRayTracingBufferParam(pathTrace, IdAccum, _dummyAccum);
+                cmd.SetRayTracingVectorParam(pathTrace, IdFold, Vector4.zero);
+                return;
+            }
             if (active)
             {
                 EnsureBuffers();
@@ -206,30 +239,54 @@ namespace UltraRT
                 cmd.SetRayTracingIntParam(u, IdCandidates, Mathf.Clamp(s.candidates, 1, 64));
                 cmd.DispatchRays(u, "UpdateRayGen", (uint)pw, (uint)ph, 1);
 
-                float history = _fastFrames > 0 ? Mathf.Min(s.changeHistoryFrames, s.historyFrames) : s.historyFrames;
-                if (_fastFrames > 0) _fastFrames--;
-                BindResolve(cmd);
-                cmd.SetComputeIntParam(_resolve, IdCapacity, _capacity);
-                cmd.SetComputeIntParam(_resolve, IdFrame, unchecked((int)_frame));
-                cmd.SetComputeVectorParam(_resolve, IdResolve, new Vector4(Mathf.Max(1f, history / Every), Mathf.Max(1, s.staleFrames / Every), 1f / FixedScale, 0));
-                cmd.DispatchCompute(_resolve, _kResolve, _capacity / 256, 1, 1);
-                _frame++;
+                RunResolve(cmd);
             }
             else if (!s.enabled && _keys != null)
             {
                 ReleaseBuffers(); // switched off: give the memory back
             }
             BindLookup(cmd, pathTrace, active);
+            cmd.SetRayTracingBufferParam(pathTrace, IdAccum, _dummyAccum);
+            cmd.SetRayTracingVectorParam(pathTrace, IdFold, Vector4.zero);
+        }
+
+        /// <summary>Resolve step for folded mode: run CacheResolve.compute right after PathTrace's DispatchRays.</summary>
+        public void ResolveFolded(CommandBuffer cmd)
+        {
+            if (!Active || !Settings.folded || _keys == null) return;
+            RunResolve(cmd);
+        }
+
+        private void RunResolve(CommandBuffer cmd)
+        {
+            var s = Settings;
+            float history = _fastFrames > 0 ? Mathf.Min(s.changeHistoryFrames, s.historyFrames) : s.historyFrames;
+            if (_fastFrames > 0) _fastFrames--;
+            BindResolve(cmd);
+            cmd.SetComputeIntParam(_resolve, IdCapacity, _capacity);
+            cmd.SetComputeIntParam(_resolve, IdFrame, unchecked((int)_frame));
+            cmd.SetComputeVectorParam(_resolve, IdResolve, new Vector4(Mathf.Max(1f, history / Every), Mathf.Max(1, s.staleFrames / Every), 1f / FixedScale, 0));
+            cmd.DispatchCompute(_resolve, _kResolve, _capacity / 256, 1, 1);
+            _frame++;
         }
 
         /// <summary>
         /// Debug view: overwrite <paramref name="target"/> (PathTrace's output, same size) with a view of the cache.
         /// Call after PathTrace's DispatchRays, in a frame where <see cref="Execute"/> ran with the cache active.
         /// </summary>
-        public void DispatchDebug(CommandBuffer cmd, RenderTexture target, RadianceCacheDebug view)
+        public void DispatchDebug(CommandBuffer cmd, RenderTexture target, RadianceCacheDebug view, Matrix4x4 invViewProj, Vector3 camPos)
         {
             if (!Active || _keys == null || target == null || view == RadianceCacheDebug.None) return;
             var u = UpdateShader;
+            if (Settings.folded)
+            {
+                BindLookup(cmd, u, true);
+                cmd.SetRayTracingBufferParam(u, IdAccum, _accum);
+                cmd.SetRayTracingMatrixParam(u, IdInvViewProj, invViewProj);
+                cmd.SetRayTracingVectorParam(u, IdCamPos, camPos);
+                cmd.SetRayTracingFloatParam(u, IdLightScale, 1f);
+                cmd.SetRayTracingFloatParam(u, IdEmissionScale, 1f);
+            }
             cmd.SetRayTracingTextureParam(u, IdDebugOut, target);
             cmd.SetRayTracingIntParam(u, IdDebug, (int)view);
             cmd.DispatchRays(u, "DebugRayGen", (uint)target.width, (uint)target.height, 1);
@@ -316,6 +373,7 @@ namespace UltraRT
         {
             ReleaseBuffers();
             _dummyKeys?.Release();
+            _dummyAccum?.Release();
             _dummyResolved?.Release();
             if (_dummyTex != null) _dummyTex.Release();
         }

@@ -125,7 +125,7 @@ namespace UltraRT
                 var buffer = _autoExposure != null ? _autoExposure.ExposureBuffer : null;
                 if (buffer != null)
                 {
-                    AutoExposure.BindComposite(_cmd, _denoiseShader, _denoiseCompositeKernel, buffer, _gLitWeight);
+                    AutoExposure.BindComposite(_cmd, _denoiseShader, _denoiseCompositeKernel, buffer, _gSurface);
                     _cmd.SetGlobalBuffer("_UltraRTExposureGlobal", buffer); // the water/glass overlay (TransparentOverlay.shader)
                 }
                 else ae = false;
@@ -154,7 +154,7 @@ namespace UltraRT
             if (!CineExposureGate(ref dt)) { _aeLastFrame = Time.frameCount; _gpu?.End(_cmd, SlotExposure); return; }
             _aeSettings.hdrActive = HdrActive; // an HDR display needs less darkening (AutoExposureSettings.EffectiveKey)
             BindGameMatch();
-            _autoExposure.Execute(_cmd, _aeSettings, _denoiser.FilteredLighting, _gAlbedo, _gSpecular, _gNormalDepth, _gLitWeight,
+            _autoExposure.Execute(_cmd, _aeSettings, _denoiser.FilteredLighting, _gAlbedo, _gSpecular, _gNormalDepth, _gSurface,
                 w, h, dt);
             _gpu?.End(_cmd, SlotExposure);
         }

@@ -82,8 +82,12 @@ namespace UltraRT
         private RenderTexture _output;
         private ComputeBuffer _lightBuffer;
         private readonly Vector4[] _lightData = new Vector4[MaxLights * 4];
+        private readonly Vector4[] _lightDataGpu = new Vector4[MaxLights * 4];
         private readonly uint[] _lightMasks = new uint[MaxLights];
         private ComputeBuffer _lightMaskBuffer;
+        /// <summary>Bench A/B: plugin._preLinearLights=0 uploads gamma-space light colours and lets every shader run pow(rgb, 2.2).</summary>
+        private bool _preLinearLights = true;
+        private static readonly int UltraRTLinearLightsId = Shader.PropertyToID("_UltraRTLinearLights");
         private int _lightCount;
         private float _nextLightScan, _nextActiveLights;
         private readonly List<Light> _activeLights = new List<Light>();
@@ -212,6 +216,14 @@ namespace UltraRT
                 }
                 else Logger.LogWarning($"GPU timer unavailable: {gpuError}");
             }
+            {
+                // Native D3D12 cs_6_5 inline RayQuery bridge (Volumetrics + ParticleLight): bypasses Unity's DispatchRays SBT rebuild.
+                var nativePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? "", GpuTimer.DllName);
+                if (RayQueryBridge.TryCreate(nativePath, out _rayQuery, out var rqError))
+                    Logger.LogInfo($"RayQuery bridge: {_rayQuery.Status}");
+                else
+                    Logger.LogInfo($"RayQuery bridge unavailable (using .raytrace fallback): {rqError}");
+            }
 
             if (!_noHook)
             {
@@ -227,6 +239,7 @@ namespace UltraRT
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
+            _lightSampling.SetGridShader(_lightGridCs);
             _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart, IsAtlasPart = m => _proxies != null && _proxies.AtlasPartName(m) != null };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
@@ -234,6 +247,7 @@ namespace UltraRT
             _host.OnUpdate = OnUpdate;
             _host.OnGui = DrawHud;
             AttachSettings(); // config entries -> fields (flags win), then the PluginConfigurator page
+            ParsePresetArgs(); // -ultrart-preset ultra|high|performance|competitive (Plugin.Presets.cs)
 
             SceneManager.sceneUnloaded += s => Logger.LogInfo($"sceneUnloaded '{s.name}'");
             SceneManager.activeSceneChanged += (_, to) =>
@@ -439,6 +453,9 @@ namespace UltraRT
             _displaceCs = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "Displace");
             if (_displaceCs == null) Logger.LogWarning("Displace compute shader missing from bundle: VERTEX_DISPLACEMENT geometry traces its rest pose");
             _proxies?.SetDisplaceShader(_displaceCs);
+            _lightGridCs = bundle.LoadAllAssets<ComputeShader>().FirstOrDefault(s => s.name == "LightGrid");
+            if (_lightGridCs == null) Logger.LogWarning("LightGrid compute shader missing from bundle: RIS uses global alias table only");
+            _lightSampling?.SetGridShader(_lightGridCs);
             if (settings != null) _denoiser.Settings = settings;
             _reflFilter?.Dispose();
             _reflFilter = new ReflectionFilter(reflections);
@@ -597,6 +614,7 @@ namespace UltraRT
                 var playerCam = MonoSingleton<CameraController>.Instance != null ? MonoSingleton<CameraController>.Instance.cam : null;
                 var cam = playerCam != null ? playerCam : Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
                 Logger.LogInfo($"RT layer mask from {(cam != null ? Bench.GameControl.PathOf(cam.transform) : "none")}: 0x{(cam != null ? cam.cullingMask : ~0):X8}");
+                SceneProxies.MergeStaticDynamic = _mergeStaticDynamic;
                 _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy) { EmitterGlowOf = EmitterGlow, AtlasPartWanted = AtlasPartWanted };
                 _proxies.SetDisplaceShader(_displaceCs);
                 _proxies.Build();
@@ -688,8 +706,28 @@ namespace UltraRT
                 PackSceneLight(l, ResolveLight(l), mainSun);
             }
             FlagPlayerLights();   // Plugin.PlayerLights.cs: V1 never shadows the player's own lights (flashlight, held torch)
-            _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
-            _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
+            int uploadLights = Math.Max(1, _lightCount);
+            if (_preLinearLights && LinearActive)
+            {
+                Array.Copy(_lightData, _lightDataGpu, uploadLights * 4);
+                for (int k = 0; k < _lightCount; k++)
+                {
+                    var c = _lightDataGpu[k * 4 + 1];
+                    _lightDataGpu[k * 4 + 1] = new Vector4(
+                        c.x > 0f ? Mathf.Pow(c.x, 2.2f) : 0f,
+                        c.y > 0f ? Mathf.Pow(c.y, 2.2f) : 0f,
+                        c.z > 0f ? Mathf.Pow(c.z, 2.2f) : 0f,
+                        c.w);
+                }
+                _lightBuffer.SetData(_lightDataGpu, 0, 0, uploadLights * 4);
+                Shader.SetGlobalFloat(UltraRTLinearLightsId, 1f);
+            }
+            else
+            {
+                _lightBuffer.SetData(_lightData, 0, 0, uploadLights * 4);
+                Shader.SetGlobalFloat(UltraRTLinearLightsId, 0f);
+            }
+            _lightMaskBuffer.SetData(_lightMasks, 0, 0, uploadLights);
         }
 
         private int _surfLightCount;
@@ -927,6 +965,10 @@ namespace UltraRT
         private readonly LightSamplingSettings _lightSamplingSettings = new LightSamplingSettings();
         private ComputeShader _motionCopy; // MotionCopy.compute: previous skinned poses for motion vectors
         private ComputeShader _displaceCs; // Displace.compute: the game's VERTEX_DISPLACEMENT for the RT scene (SceneProxies.Displaced.cs)
+        private ComputeShader _lightGridCs; // LightGrid.compute: camera-centered 3D light grid (ReGIR-lite) for RIS (LightSampling.cs)
+        private RayQueryBridge _rayQuery;  // native D3D12 cs_6_5 inline RayQuery bridge (RayQueryBridge.cs)
+        private Texture _lastSkyTex;
+        private Vector4 _lastSkyTint = Vector4.one, _lastSkyParams = Vector4.zero;
         /// <summary>Runtime switch for vertex displacement in the RT scene (bench variant plugin._displace=0: rest pose, as before).</summary>
         private bool _displace = true;
         private float _displaceRange = 40f; // bench variant plugin._displaceRange: copies beyond this (m) freeze (SceneProxies.DisplacementRange)
@@ -934,6 +976,8 @@ namespace UltraRT
         private bool _portals = true; // -ultrart-noportals (bench variant: plugin._portals=0): rays ignore portals (docs/portals.md)
         private int _portalHops = 3;  // -ultrart-portal-hops N (bench variant: plugin._portalHops=N): teleports per ray
         private bool _rtMirrors;      // -ultrart-rtmirrors (bench: plugin._rtMirrors=1): camera rays reflect off portal mirrors instead of keeping the game's mirror view
+        /// <summary>Trim redundant deep PortalRenderV2 raster recursions on non-mirror portals while RT replaces opaque portal views. Bench plugin._portalRasterTrim=0.</summary>
+        private bool _portalRasterTrim = true;
         // Which rays see V1's third-person model (SceneProxies.PlayerMask; docs/reflections.md, "The player in reflections"):
         // 1 reflection rays (incl. water/glass), 2 bounce rays, 4 shadow rays, 8 camera rays after a portal hop (8-x
         // mirrors, as the game's portal views). Camera rays never see it directly (bit 16 does that; only a third-person cinematic shot sets it: _cineShowPlayer). -ultrart-player-rays N, bench plugin._playerRays=N.
@@ -992,6 +1036,10 @@ namespace UltraRT
             TransparentFrameReset();
             VolumetricsFrameReset(cam); // the after-transparents buffer (Plugin.Volumetrics.cs)
             VfxFrameReset(cam);         // screen effects, after it (Plugin.Vfx.cs)
+            SceneProxies.PortalRasterTrim = _portalRasterTrim;
+            bool rtReplaceActive = _proxies?.Rtas != null && _viewEnabled && _ptShader != null && _compositeMat != null
+                && _proxies.Rtas.GetInstanceCount() > 0 && Modes[_mode].kind == Kind.Denoised;
+            _proxies?.ApplyPortalRasterTrim(rtReplaceActive);
             if (_proxies?.Rtas == null || !_viewEnabled || _ptShader == null || _compositeMat == null) return;
             if (_proxies.Rtas.GetInstanceCount() == 0) return; // dispatching against an empty RTAS hangs the GPU
 
@@ -1017,18 +1065,21 @@ namespace UltraRT
             EnsureGBuffer(ref _gNormalDepth, w, h, RenderTextureFormat.ARGBHalf, "UltraRT NormalDepth");
             // x instance index, y packed world-space motion (docs/denoiser.md, "Motion vectors").
             EnsureGBuffer(ref _gInstanceId, w, h, RenderTextureFormat.RGInt, "UltraRT InstanceId");
-            // w & 0xFF: the lit weight (0 = fullbright) for auto exposure and DLSS RR; xyz unused since the hybrid mode went.
-            EnsureGBuffer(ref _gLitWeight, w, h, RenderTextureFormat.ARGBInt, "UltraRT LitWeight");
-            // PathTrace writes albedo + emission + material packed into _gSurface (Unity's 8-UAV limit), and the reflection
-            // into _gReflection. ReflectionFilter's resolve unpacks _gAlbedo / _gEmission and writes _gSpecular.
+            // PathTrace writes albedo + emission + material + lit weight packed into _gSurface (Unity's 8-UAV limit,
+            // freeing 2 UAV slots for the folded radiance cache), and the reflection into _gReflection.
+            // ReflectionFilter's resolve unpacks _gAlbedo / _gEmission and writes _gSpecular.
             EnsureGBuffer(ref _gSurface, w, h, RenderTextureFormat.ARGBInt, "UltraRT Surface");
             EnsureGBuffer(ref _gReflection, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Reflection");
             EnsureGBuffer(ref _gSpecular, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Specular");
             EnsureGBuffer(ref _gReflDebug, w, h, RenderTextureFormat.ARGB32, "UltraRT Reflection Debug");
         }
 
-        private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId, _gLitWeight;
+        private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId;
         private RenderTexture _gSurface, _gReflection, _gSpecular, _gReflDebug;
+        /// <summary>Skip ReflectionFilter temporal+spatial passes when DLSS RR is active (RR filters specular). Bench plugin._reflBypassRR=0.</summary>
+        private bool _reflBypassRR = true;
+        /// <summary>C4: merge stationary non-batched dynamic MeshRenderers into static groups at scene build. Bench plugin._mergeStaticDynamic=0.</summary>
+        private bool _mergeStaticDynamic = true;
         private string _capturePose;
         private float _lightRadius = 0.15f;   // -ultrart-light-radius (m)
 
@@ -1182,6 +1233,9 @@ namespace UltraRT
                 }
             }
             SgNoteSky(tex, tint); // stained glass follows the sky's brightness (Plugin.StainedGlass.cs, SgDayFactor)
+            _lastSkyTex = tex;
+            _lastSkyTint = tex == null ? Vector4.one : new Vector4(tint.r, tint.g, tint.b, 1f);
+            _lastSkyParams = tex == null ? Vector4.zero : new Vector4(1f, rot * Mathf.Deg2Rad, 0f, 0f);
             if (tex == null)
             {
                 _cmd.SetRayTracingTextureParam(shader, "_SkyTex", Texture2D.blackTexture);
@@ -1467,7 +1521,9 @@ namespace UltraRT
                 _gpu?.End(_cmd, SlotDisplace);
             }
             _gpu?.Begin(_cmd, SlotRtas);
+            _rayQuery?.BeginRtasBuild(_cmd);
             _cmd.BuildRayTracingAccelerationStructure(_proxies.Rtas);
+            _rayQuery?.EndRtasBuild(_cmd);
             _gpu?.End(_cmd, SlotRtas);
             _cmd.EndSample(SampleBuild);
 
@@ -1499,7 +1555,7 @@ namespace UltraRT
                 PathTraceLightsBegin(full, rr); // RR may want another light sampling mode (restored below)
                 _lightSampling.ViewPoints.Clear();
                 _lightSampling.ViewPoints.AddRange(_portalViews); // portal-aware importance
-                _lightSampling.Bind(_cmd, shader, _camera.transform.position, _packedLights, _lightData, _surfLightCount);
+                _lightSampling.Bind(_cmd, shader, _camera.transform.position, _packedLights, _lightData, _surfLightCount, _lightBuffer);
                 Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSampling.ActiveMode);
                 _cmd.SetRayTracingIntParam(shader, "_FrameIndex", (int)_frameIndex);
@@ -1520,12 +1576,11 @@ namespace UltraRT
                 _cmd.SetRayTracingVectorParam(shader, "_ReflCache", _reflSettings.CacheParams);
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
-                _cmd.SetRayTracingTextureParam(shader, "_LitWeight", _gLitWeight);
                 long tc = Perf.Now;
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 Perf.Add(Perf.Sec.Cache, tc);
                 BindTransparents(shader, denoised, viewProj, w, h); // water and glass (Plugin.Transparent.cs)
-                BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
+                BindBloodWet(shader, w, h); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
                 BindStains(shader, kind == Kind.Denoised || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
                 BindStainedGlass(shader); // stained-glass windows project their mosaic (Plugin.StainedGlass.cs)
                 BindPathTrace(shader, full, rr);
@@ -1570,14 +1625,18 @@ namespace UltraRT
             }
             _cmd.BeginSample(SampleTrace);
             _gpu?.Begin(_cmd, SlotDispatch);
-            _cmd.DispatchRays(shader, pt && full ? (imgEntry ? "RayGenPTImg" : "RayGenPT") : imgEntry ? "RayGenImg" : "RayGen", (uint)w, (uint)h, 1);
+            string entry = pt && _lightSampling.ActiveMode == LightSamplingMode.Reference
+                ? "RayGenRef"
+                : pt && full ? (imgEntry ? "RayGenPTImg" : "RayGenPT") : imgEntry ? "RayGenImg" : "RayGen";
+            _cmd.DispatchRays(shader, entry, (uint)w, (uint)h, 1);
             _rtTracedFrame = Time.frameCount; // white orb shells follow it (SceneProxies.OrbShells.cs)
             RequestRayCounts(pt, w, h, (full ? "pathtrace" : kind == Kind.Denoised ? "relight/pt-dn" : kind.ToString()) + (_transRect ? "" : ", transRect off")); // plugin._rayCounts=1 (Plugin.RayCounts.cs)
             _gpu?.End(_cmd, SlotDispatch);
             _cmd.EndSample(SampleTrace);
+            if (pt) ResolveRadianceCache();
             if (_diagDispatches > 0 && pt) DiagDispatches(invViewProj); // bench: per-dispatch render-thread cost (docs/performance.md)
             _proxies.RecordMotionCopies(_cmd); // this frame's skinned poses become next frame's previous poses
-            if (kind == Kind.PathTrace) TraceCacheDebug(mode);
+            if (kind == Kind.PathTrace) TraceCacheDebug(mode, invViewProj);
             long tpl = Perf.Now;
             if (pt) TraceParticleLight(kind); // lit particles' lighting volume (Plugin.Particles.cs)
             Perf.Add(Perf.Sec.Particles, tpl);
@@ -1594,7 +1653,7 @@ namespace UltraRT
                     albedo = _gAlbedo, emission = _gEmission, specular = _gSpecular, debug = _gReflDebug,
                 };
                 _cmd.BeginSample(SampleReflections);
-                _reflFilter.Execute(_cmd, reflInputs, _reflSettings, kind == Kind.Reflection ? mode : 0);
+                _reflFilter.Execute(_cmd, reflInputs, _reflSettings, kind == Kind.Reflection ? mode : 0, bypassFilter: rr && _reflBypassRR && kind != Kind.Reflection);
                 _cmd.EndSample(SampleReflections);
                 if (kind == Kind.Reflection) _displayed = _gReflDebug;
             }
@@ -1687,7 +1746,7 @@ namespace UltraRT
             _frameIndex++;
             Perf.Add(Perf.Sec.Trace, traceStart);
             if (pt && _accumulate) _accumFrames++;
-            if (_tracedFrames++ == 0) Logger.LogInfo($"First trace OK: {w}x{h}, instances={_proxies.Rtas.GetInstanceCount()}, lights={_lightCount}, cache={(_radianceCache?.Active == true ? $"{_cacheSettings.mode} {_radianceCache.Capacity} slots {_radianceCache.GpuBytes >> 20} MB" : "off")}");
+            if (_tracedFrames++ == 0) Logger.LogInfo($"First trace OK: {w}x{h}, instances={_proxies.Rtas.GetInstanceCount()}, lights={_lightCount}, cache={(_radianceCache?.Active == true ? $"{_cacheSettings.mode} {_radianceCache.Capacity} slots {_radianceCache.GpuBytes >> 20} MB" : "off")}, rayQuery={(_rayQuery != null ? _rayQuery.Status : "off")}");
         }
 
         // Bench diagnostics (docs/performance.md, "Render thread"): plugin._diagDispatches=N records N extra 1x1 DispatchRays of
@@ -1721,8 +1780,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotFrame = 22, SlotCount = 23; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace", "frame" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotFrame = 22, SlotVeils = 23, SlotCount = 24; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs), 23: SlotVeils (Plugin.Veils.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace", "frame", "veils" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

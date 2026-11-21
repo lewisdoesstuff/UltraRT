@@ -311,6 +311,7 @@ namespace
     {
         if (Dlss_OnRenderEvent(eventId, data)) return; // DLSS Ray Reconstruction events (Dlss.cpp)
         if (Hdr_OnRenderEvent(eventId, data)) return;  // HDR gain map of the frame (Hdr.cpp)
+        if (RayQuery_OnRenderEvent(eventId, data)) return; // D3D12 inline RayQuery events (RayQuery.cpp)
         if (eventId < kEventBegin || eventId > kEventResolve) return;
         if (!s_RtInit)
         {
@@ -373,9 +374,11 @@ namespace
             else SetStatus("IUnityGraphicsD3D12v6/v7 not available");
             Dlss_OnDeviceEvent(type);
             Hdr_OnDeviceEvent(type);
+            RayQuery_OnDeviceEvent(type);
         }
         else if (type == kUnityGfxDeviceEventShutdown)
         {
+            RayQuery_OnDeviceEvent(type);
             Dlss_OnDeviceEvent(type);
             ReleaseResources();
             s_HaveD3D = false;
@@ -415,6 +418,7 @@ ULTRART_API void UNITY_INTERFACE_API UnityPluginLoad(IUnityInterfaces* unityInte
 ULTRART_API void UNITY_INTERFACE_API UnityPluginUnload()
 {
     if (s_Graphics) s_Graphics->UnregisterDeviceEventCallback(OnGraphicsDeviceEvent);
+    RayQuery_Unload();
     Dlss_Unload();
     ReleaseResources();
     s_HaveD3D = false;

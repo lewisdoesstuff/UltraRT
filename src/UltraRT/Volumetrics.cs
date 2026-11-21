@@ -98,6 +98,9 @@ namespace UltraRT
         public float meterHaze = 0f;
         /// <summary>1 = show the exposed in-scattering only, 2 = the same without the temporal filter (raw samples).</summary>
         public int debugView;
+        /// <summary>Wave 3: use native D3D12 cs_6_5 inline RayQuery bridge instead of Volumetrics.raytrace DispatchRays
+        /// (on scenes without stained glass; eliminates ~0.46 ms RT-CPU in 8-x). Bench vol.rayQuery=0.</summary>
+        public bool rayQuery = true;
 
         public void ParseArgs()
         {
@@ -162,6 +165,11 @@ namespace UltraRT
         public ComputeBuffer exposure;
         public Material composite;
         public uint frameIndex;
+        // Native D3D12 RayQuery bridge (Wave 3)
+        public RayQueryBridge rayQuery;
+        public bool sceneHasGlass;
+        public bool preLinearLights;
+        public EmissiveLights emissive;
     }
 
     /// <summary>
@@ -332,41 +340,85 @@ namespace UltraRT
             Medium = medium;
             MediumSource = source;
             float sigma = medium.x;
-            cmd.SetRayTracingAccelerationStructure(_rt, IdScene, f.rtas);
-            cmd.SetRayTracingTextureParam(_rt, IdVolOut, _raw);
-            cmd.SetRayTracingTextureParam(_rt, IdVolDepth, _depth);
-            // The ray of low-res pixel i goes through screen pixel i * blk + blk / 2 (as in the Depth kernel): express that
-            // as a low-res uv by shrinking the viewProj's NDC accordingly.
-            cmd.SetRayTracingMatrixParam(_rt, IdVolInvViewProj, invVP * LowResToScreen(W, H, w, h, blk));
-            cmd.SetRayTracingVectorParam(_rt, IdVolCamPos, cam.transform.position);
-            cmd.SetRayTracingVectorParam(_rt, IdVolDim, low);
-            cmd.SetRayTracingVectorParam(_rt, IdVolMedium, new Vector4(sigma * medium.y, sigma * medium.z, sigma * medium.w, sigma));
-            cmd.SetRayTracingVectorParam(_rt, IdVolParams, new Vector4(Mathf.Clamp(s.steps, 1, 64), Mathf.Max(1f, s.maxDistance),
-                Mathf.Clamp(s.anisotropy, -0.95f, 0.95f), f.frameIndex & 0xFFFFF));
-            cmd.SetRayTracingVectorParam(_rt, IdVolSunDir, f.sunDir.w > 0f ? f.sunDir : new Vector4(0, 1, 0, 1));
+            var invLow = invVP * LowResToScreen(W, H, w, h, blk);
+            var mediumVec = new Vector4(sigma * medium.y, sigma * medium.z, sigma * medium.w, sigma);
+            var volParamsVec = new Vector4(Mathf.Clamp(s.steps, 1, 64), Mathf.Max(1f, s.maxDistance),
+                Mathf.Clamp(s.anisotropy, -0.95f, 0.95f), f.frameIndex & 0xFFFFF);
+            var sunDirVec = f.sunDir.w > 0f ? f.sunDir : new Vector4(0, 1, 0, 1);
             float sunScale = Mathf.Max(0f, s.sun);
-            cmd.SetRayTracingVectorParam(_rt, IdVolSunColor, new Vector4(f.sunColor.r * sunScale, f.sunColor.g * sunScale, f.sunColor.b * sunScale,
-                f.sunDir.w > 0f && sunScale > 0f ? 1f : 0f));
-            cmd.SetRayTracingVectorParam(_rt, IdVolLightShape, new Vector4(Mathf.Max(0f, s.hazeRange), Mathf.Max(0f, s.core), Mathf.Clamp01(s.emitterMedium), 0));
+            var sunColVec = new Vector4(f.sunColor.r * sunScale, f.sunColor.g * sunScale, f.sunColor.b * sunScale,
+                f.sunDir.w > 0f && sunScale > 0f ? 1f : 0f);
+            var lightShapeVec = new Vector4(Mathf.Max(0f, s.hazeRange), Mathf.Max(0f, s.core), Mathf.Clamp01(s.emitterMedium), 0);
             int beams = f.beams != null ? Mathf.Clamp(f.beamCount, 0, 32) : 0;
-            cmd.SetRayTracingVectorParam(_rt, IdVolSamples, new Vector4(Mathf.Clamp(s.lightSamples, 1, 8), Mathf.Clamp(s.emissiveSamples, 1, 8),
-                beams, Mathf.Clamp(f.beamParams.x, 1f, 4f)));
-            cmd.SetRayTracingTextureParam(_rt, IdVolBeamOut, _beamRaw);
-            cmd.SetRayTracingVectorParam(_rt, IdVolLightParams, new Vector4(f.localLightCount, Mathf.Clamp(s.lightCandidates, 1, 32), Mathf.Max(0f, s.lights), 0.01f));
-            cmd.SetRayTracingVectorParam(_rt, IdVolFalloff, f.falloff);
-            cmd.SetRayTracingBufferParam(_rt, IdLights, f.lights);
-            cmd.SetRayTracingBufferParam(_rt, IdVolSkip, f.skip);
-            cmd.SetRayTracingBufferParam(_rt, IdVolLightCone, f.cones);
-            if (f.beams != null) cmd.SetRayTracingBufferParam(_rt, IdVolBeams, f.beams);
-            cmd.SetRayTracingFloatParam(_rt, IdVolEmissive, Mathf.Max(0f, s.emissive));
-            cmd.SetRayTracingFloatParam(_rt, IdVolClamp, Mathf.Max(0f, s.maxSample));
-            _rt.SetShaderPass(Settings.shadowPass ? "UltraRTShadow" : "UltraRTHit");
-            cmd.DispatchRays(_rt, "VolumeRayGen", (uint)w, (uint)h, 1);
+            var samplesVec = new Vector4(Mathf.Clamp(s.lightSamples, 1, 8), Mathf.Clamp(s.emissiveSamples, 1, 8),
+                beams, Mathf.Clamp(f.beamParams.x, 1f, 4f));
+            var lightParamsVec = new Vector4(f.localLightCount, Mathf.Clamp(s.lightCandidates, 1, 32), Mathf.Max(0f, s.lights), 0.01f);
+
+            bool useRq = s.rayQuery && !f.sceneHasGlass && f.rayQuery != null && f.rayQuery.Ready && f.rayQuery.HasTlas;
+            if (useRq)
+            {
+                var em = f.emissive;
+                var rqFrame = new RayQueryBridge.VolRqFrame
+                {
+                    depthTex = _depth.GetNativeTexturePtr(),
+                    lightsBuf = f.lights != null ? f.lights.GetNativeBufferPtr() : IntPtr.Zero,
+                    skipBuf = f.skip != null ? f.skip.GetNativeBufferPtr() : IntPtr.Zero,
+                    coneBuf = f.cones != null ? f.cones.GetNativeBufferPtr() : IntPtr.Zero,
+                    beamsBuf = f.beams != null ? f.beams.GetNativeBufferPtr() : IntPtr.Zero,
+                    emTrisBuf = em != null ? em.TrisBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    emOwnersBuf = em != null ? em.OwnersBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    emAliasBuf = em != null ? em.AliasBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    emActiveBuf = em != null ? em.ActiveBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    outTex = _raw.GetNativeTexturePtr(),
+                    beamOutTex = _beamRaw.GetNativeTexturePtr(),
+                    width = w,
+                    height = h,
+                    invViewProj = invLow,
+                    camPos = cam.transform.position,
+                    dim = low,
+                    medium = mediumVec,
+                    volParams = volParamsVec,
+                    sunDir = sunDirVec,
+                    sunColor = sunColVec,
+                    lightParams = lightParamsVec,
+                    falloff = new Vector4(f.falloff.x, f.falloff.y, f.falloff.z, f.preLinearLights ? 1f : 0f),
+                    lightShape = lightShapeVec,
+                    samples = samplesVec,
+                    emissiveParams = em != null ? em.BoundParams : Vector4.zero,
+                    misc = new Vector4(Mathf.Max(0f, s.emissive), Mathf.Max(0f, s.maxSample), em != null ? em.BoundCount : 0, em != null ? em.BoundTriCount : 0),
+                };
+                f.rayQuery.DispatchVolumetrics(cmd, ref rqFrame);
+            }
+            else
+            {
+                cmd.SetRayTracingAccelerationStructure(_rt, IdScene, f.rtas);
+                cmd.SetRayTracingTextureParam(_rt, IdVolOut, _raw);
+                cmd.SetRayTracingTextureParam(_rt, IdVolDepth, _depth);
+                cmd.SetRayTracingMatrixParam(_rt, IdVolInvViewProj, invLow);
+                cmd.SetRayTracingVectorParam(_rt, IdVolCamPos, cam.transform.position);
+                cmd.SetRayTracingVectorParam(_rt, IdVolDim, low);
+                cmd.SetRayTracingVectorParam(_rt, IdVolMedium, mediumVec);
+                cmd.SetRayTracingVectorParam(_rt, IdVolParams, volParamsVec);
+                cmd.SetRayTracingVectorParam(_rt, IdVolSunDir, sunDirVec);
+                cmd.SetRayTracingVectorParam(_rt, IdVolSunColor, sunColVec);
+                cmd.SetRayTracingVectorParam(_rt, IdVolLightShape, lightShapeVec);
+                cmd.SetRayTracingVectorParam(_rt, IdVolSamples, samplesVec);
+                cmd.SetRayTracingTextureParam(_rt, IdVolBeamOut, _beamRaw);
+                cmd.SetRayTracingVectorParam(_rt, IdVolLightParams, lightParamsVec);
+                cmd.SetRayTracingVectorParam(_rt, IdVolFalloff, f.falloff);
+                cmd.SetRayTracingBufferParam(_rt, IdLights, f.lights);
+                cmd.SetRayTracingBufferParam(_rt, IdVolSkip, f.skip);
+                cmd.SetRayTracingBufferParam(_rt, IdVolLightCone, f.cones);
+                if (f.beams != null) cmd.SetRayTracingBufferParam(_rt, IdVolBeams, f.beams);
+                cmd.SetRayTracingFloatParam(_rt, IdVolEmissive, Mathf.Max(0f, s.emissive));
+                cmd.SetRayTracingFloatParam(_rt, IdVolClamp, Mathf.Max(0f, s.maxSample));
+                _rt.SetShaderPass(Settings.shadowPass ? "UltraRTShadow" : "UltraRTHit");
+                cmd.DispatchRays(_rt, "VolumeRayGen", (uint)w, (uint)h, 1);
+            }
 
             // 3. temporal accumulation, 4. variance-guided a-trous passes (output only: the history keeps the unfiltered
             // accumulation). The beam channel's visibility gets its own history (only while beams are drawn).
             int prev = _cur ^ 1;
-            var invLow = invVP * LowResToScreen(W, H, w, h, blk);
             var prevLow = ScreenToLowRes(W, H, w, h, blk) * (_historyValid ? _prevVP : vp);
             var prevCam = _historyValid ? _prevCamPos : cam.transform.position;
             Texture result = Filter(cmd, s, _raw, _hist, _histDepth, _mom, _filt, prev, invLow, prevLow, cam.transform.position, prevCam,

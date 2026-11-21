@@ -65,7 +65,7 @@ if (Test-Path $ngxLib) {
 # unsigned DLL by its hash, and has blocked some rebuilds of unchanged source (LoadLibrary error 4551 = no RR, no GPU
 # timer). /Brepro + a fixed PDB name also make a rebuild of the same source produce the same bytes.
 $stamp = Join-Path $OutDir 'inputs.sha256'
-$inputFiles = @(Get-ChildItem $src -File -Include *.cpp, *.h, build.ps1 -Recurse | Where-Object { $_.FullName -notlike "$obj*" -and $_.FullName -notlike "$OutDir*" } | Sort-Object FullName)
+$inputFiles = @(Get-ChildItem $src -File -Include *.cpp, *.h, *.hlsl, build.ps1 -Recurse | Where-Object { $_.FullName -notlike "$obj*" -and $_.FullName -notlike "$OutDir*" } | Sort-Object FullName)
 $inputText = ($inputFiles | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash + ' ' + $_.Name }) -join "`n"
 $inputText += "`nsdk=$(Test-Path $ngxLib)"
 $inputText += "`nversion=$versionDefine"
@@ -77,9 +77,17 @@ if ($Adopt) {
 if (-not $Force -and -not $Test -and (Test-Path $dll) -and (Test-Path $stamp) -and (Get-Content $stamp -Raw).Trim() -eq $inputHash) {
     "UltraRT.Native.dll is up to date (inputs unchanged): kept $dll"; return
 }
+
+$dxc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\dxc.exe" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+if (-not $dxc) { throw "Windows SDK dxc.exe not found (needed for cs_6_5 RayQuery shaders)" }
+& $dxc -nologo -T cs_6_5 -E CSMain -O3 -Vn g_VolumetricsRQ_dxil -Fh "$obj\VolumetricsRQ_dxil.h" "$src\shaders\VolumetricsRQ.hlsl"
+if ($LASTEXITCODE -ne 0) { throw "dxc failed on VolumetricsRQ.hlsl" }
+& $dxc -nologo -T cs_6_5 -E CSMain -O3 -Vn g_ParticleLightRQ_dxil -Fh "$obj\ParticleLightRQ_dxil.h" "$src\shaders\ParticleLightRQ.hlsl"
+if ($LASTEXITCODE -ne 0) { throw "dxc failed on ParticleLightRQ.hlsl" }
+
 $cmds = @(
-    "cl $cflags $dlssFlags `"$src\GpuTimer.cpp`" `"$src\UnityLocator.cpp`" `"$src\Hdr.cpp`" $dlssSrc",
-    "link /nologo /DLL /DEBUG /Brepro /PDBALTPATH:UltraRT.Native.pdb /OPT:REF /OPT:ICF /MACHINE:X64 /OUT:`"$dll`" /PDB:`"$OutDir\UltraRT.Native.pdb`" `"$obj\GpuTimer.obj`" `"$obj\UnityLocator.obj`" `"$obj\Hdr.obj`" $dlssObj kernel32.lib user32.lib dxgi.lib d3d12.lib d3dcompiler.lib"
+    "cl $cflags $dlssFlags /I`"$src`" `"$src\GpuTimer.cpp`" `"$src\UnityLocator.cpp`" `"$src\Hdr.cpp`" `"$src\RayQuery.cpp`" $dlssSrc",
+    "link /nologo /DLL /DEBUG /Brepro /PDBALTPATH:UltraRT.Native.pdb /OPT:REF /OPT:ICF /MACHINE:X64 /OUT:`"$dll`" /PDB:`"$OutDir\UltraRT.Native.pdb`" `"$obj\GpuTimer.obj`" `"$obj\UnityLocator.obj`" `"$obj\Hdr.obj`" `"$obj\RayQuery.obj`" $dlssObj kernel32.lib user32.lib dxgi.lib d3d12.lib d3dcompiler.lib"
 )
 if ($Test) {
     $exe = Join-Path $obj 'LocatorTest.exe'

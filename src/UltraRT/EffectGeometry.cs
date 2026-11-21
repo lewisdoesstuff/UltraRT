@@ -26,6 +26,8 @@ namespace UltraRT
         public int maxInstances = 48;
         /// <summary>Effects farther from the camera than this are left out (m).</summary>
         public float maxDistance = 80f;
+        /// <summary>Small glowing sprites (candles, small flames) farther than this are left out (m): sub-pixel in reflections.</summary>
+        public float maxSpriteDistance = 35f;
         /// <summary>Particle systems with more live particles than this are left out (their mesh is rebuilt every frame).</summary>
         public int maxParticles = 400;
         /// <summary>Most billboards in the RTAS at once, nearest effects first: every specular ray that crosses a billboard
@@ -84,6 +86,28 @@ namespace UltraRT
         private readonly List<Vector2> _uvs = new List<Vector2>(4);
         private readonly List<Color32> _colors = new List<Color32>(4);
         private readonly List<int> _tris = new List<int>(6);
+        private struct SpriteGeom { public Vector2[] Verts, Uvs; public ushort[] Tris; }
+        private readonly Dictionary<Sprite, SpriteGeom> _spriteCache = new Dictionary<Sprite, SpriteGeom>();
+        private struct MatKey : IEquatable<MatKey>
+        {
+            public Color32 Tint;
+            public bool OneOne;
+            public Texture Tex;
+            public Vector4 St;
+            public bool Equals(MatKey o) => Tint.r == o.Tint.r && Tint.g == o.Tint.g && Tint.b == o.Tint.b && Tint.a == o.Tint.a && OneOne == o.OneOne && ReferenceEquals(Tex, o.Tex) && St == o.St;
+            public override bool Equals(object o) => o is MatKey k && Equals(k);
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int h = (Tint.r | (Tint.g << 8) | (Tint.b << 16) | (Tint.a << 24)) ^ (OneOne ? 0x5A5A5A5A : 0);
+                    if (Tex != null) h = h * 31 + Tex.GetInstanceID();
+                    return h * 31 + St.GetHashCode();
+                }
+            }
+        }
+        private readonly Dictionary<MatKey, Material> _matPool = new Dictionary<MatKey, Material>();
+        private static readonly RayTracingSubMeshFlags[] OneEnabled = { RayTracingSubMeshFlags.Enabled };
         private RayTracingAccelerationStructure _rtas;
         private Shader _shader;
         private GameObject _root;
@@ -114,7 +138,30 @@ namespace UltraRT
         {
             if (shader == _shader) return;
             foreach (var e in _entries) ReleaseObjects(e); // materials of the old bundle; the effects stay tracked
+            ClearMatPool();
             _shader = shader;
+        }
+
+        private void ClearMatPool()
+        {
+            foreach (var m in _matPool.Values) if (m != null) Object.Destroy(m);
+            _matPool.Clear();
+        }
+
+        private Material PooledMaterial(Color tint, bool oneOne, Texture tex, Vector2 scale, Vector2 offset)
+        {
+            if (tex == null) tex = Texture2D.whiteTexture;
+            var key = new MatKey { Tint = (Color32)tint, OneOne = oneOne, Tex = tex, St = new Vector4(scale.x, scale.y, offset.x, offset.y) };
+            if (_matPool.TryGetValue(key, out var mat) && mat != null) return mat;
+            if (_matPool.Count > 256) ClearMatPool();
+            mat = new Material(_shader) { name = "UltraRT effect (pooled)", hideFlags = HideFlags.HideAndDontSave };
+            mat.SetColor(TintId, tint);
+            mat.SetFloat(ModeId, oneOne ? 1f : 0f);
+            mat.SetTexture(MainTexId, tex);
+            mat.SetTextureScale(MainTexId, scale);
+            mat.SetTextureOffset(MainTexId, offset);
+            _matPool[key] = mat;
+            return mat;
         }
 
         /// <summary>A renderer whose material glows (EffectLights.Analyse): from the scene scan and from every spawn.</summary>
@@ -181,7 +228,8 @@ namespace UltraRT
                 if (want)
                 {
                     e.Dist = PortalView.SqrDistance(e.R.bounds.center, cp); // or to the camera's image through a portal
-                    want = e.Dist <= maxD2;
+                    float lim = e.Kind == Kind.Sprite && s.maxSpriteDistance > 0f ? Mathf.Min(s.maxDistance, s.maxSpriteDistance) : s.maxDistance;
+                    want = e.Dist <= lim * lim;
                 }
                 if (want) { e.Idle = 0; _wanted.Add(e); }
                 else { if (e.Idle < IdleFrames) e.Idle++; Remove(e); }
@@ -205,7 +253,7 @@ namespace UltraRT
                     if (!e.InRtas)
                     {
                         if (++e.Wait < AddDelay) continue;
-                        rtas.AddInstance(e.Proxy, new[] { RayTracingSubMeshFlags.Enabled }, enableTriangleCulling: false,
+                        rtas.AddInstance(e.Proxy, OneEnabled, enableTriangleCulling: false,
                             frontTriangleCounterClockwise: false, mask: SceneProxies.TransparentMask, id: 0);
                         e.InRtas = true;
                         if (_addLogs++ < 24)
@@ -252,9 +300,14 @@ namespace UltraRT
                 Color32 c = sr.color;
                 if (sr.sprite != e.Sprite || !c.Equals(e.SpriteColor) || sr.flipX != e.SpriteFlipX || sr.flipY != e.SpriteFlipY) BuildSprite(e, c);
                 // An AnimatedTexture swaps the texture through the property block.
-                sr.GetPropertyBlock(_mpb);
-                var tex = _mpb.GetTexture(MainTexId);
-                e.Mat.SetTexture(MainTexId, tex != null ? tex : e.Sprite.texture);
+                Texture tex = null;
+                if (sr.HasPropertyBlock()) { sr.GetPropertyBlock(_mpb); tex = _mpb.GetTexture(MainTexId); }
+                var useTex = tex != null ? tex : e.Sprite.texture;
+                var m = e.Source;
+                Color tint = m != null ? LitParticles.EffectTint(m) : Color.white;
+                bool oneOne = m != null && LitParticles.EffectSrcOne(m);
+                var pooled = PooledMaterial(tint, oneOne, useTex, Vector2.one, Vector2.zero);
+                if (!ReferenceEquals(e.Mat, pooled)) { e.Mat = pooled; e.Proxy.sharedMaterial = pooled; }
                 e.Go.transform.SetPositionAndRotation(t.position, t.rotation);
                 e.Go.transform.localScale = t.lossyScale;
                 return e.Mesh.vertexCount > 0;
@@ -297,9 +350,15 @@ namespace UltraRT
             e.SpriteFlipX = sr.flipX;
             e.SpriteFlipY = sr.flipY;
             _verts.Clear(); _uvs.Clear(); _colors.Clear(); _tris.Clear();
-            var v = sp.vertices;
-            var uv = sp.uv;
-            var tri = sp.triangles;
+            if (!_spriteCache.TryGetValue(sp, out var g))
+            {
+                if (_spriteCache.Count > 2048) _spriteCache.Clear();
+                g = new SpriteGeom { Verts = sp.vertices, Uvs = sp.uv, Tris = sp.triangles };
+                _spriteCache[sp] = g;
+            }
+            var v = g.Verts;
+            var uv = g.Uvs;
+            var tri = g.Tris;
             float fx = sr.flipX ? -1f : 1f, fy = sr.flipY ? -1f : 1f;
             for (int i = 0; i < v.Length; i++)
             {
@@ -329,8 +388,6 @@ namespace UltraRT
             e.Go.transform.SetParent(_root.transform, false);
             e.Go.AddComponent<MeshFilter>().sharedMesh = e.Mesh;
             e.Proxy = e.Go.AddComponent<MeshRenderer>();
-            e.Mat = new Material(_shader) { name = "UltraRT effect", hideFlags = HideFlags.HideAndDontSave };
-            e.Proxy.sharedMaterial = e.Mat;
             e.Proxy.shadowCastingMode = ShadowCastingMode.Off;
             e.Proxy.receiveShadows = false;
             e.Proxy.forceRenderingOff = true; // never rasterised; still eligible for the RTAS
@@ -339,20 +396,22 @@ namespace UltraRT
         }
 
         /// <summary>What the source material draws per pixel of a billboard: texture x tint x vertex colour, as EffectLights.Analyse reads it.</summary>
-        private static void ConfigureMaterial(Entry e)
+        private void ConfigureMaterial(Entry e)
         {
             var m = e.Source;
-            if (m == null || e.Mat == null) return;
-            Color tint = LitParticles.EffectTint(m); // swapped materials (soft particles) keep their tint and blend
-            e.Mat.SetColor(TintId, tint);
-            bool oneOne = LitParticles.EffectSrcOne(m);
-            e.Mat.SetFloat(ModeId, oneOne ? 1f : 0f);
-            if (e.Kind != Kind.Sprite && m.HasProperty(MainTexId))
+            if (e.Proxy == null || _shader == null) return;
+            Color tint = m != null ? LitParticles.EffectTint(m) : Color.white; // swapped materials (soft particles) keep their tint and blend
+            bool oneOne = m != null && LitParticles.EffectSrcOne(m);
+            Texture tex = Texture2D.whiteTexture;
+            Vector2 sc = Vector2.one, off = Vector2.zero;
+            if (e.Kind != Kind.Sprite && m != null && m.HasProperty(MainTexId))
             {
-                e.Mat.SetTexture(MainTexId, m.mainTexture != null ? m.mainTexture : Texture2D.whiteTexture);
-                e.Mat.SetTextureScale(MainTexId, m.mainTextureScale);
-                e.Mat.SetTextureOffset(MainTexId, m.mainTextureOffset);
+                tex = m.mainTexture != null ? m.mainTexture : Texture2D.whiteTexture;
+                sc = m.mainTextureScale;
+                off = m.mainTextureOffset;
             }
+            e.Mat = PooledMaterial(tint, oneOne, tex, sc, off);
+            e.Proxy.sharedMaterial = e.Mat;
         }
 
         private void Remove(Entry e)
@@ -378,7 +437,6 @@ namespace UltraRT
             e.Space = -1;
             if (e.Go != null) Object.Destroy(e.Go);
             if (e.Mesh != null) Object.Destroy(e.Mesh);
-            if (e.Mat != null) Object.Destroy(e.Mat);
             e.Go = null; e.Mesh = null; e.Mat = null; e.Proxy = null;
         }
 
@@ -406,6 +464,7 @@ namespace UltraRT
         public void Dispose()
         {
             Clear();
+            ClearMatPool();
             if (_root != null) Object.Destroy(_root);
             _root = null;
         }

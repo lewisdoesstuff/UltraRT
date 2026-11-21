@@ -38,6 +38,9 @@ namespace UltraRT
         // orange veil the game never shows (black ambient). Emitters whose shape spans this many metres keep the game's
         // shader (a private copy of the original material); 0 = relight them like any smoke (docs/particles.md, "Atmosphere").
         public float atmosphereSize = 30f; // -ultrart-particles-atmosphere M
+        /// <summary>Wave 3: use native D3D12 cs_6_5 inline RayQuery bridge instead of ParticleLight.raytrace DispatchRays
+        /// (eliminates ~0.82 ms RT-CPU in 8-x). Bench pl.rayQuery=0.</summary>
+        public bool rayQuery = true;
 
         public void ParseArgs()
         {
@@ -75,7 +78,7 @@ namespace UltraRT
     }
 
     /// <summary>What <see cref="ParticleLighting.Execute"/> needs from the plugin each frame.</summary>
-    public struct ParticleLightFrame
+    internal struct ParticleLightFrame
     {
         public Camera camera;
         public RayTracingAccelerationStructure rtas;
@@ -84,6 +87,20 @@ namespace UltraRT
         public Color ambient;         // flat ambient in game units
         public bool lightsChanged;
         public bool linear;           // relight's linear transport
+        // Native D3D12 RayQuery bridge (Wave 3)
+        public RayQueryBridge rayQuery;
+        public ComputeBuffer lights, lightMasks;
+        public int lightCount;
+        public LightSampling lightSampling;
+        public EmissiveLights emissive;
+        public RadianceCache cache;
+        public Texture skyTex;
+        public Vector4 skyColor, skyTint, skyParams, skyLight;
+        public Vector4 relight; // x falloff, y exposure, z linearK, w preLinearLights
+        public float lightRadius, fixtureShadows;
+        public ComputeBuffer portalQuads, portalTravels;
+        public bool portalImagesOn;
+        public System.Collections.Generic.List<Vector3> cacheViews;
     }
 
     /// <summary>
@@ -91,7 +108,7 @@ namespace UltraRT
     /// the air, traced each frame (ParticleLight.raytrace), accumulated over time (ParticleLight.compute) and sampled per
     /// vertex by LitParticle.shader. GPU timer slot "particles".
     /// </summary>
-    public sealed class ParticleLighting : IDisposable
+    internal sealed class ParticleLighting : IDisposable
     {
         public readonly ParticleLightSettings Settings;
         public RayTracingShader RtShader => _rt;
@@ -181,20 +198,78 @@ namespace UltraRT
             var depth = new Vector4(near, logRange, 1f / logRange, f.linear ? 1f : 0f);
             if (f.lightsChanged) _fast = Mathf.Max(_fast, s.fastFrames);
 
-            cmd.SetRayTracingAccelerationStructure(_rt, IdScene, f.rtas);
-            cmd.SetRayTracingTextureParam(_rt, IdRaw, _raw);
-            cmd.SetRayTracingMatrixParam(_rt, IdInvVP, invVP);
-            cmd.SetRayTracingVectorParam(_rt, IdGrid, new Vector4(gx, gy, gz, 0));
-            cmd.SetRayTracingVectorParam(_rt, IdDepth, depth);
-            cmd.SetRayTracingVectorParam(_rt, IdCamFwd, fwd);
-            cmd.SetRayTracingVectorParam(_rt, IdCamPos, pos);
-            cmd.SetRayTracingIntParam(_rt, IdFrame, unchecked((int)f.frameIndex));
-            cmd.SetRayTracingFloatParam(_rt, IdLightScale, 1f);
-            cmd.SetRayTracingFloatParam(_rt, IdEmissionScale, 1f);
-            cmd.SetRayTracingIntParam(_rt, IdIsoMask, unchecked((int)IsoLayerMask));
-            cmd.SetRayTracingVectorParam(_rt, IdParams, new Vector4(Mathf.Clamp(s.candidates, 1, 32), f.indirectScale, s.maxSample, s.indirect ? 1f : 0f));
-            cmd.SetRayTracingVectorParam(_rt, IdAmbient, new Vector4(f.ambient.r, f.ambient.g, f.ambient.b, 0));
-            cmd.DispatchRays(_rt, "ParticleLightRayGen", (uint)gx, (uint)gy, (uint)gz);
+            bool useRq = s.rayQuery && f.rayQuery != null && f.rayQuery.Ready && f.rayQuery.HasTlas;
+            if (useRq)
+            {
+                var ls = f.lightSampling;
+                var em = f.emissive;
+                var rc = f.cache;
+                var rqFrame = new RayQueryBridge.PlRqFrame
+                {
+                    lightsBuf = f.lights != null ? f.lights.GetNativeBufferPtr() : IntPtr.Zero,
+                    lightMasksBuf = f.lightMasks != null ? f.lightMasks.GetNativeBufferPtr() : IntPtr.Zero,
+                    lightAliasBuf = ls != null ? ls.AliasBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    fillLightsBuf = ls != null ? ls.FillBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    emTrisBuf = em != null ? em.TrisBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    emOwnersBuf = em != null ? em.OwnersBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    emAliasBuf = em != null ? em.AliasBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    emActiveBuf = em != null ? em.ActiveBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    cacheKeysBuf = rc != null ? rc.KeysBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    cacheResolvedBuf = rc != null ? rc.ResolvedBuffer.GetNativeBufferPtr() : IntPtr.Zero,
+                    skyTex = f.skyTex != null ? f.skyTex.GetNativeTexturePtr() : IntPtr.Zero,
+                    portalQuadsBuf = f.portalQuads != null ? f.portalQuads.GetNativeBufferPtr() : IntPtr.Zero,
+                    portalTravelsBuf = f.portalTravels != null ? f.portalTravels.GetNativeBufferPtr() : IntPtr.Zero,
+                    outTex = _raw.GetNativeTexturePtr(),
+                    gridX = gx,
+                    gridY = gy,
+                    gridZ = gz,
+                    invViewProj = invVP,
+                    camPos = new Vector4(pos.x, pos.y, pos.z, 0f),
+                    grid = new Vector4(gx, gy, gz, 0f),
+                    depth = depth,
+                    camFwd = new Vector4(fwd.x, fwd.y, fwd.z, f.lightRadius),
+                    plParams = new Vector4(Mathf.Clamp(s.candidates, 1, 32), f.indirectScale, s.maxSample, s.indirect ? 1f : 0f),
+                    ambient = new Vector4(f.ambient.r, f.ambient.g, f.ambient.b, f.fixtureShadows),
+                    relight = f.relight,
+                    skyLight = f.skyLight,
+                    skyColor = f.skyColor,
+                    skyTint = f.skyTint,
+                    skyParams = f.skyParams,
+                    emissiveParams = em != null ? em.BoundParams : Vector4.zero,
+                    cacheGrid = rc != null ? rc.GridParams : Vector4.zero,
+                    cacheQuery = rc != null ? rc.QueryParams : Vector4.zero,
+                    int0 = new RayQueryBridge.UInt4(f.frameIndex, (uint)Mathf.Max(0, f.lightCount), (uint)(ls != null ? ls.RisLightCount : 0), (uint)(ls != null ? ls.FillLightCount : 0)),
+                    int1 = new RayQueryBridge.UInt4(IsoLayerMask, (uint)(em != null ? em.BoundCount : 0), (uint)(em != null ? em.BoundTriCount : 0), (uint)(rc != null ? rc.ActiveModeValue : 0)),
+                    int2 = new RayQueryBridge.UInt4((uint)(rc != null ? rc.Capacity : 0), (uint)(f.cacheViews != null ? Mathf.Min(f.cacheViews.Count, 16) : 0), f.portalImagesOn ? 1u : 0u, 0u),
+                };
+                if (f.cacheViews != null)
+                {
+                    int ncv = Mathf.Min(f.cacheViews.Count, 16);
+                    for (int k = 0; k < ncv; k++)
+                    {
+                        var v = f.cacheViews[k];
+                        rqFrame.SetCacheView(k, new Vector4(v.x, v.y, v.z, 0f));
+                    }
+                }
+                f.rayQuery.DispatchParticleLight(cmd, ref rqFrame);
+            }
+            else
+            {
+                cmd.SetRayTracingAccelerationStructure(_rt, IdScene, f.rtas);
+                cmd.SetRayTracingTextureParam(_rt, IdRaw, _raw);
+                cmd.SetRayTracingMatrixParam(_rt, IdInvVP, invVP);
+                cmd.SetRayTracingVectorParam(_rt, IdGrid, new Vector4(gx, gy, gz, 0));
+                cmd.SetRayTracingVectorParam(_rt, IdDepth, depth);
+                cmd.SetRayTracingVectorParam(_rt, IdCamFwd, fwd);
+                cmd.SetRayTracingVectorParam(_rt, IdCamPos, pos);
+                cmd.SetRayTracingIntParam(_rt, IdFrame, unchecked((int)f.frameIndex));
+                cmd.SetRayTracingFloatParam(_rt, IdLightScale, 1f);
+                cmd.SetRayTracingFloatParam(_rt, IdEmissionScale, 1f);
+                cmd.SetRayTracingIntParam(_rt, IdIsoMask, unchecked((int)IsoLayerMask));
+                cmd.SetRayTracingVectorParam(_rt, IdParams, new Vector4(Mathf.Clamp(s.candidates, 1, 32), f.indirectScale, s.maxSample, s.indirect ? 1f : 0f));
+                cmd.SetRayTracingVectorParam(_rt, IdAmbient, new Vector4(f.ambient.r, f.ambient.g, f.ambient.b, 0));
+                cmd.DispatchRays(_rt, "ParticleLightRayGen", (uint)gx, (uint)gy, (uint)gz);
+            }
 
             // Temporal: _out <- filter(raw) blended with _history (last frame's _out); then swap.
             (_out, _history) = (_history, _out);

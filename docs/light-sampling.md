@@ -4,7 +4,8 @@ Direct lighting with a fixed number of shadow rays per pixel, independent of the
 
 Files:
 - `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/UltraRTLights.hlsl`: the light model (moved out of `PathTrace.raytrace`), the reference `DirectAll` and RIS (the reservoirs and temporal reuse went with ReSTIR on 2026-11-19). Included by `PathTrace.raytrace`.
-- `src/UltraRT/LightSampling.cs`: settings, the per-frame alias table and fill-light list, and light-set change detection (until 2026-11-19 also the light index remap between frames and the ping-ponged reservoir buffers).
+- `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/LightGrid.compute`: camera-centered `32×16×32` 4 m world-space light grid (ReGIR-lite, since 2026-11-21): stores up to 8 local shadowed light indices per cell (`uint4`, 256 KB VRAM) for a 50/50 unbiased MIS mixture with the global alias table when >12 shadowed lights are active, allowing `risCandidatesGrid` = 8 instead of 16. Bench A/B: `ls.grid=0`.
+- `src/UltraRT/LightSampling.cs`: settings, the per-frame alias table, light-grid dispatch, and fill-light list, and light-set change detection (until 2026-11-19 also the light index remap between frames and the ping-ponged reservoir buffers).
 
 ## Why
 

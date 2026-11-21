@@ -35,6 +35,9 @@
 StructuredBuffer<float4> _Lights;
 StructuredBuffer<uint>   _LightMasks; // per-light culling mask (separate: masks like ~0 are NaN bit patterns as floats)
 int      _LightCount;
+float    _UltraRTLinearLights; // 1: _Lights[i*4+1].rgb is already linearised on CPU (pow 2.2)
+// Compile-time guard: false in production raygen entries so DXC dead-code-eliminates reference TraceRay loops; true in RayGenRef.
+static bool g_RefLights = false;
 // Does a light with culling mask m reach a surface on `layer`? An includer may define its own test before including this
 // file (Viewmodel.raytrace lights the first-person gun with the lights of several layers; docs/viewmodel.md).
 #ifndef ULTRART_LIGHT_LAYER_TEST
@@ -55,6 +58,11 @@ int      _RisLightCount;     // entries in _LightAlias (every shadowed light, on
 StructuredBuffer<uint4>  _LightAlias;
 int      _FillCount;
 StructuredBuffer<uint>   _FillLights;   // indices of unshadowed fill lights
+// World-space light grid (ReGIR-lite, Wave 3): 32x16x32 camera-centered 4 m cells, 8 x uint16 light indices per uint4.
+StructuredBuffer<uint4>  _LightGrid;
+StructuredBuffer<float>  _LightGlobalPdf;
+float4   _LightGridOrigin; // xyz world origin, w cellSize (4 m)
+float    _LightGridOn;     // 1 = active
 
 // Moving occluders (docs/denoiser.md, "Moving shadows"): world AABBs of dynamic objects that moved in the last frames (the
 // player's third-person model first, then the nearest moving enemies and props), each the union of this frame's and the
@@ -571,6 +579,13 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
         // equal to the game's at a fraction f of the range (_RelightLinearK; f 0.5: (1/7.25)^2.2 at r/2), windowed to 2r
         // and capped at 3x the game.
         float r = max(l0.w, 1e-6);
+        if (d >= 2.0 * r) return false;
+        float spot = 1.0;
+        if (l3.x > -0.999)
+        {
+            spot = saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
+            if (spot < 1e-3) return false;
+        }
         float game = (1.0 / (1.0 + d2 * 25.0 / (r * r))) * saturate(2.0 - d / r);
         float gameL = pow(game, 2.2);
         if (_Relight.x > 0.0)
@@ -579,7 +594,7 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
             float window = saturate(1.0 - x * x * x * x);
             float k = _RelightLinearK > 0.0 ? _RelightLinearK : 0.003205; // (1/7.25)^2.2 * 0.5^2
             float phys = k * (r * r) / max(d2, 0.01) * window * window;
-            phys = min(phys, pow(3.0 * game + 0.05, 2.2));
+            if (phys > gameL) phys = min(phys, pow(3.0 * game + 0.05, 2.2));
 #ifdef ULTRART_PLAYER_LIGHT_NDL_POW
             // The includer's player-light shaping also keeps those lights at or under the game's own falloff (the gun:
             // 7-3's flashlight 10 m behind the eye was 1.4x the game there).
@@ -588,13 +603,21 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
             phys = lerp(gameL, phys, saturate(_Relight.x));
             gameL = lerp(min(phys, gameL), phys, LightReach(l1.w));
         }
-        atten = gameL * pow(saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y), 2.2);
+        atten = gameL;
+        if (spot < 0.9999) atten *= pow(spot, 2.2);
         dist = d;
         if (atten < 2.5e-7) return false; // 1e-3 in gamma
     }
     else if (local)
     {
         float r = max(l0.w, 1e-6);
+        if (d >= 2.0 * r) return false;
+        float spot = 1.0;
+        if (l3.x > -0.999)
+        {
+            spot = saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
+            if (spot < 1e-3) return false;
+        }
         float game = (1.0 / (1.0 + d2 * 25.0 / (r * r))) * saturate(2.0 - d / r);
         if (_Relight.x > 0.0)
         {
@@ -610,7 +633,7 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
             phys = lerp(game, phys, saturate(_Relight.x));
             game = lerp(min(phys, game), phys, LightReach(l1.w));
         }
-        atten = game * saturate((max(dot(L, -l2.xyz), 0.0) - l3.x) * l3.y);
+        atten = game * spot;
         dist = d;
     }
     if (!lin && atten < 1e-3) return false;
@@ -628,7 +651,16 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
 #ifndef ULTRART_LIGHT_ISOTROPIC
     [branch] if (g_SssWrap > 0.0) shape += FleshScatter(n, L, nl) * emit;
 #endif
-    c = ToLight(l1.rgb * scale) * (atten * shape);
+    if (lin && _UltraRTLinearLights > 0.5)
+    {
+        float sLin = 1.0;
+        if (scale != 1.0) sLin = pow(scale, 2.2);
+        c = l1.rgb * (sLin * atten * shape);
+    }
+    else
+    {
+        c = ToLight(l1.rgb * scale) * (atten * shape);
+    }
     return true;
 }
 
@@ -881,6 +913,25 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
     float share = _EmissiveCount > 0 ? _EmissiveParams.x : 0.0;
     if (_RisLightCount <= 0) share = _EmissiveCount > 0 ? 1.0 : 0.0;
     if (_RisLightCount <= 0 && share <= 0.0) return r;
+
+    // World-space light grid (ReGIR-lite, Wave 3): one 16-byte load gets up to 8 local lights for p's 4 m cell.
+    uint cIdx[8];
+    uint cCount = 0u;
+    [branch] if (_LightGridOn > 0.5 && _RisLightCount > 0)
+    {
+        int3 gc = (int3)floor((p - _LightGridOrigin.xyz) / _LightGridOrigin.w);
+        if (gc.x >= 0 && gc.x < 32 && gc.y >= 0 && gc.y < 16 && gc.z >= 0 && gc.z < 32)
+        {
+            uint4 packed = _LightGrid[(uint)gc.x + (uint)gc.y * 32u + (uint)gc.z * 512u];
+            cIdx[0] = packed.x & 0xFFFFu; cIdx[1] = packed.x >> 16;
+            cIdx[2] = packed.y & 0xFFFFu; cIdx[3] = packed.y >> 16;
+            cIdx[4] = packed.z & 0xFFFFu; cIdx[5] = packed.z >> 16;
+            cIdx[6] = packed.w & 0xFFFFu; cIdx[7] = packed.w >> 16;
+            [unroll] for (uint j = 0u; j < 8u; j++) { if (cIdx[j] != 0xFFFFu) cCount++; }
+        }
+    }
+    float invCell = cCount > 0u ? (1.0 / (float)cCount) : 0.0;
+
     for (int k = 0; k < count; k++)
     {
         float u = Rand(rng);
@@ -899,9 +950,32 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
         }
         else
         {
+            float ul = saturate((u - share) / (1.0 - share));
             uint li;
             float pdf;
-            SampleLightTable(saturate((u - share) / (1.0 - share)), li, pdf);
+            if (cCount > 0u)
+            {
+                // Exact 50/50 MIS mixture between local cell list (uniform over top K local lights) and global alias table.
+                if (ul < 0.5)
+                {
+                    uint slot = min((uint)(ul * 2.0 * (float)cCount), cCount - 1u);
+                    li = cIdx[slot];
+                    float pGlobal = _LightGlobalPdf[li];
+                    pdf = 0.5 * invCell + 0.5 * pGlobal;
+                }
+                else
+                {
+                    float pGlobal;
+                    SampleLightTable(saturate((ul - 0.5) * 2.0), li, pGlobal);
+                    bool inCell = false;
+                    [unroll] for (uint j = 0u; j < 8u; j++) { if (cIdx[j] == li) inCell = true; }
+                    pdf = 0.5 * pGlobal + (inCell ? 0.5 * invCell : 0.0);
+                }
+            }
+            else
+            {
+                SampleLightTable(ul, li, pdf);
+            }
             code = li;
             if (pdf > 0.0 && LightEval(li, p, n, layer, L, dist, c))
             {
@@ -926,7 +1000,7 @@ bool SampleVisible(Reservoir r, float3 p, float3 n)
 // Direct light at the primary hit.
 float3 DirectLighting(float3 pos, float3 n, uint layer, inout uint rng)
 {
-    if (_LightSampling <= 0)
+    if (g_RefLights && _LightSampling <= 0)
     {
         float3 shadowed = 0;
         for (int i = 0; i < _LightCount; i++)
@@ -997,7 +1071,7 @@ float3 DirectLighting(float3 pos, float3 n, uint layer, inout uint rng)
 // Direct light at the bounce hit: one shadow ray (reference: one light ray plus at most one emitter ray).
 float3 DirectOne(float3 p, float3 n, uint layer, inout uint rng)
 {
-    if (_LightSampling <= 0)
+    if (g_RefLights && _LightSampling <= 0)
     {
         float3 emUnshadowed;
         float3 em = EmissiveDirect(p, n, min(_EmissiveRefSamples, 1), rng, emUnshadowed);

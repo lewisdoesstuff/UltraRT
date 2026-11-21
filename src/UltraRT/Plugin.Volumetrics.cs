@@ -173,6 +173,10 @@ namespace UltraRT
                 exposure = _autoExposure?.ExposureBuffer,
                 composite = _volCompositeMat,
                 frameIndex = _frameIndex,
+                rayQuery = _rayQuery,
+                sceneHasGlass = _sgBound > 0 && _proxies != null && _proxies.HasGlass && SceneProxies.Glass.enabled && SceneProxies.Glass.gain > 0f,
+                preLinearLights = _preLinearLights && LinearActive,
+                emissive = _emissive,
             };
             _gpu?.Begin(_cmd, SlotVolumetrics);
             _emissive.Bind(_cmd, _volumetrics.RtShader, _lightSamplingSettings.mode); // emissive triangles for surface glow scattering
@@ -202,7 +206,7 @@ namespace UltraRT
                 var m = _volumetrics.Medium;
                 string sunText = sun >= 0 ? FormattableString.Invariant($"#{sun} ({sunColor.r:F2}, {sunColor.g:F2}, {sunColor.b:F2})") : "none";
                 Logger.LogInfo(FormattableString.Invariant($"Volumetrics: medium {m.x:F4}/m (fog {_volumetrics.MediumSource}, colour {RenderSettings.fogColor}), tint ({m.y:F2}, {m.z:F2}, {m.w:F2}), ") +
-                               $"sun {sunText}, {_lightCount} lights, game fog {(frame.applyGameFog && _volSettings.gameFog ? "on" : "off")}, {beamCount} beam hulls");
+                               $"sun {sunText}, {_lightCount} lights, game fog {(frame.applyGameFog && _volSettings.gameFog ? "on" : "off")}, {beamCount} beam hulls, rq={(_rayQuery != null ? $"ready={_rayQuery.Ready}/tlas={_rayQuery.HasTlas}/vol={_rayQuery.VolDispatches}" : "off")}");
             }
         }
 

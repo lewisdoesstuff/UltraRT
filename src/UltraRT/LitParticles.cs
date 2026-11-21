@@ -249,7 +249,7 @@ namespace UltraRT
         /// renderers whose bounds hold an orb fixture's centre get a property block that turns the fade off. Explosions keep
         /// it: they have no orb fixture inside. Re-checked when the orb list or the swapped set changes.
         /// </summary>
-        public void KeepOrbGlows(IReadOnlyDictionary<Renderer, Bounds> orbs, int version)
+        public void KeepOrbGlows(IReadOnlyDictionary<Renderer, Bounds> orbs, int version, IReadOnlyList<MeshRenderer> candidates = null)
         {
             // Keyed on the glow materials, not on _lit.Count: that grows in every fight (adopted instances), and each pass
             // walks every mesh renderer of the level (8-3: a 20-30 ms frame every 5 s of combat, 2026-11-21).
@@ -259,7 +259,8 @@ namespace UltraRT
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             OrbPasses++;
             int n = 0;
-            foreach (var r in UnityEngine.Object.FindObjectsOfType<MeshRenderer>(true))
+            IEnumerable<MeshRenderer> list = candidates != null ? (IEnumerable<MeshRenderer>)candidates : UnityEngine.Object.FindObjectsOfType<MeshRenderer>(true);
+            foreach (var r in list)
             {
                 if (r == null) continue;
                 // Geometry first: few renderers hold an orb, and the material test reads (and allocates) the name.

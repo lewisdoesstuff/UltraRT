@@ -139,7 +139,8 @@ namespace UltraRT
         }
 
         /// <param name="debugView">0 none, 1 raw reflection, 2 filtered reflection, 3 specular contribution, 4 history length.</param>
-        public void Execute(CommandBuffer cmd, in ReflectionInputs inp, ReflectionSettings s, int debugView)
+        /// <param name="bypassFilter">Skip temporal+spatial passes (e.g. DLSS RR filters specular directly); run Resolve only.</param>
+        public void Execute(CommandBuffer cmd, in ReflectionInputs inp, ReflectionSettings s, int debugView, bool bypassFilter = false)
         {
             int w = inp.surface.width, h = inp.surface.height;
             var cs = _cs;
@@ -150,7 +151,7 @@ namespace UltraRT
             cmd.SetComputeFloatParam(cs, "_MaxHistory", Mathf.Clamp(s.maxHistory, 1, 255));
 
             Texture filtered = inp.reflection;
-            if (s.enabled && (s.temporal || s.spatial))
+            if (!bypassFilter && s.enabled && (s.temporal || s.spatial))
             {
                 EnsureTargets(w, h);
                 int prev = _cur ^ 1;

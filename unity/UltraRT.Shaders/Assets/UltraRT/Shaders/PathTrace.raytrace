@@ -11,13 +11,13 @@ RaytracingAccelerationStructure _Scene;
 #define ULTRART_PORTAL_GLASS // camera rays collect water and glass behind portals (TraceScene, g_PortalGlass)
 #include "UltraRTPortals.hlsl" // TraceScene: rays follow portals (docs/portals.md)
 // NOTE: Unity ray tracing shaders support at most 8 UAVs; a 9th makes DispatchRays fail silently. This shader binds
-// the 7 below (one slot is free since ReSTIR's _ReservoirCur went, 2026-11-19). Albedo and emission share _Surface.
+// exactly 8 UAVs: the 6 textures below plus _CacheKeys and _CacheAccum (UltraRTCache.hlsl, ULTRART_CACHE_WRITE).
+// Albedo, emission, material and lit weight share _Surface (UltraRTMaterial.hlsl).
 RWTexture2D<float4> _Output;      // composited (albedo * lighting + emission + reflections); also the accumulation history (ARGBHalf)
 RWTexture2D<float4> _Radiance;    // demodulated lighting (not multiplied by albedo); a = 2: moving-occluder flag, else 1
-RWTexture2D<uint4>  _Surface;     // packed albedo, emission and reflection material (UltraRTMaterial.hlsl, PackSurface)
+RWTexture2D<uint4>  _Surface;     // packed albedo, emission, reflection material and lit weight (UltraRTMaterial.hlsl, PackSurface)
 RWTexture2D<float4> _NormalDepth; // xyz world normal, w = hit distance (< 0 = sky)
 RWTexture2D<int2>   _InstanceId;  // RGInt: x InstanceIndex() (-1 = sky), y packed world-space motion (PackMotion, 0 = static)
-RWTexture2D<uint4>  _LitWeight;   // w & 0xFF: lit weight unorm8 (0 = fullbright), for auto exposure and DLSS RR; xyz unused
 RWTexture2D<float4> _Reflection;  // rgb reflected radiance; a: reflection hit distance (sky: 1000), -1 = not traced
 
 float4x4 _InvViewProj;
@@ -101,9 +101,13 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 
 // ---------------------------------------------------------------- lights
 
+// Folded SHaRC radiance cache update (Wave 2): x stride (0 = off, use CacheUpdate.raytrace), y feedback, z albedoMax, w maxSample.
+float4   _CacheFold;
+
 #define ULTRART_MOVERS // moving-occluder boxes: _Radiance.a flags the pixel for the denoiser (UltraRTLights.hlsl)
 #include "UltraRTLights.hlsl"
-#include "UltraRTCache.hlsl" // radiance cache lookups (read-only: no UAVs)
+#define ULTRART_CACHE_WRITE // binds _CacheKeys + _CacheAccum as UAVs 6 & 7 (total 8 UAVs)
+#include "UltraRTCache.hlsl"
 #include "UltraRTSky.hlsl"   // sky radiance and sky light sampling (SRVs only)
 #include "UltraRTEffects.hlsl" // glowing effects along a specular ray (EffectsAlong)
 #include "UltraRTStains.hlsl"  // blood stains at reflection hits (StainTint)
@@ -340,9 +344,8 @@ void RayGenBody(bool full)
         albedo = 1;
         emission = 0;
         _NormalDepth[id] = float4(0, 0, 0, -1);
-        _LitWeight[id] = uint4(0, 0, 0, 0);
         _InstanceId[id] = int2(-1, 0);
-        _Surface[id] = PackSurface(albedo, emission, 0u, 0u);
+        _Surface[id] = PackSurface(albedo, emission, 0u, 0u, 0.0);
         _Reflection[id] = float4(0, 0, 0, -1);
     }
     else
@@ -392,6 +395,42 @@ void RayGenBody(bool full)
         [branch] if (_UltraRTStainedGlassCount > 0)
             direct += StainedGlassLight(pos, n, nv, tTotal * pixelAngle / max(abs(dot(nv, ray.Direction)), 0.2), rng);
 
+        // Folded SHaRC radiance cache update: pick one whole 8x4 warp per stride x stride block of warps (1/16 coverage,
+        // 0% intra-warp divergence) to write vertex 0 + vertex 1 into _CacheKeys / _CacheAccum.
+        bool cacheWrite = false;
+        if (_CacheFold.x > 0.5 && _CacheMode > 0 && p.alpha > 0.0)
+        {
+            uint cStride = max((uint)_CacheFold.x, 1u);
+            uint2 cWarp = id >> uint2(3u, 2u);
+            uint2 cBlk = cWarp / cStride;
+            uint ch = HashU32(cBlk.x * 7919u + cBlk.y * 104729u + _FrameIndex * 15485863u + 0x5bd1e995u);
+            uint2 cPick = uint2(ch % cStride, (ch >> 16) % cStride);
+            cacheWrite = all((cWarp - cBlk * cStride) == cPick);
+        }
+
+        // Stochastic single-lobe BSDF selection (Wave 3, ptx.singleLobe): on glossy primary hits in pathtrace, trace
+        // either the specular OR diffuse secondary path with balanced probability (unbiased in expectation).
+        bool slPickSpec = false, slSkipSpec = false;
+        float slInvPdf = 1.0;
+        if (full && _PtParams3.w > 0.5 && _Mode == 0 && !cacheWrite && _ReflParams.x > 0.5)
+        {
+            SurfaceMaterial slMat = MaterialFromPayload(p.material, p.flags);
+            if (slMat.mode != ULTRART_REFL_NONE)
+            {
+                float3 slSpecW;
+                float slKeep;
+                SpecularTerms(slMat, p.albedo, saturate(dot(n, -ray.Direction)), _ReflParams.yz, slSpecW, slKeep);
+                if (dot(slSpecW, float3(0.2126, 0.7152, 0.0722)) >= _ReflParams.w)
+                {
+                    float ws = dot(ToLight(slSpecW), float3(0.2126, 0.7152, 0.0722));
+                    float wd = dot(ToLight(p.albedo * slKeep), float3(0.2126, 0.7152, 0.0722)) * p.alpha;
+                    float pS = clamp(ws / max(ws + wd, 1e-5), 0.15, 0.85);
+                    if (Rand(rng) < pS) { slPickSpec = true; slInvPdf = 1.0 / pS; }
+                    else { slSkipSpec = true; slInvPdf = 1.0 / (1.0 - pS); }
+                }
+            }
+        }
+
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
         // Radiance cache (docs/radiance-cache.md): mode 2 reads the indirect light at the primary hit and skips the bounce
         // ray; mode 1 takes the lighting at the bounce hit from the cache (all further bounces, no shadow ray).
@@ -402,10 +441,14 @@ void RayGenBody(bool full)
         if (full)
         {
             // Path tracing: N multi-bounce paths with next-event estimation at every vertex (UltraRTPathTraceFull.hlsl).
-            indirect = PtIndirect(pos, n, nv, hitCone, rng);
+            if (!slPickSpec)
+            {
+                indirect = PtIndirect(pos, n, nv, hitCone, cacheWrite, direct, rng);
+                if (slSkipSpec) indirect *= slInvPdf;
+            }
             cachedPrimary = true;
         }
-        else if (_CacheMode == 2)
+        else if (_CacheMode == 2 && !cacheWrite)
         {
             float u1 = Rand(rng), u2 = Rand(rng);
             cachedPrimary = CacheQueryIndirect(pos, nv, u1, u2, indirect);
@@ -418,24 +461,80 @@ void RayGenBody(bool full)
             if (dot(b.Direction, nv) < 1e-3) b.Direction = reflect(b.Direction, nv); // detail normal: stay above the surface
             b.TMin = 0.0;
             b.TMax = 1.0e4;
-            RayPayload h;
-            float travelled;
-            ULTRART_SET_RAY_KIND(ULTRART_RAY_BOUNCE);
-            TraceSceneCone(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_BOUNCE),
-                           DiffuseCone(hitCone), b, h, travelled); // b: the last segment after portals
-            if (h.t < 0.0)
+            float2 bCone = DiffuseCone(hitCone);
+            uint v1Slot = ULTRART_CACHE_NONE;
+            uint2 v1DirectHalf = 0;
+            uint v1NOct = 0;
+            int maxSteps = cacheWrite ? 2 : 1;
+            [loop] for (int step = 0; step < maxSteps; step++)
             {
-                indirect = SkyLightRadiance(b.Direction) * SkyMissWeight(n, b.Direction); // MIS with SkyDirect below
-            }
-            else
-            {
-                float3 hp = b.Origin + b.Direction * h.t;
-                // An if, not ?: (HLSL 2018 evaluates both sides: DirectOne's candidates and shadow ray ran on every cache hit).
-                float3 hitLight;
-                [branch] if (!CacheQueryTotal(hp, h.normal, hitLight)) hitLight = DirectOne(hp, h.normal, PayloadLayer(h), rng);
-                hitLight += ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
-                // Emitters that are sampled directly (EmissiveLights) must not also count when a bounce hits them.
-                indirect = ToLight(PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight)) + ToLight(h.albedo) * lerp(1.0, hitLight, h.alpha);
+                RayPayload h;
+                float travelled;
+                ULTRART_SET_RAY_KIND(ULTRART_RAY_BOUNCE);
+                TraceSceneCone(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_BOUNCE),
+                               bCone, b, h, travelled); // b: the last segment after portals
+                if (step == 0)
+                {
+                    if (h.t < 0.0)
+                    {
+                        indirect = SkyLightRadiance(b.Direction) * SkyMissWeight(n, b.Direction); // MIS with SkyDirect below
+                        if (cacheWrite)
+                            CacheAccumulate(CacheInsert(pos, nv), direct + indirect, indirect, _CacheFold.w);
+                        break;
+                    }
+                    float3 hp = b.Origin + b.Direction * h.t;
+                    // An if, not ?: (HLSL 2018 evaluates both sides: DirectOne's candidates and shadow ray ran on every cache hit).
+                    float3 cachedLight = 0;
+                    bool hitCached = CacheQueryTotal(hp, h.normal, cachedLight);
+                    float3 directLight = 0;
+                    if (!hitCached || cacheWrite)
+                    {
+                        uint savedPM = g_ShadowPlayerMask;
+                        if (cacheWrite) g_ShadowPlayerMask = 0u;
+                        directLight = DirectOne(hp, h.normal, PayloadLayer(h), rng);
+                        g_ShadowPlayerMask = savedPM;
+                    }
+                    float3 hitLight = hitCached ? cachedLight : directLight;
+                    float3 hitLightAmb = hitLight + ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
+                    // Emitters that are sampled directly (EmissiveLights) must not also count when a bounce hits them.
+                    float3 em1 = ToLight(PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight));
+                    indirect = em1 + ToLight(h.albedo) * lerp(1.0, hitLightAmb, h.alpha);
+                    if (cacheWrite)
+                    {
+                        float3 tail0 = hitCached ? cachedLight * _CacheFold.y : directLight;
+                        float3 inc0 = em1 + min(ToLight(h.albedo), _CacheFold.z) * lerp(1.0, tail0, h.alpha);
+                        CacheAccumulate(CacheInsert(pos, nv), direct + inc0, inc0, _CacheFold.w);
+                        v1Slot = CacheInsert(hp, h.normal);
+                        v1DirectHalf = PackEmissionHalf(directLight);
+                        v1NOct = PackOct24(h.normal);
+                        b.Origin = hp + h.normal * 0.02;
+                        b.Direction = CosineHemisphere(h.normal, Rand(rng), Rand(rng));
+                        b.TMin = 0.0;
+                        b.TMax = 1.0e4;
+                        bCone.x += bCone.y * (travelled + h.t);
+                        bCone = DiffuseCone(bCone);
+                    }
+                }
+                else
+                {
+                    float3 inc1;
+                    if (h.t < 0.0)
+                    {
+                        inc1 = SkyLightRadiance(b.Direction) * SkyMissWeight(UnpackOct24(v1NOct), b.Direction);
+                    }
+                    else
+                    {
+                        float3 hp2 = b.Origin + b.Direction * h.t;
+                        float3 tail = 0;
+                        float3 cached2;
+                        if (CacheQueryTotal(hp2, h.normal, cached2))
+                            tail = cached2 * _CacheFold.y;
+                        float3 alb2 = min(ToLight(h.albedo), _CacheFold.z);
+                        inc1 = ToLight(PayloadEmission(h) * (_EmissionScale * _EmissiveBounceWeight)) + alb2 * lerp(1.0, tail, h.alpha);
+                    }
+                    float3 v1Dir = float3(f16tof32(v1DirectHalf.x), f16tof32(v1DirectHalf.x >> 16), f16tof32(v1DirectHalf.y));
+                    CacheAccumulate(v1Slot, v1Dir + inc1, inc1, _CacheFold.w);
+                }
             }
         }
         // Sky light sampled directly (relight; one visibility ray). Counted with the indirect light: it is what the
@@ -503,7 +602,7 @@ void RayGenBody(bool full)
         // One reflection ray where the specular term is worth it (the same weights the composites use).
         SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
         float4 refl = float4(0, 0, 0, -1);
-        if (_ReflParams.x > 0.5 && mat.mode != ULTRART_REFL_NONE && _Mode != 2)
+        if (_ReflParams.x > 0.5 && mat.mode != ULTRART_REFL_NONE && _Mode != 2 && !slSkipSpec)
         {
             float NdotV = saturate(dot(n, -ray.Direction));
             float3 specW;
@@ -515,7 +614,11 @@ void RayGenBody(bool full)
                 if (dot(L, nv) < 1e-3) L = reflect(ray.Direction, nv); // detail normal tilted the lobe below the surface
                 float dist;
                 float3 lr;
-                if (full) lr = PtReflection(pos, nv, n, ray.Direction, mat.roughness, hitCone, rng, dist); // specular paths
+                if (full)
+                {
+                    lr = PtReflection(pos, nv, n, ray.Direction, mat.roughness, hitCone, rng, dist); // specular paths
+                    if (slPickSpec) lr = LightToDisplay(ToLight(lr) * slInvPdf);
+                }
                 else lr = TraceReflection(pos, nv, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, tTotal, rng, dist);
                 refl = float4(lr, dist);
                 // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered
@@ -524,9 +627,8 @@ void RayGenBody(bool full)
             }
         }
         _Reflection[id] = refl;
-        _Surface[id] = PackSurface(albedo, emission, p.material, p.flags);
+        _Surface[id] = PackSurface(albedo, emission, p.material, p.flags, p.alpha);
         _NormalDepth[id] = float4(PortalToVirtual(path, n), tTotal);
-        _LitWeight[id] = uint4(0, 0, 0, Unorm8(p.alpha));
         // x: instance (consumers use its low 7 bits). Seen through a portal, the high half holds the distance to the first
         // portal surface (half float, > 0), which is what the game's depth buffer has there (Composite.shader).
         uint instWord = p.instance & 0xFFFFu;
@@ -577,6 +679,8 @@ void RayGenPT() { g_PortalImages = false; RayCountsBegin(); RayGenBody(true); Ra
 void RayGenImg() { RayCountsBegin(); RayGenBody(false); RayCountsWrite(); }
 [shader("raygeneration")]
 void RayGenPTImg() { RayCountsBegin(); RayGenBody(true); RayCountsWrite(); }
+[shader("raygeneration")]
+void RayGenRef() { g_RefLights = true; RayCountsBegin(); RayGenBody(false); RayCountsWrite(); }
 #else
 // Frames without scene lights imaged through portals (UltraRTLights.hlsl, g_PortalImages): that code compiled out.
 [shader("raygeneration")]
@@ -591,6 +695,10 @@ void RayGenPT() { g_PortalImages = false; RayGenBody(true); }
 void RayGenImg() { RayGenBody(false); }
 [shader("raygeneration")]
 void RayGenPTImg() { RayGenBody(true); }
+
+// Reference light sampling (all lights + emissive ref samples): split out so DXC strips the dead reference loops from production raygens.
+[shader("raygeneration")]
+void RayGenRef() { g_RefLights = true; RayGenBody(false); }
 #endif
 
 [shader("miss")]

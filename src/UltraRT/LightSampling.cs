@@ -36,6 +36,11 @@ namespace UltraRT
         /// surfaces seen through a portal (8-2's fake mirrors, 8-3's doorways) are often far from the camera in world space,
         /// and their lights were sampled almost only through the uniform mix (docs/light-sampling.md, "Portals").</summary>
         public bool portalImportance = true;
+        /// <summary>World-space light grid (ReGIR-lite, Wave 3): 32x16x32 camera-centered 4 m cells storing top 8 local
+        /// shadowed lights per cell, combined via exact 50/50 MIS mixture with global _LightAlias. Bench ls.grid=0.</summary>
+        public bool grid = true;
+        /// <summary>Primary RIS candidates when the world-space light grid is active (halves RIS loop ALU with equal/lower variance).</summary>
+        public int risCandidatesGrid = 8;
     }
 
     /// <summary>
@@ -52,6 +57,8 @@ namespace UltraRT
         /// <summary>The mode the last <see cref="Bind"/> used.</summary>
         public LightSamplingMode ActiveMode { get; private set; } = LightSamplingMode.Ris;
         public int FillLightCount { get; private set; }
+        internal ComputeBuffer AliasBuffer => _alias;
+        internal ComputeBuffer FillBuffer => _fill;
         /// <summary>True when lights were added or removed relative to the previous <see cref="Bind"/> (the radiance cache and
         /// the particle and viewmodel histories react to it).</summary>
         public bool LightSetChanged { get; private set; }
@@ -73,12 +80,18 @@ namespace UltraRT
         /// </summary>
         public int[] VirtualIds;
 
+        private const int GridX = 32, GridY = 16, GridZ = 32;
+        private const float GridCell = 4f;
         private readonly int _maxLights;
-        private readonly ComputeBuffer _alias, _fill;
-        private readonly uint[] _aliasData, _fillData;
-        private readonly float[] _prob;
+        private readonly ComputeBuffer _alias, _fill, _gridBuf, _risIdxBuf, _globalPdfBuf;
+        private readonly uint[] _aliasData, _fillData, _risIdxData;
+        private readonly float[] _prob, _globalPdfData;
         private readonly int[] _risLights, _small, _large, _aliasIdx;
         private readonly float[] _threshold;
+        private ComputeShader _gridCs;
+        private int _kBuildGrid = -1;
+        private Vector4 _gridOrigin;
+        private bool _gridBuiltThisFrame;
 
         private readonly int[] _prevIds;
         private int _prevCount;
@@ -91,7 +104,15 @@ namespace UltraRT
             IdRisLightCount = Shader.PropertyToID("_RisLightCount"),
             IdLightAlias = Shader.PropertyToID("_LightAlias"),
             IdFillCount = Shader.PropertyToID("_FillCount"),
-            IdFillLights = Shader.PropertyToID("_FillLights");
+            IdFillLights = Shader.PropertyToID("_FillLights"),
+            IdLightGrid = Shader.PropertyToID("_LightGrid"),
+            IdLightGlobalPdf = Shader.PropertyToID("_LightGlobalPdf"),
+            IdLightGridOrigin = Shader.PropertyToID("_LightGridOrigin"),
+            IdLightGridOn = Shader.PropertyToID("_LightGridOn"),
+            IdLightsCs = Shader.PropertyToID("_Lights"),
+            IdRisLightIdxCs = Shader.PropertyToID("_RisLightIdx"),
+            IdGridOriginCs = Shader.PropertyToID("_GridOrigin"),
+            IdGridDimsCs = Shader.PropertyToID("_GridDims");
 
         public LightSampling(int maxLights)
         {
@@ -99,8 +120,13 @@ namespace UltraRT
             _maxLights = maxLights;
             _alias = new ComputeBuffer(maxLights, 16) { name = "UltraRT LightAlias" };
             _fill = new ComputeBuffer(maxLights, 4) { name = "UltraRT FillLights" };
+            _gridBuf = new ComputeBuffer(GridX * GridY * GridZ, 16) { name = "UltraRT LightGrid" };
+            _risIdxBuf = new ComputeBuffer(maxLights, 4) { name = "UltraRT RisLightIdx" };
+            _globalPdfBuf = new ComputeBuffer(maxLights, 4) { name = "UltraRT LightGlobalPdf" };
             _aliasData = new uint[maxLights * 4];
             _fillData = new uint[maxLights];
+            _risIdxData = new uint[maxLights];
+            _globalPdfData = new float[maxLights];
             _prob = new float[maxLights];
             _risLights = new int[maxLights];
             _small = new int[maxLights];
@@ -111,6 +137,17 @@ namespace UltraRT
             // Zero-fill so nothing is ever read uninitialised.
             _alias.SetData(_aliasData);
             _fill.SetData(_fillData);
+            _risIdxBuf.SetData(_risIdxData);
+            _globalPdfBuf.SetData(_globalPdfData);
+            var emptyGrid = new uint[GridX * GridY * GridZ * 4];
+            for (int i = 0; i < emptyGrid.Length; i++) emptyGrid[i] = 0xFFFFFFFFu;
+            _gridBuf.SetData(emptyGrid);
+        }
+
+        public void SetGridShader(ComputeShader cs)
+        {
+            _gridCs = cs;
+            _kBuildGrid = cs != null && cs.HasKernel("BuildGrid") ? cs.FindKernel("BuildGrid") : -1;
         }
 
         /// <summary>No sampling history is kept since ReSTIR went (2026-11-19); kept for the callers' reset paths.</summary>
@@ -123,15 +160,30 @@ namespace UltraRT
         /// <param name="lights">The Light behind each packed entry: lights[i] fills lightData[i*4 .. i*4+3].</param>
         /// <param name="lightData">The same array uploaded to _Lights (4 x Vector4 per light).</param>
         /// <param name="lightCount">Number of packed lights (_LightCount).</param>
-        public void Bind(CommandBuffer cmd, RayTracingShader shader, Vector3 camPos, IList<Light> lights, Vector4[] lightData, int lightCount)
+        public void Bind(CommandBuffer cmd, RayTracingShader shader, Vector3 camPos, IList<Light> lights, Vector4[] lightData, int lightCount, ComputeBuffer lightsBuffer = null)
         {
             var s = Settings;
             lightCount = Mathf.Clamp(lightCount, 0, _maxLights);
             BuildTables(lights, lightData, lightCount, camPos);
             ActiveMode = s.mode;
+            _gridBuiltThisFrame = s.grid && s.mode == LightSamplingMode.Ris && _gridCs != null && _kBuildGrid >= 0 && lightsBuffer != null && RisLightCount > 12;
+            if (_gridBuiltThisFrame)
+            {
+                float ox = Mathf.Floor(camPos.x / GridCell) * GridCell - 0.5f * GridX * GridCell;
+                float oy = Mathf.Floor(camPos.y / GridCell) * GridCell - 0.5f * GridY * GridCell;
+                float oz = Mathf.Floor(camPos.z / GridCell) * GridCell - 0.5f * GridZ * GridCell;
+                _gridOrigin = new Vector4(ox, oy, oz, GridCell);
+                cmd.SetComputeBufferParam(_gridCs, _kBuildGrid, IdLightsCs, lightsBuffer);
+                cmd.SetComputeBufferParam(_gridCs, _kBuildGrid, IdRisLightIdxCs, _risIdxBuf);
+                cmd.SetComputeBufferParam(_gridCs, _kBuildGrid, IdLightGrid, _gridBuf);
+                cmd.SetComputeVectorParam(_gridCs, IdGridOriginCs, _gridOrigin);
+                cmd.SetComputeIntParams(_gridCs, IdGridDimsCs, GridX, GridY, GridZ, RisLightCount);
+                cmd.DispatchCompute(_gridCs, _kBuildGrid, GridX / 4, GridY / 4, GridZ / 4);
+            }
+            int cands = s.mode == LightSamplingMode.Ris ? (_gridBuiltThisFrame ? Mathf.Min(s.risCandidates, s.risCandidatesGrid) : s.risCandidates) : s.candidates;
             cmd.SetRayTracingIntParam(shader, IdLightSampling, (int)s.mode);
-            cmd.SetRayTracingIntParam(shader, IdRisCandidates, Mathf.Clamp(s.mode == LightSamplingMode.Ris ? s.risCandidates : s.candidates, 1, 64));
-            BindShared(cmd, shader);
+            cmd.SetRayTracingIntParam(shader, IdRisCandidates, Mathf.Clamp(cands, 1, 64));
+            BindShared(cmd, shader, _gridBuiltThisFrame);
         }
 
         /// <summary>
@@ -143,16 +195,20 @@ namespace UltraRT
             var s = Settings;
             cmd.SetRayTracingIntParam(shader, IdLightSampling, (int)s.mode);
             cmd.SetRayTracingIntParam(shader, IdRisCandidates, Mathf.Clamp(s.candidates, 1, 64));
-            BindShared(cmd, shader);
+            BindShared(cmd, shader, false);
         }
 
-        private void BindShared(CommandBuffer cmd, RayTracingShader shader)
+        private void BindShared(CommandBuffer cmd, RayTracingShader shader, bool useGrid)
         {
             cmd.SetRayTracingIntParam(shader, IdBounceCandidates, Mathf.Clamp(Settings.bounceCandidates, 1, 64));
             cmd.SetRayTracingIntParam(shader, IdRisLightCount, RisLightCount);
             cmd.SetRayTracingBufferParam(shader, IdLightAlias, _alias);
             cmd.SetRayTracingIntParam(shader, IdFillCount, FillLightCount);
             cmd.SetRayTracingBufferParam(shader, IdFillLights, _fill);
+            cmd.SetRayTracingBufferParam(shader, IdLightGrid, _gridBuf);
+            cmd.SetRayTracingBufferParam(shader, IdLightGlobalPdf, _globalPdfBuf);
+            cmd.SetRayTracingVectorParam(shader, IdLightGridOrigin, _gridOrigin);
+            cmd.SetRayTracingFloatParam(shader, IdLightGridOn, useGrid ? 1f : 0f);
         }
 
         private int IdOf(Light l, int i) =>
@@ -208,8 +264,16 @@ namespace UltraRT
 
             // ---- pdf = (1 - mix) * w / sum + mix / N, then Vose's alias table
             float mix = sum > 0 ? Mathf.Clamp01(Settings.uniformMix) : 1f;
+            Array.Clear(_globalPdfData, 0, count);
             for (int k = 0; k < nRis; k++)
-                _prob[k] = (float)((1.0 - mix) * (sum > 0 ? _prob[k] / sum : 0.0) + mix / nRis);
+            {
+                float pk = (float)((1.0 - mix) * (sum > 0 ? _prob[k] / sum : 0.0) + mix / nRis);
+                _prob[k] = pk;
+                _risIdxData[k] = (uint)_risLights[k];
+                _globalPdfData[_risLights[k]] = pk;
+            }
+            _risIdxBuf.SetData(_risIdxData, 0, 0, nRis);
+            _globalPdfBuf.SetData(_globalPdfData, 0, 0, count);
 
             int ns = 0, nl = 0;
             for (int k = 0; k < nRis; k++)
@@ -269,6 +333,9 @@ namespace UltraRT
         {
             _alias?.Release();
             _fill?.Release();
+            _gridBuf?.Release();
+            _risIdxBuf?.Release();
+            _globalPdfBuf?.Release();
         }
     }
 }

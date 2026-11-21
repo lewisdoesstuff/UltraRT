@@ -23,7 +23,7 @@ Texture2D<float4>         _Filtered;    // denoised demodulated lighting (rgb)
 Texture2D<float4>         _Albedo;
 Texture2D<float4>         _Specular;    // rgb added, a = keep factor (only if _HasSpecular)
 Texture2D<float4>         _NormalDepth; // w < 0: sky
-Texture2D<uint4>          _LitWeight;   // PathTrace's _LitWeight: w & 0xFF = lit weight (0 = fullbright)
+Texture2D<uint4>          _LitWeight;   // PathTrace's _Surface: z >> 24 = lit weight (0 = fullbright)
 int                       _HasSpecular;
 float4                    _Dim;         // w, h
 float4                    _Range;       // x min log2 luminance, y bins per EV
@@ -81,7 +81,7 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
     GroupMemoryBarrierWithGroupSync();
 
     uint2 p = id.xy * 2;
-    if (all(p < (uint2)_Dim.xy) && _NormalDepth[p].w >= 0.0 && (_LitWeight[p].w & 0xFFu) >= 128u)
+    if (all(p < (uint2)_Dim.xy) && _NormalDepth[p].w >= 0.0 && (_LitWeight[p].z >> 24) >= 128u)
     {
         float4 sp = _HasSpecular != 0 ? _Specular[p] : float4(0, 0, 0, 1);
         float3 lit = _UltraRTLinear > 0.5 ? pow(max(_Filtered[p].rgb, 0.0), 1.0 / 2.2) : _Filtered[p].rgb;

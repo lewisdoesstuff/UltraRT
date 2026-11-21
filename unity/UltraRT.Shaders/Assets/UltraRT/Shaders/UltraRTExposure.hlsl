@@ -10,7 +10,7 @@
 #include "UltraRTToneCurve.hlsl"
 
 StructuredBuffer<float4> _UltraRTExposure;  // [0].x = exposure (linear multiplier), [3] = colour match gain (w 1 = valid)
-Texture2D<uint4>         _UltraRTLitWeight; // PathTrace's _LitWeight: w & 0xFF = lit weight (0 = fullbright)
+Texture2D<uint4>         _UltraRTLitWeight; // PathTrace's _Surface: z >> 24 = lit weight (0 = fullbright)
 float  _UltraRTAutoExposure;                // global: 1 = apply _UltraRTExposure, 0 = off
 float  _UltraRTTonemapWhite;                // global, relight: luminance (or max channel) that maps to 1; 0 = no tone map
 float4 _UltraRTTonemapParams;               // global: x curve (0 = luminance, 1 = max channel), y knee, z toe strength, w toe end (UltraRTToneCurve.hlsl)
@@ -29,7 +29,7 @@ float UltraRTPixelExposure(uint2 s)
     if (_UltraRTAutoExposure <= 0.0) return 1.0;
     float e = _UltraRTExposure[0].x;
     if (!(e > 0.0) || isinf(e)) return 1.0;
-    float lit = (_UltraRTLitWeight[s].w & 0xFFu) * (1.0 / 255.0);
+    float lit = (_UltraRTLitWeight[s].z >> 24) * (1.0 / 255.0);
     return lerp(1.0, e, lit);
 }
 
@@ -40,7 +40,7 @@ float3 UltraRTPixelBalance(uint2 s)
     if (_UltraRTAutoExposure <= 0.0) return 1.0;
     float4 g = _UltraRTExposure[3];
     if (g.w < 0.5 || any(isnan(g)) || any(isinf(g)) || any(g.rgb <= 0.0)) return 1.0;
-    float lit = (_UltraRTLitWeight[s].w & 0xFFu) * (1.0 / 255.0);
+    float lit = (_UltraRTLitWeight[s].z >> 24) * (1.0 / 255.0);
     return lerp(1.0, g.rgb, lit);
 }
 

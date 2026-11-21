@@ -78,6 +78,16 @@ namespace UltraRT
             m.Bool("View", "DevHotkeys", "Developer hotkeys (F2, F3, F6, F9, F10, F11) and shader hot reload", () => _devHotkeys, v => _devHotkeys = v, "-ultrart-dev-hotkeys");
 
             m.Group = "Quality and performance";
+            m.Choice("Quality", "Preset", "Quality preset",
+                DetectQualityPreset,
+                v => { if (v != QualityPreset.Custom) ApplyQualityPreset(v); },
+                v => v.ToString(),
+                v => v == QualityPreset.Ultra ? "Ultra (0.67x, 3 bounces)"
+                    : v == QualityPreset.High ? "High (default)"
+                    : v == QualityPreset.Performance ? "Performance (1 bounce, single-lobe)"
+                    : v == QualityPreset.Competitive ? "Competitive (max FPS)"
+                    : "Custom",
+                "-ultrart-preset").SessionOnly().Basic();
             m.Choice("Quality", "TraceScale", "Trace resolution",
                 () => _scale < 0.585f ? TraceQuality.Performance : _scale < 0.835f ? TraceQuality.Balanced : TraceQuality.Quality,
                 v =>

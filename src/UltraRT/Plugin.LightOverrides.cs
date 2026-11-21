@@ -167,6 +167,8 @@ namespace UltraRT
 
         private readonly Dictionary<string, Renderer> _addBind = new Dictionary<string, Renderer>();
         private int _addBindVersion = -1;
+        private int _addBindHierVersion = -1;
+        private int _addBindRetries;
         private string _addBindScene;
         private float _nextAddBindScan;
 
@@ -243,17 +245,23 @@ namespace UltraRT
             _lightIds[k] = unchecked((int)(0x40000000u | ((uint)a.Id.GetHashCode() & 0x3FFFFFFFu)));
         }
 
-        /// <summary>Bound renderers by normalised path (looked up when the set or the scene changes, then every 2 s for misses).</summary>
+        /// <summary>Bound renderers by normalised path (looked up when the set, scene or spawned hierarchies change).</summary>
         private void ResolveAddBinds()
         {
             bool stale = _addBindVersion != _lightOv.Version || _addBindScene != _lightOv.Scene;
+            int hv = _proxies != null ? _proxies.HierarchyVersion : 0;
             bool missing = false;
             foreach (var a in _lightOv.Added)
                 if (!string.IsNullOrEmpty(a.Bind) && (!_addBind.TryGetValue(a.Bind, out var r) || r == null)) { missing = true; break; }
-            if (!stale && !(missing && Time.realtimeSinceStartup >= _nextAddBindScan)) return;
+            if (stale) _addBindRetries = 0;
+            bool newHier = missing && hv != _addBindHierVersion && Time.realtimeSinceStartup >= _nextAddBindScan;
+            bool timedRetry = missing && _addBindRetries < 2 && Time.realtimeSinceStartup >= _nextAddBindScan;
+            if (!stale && !newHier && !timedRetry) return;
             _addBindVersion = _lightOv.Version;
             _addBindScene = _lightOv.Scene;
-            _nextAddBindScan = Time.realtimeSinceStartup + 2f;
+            _addBindHierVersion = hv;
+            if (!stale) _addBindRetries++;
+            _nextAddBindScan = Time.realtimeSinceStartup + (stale ? 2f : 10f);
             var want = new HashSet<string>(_lightOv.Added.Where(a => !string.IsNullOrEmpty(a.Bind)).Select(a => a.Bind));
             if (want.Count == 0) return;
             if (stale) _addBind.Clear();

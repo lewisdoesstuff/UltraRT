@@ -872,6 +872,7 @@ namespace UltraRT
 
         private void SyncStatic(bool force)
         {
+            SyncStaticDynamic(force);
             if (_groups.Count == 0) return;
             _staticFrames++;
 
@@ -1173,6 +1174,7 @@ namespace UltraRT
 
         private void DisposeStatic()
         {
+            DisposeStaticDynamic();
             foreach (var g in _groups)
                 foreach (var gp in g.Parts)
                 {

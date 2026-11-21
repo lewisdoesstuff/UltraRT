@@ -7,7 +7,10 @@ light those effects from the ray-traced solution, the way Quake II RTX lights it
 
 Code: `src/UltraRT/LitParticles.cs` (which materials, the shader swap), `src/UltraRT/ParticleLighting.cs` (the lighting
 volume: settings, resources, dispatch), `src/UltraRT/Plugin.Particles.cs` (wiring, flags, globals),
-`src/UltraRT/ParticleSurvey.cs` (the survey); shaders `ParticleLight.raytrace` (trace), `ParticleLight.compute`
+`src/UltraRT/ParticleSurvey.cs` (the survey); shaders `ParticleLight.raytrace` (DXR raygen fallback),
+`native/UltraRT.Native/shaders/ParticleLightRQ.hlsl` + `native/UltraRT.Native/RayQuery.cpp` + `src/UltraRT/RayQueryBridge.cs`
+(native D3D12 `cs_6_5` inline `RayQuery` path used by default since 2026-11-21; bench A/B `pl.rayQuery=0`, eliminating Unity's
+per-`DispatchRays` shader-table rebuild and cutting render-thread CPU from ~0.83 ms to ~0.03 ms in 8-x), `ParticleLight.compute`
 (temporal filter), `LitParticle.shader` (the replacement material shader), and an `ULTRART_LIGHT_ISOTROPIC` switch in
 `UltraRTLights.hlsl`. Bench suites `particles-survey` and `particles`; bench effect kinds `blood` and `dust`.
 
