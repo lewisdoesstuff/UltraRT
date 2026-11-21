@@ -329,6 +329,9 @@ namespace UltraRT
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
                     case "-ultrart-v1-unlit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.PlayerModelUnlit); break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
+                    case "-ultrart-v1-glow": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _v1Glow); break; // V1's wings in reflections (SceneProxies.Player.cs)
+                    case "-ultrart-v1-weapon-glow": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _v1WeaponGlow); break; // the held gun's glow in reflections
+                    case "-ultrart-handover-tint": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _handoverTint); break; // fullbright handover parts take their lights' colour (Plugin.Handover.cs)
                     case "-ultrart-norain": _rainOn = false; break;
                     case "-ultrart-notexscroll": _texScroll = false; break;
                     case "-ultrart-notexscroll-motion": _texScrollMotion = false; break;
@@ -930,6 +933,10 @@ namespace UltraRT
         // 1 reflection rays (incl. water/glass), 2 bounce rays, 4 shadow rays, 8 camera rays after a portal hop (8-x
         // mirrors, as the game's portal views). Camera rays never see it directly (bit 16 does that; only a third-person cinematic shot sets it: _cineShowPlayer). -ultrart-player-rays N, bench plugin._playerRays=N.
         private int _playerRays = 15;
+        // V1's glow in reflections (SceneProxies.Player.cs, docs/reflections.md "V1's glow"): the body's emissive materials (wings)
+        // x _v1Glow; the third-person gun mirrors the viewmodel's emission x _v1WeaponGlow (0 = off). Bench plugin._v1Glow=F.
+        private float _v1Glow = 2.5f;
+        private float _v1WeaponGlow = 1f;
         private static readonly int PlayerRaysId = Shader.PropertyToID("_UltraRTPlayerRays");
         private static readonly int PlayerBoxMinId = Shader.PropertyToID("_UltraRTPlayerBoxMin"), PlayerBoxMaxId = Shader.PropertyToID("_UltraRTPlayerBoxMax");
         private static readonly int PlayerEyeId = Shader.PropertyToID("_UltraRTPlayerEye");
@@ -1368,6 +1375,9 @@ namespace UltraRT
             PortalCrossingRemap(); // the camera went through a portal: histories follow it (Plugin.PortalTemporal.cs)
             PortalViews(); // the camera's images through portals: light importance, emitter importance, cache cell size
             Shader.SetGlobalInt(PlayerRaysId, SceneProxies.TracePlayerModel ? (_playerRays & 15) | (_cineShowPlayer ? 16 : 0) : 0); // 16: third-person cinematic shots
+            SceneProxies.PlayerEmissionGain = _v1Glow;
+            SceneProxies.PlayerWeaponGlow = _v1WeaponGlow;
+            _proxies.UpdatePlayerGlow(); // the wings' gain, the held gun's glow mirrored from the viewmodel
             var eye = _camera.transform.position; // the player's own spot lights end their shadow rays here (UltraRTLights.hlsl)
             Shader.SetGlobalVector(PlayerEyeId, new Vector4(eye.x, eye.y, eye.z, _playerLightEyeClip ? 1f : 0f));
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))

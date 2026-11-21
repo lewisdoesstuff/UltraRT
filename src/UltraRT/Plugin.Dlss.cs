@@ -41,6 +41,8 @@ namespace UltraRT
         private int _rrFinishDebug;
         /// <summary>DlssRR.FrontEmitters (-ultrart-rr-nofrontemitters, bench plugin._rrFrontEmitters=0).</summary>
         private bool _rrFrontEmitters = true;
+        /// <summary>DlssRR.EmissionOutside (-ultrart-rr-emit-inside, bench plugin._rrEmitOutside=0).</summary>
+        private bool _rrEmitOutside = true;
         /// <summary>At an integer upscale (trace scale 1/2, 1/3, 1/4) jitter on the exact screen-pixel pattern instead of Halton
         /// (DlssRR.ExactGrid). Bench plugin._rrExactJitter=0.</summary>
         private bool _rrExactJitter = true;
@@ -75,6 +77,7 @@ namespace UltraRT
                     case "-ultrart-rr-gamma": _rrLinear = false; break;
                     case "-ultrart-rr-noremod": _rrRemodulate = false; break;
                     case "-ultrart-rr-nofrontemitters": _rrFrontEmitters = false; break;
+                    case "-ultrart-rr-emit-inside": _rrEmitOutside = false; break;
                     case "-ultrart-rr-nowarm": _rrWarm = false; break;
                     case "-ultrart-rr-jitter-sign":
                         float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _rrJitterSign);
@@ -216,6 +219,7 @@ namespace UltraRT
                 _rr.PlayerFilter = _rrPlayerFilter;
                 DlssRR.FinishDebug = _rrFinishDebug;
                 _rr.FrontEmitters = _rrFrontEmitters;
+                _rr.EmissionOutside = _rrEmitOutside;
                 // NVIDIA's rule: 8 x (output / render)^2 phases (72 at 3x); never fewer than the configured count.
                 _rr.JitterPhases = name == PathTraceModeName ? Mathf.Max(_rrJitterPhases, Mathf.CeilToInt(8f / Mathf.Max(0.04f, _ptSettings.scaleRR * _ptSettings.scaleRR))) : _rrJitterPhases;
                 if (_rrWarm)

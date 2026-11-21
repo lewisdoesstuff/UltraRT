@@ -55,7 +55,7 @@ float4   _Jitter;       // xy this frame's sample offset (trace px), zw last fra
 int4     _Guard;        // xy guard band (trace px), zw render (visible) size
 float4   _ReflParams;   // ReflectionSettings.ShaderParams (yz = SpecularTerms params)
 int      _UltraRTPlayerSplit; // global (Plugin.Noise.cs): V1's shadow is a factor in _Radiance.a, not in the lighting
-float4   _RRParams2;    // x remodulation on (0/1), y player shadow factor filtered before RR (0/1; PlayerShadowFactor), z emitters in front of the game's depth (Finish)
+float4   _RRParams2;    // x remodulation on (0/1), y player shadow factor filtered before RR (0/1; PlayerShadowFactor), z emitters in front of the game's depth (Finish), w emission outside RR (remodulation only)
 Texture2D<float4> _DemodTex;   // trace res: the demodulation colour D (Demod kernel)
 Texture2D<float4> _DemodHi;    // screen res: D accumulated by the temporal upsampler (a = 0: no RT surface)
 RWTexture2D<float4> _DemodOut;
@@ -82,7 +82,10 @@ float3 Dir(int2 s)
 bool Linearize() { return _UltraRTLinear > 0.5 && _RRParams.x > 0.5; }
 float3 Lin(float3 c) { return Linearize() ? pow(max(c, 0.0), 2.2) : max(c, 0.0); }
 bool Remodulate() { return _RRParams2.x > 0.5; }
+bool EmitOutside() { return _RRParams2.w > 0.5; }
 static const float kDemodMin = 1.0 / 255.0;
+// White diffuse reflectance given to emitting samples in RR's signal (Prepare; docs/dlss.md, "Emission outside RR").
+static const float kEmitWhite = 0.05;
 
 // The specular weight the reflection resolve applied at trace pixel s (0 where it added nothing).
 float3 SpecWeight(int2 s, float4 nd, float3 dir, float3 albedo, float4 sp)
@@ -171,12 +174,30 @@ void Prepare(uint3 id : SV_DispatchThreadID)
     float3 diffAlb = albedo * sp.a, specAlb = specW;
     if (Remodulate())
     {
-        // The image over its demodulation colour; the albedo guides become each lobe's share of it (they sum to 1 on
-        // surfaces that emit nothing, so RR sees no texture to reconstruct).
-        float3 dm = max(_DemodTex[s].rgb, kDemodMin);
-        color = Lin((albedo * disp * sp.a + sp.rgb) * e * UltraRTPixelBalance((uint2)s) / dm + emission / dm);
-        diffAlb /= dm;
-        specAlb /= dm;
+        // The lit part over its demodulation colour; the albedo guides become each lobe's share of it (they sum to 1, so
+        // RR sees no texture to reconstruct). The emission stays out of RR (docs/dlss.md, "Emission outside RR"): it is
+        // noise-free, and Finish adds it back at screen resolution (D's emissive share, EmitShare). In RR's signal an
+        // emitter's X = (lit + E) / (albedo + E) was a step against its unlit neighbours that RR rebuilt at trace
+        // resolution, as stair-stepped halos along slanted light bars (P-2, user 2026-11-20). Where a surface emits, a
+        // little white diffuse (kEmitWhite) stands in for the reflectance it lacks, so its X is the light that reaches it,
+        // continuous with the surface around it.
+        if (EmitOutside())
+        {
+            float em = max(emission.r, max(emission.g, emission.b));
+            float white = em > 0.0 ? kEmitWhite : 0.0;
+            float3 dm = max(albedo * sp.a + specW + white, kDemodMin);
+            color = Lin(((albedo * sp.a + white) * disp + sp.rgb) * e * UltraRTPixelBalance((uint2)s) / dm);
+            diffAlb = (diffAlb + white) / dm;
+            specAlb /= dm;
+        }
+        else
+        {
+            // Before 2026-11-21 (bench plugin._rrEmitOutside=0): the emission inside RR's signal.
+            float3 dm = max(_DemodTex[s].rgb, kDemodMin);
+            color = Lin((albedo * disp * sp.a + sp.rgb) * e * UltraRTPixelBalance((uint2)s) / dm + emission / dm);
+            diffAlb /= dm;
+            specAlb /= dm;
+        }
     }
     _OutColor[id.xy] = float4(min(color, 65000.0), 1.0);
     _OutDiffuse[id.xy] = float4(sky ? 0.5.xxx : saturate(Lin(diffAlb)), 1.0);
@@ -238,6 +259,41 @@ float3 RRAt(int2 p) { return _RRColor[min((int2)(((float2)p + 0.5) * _RRMap.xy) 
 
 float3 Display(float3 c) { return Linearize() ? pow(max(c, 0.0), 1.0 / 2.2) : max(c, 0.0); }
 
+// The emissive share of a screen pixel's demodulation colour d (D = reflectance + emission; docs/dlss.md, "Emission
+// outside RR"): E / D of the trace sample whose D is nearest d, among the 3x3 around kn. d is the screen-resolution
+// history, so the share follows the texel edges of d, not the trace grid. kHit alone when the pixel took that sample's D.
+float3 EmitShare(int2 kn, int2 tdim, int2 kHit, float3 d, bool own)
+{
+    float3 share = 0;
+    if (own)
+    {
+        float3 e0 = max(_Emission[kHit].rgb, 0.0);
+        share = saturate(e0 / max(_DemodTex[kHit].rgb, kDemodMin));
+    }
+    else
+    {
+        // Most pixels have no emitter nearby: the emission alone first (9 taps), D only where something emits.
+        float3 ek[9];
+        bool anyE = false;
+        [unroll] for (int j = 0; j < 9; j++)
+        {
+            ek[j] = max(_Emission[clamp(kn + int2(j % 3 - 1, j / 3 - 1), 0, tdim - 1)].rgb, 0.0);
+            anyE = anyE || any(ek[j] > 0.0);
+        }
+        [branch] if (anyE)
+        {
+            float best = 1e9;
+            [unroll] for (int j2 = 0; j2 < 9; j2++)
+            {
+                float3 dk = max(_DemodTex[clamp(kn + int2(j2 % 3 - 1, j2 / 3 - 1), 0, tdim - 1)].rgb, kDemodMin);
+                float diff = dot(abs(dk - d), 1.0.xxx);
+                if (diff < best) { best = diff; share = saturate(ek[j2] / dk); }
+            }
+        }
+    }
+    return share;
+}
+
 [numthreads(8, 8, 1)]
 void Finish(uint3 id : SV_DispatchThreadID)
 {
@@ -253,6 +309,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
     int2 tdim = (int2)_Dim.xy;
     float a = 0;
     int2 kHit = clamp(kn, 0, tdim - 1);
+    float3 emitHi = -1.0; // remodulation: this pixel's emission at screen resolution (EmitShare); < 0: the trace sample's
     // A floor at a grazing angle: its depth changes by more than the tolerance from one trace texel to the next, so no
     // sample matched and the game's pixel was kept, as bright rows on far floors and ledges (7-1, user 2026-11-18).
     // 1 / view depth is linear on the screen for a plane: predict it at this pixel from the centre sample and its four
@@ -385,7 +442,11 @@ void Finish(uint3 id : SV_DispatchThreadID)
             }
             if (best <= zg * _Match2.x) { a = 1; kHit = kb; }
         }
-        hdr = Display(RRAt(p)) * (cutHit ? cut.rgb : frontEm ? _DemodTex[kHit].rgb : dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb);
+        float3 dpix = cutHit ? cut.rgb : frontEm ? _DemodTex[kHit].rgb : dh.a > 0.0 ? dh.rgb : _DemodTex[kHit].rgb;
+        // D = reflectance + emission; RR's X lights the reflectance only (Prepare), the emission is D's emissive share.
+        float3 share = cutHit || !EmitOutside() ? 0.0 : EmitShare(kn, tdim, kHit, dpix, frontEm || dh.a <= 0.0);
+        hdr = Display(RRAt(p)) * (dpix - dpix * share) + dpix * share;
+        if (EmitOutside()) emitHi = dpix * share;
         c = saturate(UltraRTToneMap(hdr));
         // Diagnostics (_Match2.w, DlssRR.FinishDebug): the two factors on their own. 1 = D (tone mapped), 2 = RR's X x 0.5.
         if (_Match2.w > 0.5 && a > 0.0)
@@ -401,7 +462,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
         if (a > 0.0)
         {
             float3 excess = max(pow(max(hdr, 0.0), 2.2) - pow(c, 2.2), 0.0);
-            float3 em = max(_Emission[kHit].rgb, 0.0);
+            float3 em = max(emitHi.x >= 0.0 ? emitHi : _Emission[kHit].rgb, 0.0);
             float ew = smoothstep(_BloomParams.z, _BloomParams.w, max(em.r, max(em.g, em.b)));
             b = excess * _BloomParams.x + pow(em, 2.2) * (ew * _BloomParams.y);
             if (any(isnan(b)) || any(isinf(b))) b = 0;
@@ -415,7 +476,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
         // bright part scaled (HDRLava / HDRSky, display units here), marked a = -1 so the composite writes it (and the
         // volumetric fog, which the game already applied there, still skips it).
         if (a > 0.0)
-            c = UltraRTHdrScene(hdr, UltraRTHdrEmissive(max(_Emission[kHit].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams);
+            c = UltraRTHdrScene(hdr, UltraRTHdrEmissive(emitHi.x >= 0.0 ? emitHi : max(_Emission[kHit].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams);
         else
         {
             float gb = _NormalDepth[clamp(kn, 0, tdim - 1)].w < 0.0 ? _HdrGame.y : _HdrGame.x;
@@ -431,7 +492,7 @@ void Finish(uint3 id : SV_DispatchThreadID)
         // + 1)); r = the factor the present pass applies to its bright part. The camera's rays skip lava and acid
         // (docs/lava.md), so those are "in front".
         float gb = _NormalDepth[clamp(kn, 0, tdim - 1)].w < 0.0 ? _HdrGame.y : _HdrGame.x;
-        _HdrOut[p] = a > 0.0 ? UltraRTHdrGain(hdr, c, UltraRTHdrEmissive(max(_Emission[kHit].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams, _HdrParams, _HdrEmissive.w)
+        _HdrOut[p] = a > 0.0 ? UltraRTHdrGain(hdr, c, UltraRTHdrEmissive(emitHi.x >= 0.0 ? emitHi : max(_Emission[kHit].rgb, 0.0), hdr, _HdrEmissive), _UltraRTTonemapWhite, _UltraRTTonemapParams, _HdrParams, _HdrEmissive.w)
                              : float4(max(gb, 1.0), 1.0, 1.0, -(UltraRTHdrPack(_HdrGameColor[p].rgb) + 1.0));
     }
     // Debug (plugin._matchDebug=1): the pixels the game keeps, by the relative depth of the 5x5's trace sample nearest the
@@ -482,10 +543,16 @@ void ExposureInput(uint3 id : SV_DispatchThreadID)
     float2 screen = ((float2)s + 0.5 + _Jitter.xy - _TraceMap.zw) / _TraceMap.xy;
     int2 p = clamp((int2)floor(screen), 0, (int2)_OutDim.xy - 1);
     float3 g = Display(RRAt(p));
-    if (Remodulate()) g *= _DemodTex[s].rgb;
+    // Remodulated, X lights the reflectance only (Prepare: the emission stays out of RR): the lit part is X x (D - E).
+    if (Remodulate() && EmitOutside()) g *= max(_DemodTex[s].rgb - max(_Emission[s].rgb, 0.0), 0.0);
+    else
+    {
+        if (Remodulate()) g *= _DemodTex[s].rgb;
+        g = max(g - max(_Emission[s].rgb, 0.0), 0.0);
+    }
     float e = UltraRTPixelExposure((uint2)s);
     // The unexposed lit part, in display units, without the colour match gain (the meter compares it with the game).
-    float3 v = max(g - max(_Emission[s].rgb, 0.0), 0.0) / max(e * UltraRTPixelBalance((uint2)s), 1e-4);
+    float3 v = g / max(e * UltraRTPixelBalance((uint2)s), 1e-4);
     // Exposure.compute meters albedo * Disp(filtered) * keep + spec: give it albedo 1, no spec, filtered = Disp^-1(v).
     _AEFiltered[s] = float4(_UltraRTLinear > 0.5 ? pow(v, 2.2) : v, 0.0);
     _AEAlbedo[s] = 1.0;
