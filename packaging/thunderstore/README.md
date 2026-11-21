@@ -63,11 +63,11 @@ Measured on an RTX 5070 Ti at 2560x1440 on DirectX 12 with default settings:
 
 | Scene | Stock (RT off) | `relight` | `pathtrace` |
 |---|---|---|---|
-| Typical levels | ~550 fps (1.8 ms) | 160–220 fps (4.5–6.2 ms) | 145–205 fps (4.9–6.9 ms) |
-| Heavy combat | ~345 fps (2.9 ms) | 110–125 fps (8.2–9.0 ms) | 100–120 fps (8.3–10.1 ms) |
-| Portal-heavy levels | 100–195 fps (5.1–9.8 ms) | 60–77 fps (12.9–16.5 ms) | 63–80 fps (12.5–15.9 ms) |
+| Typical levels | 280–460+ fps (2.2–3.6 ms) | 133–187 fps (5.3–7.5 ms) | 136–190 fps (5.3–7.4 ms) |
+| Portal-heavy levels | 115–189 fps (5.3–8.7 ms) | 103–109 fps (9.2–9.7 ms) | 101–116 fps (8.6–9.9 ms) |
+| Heavy combat | 170–255 fps (3.9–5.9 ms) | 81–102 fps (9.8–12.4 ms) | 87–108 fps (9.2–11.5 ms) |
 
-Portal-heavy levels are limited by the CPU render thread. If your frame rate is low, lower **Trace resolution** in the settings menu.
+If your frame rate is low, switch to a faster **Quality preset** (`Ultra`, `High`, `Performance`, or `Competitive`) or lower **Trace resolution** in the settings menu.
 
 ## Optional detail maps
 
@@ -76,7 +76,7 @@ Install **UltraRT_DetailMaps** if you want subtle normal and roughness detail on
 ## Known issues
 
 - **First-time shader pause:** Switching to `pathtrace` for the first time can freeze the game for up to 30 seconds while your GPU driver compiles the shader. This happens once per driver or mod update.
-- **HDR10 output:** Experimental and off by default. Enable Windows HDR, turn on HDR in UltraRT's settings menu, and restart the game. In-game screenshots capture in SDR.
+- **HDR10 output:** Off by default. Enable Windows HDR, turn on HDR in UltraRT's settings menu, and restart the game. In-game screenshots capture in SDR.
 - **Secret level 4-S:** Uses a separate third-person camera that UltraRT does not attach to yet, so it displays vanilla visuals.
 
 ## Where files go

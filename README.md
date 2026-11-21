@@ -43,11 +43,11 @@ Measured on an RTX 5070 Ti at 2560x1440 on DirectX 12 with default settings (50%
 
 | Scene | Stock (RT off) | `relight` | `pathtrace` |
 |---|---|---|---|
-| Typical levels | ~550 fps (1.8 ms) | 160–220 fps (4.5–6.2 ms) | 145–205 fps (4.9–6.9 ms) |
-| Heavy combat | ~345 fps (2.9 ms) | 110–125 fps (8.2–9.0 ms) | 100–120 fps (8.3–10.1 ms) |
-| Portal-heavy levels | 100–195 fps (5.1–9.8 ms) | 60–77 fps (12.9–16.5 ms) | 63–80 fps (12.5–15.9 ms) |
+| Typical levels | 280–460+ fps (2.2–3.6 ms) | 133–187 fps (5.3–7.5 ms) | 136–190 fps (5.3–7.4 ms) |
+| Portal-heavy levels | 115–189 fps (5.3–8.7 ms) | 103–109 fps (9.2–9.7 ms) | 101–116 fps (8.6–9.9 ms) |
+| Heavy combat | 170–255 fps (3.9–5.9 ms) | 81–102 fps (9.8–12.4 ms) | 87–108 fps (9.2–11.5 ms) |
 
-Portal-heavy levels are limited by the CPU render thread. Lower **Trace resolution** in the settings menu if you need higher frame rates.
+For higher frame rates on slower GPUs, pick a faster **Quality preset** (`Ultra`, `High`, `Performance`, or `Competitive`) or lower **Trace resolution** in the settings menu.
 
 ## Requirements
 
@@ -120,6 +120,7 @@ See [docs/release.md](docs/release.md) for Thunderstore packaging, [bench/README
 | [docs/cinematics.md](docs/cinematics.md) | Free camera, spline paths, and offline renderer |
 | [docs/trailer.md](docs/trailer.md) | Trailer shots, paths, and assembly |
 | [docs/performance.md](docs/performance.md) | 1440p frame-time breakdown and profiling |
+| [docs/perf-audit-2026-11-21.md](docs/perf-audit-2026-11-21.md) | Performance audit and SOTA path-tracing optimization study |
 | [docs/gpu-timer.md](docs/gpu-timer.md) | Native DirectX 12 per-pass GPU timer |
 | [docs/ultrakill-rendering.md](docs/ultrakill-rendering.md) | Notes on ULTRAKILL's rendering pipeline |
 | [docs/archive/](docs/archive) | Older plans and notes kept for history |
