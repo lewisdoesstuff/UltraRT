@@ -511,6 +511,27 @@ namespace UltraRT
             l3 = new Vector4(-2f - Mathf.Max(halfY, 0f), code, unshadowed, w3); // w3: unused slot, kept as passed
         }
 
+        /// <summary>
+        /// Packs a line light (shape 0: a laser beam from a to b, lit all round; CombatLights.cs) into _Lights[i*4+2] and
+        /// [i*4+3]: l2 = (unit axis, half length), l3 = (-2 - radius, code, unshadowed, w3). The code carries a tangent
+        /// perpendicular to the axis, chosen so the code is never 0 (the shader's spot term multiplies by l3.y).
+        /// </summary>
+        public static void PackLine(Vector3 a, Vector3 b, float radius, float unshadowed, float w3, out Vector3 centre, out Vector4 l2, out Vector4 l3)
+        {
+            centre = (a + b) * 0.5f;
+            var d = b - a;
+            float len = d.magnitude;
+            var axis = len > 1e-5f ? d / len : Vector3.up;
+            var t = DefaultTangent(axis);
+            uint oct = OctEncode10(t);
+            if (oct == 0u) oct = OctEncode10(-t);
+            l2 = new Vector4(axis.x, axis.y, axis.z, Mathf.Max(0.5f * len, 0.005f));
+            l3 = new Vector4(-2f - Mathf.Max(radius, 0f), (float)(oct << 2), unshadowed, w3);
+        }
+
+        /// <summary>A packed area light is a line (PackLine): l3.x &lt; -1.5 and shape code 0.</summary>
+        public static bool IsLine(Vector4 l3) => l3.x < -1.5f && (((uint)(Mathf.Max(l3.y, 0f) + 0.5f)) & 3u) == 0u;
+
         /// <summary>The tangent of a packed area light (l3.y's code), as UltraRTLights.hlsl LightAreaTangent decodes it.</summary>
         public static Vector3 AreaTangent(uint code)
         {

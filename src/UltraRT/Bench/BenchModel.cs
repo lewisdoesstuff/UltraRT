@@ -313,6 +313,18 @@ namespace UltraRT.Bench
         public float ApproachSpeed = 1.5f;
         /// <summary>Kill enemies as they spawn during the approach, so arena completions open doors and load areas.</summary>
         public bool ApproachKillEnemies = true;
+        /// <summary>With ApproachKillEnemies: enemies to leave alive, so a fight the route starts is still on at the pose.
+        /// EnemyType names (case-insensitive), or "boss" for any enemy with isBoss or a boss bar. 7-4's Brain fight:
+        /// ["boss", "Wicked"] (killing its parts ends the fight and flushes the player out of the Earthmover).</summary>
+        public List<string> ApproachSpare;
+        /// <summary>Stop game time (game speed 0) once the pose is loaded, for the whole scenario: every mode sees the same
+        /// instant of a fight that would otherwise move on (7-4's Brain flushes the player out a few seconds in). The
+        /// camera and the RT passes run on real time; the game speed is restored after the scenario.</summary>
+        public bool FreezeAtPose;
+        /// <summary>After the pose load: switch on every object whose hierarchy path matches one of these globs ("*" any
+        /// text), with its parents and everything under it. For effects a fight script would switch on that a route can't
+        /// reach (7-4's Brain laser ring: "*/BrainFight/LaserRing"). Logged; no triggers run.</summary>
+        public List<string> Activate;
         // recording
         public string File;
         public float Start;

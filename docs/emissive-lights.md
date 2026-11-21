@@ -495,6 +495,7 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | `-ultrart-effect-max n` | `maxVirtual` | 16 | |
 | `-ultrart-effectsurvey` | | off | the survey; it costs milliseconds per frame, so never measure with it on |
 | `-ultrart-beam-lights x` | `beamLights` | 1 | combat beam lights, a strength (0 = off); "Combat lights" below |
+| (bench `fx.`) | `beamLines`, `lineIntensity`, `lineRange`, `lineMaxLights`, `lineCull`, `lineMedium` | true, 3, 10, 40, 70, 0 | sustained beams as line lights (2026-11-21); "Laser beams" below |
 | `-ultrart-parry-light x` | `parryLight` | 1 | the parry burst (0 = off) |
 | `-ultrart-lightning-flash x` | `lightningFlash` | 1 | the lightning flash (0 = off) |
 | | `gunFlash`, `gunFlashHold`, `gunFlashFade` | on, 0.02, 0.06 | gunshot lights' crisp envelope ("Gunshot flashes") |
@@ -675,11 +676,80 @@ A/B against the switch at 0 in the same run, on the raw RT image (luma 0-255, me
 
 Bench kinds (`bench/README.md`): `beamchain`, `railbeam`, `parry`, `parrygame`, `lightning`, `boltlight`.
 
+### Laser beams: line lights (2026-11-21, `t3/7-4-laser-lights`)
+
+User (7-4, Brain chamber, during the fight): the long hot-pink lasers should light the walls, ceiling, floor and Brain
+along their whole length. They didn't: at the user's pose the beam lights added nothing measurable.
+
+**What the lasers are.** Every laser in 7-4's Brain fight is a `ContinuousBeam` (the Mindflayer's component) with a
+2-point world-space `LineRenderer`, material `MindflayerBeam 1` (`Sprites/Default`, white tint; the pink is in the
+texture `MindflayerBeam3`). The scene has 81: the corridor barriers `Main/Centaur Full/Hide When Outside/BeamsGroup*/
+Centaur Brain Beam Obstacle*` (37, 19.5 m long, width 2, static) and the fight's `Main/Interior/InteriorStuff(Clone)/
+BrainFight/LaserRing/Cube*/Beams/Centaur Brain Beam*` (24 at once, 27-34 m, width 1, on a ring that turns around the
+Brain) plus `BrainFight/VerticalBeamsBeam`. `InteriorStuff` is instantiated at load, so its beams come through the spawn
+hook; the rest through the scene scan. Providence's beam attack (`Drone.ShootSecondary` spawns a `Pincer`, whose child
+lines turn towards the pincer's axis and shrink their width at the end) and the Mindflayer are the same kind of
+sustained line. Why nothing showed before:
+
+- The beam chain had 24 lights per frame in total, 3 to 6 per segment within 45 m: about four of the 49 segments in
+  view got light, as separate pools.
+- The colour came from the line and the material (both white), so the few lights there were white, not pink.
+- `MaxBeams` was 64; 7-4's 81 scene beams filled it, so a Providence spawned later would have been dropped.
+
+**Now** (`CombatLights.PackLines`, `fx.beamLines`, on by default): each segment of a sustained beam (`ContinuousBeam`)
+that is on gets **one line light** (a new area-light shape, docs/lighting-overrides.md "Area lights (shader)"): the
+light is evaluated at the nearest point of the segment, so the whole beam lights the room evenly, all round, and the
+light is re-read every frame, so it follows a turning ring or a sweeping pincer. Intensity `lineIntensity` (3) x
+`beamLights` x 1.2 (the Mindflayer gain) x the line's width / its full width (`originalWidth`; the widest width seen
+while that is still 0: it is set in the beam's `Awake`); range `lineRange` (10 m) x sqrt(width / 0.35) (the Mindflayer
+10 m, the ring 17 m, the barriers 24 m); colour: the line x material colour x the texture's average colour (from the same
+16x16 downsample as the effect lights), normalised and raised to the 4th power, because the texture's white core makes
+the average pale ((1, 0.72, 0.87) -> (1, 0.27, 0.57)). At most `lineMaxLights` (40) per frame, the segments nearest the
+camera first, within `lineCull` (70 m); they are packed ahead of the shot chains. Weight in the air `lineMedium` 0:
+volumetrics treats area lights as points at their centre, which would put a glow in the middle of each beam.
+RevolverBeams (shots, coins, railcannon) keep their point chains (calibrated with them; a shot lasts 0.1 s). `MaxBeams`
+is 256. The log lists the scene's beams (`Combat lights: N ContinuousBeams in the scene`, the first 12 with width, hue and
+material) and, every 10 s while lines are lit, how many were packed.
+
+`data/lights/Level 7-4.json` lost its two static area lights on the barrier `BeamsGroup (3)`
+(`brain-laser-barrier-front` / `-back`): the barrier's own line lights replace them.
+
+**Measured** (alt, 2560x1440, trace scale 0.5, `bench/results/20261121-155400_tmp-7-4-lasers_alt`; the user's pose,
+checkpoint load, the fight's laser ring switched on with the bench's `Activate`, game time frozen so every mode shows
+the same frame). Mean RGB of the lower right of the frame (floor and wall under the beams), 0-255:
+
+| Mode | user's pose | second angle |
+|---|---|---|
+| off (the game) | 29 / 21 / 34 | 43 / 41 / 57 |
+| pathtrace, no beam lights | 31 / 33 / 41 | 39 / 74 / 79 |
+| pathtrace, before (point chains) | 30 / 31 / 39 | 39 / 73 / 79 |
+| pathtrace, line lights | 46 / 36 / 53 | 70 / 78 / 95 |
+| relight, before | 32 / 31 / 40 | 41 / 74 / 81 |
+| relight, line lights | 49 / 37 / 55 | 72 / 80 / 97 |
+
+Frame mean luma: pathtrace 65.0 -> 71.6, relight 66.9 -> 74.3 (the game 56.4). The floor, the column and the walls
+under the ring take on the beams' magenta, all along them. `lineIntensity` 1.6 / range 5 (the first try) was invisible;
+4 / 10 was a little stronger than shipped.
+
+**Cost** (`-Perf`, exclusive lock, main, 2560x1440; same pose, 49 segments in reach, 40 packed): GPU total pathtrace
+7.21 ms (line lights) / 7.15 (chains) / 7.74 (no beam lights), relight 6.83 / 6.94 / 7.03: within the run-to-run
+spread. Plugin CPU `lights` 0.43 / 0.40 / 0.32 ms. In a level without lasers nothing runs on the CPU, and the shader's
+line branch sits inside the area-light branch: 1-4 lamps, old build -> new build, GPU relight 3.15 -> 3.14 ms,
+pathtrace 4.23 -> 4.23 ms, CPU `lights` 0.07 ms both.
+
+**Not verified in a run:** Providence's pincer and the Mindflayer (no level with one was loaded); they take the same
+path (spawned `ContinuousBeam`s). If a pincer line turns out not to carry a `ContinuousBeam`, it gets no light.
+
+Bench switches added for this (bench/README.md, "Poses deep in a level"): `Path.ApproachSpare` (7-4: `["boss", "Wicked"]`; killing the Brain
+fight's Wicked flushes the player out of the Earthmover), `Path.Activate`, `Path.FreezeAtPose`; `-ultrart-effectsurvey`
+also lists the enabled line renderers near the camera.
+
 ### Limits
 
 - **No coin or railcannon shot measured.** Coin shots spawn the same `RevolverBeam` segments as `beamchain`; the alt
   save has no railcannon (`railbeam` fails with "no Railcannon"). Enemy beams and the Mindflayer were not seen in a run.
 - **The parry point is a guess.** `ParryFlash` gets no position, so the burst sits 1.2 m ahead of the camera, not at
   the parried projectile or enemy.
-- **Point chains, not line lights.** The shader has no capsule light; 3 to 6 points per segment can show as separate
-  pools on a wall right next to a long beam.
+- **Point chains, not line lights, for shots.** RevolverBeams still get 3 to 6 points per segment, which can show as
+  separate pools on a wall right next to a long beam. Sustained beams use line lights since 2026-11-21 ("Laser beams");
+  the shots could too, after a re-calibration.

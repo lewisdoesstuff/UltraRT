@@ -83,6 +83,7 @@ namespace UltraRT
                     var cone = !area && l3.x > -0.999f ? new Vector4(l2.x, l2.y, l2.z, l3.x) : new Vector4(0, 0, 0, -1f);
                     var emit = area && (code & 3u) >= 2u ? new Vector3(l2.x, l2.y, l2.z) : Vector3.zero;
                     float reach = 2f * l0.w; // the game's falloff ends at 2 x range
+                    if (area && (code & 3u) == 0u) reach += l2.w; // a line: as far from its ends
                     var p = new Vector3(l0.x, l0.y, l0.z);
                     _proxies.PortalImages(p, reach, cone, emit, _portalImages, PortalImagesPerLight);
                     foreach (var im in _portalImages)
@@ -151,7 +152,15 @@ namespace UltraRT
             // The player's own lights keep their flag (V1 never shadows them; FlagPlayerLights leaves images alone).
             _lightData[j + 1] = new Vector4(l1.x, l1.y, l1.z, PlayerOwnedLight(i) ? 1f : l1.w);
             var axis = t.MultiplyVector(new Vector3(l2.x, l2.y, l2.z)); // spot axis or area normal, carried through
-            if (l3.x < -1.5f)
+            if (LightOverrides.IsLine(l3))
+            {
+                // A line (a beam): the same segment through the portal.
+                var ax = axis.normalized * l2.w;
+                LightOverrides.PackLine(im.Pos - ax, im.Pos + ax, -l3.x - 2f, l3.z, 0f, out _, out var a2, out var a3);
+                _lightData[j + 2] = a2;
+                l3 = a3;
+            }
+            else if (l3.x < -1.5f)
             {
                 uint code = (uint)(Mathf.Max(l3.y, 0f) + 0.5f);
                 var tangent = t.MultiplyVector(LightOverrides.AreaTangent(code));

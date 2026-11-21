@@ -177,7 +177,7 @@ namespace UltraRT.Bench
                     routes[file] = route = new Route { File = file, Rec = Recording.Load(file) };
                 if (route.Rec.Samples.Count == 0) throw new InvalidDataException($"route {file} has no samples");
                 it.Route = route;
-                it.RouteSig = $"speed {p.ApproachSpeed} x{p.FastTimeScale} kill {p.ApproachKillEnemies}";
+                it.RouteSig = $"speed {p.ApproachSpeed} x{p.FastTimeScale} kill {p.ApproachKillEnemies}{(p.ApproachSpare != null && p.ApproachSpare.Count > 0 ? " spare " + string.Join("+", p.ApproachSpare) : "")}";
                 it.Need = it.Sc.FreshLoad ? Need.NewLoad : Need.Route;
                 // A pose measured away from the route's end may have fired triggers there.
                 var end = route.Rec.Samples[route.Rec.Samples.Count - 1];

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "scene": "Level 7-4",
-  "note": "7-4 Earthmover lighting, emissives, and atmosphere pass (2026-11-21): crimson horizon directional rim light with controlled air scattering (7-4 has no active sun), calibrated emissive scaling on Back city windows (Cent_WindowLit) and hull/interior conduits (Cent_SmallLights), volumetric cleanup of the 4800 m desert killzone spot and 900 m head searchlight, Back city duplicate light dedup + blue searchlight shafts, Brain shop fix + hot-pink laser barrier area light + golden ceiling-grate shaft + cyan/magenta neon punch, Flesh interior cyan shaft & crimson depth.",
+  "note": "7-4 Earthmover lighting, emissives, and atmosphere pass (2026-11-21): crimson horizon directional rim light with controlled air scattering (7-4 has no active sun), calibrated emissive scaling on Back city windows (Cent_WindowLit) and hull/interior conduits (Cent_SmallLights), volumetric cleanup of the 4800 m desert killzone spot and 900 m head searchlight, Back city duplicate light dedup + blue searchlight shafts, Brain shop fix + golden ceiling-grate shaft (the Brain laser barriers are line lights since 2026-11-21: CombatLights, not this file) + cyan/magenta neon punch, Flesh interior cyan shaft & crimson depth.",
   "emitters": [
     {
       "name": "earthmover city windows",
@@ -250,38 +250,6 @@
       "shadows": true,
       "medium": 0.12,
       "note": "Low crimson-amber directional rim light from the burning horizon / distant Earthmover flash (22 deg elevation from -X/-Z). Carves dramatic RT shadow relief and metallic specular across the Front hull, Back city, and Leg while medium=0.12 avoids lifting dark silhouettes into orange haze and RT shadows keep sealed interiors untouched."
-    },
-    {
-      "id": "brain-laser-barrier-front",
-      "kind": "area",
-      "pos": [0.0, 796.5, 622.6],
-      "shape": "rect",
-      "size": [9.0, 3.2],
-      "normal": [0.0, 0.0, -1.0],
-      "tangent": [1.0, 0.0, 0.0],
-      "color": [1.0, 0.04, 0.48],
-      "intensity": 1.65,
-      "range": 16.0,
-      "shadows": true,
-      "medium": 2.0,
-      "bind": "Main/Centaur Full/Hide When Outside/BeamsGroup (3)/Centaur Brain Beam Obstacle",
-      "note": "Vivid hot-pink area light for the giant Brain corridor laser barrier (LineRenderer, not in the emissive triangle table). Bound to the barrier renderer so it turns off when the beams deactivate."
-    },
-    {
-      "id": "brain-laser-barrier-back",
-      "kind": "area",
-      "pos": [0.0, 796.5, 631.8],
-      "shape": "rect",
-      "size": [9.0, 3.2],
-      "normal": [0.0, 0.0, 1.0],
-      "tangent": [1.0, 0.0, 0.0],
-      "color": [1.0, 0.04, 0.48],
-      "intensity": 1.65,
-      "range": 16.0,
-      "shadows": true,
-      "medium": 2.0,
-      "bind": "Main/Centaur Full/Hide When Outside/BeamsGroup (3)/Centaur Brain Beam Obstacle",
-      "note": "Back-facing side of the Brain corridor laser barrier wall."
     },
     {
       "id": "brain-ceiling-grate-amber",

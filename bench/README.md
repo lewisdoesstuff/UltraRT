@@ -180,6 +180,19 @@ ULTRAKILL keeps most of a level switched off and turns rooms on as doors open an
 
 The default, `auto`, is `approach-fast` when the scenario has an `Approach`. Set `"Load": "checkpoint"` on a scenario after checking it with `-ValidateLoad`. `-Load <name>` on `bench.ps1` forces one method for a whole run. Enemies are killed as they spawn on the way (`ApproachKillEnemies`), because finished arenas are what open doors.
 
+Three `Path` switches for poses inside a fight (2026-11-21, for 7-4's Brain; the runs are in docs/emissive-lights.md, "Laser
+beams"):
+
+- `"ApproachSpare": ["boss", "Wicked"]`: enemies the approach leaves alive (EnemyType names, or `boss` for anything with
+  a boss bar). Killing everything in 7-4 after the Brain checkpoint ends the fight and flushes the player out of the
+  Earthmover. The log lists what was killed and spared (`approach killed N enemies (...)`).
+- `"Activate": ["Main/Interior/InteriorStuff(Clone)/BrainFight/LaserRing"]`: after the pose load, switch on every object
+  whose path matches a glob (`*` = any text), with its parents and children, then wait 0.5 s for their first physics
+  steps. For effects a fight script switches on that a route doesn't reach; no triggers run.
+- `"FreezeAtPose": true`: game speed 0 from the pose on (after `Activate`), restored after the scenario, so every mode
+  and variant shows the same instant. The RT passes and the camera run on real time; physics does not, so anything that
+  moves in `FixedUpdate` holds still.
+
 The summary lists how each pose was loaded and how long it took.
 
 ### Chaining: one level load for several poses

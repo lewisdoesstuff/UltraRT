@@ -614,7 +614,7 @@ namespace UltraRT
                         if (p.ApproachKillEnemies && Time.time >= nextKill)
                         {
                             nextKill = Time.time + 0.25f;
-                            killed += KillEnemies();
+                            killed += KillEnemies(p.ApproachSpare);
                         }
                         yield return null;
                     }
@@ -624,7 +624,8 @@ namespace UltraRT
                     _host.OnFixed = null;
                     if (gameSpeed > 1f) PoseLoader.SetGameSpeed(1f);
                 }
-                if (killed > 0) Logger.LogInfo($"Benchmark: approach killed {killed} enemies");
+                if (killed > 0 || KilledTypes.Count > 0) Logger.LogInfo($"Benchmark: approach killed {killed} enemies ({string.Join(", ", KilledTypes)})");
+                KilledTypes.Clear();
                 res.Spawn = route.Sample(route.Duration);
                 GameControl.SetPose(res.Spawn);
                 yield return new WaitForSecondsRealtime(1.5f); // let area activation settle
@@ -633,13 +634,51 @@ namespace UltraRT
             Logger.LogInfo($"Benchmark: pose loaded via {method} in {res.Seconds:F1}s{(res.Detail != null ? $" ({res.Detail})" : "")}");
         }
 
-        private static int KillEnemies()
+        /// <summary>Path.Activate: every object whose path matches a glob goes on, with its parents and its children.</summary>
+        private void ActivateObjects(List<string> globs)
+        {
+            var rxs = globs.Select(g => new System.Text.RegularExpressions.Regex("^" + System.Text.RegularExpressions.Regex.Escape(g).Replace("\\*", ".*") + "$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase)).ToList();
+            int roots = 0, switched = 0;
+            foreach (var t in FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                if (t == null || !t.gameObject.scene.IsValid()) continue;
+                string path = GameControl.PathOf(t);
+                if (!rxs.Any(rx => rx.IsMatch(path))) continue;
+                roots++;
+                for (var x = t; x != null; x = x.parent) if (!x.gameObject.activeSelf) { x.gameObject.SetActive(true); switched++; }
+                foreach (var c in t.GetComponentsInChildren<Transform>(true)) if (!c.gameObject.activeSelf) { c.gameObject.SetActive(true); switched++; }
+                if (roots <= 6) Logger.LogInfo($"Benchmark: Activate '{path}' at {t.position}");
+            }
+            Logger.LogInfo($"Benchmark: Activate matched {roots} objects, switched on {switched}");
+        }
+
+        private static bool Spared(EnemyIdentifier e, List<string> spare)
+        {
+            if (spare == null) return false;
+            foreach (var s in spare)
+            {
+                if (string.Equals(s, "boss", StringComparison.OrdinalIgnoreCase) && (e.isBoss || e.GetComponent<BossHealthBar>() != null)) return true;
+                if (string.Equals(s, e.enemyType.ToString(), StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Enemy types the approach killed (and bosses it spared), for the log.</summary>
+        private static readonly HashSet<string> KilledTypes = new HashSet<string>();
+
+        private static int KillEnemies(List<string> spare = null)
         {
             int killed = 0;
             var tracker = MonoSingleton<EnemyTracker>.Instance;
             if (tracker != null)
                 foreach (var e in tracker.GetCurrentEnemies().ToList())
-                    if (e != null && !e.dead) { e.InstaKill(); killed++; }
+                {
+                    if (e == null || e.dead) continue;
+                    if (Spared(e, spare)) { KilledTypes.Add("spared " + e.enemyType); continue; }
+                    KilledTypes.Add(e.enemyType.ToString());
+                    e.InstaKill(); killed++;
+                }
             return killed;
         }
 
@@ -827,6 +866,12 @@ namespace UltraRT
             if ((sc.Path.Type ?? "").ToLowerInvariant() == "tour") { yield return RunTour(sc, sr, outDir); yield break; } // Plugin.Bench.Tour.cs
             var load = new PoseLoad();
             yield return LoadPose(sc, method, suiteDir, load, _level.Spawn, routeFrom);
+            if (sc.Path.Activate != null && sc.Path.Activate.Count > 0)
+            {
+                ActivateObjects(sc.Path.Activate);
+                yield return new WaitForSecondsRealtime(0.5f); // their Start and first physics steps (beams aim in FixedUpdate)
+            }
+            if (sc.Path.FreezeAtPose) { PoseLoader.SetGameSpeed(0f); Logger.LogInfo("Benchmark: game time frozen at the pose (FreezeAtPose)"); }
             sr.Load = load.Method;
             sr.LoadSeconds = load.Seconds;
             sr.LoadDetail = load.Detail;

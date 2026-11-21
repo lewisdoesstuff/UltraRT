@@ -250,7 +250,16 @@ namespace UltraRT
             float lum = Mathf.Max(0f, 0.2126f * l1.x + 0.7152f * l1.y + 0.0722f * l1.z);
             if (l0.w == 0f) return lum;
             float reach = 2f * l0.w;
-            float outside = Mathf.Max(0f, Vector3.Distance(camPos, new Vector3(l0.x, l0.y, l0.z)) - reach);
+            var pos = new Vector3(l0.x, l0.y, l0.z);
+            // A line light (a beam, LightOverrides.PackLine) reaches as far from every point along it: its nearest point.
+            Vector4 l3 = d[i * 4 + 3];
+            if (l3.x < -1.5f && LightOverrides.IsLine(l3))
+            {
+                Vector4 l2 = d[i * 4 + 2];
+                var axis = new Vector3(l2.x, l2.y, l2.z);
+                pos += axis * Mathf.Clamp(Vector3.Dot(camPos - pos, axis), -l2.w, l2.w);
+            }
+            float outside = Mathf.Max(0f, Vector3.Distance(camPos, pos) - reach);
             return lum * reach * reach / (reach * reach + outside * outside);
         }
 

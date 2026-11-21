@@ -1069,7 +1069,9 @@ look vs stock:
   lamps (x1.08, `medium` 1.6), and Leg/Vent lights (x1.3, `medium` 1.8).
 - Added bound area lights in Brain: **`brain-laser-barrier-front`** and **`-back`** (hot-pink `[1.0, 0.04, 0.48]`,
   `intensity: 1.65`, `size: [9, 3.2]`, `range: 16`, `medium: 2.0`, bound to `Centaur Brain Beam Obstacle`) and
-  **`brain-ceiling-grate-amber`** (bound to `NeckPlatforming`).
+  **`brain-ceiling-grate-amber`** (bound to `NeckPlatforming`). The two barrier lights were removed on 2026-11-21
+  (`t3/7-4-laser-lights`): every Brain laser, the barriers and the fight's laser ring, is a line light now
+  (docs/emissive-lights.md, "Laser beams").
 
 **Measured SDR (`2560x1440`, RTX 5070 Ti, `-ultrart-hdr off`, `20261121-022825_tmp-7-4-diag_alt` before ->
 `20261121-024705_tmp-7-4-pass1_alt` after; sheets `bench/results/review/7-4-lighting-emissives/`):**
@@ -1526,7 +1528,7 @@ payload untouched):
 | `[2].xyz` | forward | emission normal |
 | `[2].w` | soft-shadow radius | half-size x (sphere / disc radius) |
 | `[3].x` | cos(spot / 2), -1 for points | `-2 - half-size y` (<= -2 marks an area light) |
-| `[3].y` | spot sharpness | shape (1 sphere, 2 rect, 3 disc) \| octahedral tangent (2 x 10 bits) << 2, an exact integer |
+| `[3].y` | spot sharpness | shape (0 line, 1 sphere, 2 rect, 3 disc) \| octahedral tangent (2 x 10 bits) << 2, an exact integer |
 
 Every spot test in the code (`l3.x > -0.5`, the cone `saturate((cos - l3.x) * l3.y)`) reads "no cone" for these values, so
 consumers that don't know area lights (volumetrics' scattering; the hybrid ratio until 2026-11-19) treat them as point lights at the
@@ -1537,6 +1539,11 @@ centre.
   sphere emits everywhere). It is deterministic, so RIS, ReSTIR (until its removal on 2026-11-19), the
   reference sampler, pathtrace's NEE and the radiance cache use it unchanged. A long rect lights a corridor evenly along
   its length, like a fluorescent tube; a downward panel leaves the ceiling to the bounce.
+- **Lines** (shape 0, 2026-11-21; `LightOverrides.PackLine`): `[2].xyz` is the line's axis and `[2].w` half its length;
+  the nearest point of the segment, no emitter cosine (lit all round), shadow rays to a uniform point along it. Code 0
+  was unused (an area light always had a shape); the packed tangent keeps `[3].y` above 0, which the spot term needs.
+  Used for laser beams (docs/emissive-lights.md, "Laser beams"), not offered in the level files. The light sampler
+  weighs a line by the camera's distance to its nearest point, and a portal image carries the same segment.
 - **Shadows** (`LightVisible`): the shadow ray aims at a uniform random point on the shape (spheres: the half facing the
   receiver), so penumbrae are as wide as the emitter. Fixture clearance (0.35 m) and the player-light flag apply as for
   points.
