@@ -118,9 +118,9 @@ Changing `cellSize`, `lodDistance`, `normalOffset` or `capacityLog2` clears the 
 
 | Shader | UAVs |
 |---|---|
-| `PathTrace.raytrace` | **8, unchanged**: `_Output _Radiance _AlbedoOut _EmissionOut _NormalDepth _InstanceId _HybridLight _ReservoirCur`. (Since 2026-11-19, 7: `_HybridLight` is `_LitWeight` and `_ReservoirCur` went with ReSTIR.) The cache adds 2 SRVs (`_CacheKeys`, `_CacheResolved`), for 14 SRVs in total including the RTAS and sky. |
-| `CacheUpdate.raytrace` | **3**: `_CacheKeys _CacheAccum _CacheDebugOut`. `_ReservoirCur`, declared by UltraRTLights.hlsl, is stripped as unused, and so are `_LightRemap`, `_ReservoirPrev` and `_EmissiveActive`. Binding them anyway (BindTables, EmissiveLights.Bind) is harmless. |
-| `CacheResolve.compute` | 3 (compute, no RT limit) |
+| `PathTrace.raytrace` | **8 exact (`U0..U7`)** since 2026-11-21 Wave 2 (folded update): `_Output _Radiance _Surface _NormalDepth _InstanceId _Reflection _CacheKeys _CacheAccum` (`_LitWeight` was packed into `_Surface.z >> 24` to free `U6`/`U7`). Whole-warp `8×4` coherent tiling (`1/16` warps per frame) updates vertex 0 + vertex 1 during the main `DispatchRays`, eliminating `CacheUpdate.raytrace`'s `DispatchRays` (A/B `cache.folded=0`). |
+| `CacheUpdate.raytrace` | **3**: `_CacheKeys _CacheAccum _CacheDebugOut`. Used only for debug views (`DebugRayGen`) or when `cache.folded=0`. |
+| `CacheResolve.compute` | 3 (compute, no RT limit). With folded updates, runs immediately after `PathTrace` `DispatchRays` (before `ParticleLight` and `Denoiser`). |
 
 ## Integration (already wired)
 

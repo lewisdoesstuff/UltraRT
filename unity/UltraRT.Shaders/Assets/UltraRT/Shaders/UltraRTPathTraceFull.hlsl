@@ -42,7 +42,8 @@ float PtLuma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 //   firstDist  path length to the first hit (through portals); 1000 for the sky
 //   effectW    the weight of glowing effects on the first segment when it is specular (EffectLobeWeight of its lobe)
 //   cone       ray cone at r.Origin (width, spread angle) for the hits' texture LOD (docs/materials.md, "Texture LOD")
-float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone, int bounces, inout uint rng, out float firstDist)
+float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone, int bounces,
+              uint v0Slot, uint2 v0DirectHalf, inout uint rng, out float firstDist)
 {
     float3 L = 0;
     float3 T = 1;
@@ -54,6 +55,9 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
     uint surfaces = ULTRART_MASK_SCENE | (_PtParams3.x > 0.5 ? ULTRART_MASK_TRANSPARENT : 0u);
     int crossings = 0; // transparent surfaces met so far (they don't count as bounces; at most 3 per path)
     float3 ambient = ToLight(_Ambient.rgb) * _BounceAmbient * RelightAmbientScale();
+    bool recordCache = v0Slot != ULTRART_CACHE_NONE;
+    uint v1Slot = ULTRART_CACHE_NONE;
+    uint2 v1DirectHalf = 0;
     [loop] for (int b = 1; b <= bounces; b++)
     {
         RayPayload h;
@@ -68,8 +72,24 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
         {
             // Sky (sky walls report a miss too). After a cosine bounce the sky was also sampled directly at the previous
             // vertex: balance heuristic. A specular lobe sees the sky as it is drawn.
-            if (specular) L += T * ToLight(SkyRadiance(r.Direction));
-            else L += T * SkyLightRadiance(r.Direction) * (skyMis ? SkyMissWeight(nPrev, r.Direction) : 1.0);
+            float3 skyTerm = 0;
+            if (specular) skyTerm = ToLight(SkyRadiance(r.Direction));
+            else skyTerm = SkyLightRadiance(r.Direction) * (skyMis ? SkyMissWeight(nPrev, r.Direction) : 1.0);
+            L += T * skyTerm;
+            if (recordCache)
+            {
+                if (b == 1)
+                {
+                    float3 v0Dir = float3(f16tof32(v0DirectHalf.x), f16tof32(v0DirectHalf.x >> 16), f16tof32(v0DirectHalf.y));
+                    CacheAccumulate(v0Slot, v0Dir + skyTerm, skyTerm, _CacheFold.w);
+                }
+                else if (b == 2 && v1Slot != ULTRART_CACHE_NONE)
+                {
+                    float3 v1Dir = float3(f16tof32(v1DirectHalf.x), f16tof32(v1DirectHalf.x >> 16), f16tof32(v1DirectHalf.y));
+                    CacheAccumulate(v1Slot, v1Dir + skyTerm, skyTerm, _CacheFold.w);
+                    v1Slot = ULTRART_CACHE_NONE;
+                }
+            }
             break;
         }
         float3 hp = r.Origin + r.Direction * h.t;
@@ -104,14 +124,18 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
         if (b == 1) firstDist = travelled + h.t;
         bool last = b == bounces;
         // The cache at the last vertex, and at any vertex the ray cone has outgrown (which then is the last).
+        // On the 1/16 coherent cache-write warps, do not early-terminate at b == 1 so b == 2 refreshes vertex 1's cell.
         float3 light = 0;
         bool tail = false;
-        bool wide = _PtParams3.z > 0.0 && cone.x >= _PtParams3.z * CacheCellSize(CacheLevel(hp));
+        bool wide = false;
+        if (!recordCache || b > 1)
+            wide = _PtParams3.z > 0.0 && cone.x >= _PtParams3.z * CacheCellSize(CacheLevel(hp));
         if ((last || wide) && cacheTail) tail = CacheQueryTotal(hp, hn, light); // not && (no short-circuit in HLSL 2018)
         if (tail) last = true;
 
         // Emitters the light sampling covers must not count again when a cosine bounce hits them.
-        L += T * ToLight(PayloadEmission(h) * (_EmissionScale * (specular ? 1.0 : _EmissiveBounceWeight)));
+        float3 emTerm = ToLight(PayloadEmission(h) * (_EmissionScale * (specular ? 1.0 : _EmissiveBounceWeight)));
+        L += T * emTerm;
 
         // The surface: a diffuse part (albedo x keep) and, on glossy and REFLECTION materials, the specular lobe the
         // composite adds at primary hits. The last vertex is all diffuse: its lobe would need one more segment.
@@ -128,22 +152,62 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
 
         if (!tail)
         {
+            uint savedPM = g_ShadowPlayerMask;
+            if (recordCache) g_ShadowPlayerMask = 0u;
             light = DirectOne(hp, hn, PayloadLayer(h), rng);
+            g_ShadowPlayerMask = savedPM;
             if (skyNee) light += SkyDirect(hp, hn, rng);
         }
         L += T * diffuse * lerp(1.0, light + ambient, lit);
+
+        if (recordCache)
+        {
+            if (b == 1)
+            {
+                float3 alb1 = min(ToLight(h.albedo), _CacheFold.z);
+                float3 tailVal = tail ? light * _CacheFold.y : light;
+                float3 inc0 = emTerm + alb1 * lerp(1.0, tailVal, lit);
+                float3 v0Dir = float3(f16tof32(v0DirectHalf.x), f16tof32(v0DirectHalf.x >> 16), f16tof32(v0DirectHalf.y));
+                CacheAccumulate(v0Slot, v0Dir + inc0, inc0, _CacheFold.w);
+                if (!last && !tail)
+                {
+                    v1Slot = CacheInsert(hp, hn);
+                    v1DirectHalf = PackEmissionHalf(light);
+                }
+            }
+            else if (b == 2 && v1Slot != ULTRART_CACHE_NONE)
+            {
+                float3 tailVal = tail ? light * _CacheFold.y : (_CacheFold.y > 0.0 ? light : 0.0);
+                float3 alb2 = min(ToLight(h.albedo), _CacheFold.z);
+                float3 inc1 = emTerm + alb2 * lerp(1.0, tailVal, lit);
+                float3 v1Dir = float3(f16tof32(v1DirectHalf.x), f16tof32(v1DirectHalf.x >> 16), f16tof32(v1DirectHalf.y));
+                CacheAccumulate(v1Slot, v1Dir + inc1, inc1, _CacheFold.w);
+                v1Slot = ULTRART_CACHE_NONE;
+            }
+        }
+
         if (last) break;
 
         float3 specT = ToLight(specW);
         float3 diffT = diffuse * lit;
         float ws = PtLuma(specT), wd = PtLuma(diffT);
-        if (ws + wd < 1e-5) break;
+        if (ws + wd < 1e-5)
+        {
+            if (recordCache && v1Slot != ULTRART_CACHE_NONE)
+            {
+                float3 v1Dir = float3(f16tof32(v1DirectHalf.x), f16tof32(v1DirectHalf.x >> 16), f16tof32(v1DirectHalf.y));
+                CacheAccumulate(v1Slot, v1Dir, 0, _CacheFold.w);
+                v1Slot = ULTRART_CACHE_NONE;
+            }
+            break;
+        }
         float pSpec = ws / (ws + wd);
         r.Origin = hp + hn * 0.02;
         r.TMin = 0.0;
         r.TMax = 1.0e4;
         if (Rand(rng) < pSpec)
         {
+            if (recordCache && b == 1) v1Slot = ULTRART_CACHE_NONE;
             T *= specT / pSpec;
             r.Direction = ReflectionDirection(hn, r.Direction, mat.roughness, rng);
             cone = GlossyCone(cone, mat.roughness);
@@ -160,8 +224,8 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
             skyMis = skyNee;
         }
 
-        // Russian roulette: dim paths are thinned, the survivors weighted up.
-        if (_PtParams.w > 0.0)
+        // Russian roulette: dim paths are thinned, the survivors weighted up (skip at b == 1 on cache-write warps so v1 completes).
+        if (_PtParams.w > 0.0 && !(recordCache && b == 1))
         {
             float q = saturate(max(T.r, max(T.g, T.b)) / _PtParams.w);
             if (q < 1.0)
@@ -199,10 +263,17 @@ int PtBounces() { return clamp((int)_PtParams.y, 1, 4); }
 // Indirect light at a primary hit: the mean of N cosine-sampled paths (the cosine pdf cancels Lambert's cos / pi).
 // n: shading normal (per-texel detail); nv: vertex normal (ray offset, hemisphere test); cone: the camera pixel's ray cone
 // at the hit (width, spread angle).
-float3 PtIndirect(float3 pos, float3 n, float3 nv, float2 cone, inout uint rng)
+float3 PtIndirect(float3 pos, float3 n, float3 nv, float2 cone, bool cacheWrite, float3 v0Direct, inout uint rng)
 {
     int paths = PtPaths();
     int bounces = PtBounces();
+    uint v0Slot = ULTRART_CACHE_NONE;
+    uint2 v0DirectHalf = 0;
+    if (cacheWrite)
+    {
+        v0Slot = CacheInsert(pos, nv);
+        v0DirectHalf = PackEmissionHalf(v0Direct);
+    }
     float3 sum = 0;
     [loop] for (int s = 0; s < paths; s++)
     {
@@ -214,7 +285,7 @@ float3 PtIndirect(float3 pos, float3 n, float3 nv, float2 cone, inout uint rng)
         b.TMin = 0.0;
         b.TMax = 1.0e4;
         float dist;
-        float3 L = PtPath(b, false, n, 1.0, DiffuseCone(cone), bounces, rng, dist);
+        float3 L = PtPath(b, false, n, 1.0, DiffuseCone(cone), bounces, s == 0 ? v0Slot : ULTRART_CACHE_NONE, v0DirectHalf, rng, dist);
         float l = PtLuma(L);
         if (_PtParams2.x > 0.0 && l > _PtParams2.x) L *= _PtParams2.x / l;
         sum += L;
@@ -242,7 +313,7 @@ float3 PtReflection(float3 pos, float3 nv, float3 n, float3 dir, float roughness
         r.TMin = 0.0;
         r.TMax = 1.0e4;
         float d;
-        float3 c = LightToDisplay(PtPath(r, true, n, EffectLobeWeight(roughness), GlossyCone(cone, glossy ? roughness : 0.0), bounces, rng, d));
+        float3 c = LightToDisplay(PtPath(r, true, n, EffectLobeWeight(roughness), GlossyCone(cone, glossy ? roughness : 0.0), bounces, ULTRART_CACHE_NONE, 0, rng, d));
         if (s == 0) dist = d;
         if (glossy)
         {

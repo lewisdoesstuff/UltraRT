@@ -601,6 +601,7 @@ namespace UltraRT
                 var playerCam = MonoSingleton<CameraController>.Instance != null ? MonoSingleton<CameraController>.Instance.cam : null;
                 var cam = playerCam != null ? playerCam : Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
                 Logger.LogInfo($"RT layer mask from {(cam != null ? Bench.GameControl.PathOf(cam.transform) : "none")}: 0x{(cam != null ? cam.cullingMask : ~0):X8}");
+                SceneProxies.MergeStaticDynamic = _mergeStaticDynamic;
                 _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy) { EmitterGlowOf = EmitterGlow, AtlasPartWanted = AtlasPartWanted };
                 _proxies.SetDisplaceShader(_displaceCs);
                 _proxies.Build();
@@ -1041,18 +1042,21 @@ namespace UltraRT
             EnsureGBuffer(ref _gNormalDepth, w, h, RenderTextureFormat.ARGBHalf, "UltraRT NormalDepth");
             // x instance index, y packed world-space motion (docs/denoiser.md, "Motion vectors").
             EnsureGBuffer(ref _gInstanceId, w, h, RenderTextureFormat.RGInt, "UltraRT InstanceId");
-            // w & 0xFF: the lit weight (0 = fullbright) for auto exposure and DLSS RR; xyz unused since the hybrid mode went.
-            EnsureGBuffer(ref _gLitWeight, w, h, RenderTextureFormat.ARGBInt, "UltraRT LitWeight");
-            // PathTrace writes albedo + emission + material packed into _gSurface (Unity's 8-UAV limit), and the reflection
-            // into _gReflection. ReflectionFilter's resolve unpacks _gAlbedo / _gEmission and writes _gSpecular.
+            // PathTrace writes albedo + emission + material + lit weight packed into _gSurface (Unity's 8-UAV limit,
+            // freeing 2 UAV slots for the folded radiance cache), and the reflection into _gReflection.
+            // ReflectionFilter's resolve unpacks _gAlbedo / _gEmission and writes _gSpecular.
             EnsureGBuffer(ref _gSurface, w, h, RenderTextureFormat.ARGBInt, "UltraRT Surface");
             EnsureGBuffer(ref _gReflection, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Reflection");
             EnsureGBuffer(ref _gSpecular, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Specular");
             EnsureGBuffer(ref _gReflDebug, w, h, RenderTextureFormat.ARGB32, "UltraRT Reflection Debug");
         }
 
-        private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId, _gLitWeight;
+        private RenderTexture _gRadiance, _gAlbedo, _gEmission, _gNormalDepth, _gInstanceId;
         private RenderTexture _gSurface, _gReflection, _gSpecular, _gReflDebug;
+        /// <summary>Skip ReflectionFilter temporal+spatial passes when DLSS RR is active (RR filters specular). Bench plugin._reflBypassRR=0.</summary>
+        private bool _reflBypassRR = true;
+        /// <summary>C4: merge stationary non-batched dynamic MeshRenderers into static groups at scene build. Bench plugin._mergeStaticDynamic=0.</summary>
+        private bool _mergeStaticDynamic = true;
         private string _capturePose;
         private float _lightRadius = 0.15f;   // -ultrart-light-radius (m)
 
@@ -1544,7 +1548,6 @@ namespace UltraRT
                 _cmd.SetRayTracingVectorParam(shader, "_ReflCache", _reflSettings.CacheParams);
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
-                _cmd.SetRayTracingTextureParam(shader, "_LitWeight", _gLitWeight);
                 long tc = Perf.Now;
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 Perf.Add(Perf.Sec.Cache, tc);
@@ -1602,9 +1605,10 @@ namespace UltraRT
             RequestRayCounts(pt, w, h, (full ? "pathtrace" : kind == Kind.Denoised ? "relight/pt-dn" : kind.ToString()) + (_transRect ? "" : ", transRect off")); // plugin._rayCounts=1 (Plugin.RayCounts.cs)
             _gpu?.End(_cmd, SlotDispatch);
             _cmd.EndSample(SampleTrace);
+            if (pt) ResolveRadianceCache();
             if (_diagDispatches > 0 && pt) DiagDispatches(invViewProj); // bench: per-dispatch render-thread cost (docs/performance.md)
             _proxies.RecordMotionCopies(_cmd); // this frame's skinned poses become next frame's previous poses
-            if (kind == Kind.PathTrace) TraceCacheDebug(mode);
+            if (kind == Kind.PathTrace) TraceCacheDebug(mode, invViewProj);
             long tpl = Perf.Now;
             if (pt) TraceParticleLight(kind); // lit particles' lighting volume (Plugin.Particles.cs)
             Perf.Add(Perf.Sec.Particles, tpl);
@@ -1621,7 +1625,7 @@ namespace UltraRT
                     albedo = _gAlbedo, emission = _gEmission, specular = _gSpecular, debug = _gReflDebug,
                 };
                 _cmd.BeginSample(SampleReflections);
-                _reflFilter.Execute(_cmd, reflInputs, _reflSettings, kind == Kind.Reflection ? mode : 0);
+                _reflFilter.Execute(_cmd, reflInputs, _reflSettings, kind == Kind.Reflection ? mode : 0, bypassFilter: rr && _reflBypassRR && kind != Kind.Reflection);
                 _cmd.EndSample(SampleReflections);
                 if (kind == Kind.Reflection) _displayed = _gReflDebug;
             }

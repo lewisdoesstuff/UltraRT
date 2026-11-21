@@ -147,38 +147,59 @@ namespace UltraRT
         /// after LightSampling.Bind and EmissiveLights.Bind for PathTrace (EmissiveLights' history flag is consumed by its
         /// first Bind of the frame, which must be PathTrace's), before PathTrace's DispatchRays.
         /// </summary>
+        private bool _cacheDueFolded;
+
         private void TraceRadianceCache(RayTracingShader pathTrace, int w, int h, Matrix4x4 invViewProj, Color ambient)
         {
             ConfigureDenoiserCacheSeed(ambient);
+            _cacheDueFolded = false;
             if (_radianceCache == null) return;
             if (_radianceCache.Active && (_lightSampling.LightSetChanged || _emissive.SetChanged)) _radianceCache.NotifyLightsChanged();
             bool due = _radianceCache.Due(_frameIndex, _auxEvery);
-            if (_radianceCache.Active && due)
+            bool folded = _radianceCache.Active && _cacheSettings.folded;
+            if (_radianceCache.Active && due && !folded)
             {
                 var u = _radianceCache.UpdateShader;
                 _cmd.SetRayTracingAccelerationStructure(u, "_Scene", _proxies.Rtas);
                 _cmd.SetRayTracingBufferParam(u, "_Lights", _lightBuffer);
                 _cmd.SetRayTracingBufferParam(u, "_LightMasks", _lightMaskBuffer);
                 _cmd.SetRayTracingIntParam(u, "_LightCount", _surfLightCount);
-            _cmd.SetRayTracingFloatParam(u, "_LightRadius", _lightRadius);
-            _cmd.SetRayTracingVectorParam(u, "_Relight", RelightParams);
-            _cmd.SetRayTracingFloatParam(u, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
+                _cmd.SetRayTracingFloatParam(u, "_LightRadius", _lightRadius);
+                _cmd.SetRayTracingVectorParam(u, "_Relight", RelightParams);
+                _cmd.SetRayTracingFloatParam(u, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
                 _lightSampling.BindTables(_cmd, u);
                 _emissive.Bind(_cmd, u, _lightSamplingSettings.mode);
                 _cmd.SetRayTracingVectorParam(u, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
                 BindSky(u);
             }
-            _gpu?.Begin(_cmd, SlotCache);
+            if (!folded) _gpu?.Begin(_cmd, SlotCache);
             _radianceCache.Execute(_cmd, pathTrace, w, h, invViewProj, _camera.transform.position, _frameIndex, 1f, 1f, due);
+            if (!folded) _gpu?.End(_cmd, SlotCache);
+            else _cacheDueFolded = due;
+        }
+
+        /// <summary>Folded mode: run CacheResolve.compute right after PathTrace's DispatchRays.</summary>
+        private void ResolveRadianceCache()
+        {
+            if (!_cacheDueFolded || _radianceCache == null) return;
+            _gpu?.Begin(_cmd, SlotCache);
+            _radianceCache.ResolveFolded(_cmd);
             _gpu?.End(_cmd, SlotCache);
+            _cacheDueFolded = false;
         }
 
         /// <summary>The "cache" view mode: overwrite the PathTrace output with the cache debug view.</summary>
-        private void TraceCacheDebug(int mode)
+        private void TraceCacheDebug(int mode, Matrix4x4 invViewProj)
         {
             if (mode < CacheDebugModeBase || _radianceCache == null) return;
             var view = _cacheSettings.debugView != RadianceCacheDebug.None ? _cacheSettings.debugView : (RadianceCacheDebug)(mode - CacheDebugModeBase);
-            _radianceCache.DispatchDebug(_cmd, _output, view);
+            if (_cacheSettings.folded && _radianceCache.Active && _radianceCache.UpdateShader != null)
+            {
+                var u = _radianceCache.UpdateShader;
+                _cmd.SetRayTracingAccelerationStructure(u, "_Scene", _proxies.Rtas);
+                _cmd.SetRayTracingVectorParam(u, "_Relight", RelightParams);
+            }
+            _radianceCache.DispatchDebug(_cmd, _output, view, invViewProj, _camera.transform.position);
         }
     }
 }

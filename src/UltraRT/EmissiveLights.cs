@@ -280,11 +280,12 @@ namespace UltraRT
         private int _dynamicCursor;
         private bool _built;
 
-        // Per triangle (CPU): GPU words, emitter, local centroid, local area, luminance of Le.
+        // Per triangle (CPU): GPU words, emitter, local centroid, cached world centroid, local area, luminance of Le, cached base weight.
         private uint[] _triData = new uint[0];
         private int[] _triEmitter = new int[0];
-        private Vector3[] _triCentroid = new Vector3[0];
-        private float[] _triArea = new float[0], _triLum = new float[0];
+        private Vector3[] _triCentroid = new Vector3[0], _triWorldPos = new Vector3[0];
+        private float[] _triArea = new float[0], _triLum = new float[0], _triBaseW = new float[0];
+        private bool _triWorldDirty;
         private int _triCount, _deadTris, _uploadedTris;
         private bool _capWarned;
 
@@ -446,6 +447,7 @@ namespace UltraRT
                 ow.AreaScale = AreaScale(m);
                 WriteOwner(o);
                 _ownersDirty = true;
+                _triWorldDirty = true;
             }
 
             TransformTicks += System.Diagnostics.Stopwatch.GetTimestamp() - tXf;
@@ -472,7 +474,7 @@ namespace UltraRT
                 UpdateActive();
                 _aliasPending = true;
             }
-            if ((_aliasPending && Time.frameCount - _aliasFrame >= 4) || moved)
+            if ((_aliasPending && Time.frameCount - _aliasFrame >= AliasToggleDebounce) || moved)
             {
                 long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                 BuildAlias(camPos);
@@ -488,7 +490,8 @@ namespace UltraRT
             _activeDirty = false;
         }
 
-        private const float AliasInterval = 0.1f;
+        private const float AliasInterval = 0.25f;
+        private const int AliasToggleDebounce = 10;
         /// <summary>The camera's images through visible portals (SceneProxies.PortalViewpoints; the list light sampling
         /// uses, filled later in the frame, so last frame's). Set by the plugin.</summary>
         public List<Vector3> ViewPoints;
@@ -719,8 +722,10 @@ namespace UltraRT
                 int n = Math.Max(1024, _triEmitter.Length * 2);
                 Array.Resize(ref _triEmitter, n);
                 Array.Resize(ref _triCentroid, n);
+                Array.Resize(ref _triWorldPos, n);
                 Array.Resize(ref _triArea, n);
                 Array.Resize(ref _triLum, n);
+                Array.Resize(ref _triBaseW, n);
                 Array.Resize(ref _triData, n * TriStride);
             }
             uint flags = (c.Src.TwoSided ? 1u : 0u) | (SceneProxies.FrontCounterClockwise ? 2u : 0u);
@@ -732,9 +737,13 @@ namespace UltraRT
             _triData[b + 8] = AsUInt(c.E2.x); _triData[b + 9] = AsUInt(c.E2.y); _triData[b + 10] = AsUInt(c.E2.z);
             _triData[b + 11] = Half(c.Le.b) | (Half(Mathf.Max(0f, 1f + c.AirDelta)) << 16); // high half: air share
             _triEmitter[t] = ei;
-            _triCentroid[t] = c.P0 + (c.E1 + c.E2) / 3f;
+            var cen = c.P0 + (c.E1 + c.E2) / 3f;
+            _triCentroid[t] = cen;
+            var ow = _owners[em.Owner];
+            _triWorldPos[t] = ow.World ? cen : ow.Matrix.MultiplyPoint3x4(cen);
             _triArea[t] = c.Area;
             _triLum[t] = c.Lum;
+            _triBaseW[t] = c.Lum * c.Area * ow.AreaScale;
             em.Tris++;
             _triCount++;
         }
@@ -751,8 +760,10 @@ namespace UltraRT
                     Array.Copy(_triData, t * TriStride, _triData, n * TriStride, TriStride);
                     _triEmitter[n] = _triEmitter[t];
                     _triCentroid[n] = _triCentroid[t];
+                    _triWorldPos[n] = _triWorldPos[t];
                     _triArea[n] = _triArea[t];
                     _triLum[n] = _triLum[t];
+                    _triBaseW[n] = _triBaseW[t];
                 }
                 n++;
             }
@@ -795,11 +806,18 @@ namespace UltraRT
             int words = (_triCount + 31) / 32;
             if (_activeBits.Length < Math.Max(1, words)) _activeBits = new uint[Math.Max(64, words * 2)];
             Array.Clear(_activeBits, 0, Math.Max(1, words));
-            int active = 0;
+            int active = 0, lastEmitter = -1;
+            bool lastOn = false;
             for (int t = 0; t < _triCount; t++)
             {
-                var e = _emitters[_triEmitter[t]];
-                if (e.Dead || !e.Visible) continue;
+                int ei = _triEmitter[t];
+                if (ei != lastEmitter)
+                {
+                    lastEmitter = ei;
+                    var e = _emitters[ei];
+                    lastOn = !e.Dead && e.Visible;
+                }
+                if (!lastOn) continue;
                 _activeBits[t >> 5] |= 1u << (t & 31);
                 active++;
             }
@@ -808,9 +826,39 @@ namespace UltraRT
             ActiveCount = active;
         }
 
+        private void RefreshWorldCache()
+        {
+            if (!_triWorldDirty) return;
+            _triWorldDirty = false;
+            int lastEmitter = -1;
+            OwnerEntry ow = null;
+            Matrix4x4 m = Matrix4x4.identity;
+            bool world = true;
+            float asc = 1f;
+            for (int t = 0; t < _triCount; t++)
+            {
+                int e = _triEmitter[t];
+                if (e != lastEmitter)
+                {
+                    lastEmitter = e;
+                    ow = _owners[_emitters[e].Owner];
+                    world = ow.World;
+                    m = ow.Matrix;
+                    asc = ow.AreaScale;
+                }
+                var p = _triCentroid[t];
+                _triWorldPos[t] = world ? p : new Vector3(
+                    m.m00 * p.x + m.m01 * p.y + m.m02 * p.z + m.m03,
+                    m.m10 * p.x + m.m11 * p.y + m.m12 * p.z + m.m13,
+                    m.m20 * p.x + m.m21 * p.y + m.m22 * p.z + m.m23);
+                _triBaseW[t] = _triLum[t] * _triArea[t] * asc;
+            }
+        }
+
         /// <summary>Vose alias table over the active triangles: pdf = (1 - mix) w / sum + mix * lum*area / sum(lum*area).</summary>
         private void BuildAlias(Vector3 camPos)
         {
+            RefreshWorldCache();
             int n = 0;
             if (_aliasTri.Length < _triCount)
             {
@@ -824,34 +872,20 @@ namespace UltraRT
             float r2 = Mathf.Max(0.01f, Settings.importanceRadius * Settings.importanceRadius);
             bool importance = Settings.importance;
             int views = importance && Settings.portalImportance && ViewPoints != null ? ViewPoints.Count : 0;
-            int lastEmitter = -1;
-            OwnerEntry ow = null;
-            Matrix4x4 m = Matrix4x4.identity;
             for (int t = 0; t < _triCount; t++)
             {
                 if ((_activeBits[t >> 5] & (1u << (t & 31))) == 0) continue;
-                int e = _triEmitter[t];
-                if (e != lastEmitter)
-                {
-                    // Triangles of one emitter are mostly contiguous: look its owner up once per run.
-                    lastEmitter = e;
-                    ow = _owners[_emitters[e].Owner];
-                    m = ow.World ? Matrix4x4.identity : ow.Matrix;
-                }
-                float la = _triLum[t] * _triArea[t] * ow.AreaScale;
+                float la = _triBaseW[t];
                 float w = la;
                 if (importance)
                 {
-                    var p = _triCentroid[t];
-                    float wx = m.m00 * p.x + m.m01 * p.y + m.m02 * p.z + m.m03;
-                    float wy = m.m10 * p.x + m.m11 * p.y + m.m12 * p.z + m.m13;
-                    float wz = m.m20 * p.x + m.m21 * p.y + m.m22 * p.z + m.m23;
-                    float dx = wx - camPos.x, dy = wy - camPos.y, dz = wz - camPos.z;
+                    var wp = _triWorldPos[t];
+                    float dx = wp.x - camPos.x, dy = wp.y - camPos.y, dz = wp.z - camPos.z;
                     float d2 = dx * dx + dy * dy + dz * dz;
                     for (int v = 0; v < views; v++)
                     {
                         var vp = ViewPoints[v];
-                        dx = wx - vp.x; dy = wy - vp.y; dz = wz - vp.z;
+                        dx = wp.x - vp.x; dy = wp.y - vp.y; dz = wp.z - vp.z;
                         d2 = Mathf.Min(d2, dx * dx + dy * dy + dz * dz);
                     }
                     w *= r2 / (r2 + d2);

@@ -38,7 +38,7 @@ namespace UltraRT
         /// disappeared). Sigma 0 = the old ratio test (1.8x / 0.55x, and every light-set change), which fired on noise.</summary>
         private float _vmFastSigma = 3f, _vmFastTol = 0.3f, _vmFastTolChange = 0.1f;
         /// <summary>RIS candidates per direct-light sample on the viewmodel (0 = the world's LightSamplingSettings.candidates).</summary>
-        private int _vmCandidates = 32;
+        private int _vmCandidates = 16;
         /// <summary>3x3 history search when the bilinear taps fail (edges of an idling gun); bench plugin._vmHistorySearch=0.</summary>
         private bool _vmHistorySearch = true;
         private int _vmAtrous = 3;         // a-trous iterations (0-3: steps 1, 2, 4)
@@ -416,23 +416,22 @@ namespace UltraRT
             x0 = Mathf.Clamp(Mathf.Floor(x0 - pad), 0, w); x1 = Mathf.Clamp(Mathf.Ceil(x1 + pad), 0, w);
             y0 = Mathf.Clamp(Mathf.Floor(y0 - pad), 0, h); y1 = Mathf.Clamp(Mathf.Ceil(y1 + pad), 0, h);
             // The renderer bounds are loose (skinned arms reach behind the camera, so this is often the whole screen).
-            // Narrow them with the GPU-measured bounds of the last frames, padded for motion, unless the viewmodel touched
-            // the edge of the rectangle it was measured in (it may extend beyond: measure the bounds' rectangle next frame).
+            // Narrow them with the GPU-measured bounds of the last frames, padded for motion. If an edge touched during
+            // rapid recoil/punch animation, expand only the touching edge(s) by 160 px instead of snapping straight to full screen.
             if (_vmGpuBoundsValid && _vmFrame - _vmGpuBoundsFrame <= 8u && _vmGpuBounds.width > 0)
             {
                 var g = _vmGpuBounds;
                 var dr = _vmGpuDispatch;
                 int hw = (w + 1) / 2, hh = (h + 1) / 2;
-                bool touches = (g.xMin <= dr.xMin + 1 && dr.xMin > 0) || (g.yMin <= dr.yMin + 1 && dr.yMin > 0) ||
-                               (g.xMax >= dr.xMax - 1 && dr.xMax < hw) || (g.yMax >= dr.yMax - 1 && dr.yMax < hh);
-                if (!touches)
-                {
-                    const float motionPad = 64f; // full-res pixels: weapon bob and animation during the readback latency
-                    x0 = Mathf.Max(x0, g.xMin * 2f - motionPad); x1 = Mathf.Min(x1, g.xMax * 2f + motionPad);
-                    y0 = Mathf.Max(y0, g.yMin * 2f - motionPad); y1 = Mathf.Min(y1, g.yMax * 2f + motionPad);
-                    x0 = Mathf.Clamp(Mathf.Floor(x0), 0, w); x1 = Mathf.Clamp(Mathf.Ceil(x1), 0, w);
-                    y0 = Mathf.Clamp(Mathf.Floor(y0), 0, h); y1 = Mathf.Clamp(Mathf.Ceil(y1), 0, h);
-                }
+                const float motionPad = 64f, touchPad = 160f;
+                float padL = (g.xMin <= dr.xMin + 1 && dr.xMin > 0) ? touchPad : motionPad;
+                float padB = (g.yMin <= dr.yMin + 1 && dr.yMin > 0) ? touchPad : motionPad;
+                float padR = (g.xMax >= dr.xMax - 1 && dr.xMax < hw) ? touchPad : motionPad;
+                float padT = (g.yMax >= dr.yMax - 1 && dr.yMax < hh) ? touchPad : motionPad;
+                x0 = Mathf.Max(x0, g.xMin * 2f - padL); x1 = Mathf.Min(x1, g.xMax * 2f + padR);
+                y0 = Mathf.Max(y0, g.yMin * 2f - padB); y1 = Mathf.Min(y1, g.yMax * 2f + padT);
+                x0 = Mathf.Clamp(Mathf.Floor(x0), 0, w); x1 = Mathf.Clamp(Mathf.Ceil(x1), 0, w);
+                y0 = Mathf.Clamp(Mathf.Floor(y0), 0, h); y1 = Mathf.Clamp(Mathf.Ceil(y1), 0, h);
             }
             // Even origin: the half-res grid starts on a 2x2 block.
             x0 -= x0 % 2; y0 -= y0 % 2;

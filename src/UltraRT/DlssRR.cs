@@ -395,10 +395,11 @@ namespace UltraRT
             if (!_historyValid) { _prevViewProj = i.viewProj; _prevJitter = jitter; }
 
             int k;
+            var invViewProj = i.viewProj.inverse;
             cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(tw, th, 1f / tw, 1f / th));
             cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, PlayerFilter ? 1f : 0f, FrontEmitters ? 1f : 0f, EmissionOutside ? 1f : 0f));
             cmd.SetComputeVectorParam(cs, "_CamPos", cam.transform.position);
-            cmd.SetComputeMatrixParam(cs, "_InvViewProj", i.viewProj.inverse);
+            cmd.SetComputeMatrixParam(cs, "_InvViewProj", invViewProj);
             cmd.SetComputeVectorParam(cs, "_ReflParams", i.reflParams);
             if (remod)
             {
@@ -424,7 +425,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(tw, th, 1f / tw, 1f / th));
             cmd.SetComputeVectorParam(cs, "_CamPos", cam.transform.position);
             cmd.SetComputeVectorParam(cs, "_CamFwd", cam.transform.forward);
-            cmd.SetComputeMatrixParam(cs, "_InvViewProj", i.viewProj.inverse);
+            cmd.SetComputeMatrixParam(cs, "_InvViewProj", invViewProj);
             cmd.SetComputeMatrixParam(cs, "_PrevViewProj", _prevViewProj);
             cmd.SetComputeVectorParam(cs, "_Jitter", new Vector4(jitter.x, jitter.y, _prevJitter.x, _prevJitter.y));
             cmd.SetComputeIntParams(cs, "_Guard", renderOffset.x, renderOffset.y, rw, rh);
@@ -520,7 +521,7 @@ namespace UltraRT
                 cmd.SetRayTracingAccelerationStructure(rs, "_Scene", CutoutRtas);
                 cmd.SetRayTracingTextureParam(rs, "_CutoutOut", _cutout);
                 cmd.SetRayTracingTextureParam(rs, "_CutoutPrep", _cutoutPrep);
-                cmd.SetRayTracingMatrixParam(rs, "_CutInvViewProj", i.viewProj.inverse); // the trace's: rays where Finish maps the pixel
+                cmd.SetRayTracingMatrixParam(rs, "_CutInvViewProj", invViewProj); // the trace's: rays where Finish maps the pixel
                 cmd.SetRayTracingVectorParam(rs, "_CutTraceMap", traceMap);
                 cmd.SetRayTracingVectorParam(rs, "_CutJitter", new Vector4(jitter.x, jitter.y, 0f, 0f));
                 cmd.SetRayTracingVectorParam(rs, "_CutDim", new Vector4(tw, th, 1f / tw, 1f / th));

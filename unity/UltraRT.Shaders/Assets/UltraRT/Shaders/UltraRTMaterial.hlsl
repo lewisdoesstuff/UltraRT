@@ -8,10 +8,10 @@
 //   material: roughness 8 | metalness 8 << 8 | f0 8 << 16 | specular weight 8 << 24   (all unorm8)
 //   flags:    bit 0 geometric normal | reflection mode 2 << 1 | layer 8 << 8 | reflection strength 8 << 16 | class 5 << 24
 //
-// Surface G-buffer (_Surface, RWTexture2D<uint4>; replaces the old _AlbedoOut + _EmissionOut, freeing one UAV):
+// Surface G-buffer (_Surface, RWTexture2D<uint4>; replaces the old _AlbedoOut + _EmissionOut + _LitWeight, freeing UAVs):
 //   x: albedo rgb unorm8 x3 | class 5 << 24 | reflection mode 2 << 29 (bit 31 unused: was the hybrid mode's game cubemap)
 //   y: half(emission.r) | half(emission.g) << 16
-//   z: half(emission.b) (sign bit: no fog) | reflection strength 8 << 16 (bits 24-31 unused)
+//   z: half(emission.b) (sign bit: no fog) | reflection strength 8 << 16 | lit weight 8 << 24
 //   w: the payload's material word
 
 #define ULTRART_REFL_NONE     0u
@@ -72,20 +72,21 @@ SurfaceMaterial MaterialFromPayload(uint word, uint flags)
 // the fog pass leaves the pixel unfogged as the game does (SurfaceNoFog; VolumetricsComposite.shader, pass 0).
 #define ULTRART_FLAG_NOFOG 0x40u
 
-uint4 PackSurface(float3 albedo, float3 emission, uint materialWord, uint flags)
+uint4 PackSurface(float3 albedo, float3 emission, uint materialWord, uint flags, float litWeight = 1.0)
 {
     uint mode = (flags >> 1) & 3u;
     uint cls = (flags >> 24) & 0x1Fu;
     uint rs = (flags >> 16) & 0xFFu;
     return uint4(Unorm8(albedo.r) | (Unorm8(albedo.g) << 8) | (Unorm8(albedo.b) << 16) | (cls << 24) | (mode << 29),
                  f32tof16(emission.r) | (f32tof16(emission.g) << 16),
-                 (f32tof16(max(emission.b, 0.0)) & 0x7FFFu) | ((flags & ULTRART_FLAG_NOFOG) != 0u ? 0x8000u : 0u) | (rs << 16),
+                 (f32tof16(max(emission.b, 0.0)) & 0x7FFFu) | ((flags & ULTRART_FLAG_NOFOG) != 0u ? 0x8000u : 0u) | (rs << 16) | (Unorm8(litWeight) << 24),
                  materialWord);
 }
 
 float3 SurfaceAlbedo(uint4 s) { return float3(FromUnorm8(s.x), FromUnorm8(s.x >> 8), FromUnorm8(s.x >> 16)); }
 float3 SurfaceEmission(uint4 s) { return float3(f16tof32(s.y), f16tof32(s.y >> 16), f16tof32(s.z & 0x7FFFu)); }
 bool SurfaceNoFog(uint4 s) { return (s.z & 0x8000u) != 0u; }
+float SurfaceLitWeight(uint4 s) { return FromUnorm8(s.z >> 24); }
 SurfaceMaterial SurfaceMat(uint4 s) { return UnpackMaterial(s.w, (s.x >> 29) & 3u, FromUnorm8(s.z >> 16), (s.x >> 24) & 0x1Fu); }
 
 // Specular terms shared by the ray generation shader (non-denoised output) and Reflections.compute (resolve):

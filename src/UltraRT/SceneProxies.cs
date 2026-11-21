@@ -296,6 +296,7 @@ namespace UltraRT
             foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None)) { AddLight(l); _buildLights.Add(l); }
 
             if (!SkipStaticBatches && batches.Count > 0) BuildStaticGroups(batches);
+            if (!SkipStaticBatches && MergeStaticDynamic) BuildStaticDynamicGroups();
 
             SyncDynamic(force: true);
             Rtas.Build();
@@ -597,6 +598,11 @@ namespace UltraRT
             }
             else
             {
+                if (batches != null && TryQueueStaticDynamic(r, mesh, mats, player, portalLayer))
+                {
+                    stats.Dynamic++;
+                    return;
+                }
                 var proxyMats = new Material[mats.Length];
                 for (int i = 0; i < mats.Length; i++) proxyMats[i] = player ? PlayerProxyOrDisabled(mats[i]) : ProxyOrDisabled(mats[i]);
                 if (!player) CausticVariants(r, proxyMats); // mode-2 caustics: per-renderer bounds centre
