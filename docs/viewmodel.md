@@ -92,6 +92,7 @@ A command buffer on the HUD camera at **AfterForwardOpaque**: after the game dre
 | `_vmSamples` | 1 | direct-light samples (shadow rays) per pixel; `-ultrart-vm-samples` |
 | `_vmCheckerboard` | true | split glossy pixels between diffuse and reflection rays; no shadow rays at secondary hits |
 | `_vmStableRefl` | true | mirror-direction reflection rays |
+| `_vmReflGraze` | 0.5 | below this cos(normal, view) the reflection is blended towards the gun's own lighting (section 7); 0 = the mirror reflection everywhere (before 2026-11-21) |
 | `_vmSkinnedMotion` | true | per-vertex motion of skinned renderers (bone animation) in the motion vectors; `-ultrart-vm-skinned on\|off` |
 | `_vmNdlPow` | 2.2 | cosine exponent of the player's own lights on the gun under linear transport; above 1 also caps their falloff at the game's curve (section 6); 1 = the physical model |
 | `_vmMaxHistory`, `_vmMaxHistoryRefl`, `_vmClampK` | 32, 12, 3 | temporal filter; `-ultrart-vm-history` |
@@ -166,6 +167,7 @@ How it got there (1-1 start, relight):
   - 1-1 torch hall with the revolver. This is the one slow load (22 s approach).
 - `viewmodel-quick.json`: 1-1 start with debug views, revolver, 1-4 lamps (~1.5 min).
 - `viewmodel-look.json` (2026-11-15): the two 7-3 flashlight poses, the revolver shot at 0.03 s and 0.1 s, 1-1 start, each with `_vmEnabled=0` and `_vmNdlPow=1` (the master look).
+- `viewmodel-mannequins.json` (2026-11-21): P-2 revolver shots and 7-3 shots with `plugin._vmReflGraze=0` as the before (section 7), and the 7-1 mannequin room.
 - `viewmodel-motion.json`: viewmodel motion noise with `MotionViewmodel` and `GunBob`: 1-1 start bob only, bob + revolver shots every 0.25 s (recoil), 1-4 lamps bob + shots, the 1-1 doors walk; each with and without skinned motion.
 - `viewmodel-pt.json`: RR warm-up, then 1-1 start, 1-4 lamps and 7-3 in relight, `pathtrace` and `pathtrace` with the pass off.
 - `viewmodel-cost2.json` (`-Perf`): cost with the revolver held, while firing, and in `pathtrace`.
@@ -306,3 +308,54 @@ The idle revolver costs 0.31 ms against the 0.25 ms of section 3. The rays take 
 0.14 ms). This branch adds nothing to the rays beyond a `pow` and a `min` per player light. The likely causes are master's
 light-sampling changes since then (RIS 16, unbiased direct light) and the revolver's screen area, but neither was measured
 separately. While firing, the cost follows the screen area the recoil animation covers.
+
+## 7. See-through gun (2026-11-21, `t3/viewmodel-and-mannequins`)
+
+User, playtest of 2026-11-20: the revolver looked slightly see-through, in dim rooms while firing and in P-2 next to
+Sisyphus without firing. Asked what it looked like: the background showing through the gun's body, on its top and
+edges, in `pathtrace`.
+
+**What was ruled out** (by reading the frame order and with A/B captures):
+- Nothing of ours draws over the gun after it. The volumetric haze and the screen effects (bloom, heat haze) run on Main
+  Camera at `AfterForwardAlpha` (camera depth -1); DLSS RR and the world composite are in Main Camera's own buffer; the
+  HUD camera (depth 0) draws the gun afterwards, opaque, and this pass replaces its pixels after its opaques. Native
+  float HDR (`HdrScenePreRender`) runs at the Virtual Camera (depth 1), after the gun, and the present pass in `Hdr.cpp`
+  chooses between the float frame and the 8-bit frame of the same image (it never blends the gun with what is behind
+  it): not involved, and `Hdr.cpp` / `Plugin.Hdr.cs` were not changed. `relight+vfx.enabled=0` and
+  `relight+plugin._vmEnabled=0` in P-2 confirmed the gun's pixels are this pass's.
+- The user's saved P-2 poses (corridor, red room) did not show it. In P-2's dark rooms the game draws its own gun
+  pitch black (no light reaches layer 13 there), and the RT gun is lit and tinted by the room instead.
+
+**Cause.** The gun's reflection. Weapons are classified MetalLow (roughness 0.4, weight 0.6) and metals get an f0 of at
+least 0.5 luminance (`SpecularTerms`), so about 30-36 % of a gun pixel is its reflection. The reflection ray goes along the
+mirror direction (`_vmStableRefl`), and the viewmodel is not in the RTAS, so nothing of the gun can block it. Where the
+gun is seen at a grazing angle (the top of the barrel and frame seen from behind, every silhouette edge, more of it when
+the recoil tilts the gun), the mirror direction is close to the view direction: the ray runs on past the gun and returns
+the scene right behind it, nearly unblurred (the filter blurs reflections by a few pixels only). With a dark diffuse
+(a dim room) or a bright object ahead (a wall lit by the muzzle flash, Sisyphus), that image of the background is what
+the edges show, and the gun reads as see-through. The reflection debug view (`_vmDebug=4`) in 7-3 shows the flashlit
+ground and grass on the gun.
+
+**Fix** (`ViewmodelComposite.shader`, `_vmReflGraze`, default 0.5): the reflection is blended towards the gun's own
+display lighting, the cosine-weighted average of its surroundings (what a fully rough lobe returns), with weight
+`1 - smoothstep(0, 0.5, cos(n, v))`. Faces seen head-on keep the mirror reflection; grazing faces lose the background
+image but keep a sheen of the room's average light, so the metal does not go dark at its edges. No extra rays; the
+composite's cost is unchanged (one lerp).
+
+**Measured** (RTX 5070 Ti, 2560x1440, alt slot, `vm-mq-diag3`, same launch): the change against
+`plugin._vmReflGraze=0` lies on the gun's edges and top faces (difference image), mean over the gun's quadrant 4.8 / 5.8
+luma levels in 7-3 (flashlight) / 1-1 (sun), 10 % / 15 % of its pixels by more than 8 levels. On the top edge of the
+barrel the old reflection showed the flashlit ground (7-3) and the pale stone (1-1); with the fix those edges look like
+reflections off, while the rest of the metal keeps its reflections. Sheet:
+`bench/results/review/viewmodel-and-mannequins/gun_grazing_reflection_before_after.png` (game / old / fix / reflections
+off) in the main checkout. The user's exact scenes (a dim room while firing, Sisyphus) were not reproduced on the bench:
+check there.
+
+**Open.** While firing in P-2's red room, two relight captures (old build) showed a hard, vertical light edge across the
+arm and gun: one side lit by the muzzle flash, the other not, while the game lights the whole arm
+(`gun_firing_light_edge_open.png`). The dark side is not the game's colour, so it is not the composite's screen
+rectangle; most likely the flash light's cone or range at the eye. Not reproduced on demand (the shot animation is
+picked at random), not investigated further.
+
+`bench/suites/viewmodel-mannequins.json`: the 7-1 mannequin room turns (docs/scene-proxies.md, "Posed mannequins"),
+P-2 revolver shots and 7-3 shots with `plugin._vmReflGraze=0` as the before.

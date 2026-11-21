@@ -48,6 +48,11 @@ namespace UltraRT
         private bool _vmCheckerboard = true; // trace half the half-res pixels per frame (alternating); the filter fills the rest
         private int _vmRayTest = 0;            // measurement only: 1 = dispatch a single ray-gen thread (fixed cost of the dispatch)
         private bool _vmStableRefl = true;   // mirror-direction reflection rays (stable); false = GGX samples like the world
+        /// <summary>Grazing reflections (ViewmodelComposite): below this cos(normal, view) the gun's reflection is blended
+        /// towards its own diffuse lighting (the environment's average, as a fully rough lobe would see it). The viewmodel is
+        /// not in the RTAS, so a grazing mirror ray runs straight past the gun and returned the scene right behind it: the gun
+        /// looked see-through (docs/viewmodel.md, "See-through gun"). 0 = the old mirror reflection everywhere.</summary>
+        private float _vmReflGraze = 0.5f;
         /// <summary>Per-vertex motion of skinned renderers (bone animation) from a copy of last frame's skinned vertex buffer;
         /// false = rigid motion of the root bone only (the first version). Bench plugin._vmSkinnedMotion=0.</summary>
         private bool _vmSkinnedMotion = true;
@@ -731,7 +736,7 @@ namespace UltraRT
             mat.SetInt(VmDebugId, _vmDebug);
             mat.SetFloat(VmStampId, stamp);
             mat.SetVector(VmCamFwdId, fwd);
-            mat.SetVector(VmParamsId, new Vector4(0f, 0f, Mathf.Max(0.001f, _vmDepthTol), 1f));
+            mat.SetVector(VmParamsId, new Vector4(Mathf.Max(0f, _vmReflGraze), 0f, Mathf.Max(0.001f, _vmDepthTol), 1f));
             mat.SetVector(VmRefl2Id, new Vector4(_reflSettings.specWeight, _reflSettings.reflStrength, _reflSettings.enabled ? 1f : 0f, 0f));
             _gpu?.Begin(cmd, SlotVmComposite);
             cmd.SetRenderTarget(color.colorBuffer);

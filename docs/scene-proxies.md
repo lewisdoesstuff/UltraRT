@@ -308,7 +308,51 @@ Evidence: bench effect `holditem` (V1 picks up a skull; bench/README.md), suite 
 standing still. Not reproduced in six bench launches with this branch (the dummy's pose is random per load; each
 capture was clean, sheets `mannequin_*.png`). No cause was found by reading: one `SkinnedMeshRenderer` per dummy, no
 layer change, no scale change in place. **Open, unreproduced** (lead, 2026-11-18: the ghost was there when the user walked in, not only after shooting the
-dummy). The log lines above are the first thing to look for in a session that shows it.
+dummy). The log lines above are the first thing to look for in a session that shows it. Found and fixed on 2026-11-21:
+see "Posed mannequins" below.
+
+## Posed mannequins (2026-11-21, `t3/viewmodel-and-mannequins`)
+
+User, playtest of 2026-11-20 (7-1, poses 2 and 3: the pedestal and the room before the red door): a sharp, static copy
+of every posed mannequin beside it, in an older, more upright pose, with the marble wall showing inside the copy. It
+was already there on entering the room and stayed while the user looked at it.
+
+**The game's mannequins.** `MannequinPoses` (on each `MannequinPoser`): an `Animator` with culling mode
+`CullUpdateTransforms` (it writes the bones only while a renderer of it is visible) and root bone `Spine_01`. `Start`
+picks a random pose (`TargetPose` 1-9); `SlowUpdate` (every 1-3 s) picks a new one while the mannequin is behind the
+`CameraController`. Picking up the room's red skull also changes poses. The room's posers exist only after the
+checkpoint has cloned the room: a bench pose needs `"Load": "checkpoint"` (an approach-fast route left the room empty,
+and `LookAt` found no poser to switch on).
+
+**Cause.** The RTAS kept a stale pose of the mannequin while both skinned vertex buffers had the new one:
+- `-ultrart-skin-probe <text>` (new, bench screenshots) reads back the game's and the proxy's skinned vertex buffers
+  (current and previous) for each matching skinned renderer. In every capture they were identical (same bones, root,
+  root-space box), and the instance sat at the root bone.
+- The `instance` view showed another pose than the game drew: in the room (`viewmodel-mannequins.json`: checkpoint
+  load facing away from the room, then a 30 deg/s turn into it, so the mannequins switch on unseen and pose on first
+  sight) half the mannequins on screen had stretched, older silhouettes in the instance view. Pathtrace and relight then
+  showed the user's grey copies; the game's own mannequins were drawn over them with the wall's light.
+- So Unity did not rebuild these `DynamicGeometry` instances from the new pose, although the proxy was skinned. The
+  trigger is the pose change of a renderer that then holds still; enemies that keep animating never showed it. Why
+  Unity skips the rebuild is not known (same class of fault as "Instances added too early" above).
+- Ruled out: Unity's motion-vector buffer pair (the previous buffers matched the current ones, and a pedestal sweep with
+  `skinnedMotionVectors` off on the proxies looked the same as with it on), the instance transform (always at the root bone), and the 2-frame re-add on the first add
+  extended to skinned instances (tried: the room still had the copies, `mannequins_first_add_readd_not_enough.png`).
+
+**Fix** (`SceneProxies.SettleReAdd`): a skinned instance whose pose changed and then held still (its proxy's bounds,
+which `updateWhenOffscreen` recomputes from this frame's pose, unchanged for 3 frames) is removed and added once. A
+poser that takes a new pose is rebuilt once it settles; an enemy that keeps animating never settles and costs nothing;
+one that stops is re-added once. `-ultrart-nosettle-readd` turns it off (a launch flag: the adds happen at load, before
+bench variants apply). The scene-sync line counts them (`N skinned re-added after a pose settled`): 31-111 per room
+load in the test, against about 155 skinned instances added, one remove and add each.
+
+**Measured** (RTX 5070 Ti, 2560x1440, alt slot, `vm-mq-diag7` / `viewmodel-mannequins`, two launches each way): with
+the fix off, the instance view and both RT modes showed stale copies in both turn poses (two of two launches); with it,
+none (two of two launches, the second with the final build). Sheets in the main checkout: `bench/results/review/viewmodel-and-mannequins/
+mannequins_room_turn_before_after.png` (rows before / after: game, instance view, pathtrace raw, relight) and
+`mannequins_first_add_readd_not_enough.png`. A sweep at the pedestal (pose 2) re-posed the mannequin several times in
+each launch; no stale copy was captured there with either build, which fits the trigger (the pedestal mannequin is
+seen, and re-posed, during the approach).
 
 ## New objects
 
@@ -356,6 +400,8 @@ The remaining worst frame on the route is the game's own clone. RT off shows the
 - `SceneProxies.StaticActivation = false` (`-ultrart-static-always`): static batches are always present (the old behaviour), for A/B tests.
 - `SceneProxies.ForceGroupLevel = 0..4` (`-ultrart-static-level N`): force a grouping level.
 - `SceneProxies.StaticRecordBudget` (`-ultrart-static-budget N`): the record budget.
+- `SceneProxies.SkinnedSettleReAdd = true` (`-ultrart-nosettle-readd`): re-add a skinned instance once its pose settles ("Posed mannequins").
+- `SceneProxies.SkinProbeFilter` (`-ultrart-skin-probe <text>`): at bench screenshots, the matching skinned renderers and their game / proxy skinned vertex buffers (current and previous) as boxes.
 
 ## Runtime material changes
 

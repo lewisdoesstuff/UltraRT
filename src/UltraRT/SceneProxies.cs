@@ -112,6 +112,9 @@ namespace UltraRT
             public Vector3 AddedRootPos; // diagnostics: where the root was when the instance entered the RTAS
             public int SkinBase = -1, SkinVerts, SkinGen;
             public bool SkinPrevValid;
+            public Bounds PoseBounds;     // skinned: the proxy's bounds (updateWhenOffscreen: this frame's pose) at the last change
+            public int PoseChangedFrame;  // skinned: when they last changed; PoseSettling until the re-add (SkinnedSettleReAdd)
+            public bool PoseSettling;
             public Displaced Disp; // VERTEX_DISPLACEMENT: the displaced mesh copy (SceneProxies.Displaced.cs); its pose region is SkinBase
 
             // Runtime material changes (SceneProxies.Sync.cs): null for proxies that aren't synced (transparent, lava).
@@ -775,6 +778,7 @@ namespace UltraRT
                         else Rtas.UpdateInstanceTransform(d.Proxy);
                         SkinnedTransformUpdateCount++;
                     }
+                    if (SkinnedSettleReAdd) SettleReAdd(d);
                     // Skinned: root motion as a matrix, the pose itself from last frame's copy (RecordMotionCopies).
                     long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     d.PrevM = d.CurM;
@@ -845,8 +849,9 @@ namespace UltraRT
         /// hit, for the whole level, until it is removed and re-added: 8-1's lobby armchairs (HotelChair, a mesh no other
         /// renderer uses, added with the "3 Stuff" hierarchy) missed on 7 of 7 loads without a re-add and were hit on
         /// 8 of 8 with one; the portal quads had the same fault (docs/portals.md, "Portal quads added too early";
-        /// docs/scene-proxies.md, "Instances added too early"). Skinned instances (DynamicGeometry, rebuilt every frame)
-        /// are left alone. -ultrart-noreadd turns it off.
+        /// docs/scene-proxies.md, "Instances added too early"). Skinned instances are left alone here (a re-add on the
+        /// first add did not fix 7-1's mannequins; they get one when a pose change settles: SettleReAdd). -ultrart-noreadd
+        /// turns it off.
         /// </summary>
         public static bool NewInstanceReAdd = true;
         public const int NewInstanceReAddDelay = 2;
@@ -875,6 +880,38 @@ namespace UltraRT
                 NewInstancesReAdded++;
                 if (d.NewMesh) NewMeshInstancesReAdded++;
             }
+        }
+
+        /// <summary>
+        /// A skinned instance whose pose changed and then held still (bounds unchanged for <see cref="SettleFrames"/> frames)
+        /// is removed and added once. 7-1's posed mannequins (MannequinPoses: a new pose while behind the camera, animator
+        /// CullUpdateTransforms) could keep a stale pose in the RTAS while both skinned vertex buffers held the new one
+        /// (bench, 2026-11-21: the instance view showed another pose than the game's): a sharp copy beside the game's that
+        /// stayed, since nothing moved again. A re-add makes Unity build the instance afresh. Enemies that keep animating never
+        /// settle and are not touched; one that stops is re-added once. -ultrart-nosettle-readd turns it off.
+        /// </summary>
+        public static bool SkinnedSettleReAdd = true;
+        public const int SettleFrames = 3;
+        public int SkinnedSettleReAdds;
+
+        private void SettleReAdd(DynamicProxy d)
+        {
+            var b = d.SkinnedProxy.bounds;
+            if (b != d.PoseBounds)
+            {
+                bool first = d.PoseBounds.size == Vector3.zero;
+                d.PoseBounds = b;
+                d.PoseChangedFrame = Time.frameCount;
+                d.PoseSettling = !first; // the bounds it entered the RTAS with: nothing changed yet
+                return;
+            }
+            if (!d.PoseSettling || Time.frameCount - d.PoseChangedFrame < SettleFrames) return;
+            d.PoseSettling = false;
+            Rtas.RemoveInstance(d.Proxy);
+            Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
+            SkinnedSettleReAdds++;
+            if (!string.IsNullOrEmpty(TraceFilter) && GameControlPath(d.Source.transform).IndexOf(TraceFilter, StringComparison.OrdinalIgnoreCase) >= 0)
+                _log.LogInfo($"Trace '{GameControlPath(d.Source.transform)}': pose settled, re-added at frame {Time.frameCount}");
         }
 
         /// <summary>Diagnostic (bench plugin._readdDynamic=1): remove and re-add every active dynamic instance.</summary>
@@ -936,6 +973,8 @@ namespace UltraRT
                 CountTransparent(d, true);
                 d.Moved = false;
                 d.SkinPrevValid = false;
+                d.PoseBounds = default;
+                d.PoseSettling = false;
                 if ((d.SkinnedProxy != null || d.Disp != null) && d.SkinBase < 0) d.SkinBase = Motion.AllocSkin(d.SkinVerts);
                 Motion.SetIdentity(d.Slot);
             }

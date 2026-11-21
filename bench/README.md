@@ -332,7 +332,11 @@ Collected from the look-and-perf handoff of 2026-11-18 (`docs/archive/handoff-20
   naming a field that does not exist only logs `Burst: no Plugin field` / `no field`: check the log.
 - **Modes run one after the other on the same loaded pose**, so time passes: a cutscene pose (6-2 pose 4) drifts
   into the fight by the third mode. Short duration, early shot, few modes.
-- **Random level state**: 7-1's dummies take a new pose per load; do not compare shapes across launches.
+- **Random level state**: 7-1's dummies take a new pose per load, and again whenever the game's camera controller has
+  them behind it (every 1-3 s); captures of one screenshot time showed different poses per mode, so do not compare
+  shapes across launches or modes.
+  The mannequin room before the red door only has its mannequins after a checkpoint load (`"Load": "checkpoint"`);
+  `holditem` there picks up the red skull, which changes their poses (`viewmodel-mannequins.json`).
 - **Game-drawn transparents** (queue 3000: grates, light cones, water) are drawn by the game after the traced
   composite with the game's own lighting. They are absent from `_raw.png` and cannot be relit without a proxy or a
   material swap. `_raw.png` against the final shot tells haze and screen effects from the traced image.

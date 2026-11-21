@@ -36,7 +36,7 @@ Shader "UltraRT/ViewmodelComposite"
             float  _VMStamp;
             int    _VMDebug;      // 0 off; 1 coverage, 2 lighting, 3 albedo, 4 reflection, 5 history length
             float4 _VMCamFwd;     // xyz camera forward
-            float4 _VMParams;     // z depth tolerance (fraction), w blend (0..1); xy unused
+            float4 _VMParams;     // x grazing-reflection cosine (0 = off), z depth tolerance (fraction), w blend (0..1); y unused
             float4 _VMRefl2;      // xy SpecularTerms params (global spec weight, refl strength), z reflections on
 
             RWTexture2D<float4> _VMHdrGain : register(u1); // pass 1: the late gain map (rgb gain, a = the colour packed)
@@ -124,6 +124,14 @@ Shader "UltraRT/ViewmodelComposite"
                 float3 specW = 0;
                 float keep = 1.0;
                 if (hasRefl) SpecularTerms(mat, albedo, saturate(dot(n, v)), _VMRefl2.xy, specW, keep);
+                // Display lighting (UltraRTDisplayLighting), before the lit weight.
+                float3 lDisp = _UltraRTLinear > 0.5 ? pow(max(lighting, 0.0), 1.0 / 2.2) : lighting;
+                // Grazing reflections (docs/viewmodel.md, "See-through gun"): the gun is not in the RTAS, so a mirror ray
+                // at a grazing angle runs straight past it and brings back the scene right behind the gun, which then
+                // looks see-through. There the reflection is blended towards the gun's own lighting: the cosine-weighted
+                // average of its surroundings, what a fully rough lobe returns. _VMParams.x: cos(n, v) where the mirror
+                // reflection is fully back; 0 = off.
+                if (hasRefl && _VMParams.x > 0.0) refl = lerp(lDisp, refl, smoothstep(0.0, _VMParams.x, saturate(dot(n, v))));
 
                 if (_VMDebug == 2) return float4((_UltraRTLinear > 0.5 ? pow(max(lighting, 0.0), 1.0 / 2.2) : lighting) * 0.5, 0.0);
                 if (_VMDebug == 3) return float4(albedo, 0.0);
@@ -131,8 +139,7 @@ Shader "UltraRT/ViewmodelComposite"
                 if (_VMDebug == 5) return float4(saturate(sL.a / ws / 32.0).xxx, 0.0);
 
                 float3 emission = _VMGB3[q].rgb;
-                float3 l = _UltraRTLinear > 0.5 ? pow(max(lighting, 0.0), 1.0 / 2.2) : lighting; // UltraRTDisplayLighting
-                l = lerp(1.0, l, lit);
+                float3 l = lerp(1.0, lDisp, lit);
                 // Exposure only: the world's area colour match gain (_UltraRTExposure[3]) is left out on purpose. It
                 // corrects the tint of the area's surfaces, and the gun is lit by other light (7-3's red room gave
                 // (0.89, 1.24, 1.12), which turned the flashlit gun cyan; docs/viewmodel.md).

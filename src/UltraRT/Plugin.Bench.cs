@@ -956,7 +956,7 @@ namespace UltraRT
                                            $"tex=[{string.Join(", ", texProps.Select(x => $"{x.n}={x.t.name}{(x.t is RenderTexture ? "(RT)" : "")}"))}] " +
                                            $"why={(usesRT ? "RT " : "")}{(skyShader ? "skyshader " : "")}{(bigNear ? "encloses-camera" : "")}");
                         }
-                        bool probed = false;
+                        bool probed = false, skinProbed = false;
                         foreach (var m in sc.Modes)
                         {
                             ApplyBenchMode(m);
@@ -987,6 +987,14 @@ namespace UltraRT
                                 // After the mode's effects spawned (and their proxies were made): what is in front of the camera.
                                 probed = true;
                                 foreach (var line in _proxies.DescribeView(GameControl.Cam != null ? GameControl.Cam.cam : null)) Logger.LogInfo("  view probe: " + line);
+                            }
+                            if (SceneProxies.SkinProbeFilter != null && _proxies != null && m != "off" && !skinProbed)
+                            {
+                                // -ultrart-skin-probe: the matching skinned renderers, and the game's skinned vertices against the proxy's.
+                                skinProbed = true;
+                                var pcam = GameControl.Cam != null ? GameControl.Cam.cam : null;
+                                foreach (var line in _proxies.DescribeMatching(SceneProxies.SkinProbeFilter, pcam, 12)) Logger.LogInfo("  skin probe: " + line);
+                                _proxies.ProbeSkinnedExtents(SceneProxies.SkinProbeFilter, line => Logger.LogInfo("  skin probe: " + line), 12);
                             }
                             if (m != "off" && _vmCam != null && sc.Effects != null) LogViewmodelLights(_vmCam); // the lights on the gun at the capture
                             yield return new WaitForEndOfFrame();
