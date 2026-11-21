@@ -569,6 +569,37 @@ namespace UltraRT.Bench
             go.SetActive(true);
             _benchEnemies[key] = go;
             Log?.LogInfo($"Effect spawner: enemy '{type}' (a copy of '{src.name}') at ({pos.x:F1}, {pos.y:F1}, {pos.z:F1})");
+            if (_dumped.Add(type.ToLowerInvariant())) LogRenderers(go);
+        }
+
+        private static readonly System.Collections.Generic.HashSet<string> _dumped = new System.Collections.Generic.HashSet<string>();
+
+        /// <summary>Every renderer of a bench enemy, once per type: what it draws with (shader, blend, queue, keywords, colours,
+        /// texture, mesh), to see which parts the trace has to handle (docs/portals.md, "Effects and Providence").</summary>
+        private static void LogRenderers(GameObject go)
+        {
+            try
+            {
+                foreach (var r in go.GetComponentsInChildren<Renderer>(true))
+                {
+                    var sb = new System.Text.StringBuilder();
+                    sb.Append($"Enemy renderer: {r.GetType().Name} '{GameControl.PathOf(r.transform)}' layer {r.gameObject.layer} active {r.gameObject.activeInHierarchy} enabled {r.enabled}");
+                    Mesh mesh = r is SkinnedMeshRenderer smr ? smr.sharedMesh : r.GetComponent<MeshFilter>()?.sharedMesh;
+                    if (mesh != null) sb.Append($" mesh '{mesh.name}' {mesh.vertexCount} v, colors {(mesh.isReadable ? mesh.colors32.Length.ToString() : "unreadable")}, sub {mesh.subMeshCount}");
+                    sb.Append($" bounds {r.bounds.size:F1}");
+                    foreach (var m in r.sharedMaterials)
+                    {
+                        if (m == null) { sb.Append(" | null"); continue; }
+                        float F(string n) => m.HasProperty(n) ? m.GetFloat(n) : float.NaN;
+                        string C(string n) => m.HasProperty(n) ? m.GetColor(n).ToString("F2") : "-";
+                        sb.Append($" | mat '{m.name}' shader '{(m.shader != null ? m.shader.name : "-")}' q {m.renderQueue} src {F("_SrcBlend")} dst {F("_DstBlend")} blendMode {F("_BlendMode")} zw {F("_ZWrite")} " +
+                                  $"col {C("_Color")} tint {C("_TintColor")} em {C("_EmissiveColor")} emI {F("_EmissiveIntensity")} tex '{(m.HasProperty("_MainTex") && m.mainTexture != null ? m.mainTexture.name : "-")}' " +
+                                  $"kw [{string.Join(" ", m.shaderKeywords)}] tag '{m.GetTag("RenderType", false)}'");
+                    }
+                    Log?.LogInfo(sb.ToString());
+                }
+            }
+            catch (Exception e) { Log?.LogWarning($"Enemy renderer dump failed: {e.Message}"); }
         }
 
         private static GameObject _lightTemplate;

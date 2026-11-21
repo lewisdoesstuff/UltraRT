@@ -37,6 +37,7 @@ namespace UltraRT
                     case "-ultrart-effectsurvey": _effectSurveyEnabled = true; break;
                     case "-ultrart-noeffectlights": _effectLightsEnabled = false; break;
                     case "-ultrart-noeffectgeometry": _fxgSettings.enabled = false; break;
+                    case "-ultrart-portal-effects": { var v = (Next() ?? "").ToLowerInvariant(); _fxgSettings.portalEffects = v != "off" && v != "0" && v != "false"; break; }
                     case "-ultrart-nospawnedlights": _effectSettings.spawnedLights = false; break;
                     case "-ultrart-novirtuallights": _effectSettings.virtualLights = false; break;
                     case "-ultrart-noflicker": _effectSettings.flicker = false; break;

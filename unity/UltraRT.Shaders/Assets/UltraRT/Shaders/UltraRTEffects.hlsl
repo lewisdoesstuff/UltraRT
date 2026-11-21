@@ -6,8 +6,10 @@
 // mask with a non-opaque hit group (EffectProxy.shader); water and glass under the same mask are opaque, so
 // RAY_FLAG_CULL_OPAQUE leaves only the effects. The any-hit shader accumulates into payload.albedo and ignores the hit.
 //
-// Used after a specular ray found its hit (reflections, mirror-like path vertices). Camera rays don't need it: the game
-// draws its effects itself, at full resolution. Diffuse bounces don't either: effects light the scene as (virtual)
+// Used after a specular ray found its hit (reflections, mirror-like path vertices), and on the segments of a camera ray
+// past a portal hop (UltraRTPortals.hlsl, PortalLayersSegment): the game's portal views drew the effects behind a portal,
+// and the traced pixel replaces those views. Camera rays on the near side don't need it: the game draws those effects
+// itself, at full resolution. Diffuse bounces don't either: effects light the scene as (virtual)
 // point lights already (EffectLights.cs), and counting their billboards too would light it twice.
 //
 // Needs RayPayload (UltraRTCommon.hlsl) and _Scene.
@@ -31,22 +33,31 @@ float EffectLobeWeight(float roughness)
     return lerp(1.0, _UltraRTEffectParams.z, smoothstep(_UltraRTEffectParams.y, 0.6, roughness));
 }
 
-// Radiance the effects add between origin and origin + dir * tMax, in the game's display units (what its additive
-// blend adds to the frame).
-float3 EffectsAlong(float3 origin, float3 dir, float tMax)
+// Radiance the effects add between origin + dir * tMin and origin + dir * tMax, in the game's display units (what its
+// additive blend adds to the frame), and in a the share of what is behind them that still shows (alpha-blended enemy
+// glow meshes dim it; 1 for additive effects).
+float4 EffectsAlongT(float3 origin, float3 dir, float tMin, float tMax)
 {
-    if (_UltraRTEffects <= 0) return 0;
+    if (_UltraRTEffects <= 0 || tMax <= tMin) return float4(0, 0, 0, 1);
     RayDesc r;
     r.Origin = origin;
     r.Direction = dir;
-    r.TMin = 0.0;
+    r.TMin = tMin;
     r.TMax = tMax;
     RayPayload p = (RayPayload)0;
     p.flags = ULTRART_PAYLOAD_EFFECTS;
+    p.alpha = 1.0; // transmittance (EffectProxy.shader, alpha-blended layers)
     ULTRART_COUNT_RAY(ULTRART_RAY_EFFECTS);
     TraceRay(_Scene, RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ULTRART_MASK_TRANSPARENT, 0, 1, 0, r, p);
-    return max(p.albedo, 0.0) * (_UltraRTEffectParams.x * g_EffectVisible); // max: also drops NaN
+    // Additive layers, plus the alpha-blended ones as their weighted average x their coverage (EffectProxy.shader).
+    float aSum = asfloat(p.emissionHalf.x);
+    float T = saturate(p.alpha);
+    float3 blended = aSum > 1e-4 ? p.normal / aSum * (1.0 - T) : 0.0;
+    return float4(max(p.albedo + blended, 0.0) * (_UltraRTEffectParams.x * g_EffectVisible), T); // max: also drops NaN
 }
+
+float3 EffectsAlongRange(float3 origin, float3 dir, float tMin, float tMax) { return EffectsAlongT(origin, dir, tMin, tMax).rgb; }
+float3 EffectsAlong(float3 origin, float3 dir, float tMax) { return EffectsAlongT(origin, dir, 0.0, tMax).rgb; }
 
 // Camera rays (once per pixel, only while effects are in the RTAS): how strongly the game's own effects cover this pixel
 // up to the primary hit; fades the effects out of this pixel's reflections accordingly.

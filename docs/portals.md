@@ -112,6 +112,9 @@ Where it is used:
 | bench `plugin._portalLightMax=N`, `plugin._portalLightLoopSpan=M`, `plugin._portalLightGuards=0` | images per frame (16), the loop guard's span (100 m), all guards off (diagnostic) |
 | `-ultrart-stain-portals on\|off`, bench `wet.stainPortals=0` | blood stains on surfaces seen through a portal (section 18; on) |
 | `-ultrart-portal-raster-skip on\|off`, bench `plugin._portalRasterSkip=0` | skip the game's raster portal views while RT replaces them (section 17; on) |
+| `-ultrart-portal-effects on\|off`, bench `fxg.portalEffects=0` | glowing effects and glowing enemy meshes behind portals (section 20; on) |
+| bench `fxg.enemyMeshes=0` | glowing enemy transparents (Providence) as effect geometry, behind portals and in reflections (section 20; on) |
+| bench `fxg.portalBillboards=0` | effects seen through a portal are baked facing the main camera instead of its image (section 20; on) |
 | bench `plugin._portalRasterTrim=0` | disable deep `PortalRenderV2` raster recursion trimming (on by default since 2026-11-21: while RT replaces opaque portal views, non-mirror portals are capped to `maxRecursions = 0, appearsInRecursions = false` so depth-0 raster views, depth, skyboxes, particles and all mirrors stay intact while skipping redundant depth 1..3 raster renders; RT still reads the saved original `appearsInRecursions` for full 3-hop ray-traced portals, and originals are restored immediately when RT turns off or unloads) |
 
 `-ultrart-compdebug 5` (portal depth diagnostic) and `6` (game / RT albedo alignment overlay) were views of the hybrid
@@ -163,6 +166,8 @@ The far side is now as calm as the near side. "Side 2" has a flickering lamp in 
 - **Per-portal overrides** the game applies to a portal view: `appearsInRecursions` and `canSeePortalLayer` are honoured; since 2026-11-21 also `canSeeItself`, per-portal `maxRecursions`, `supportInfiniteRecursion` (deeper loops and last frame's image at their end) and `overrideSkyboxEnter/Exit` for camera rays that miss behind the side (section 18). Not applied: the fog-end distance cull. Fog overrides (and the level's fog behind a portal) are applied by the veil pass since 2026-11-18, for the first portal on a camera ray (docs/scene-proxies.md, "Blended veils").
 - **Moving portals and crossing a portal** had no temporal handling until 2026-11-18: see section 8.
 - **The game's own cubemap reflection** (`GameCubeTerm`; for pattern cubes since hybrid went on 2026-11-19) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
+- **Glowing effects and glowing enemy transparents** behind a portal (fire, explosions, flashes, projectiles, trails; Providence's
+  wings, eye, rainbows and glow plane) are traced since 2026-11-21 (section 20). Smoke, dust and other non-glowing particles are not.
 - **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere. Blood stains are
   the exception since 2026-11-21 (section 18). Water and glass are the exception since 2026-11-20 (section 13), without their reflection.
 - **Portal clones**: `PortalAwareRenderer` copies objects whose bounds cross a portal (V1 jumping into 8-2's pool, enemies in doorways) with `new GameObject` + `AddComponent`, which the Instantiate hooks never saw (only the 120 s rescan did). A Harmony postfix on its private `CreateClone` now registers the copy's hierarchy like a spawn (`Patches.PortalClonePostfix`; logged as `Portal clone hook installed` and counted in the `Material sync` line). Copies of V1 keep layer 30, so rays see them only after a portal hop, as the game's views do.
@@ -752,6 +757,8 @@ orange, 0-300 m) at 4 km: all fog. The game never fogs its sky (sky walls and th
 `NoFog` for the fog pass, and the veil pass treats it as sky (instance 0x7F, no motion, more than 3.5 km past the first
 portal). Before / after on the pose: the sky pixels went from orange (253, 191, 85) to the traced sky.
 
+*Fixed 2026-11-21 (section 20, "The Limbo sky behind a portal"): the game shows that sky through its sky walls' scanline mask.*
+
 **Still open: that traced sky is too bright.** Behind the portal it reads (255, 255, 255) in `_raw` and (221, 223, 216) in
 the final against the game's (167, 193, 192) (final run below). It is not this change: the base build (1352613) gives the
 same white `_raw` there (its final was the orange fog over it). The RT sky in the Dimensional Arena is the Limbo diorama's
@@ -910,3 +917,120 @@ The step is now about the game's own. Frame means (now - before, luma), and |x -
   images.
 - Behind a portal RR gets the unfolded ray length as depth (`_NormalDepth.w` = `tTotal`, continuous across the border)
   and the portal's first-hit distance in `_InstanceId`'s high half (section 17); no discontinuity at the border.
+
+## 21. Effects and Providence through portals, the Limbo sky behind a portal (2026-11-21, `t3/portal-effects-providence`)
+
+With the raster skip (section 17) the trace replaces the game's portal views, and those views drew the far side's
+transparents. Behind a portal, fire, explosions, muzzle flashes, glowing projectiles and trails were gone, and Providence
+(whose visible body is all transparent) was invisible. Water, glass (section 13) and blood stains (section 18) were
+already handled. This section adds the glowing effects and the glowing enemy transparents.
+
+### Effects and Providence through portals (`UltraRTPortals.hlsl`, `UltraRTEffects.hlsl`, `EffectGeometry.cs`)
+
+**Glowing effects behind a portal.** `EffectGeometry` already puts the game's glowing particles, sprites, trails and lines
+into the RTAS as billboards under the transparent mask, and `EffectsAlong` collects them along a segment with one any-hit
+ray (docs/path-tracing.md, "Effects in reflections"). PathTrace's camera ray now does the same on every segment past a
+portal hop. `TraceScene` calls `PortalLayersSegment` for each such segment (also the straight segment past the hop limit,
+but not a segment that ends at a portal mirror the camera ray stops at). It collects that segment's effects into
+`g_PortalFx` (display units, dimmed by the water and glass of earlier segments) before the segment's water and glass. The
+ray generation shader adds the sum to the hit's emission, so relight, pathtrace, the denoisers and DLSS RR carry it like a
+glowing surface. The sky and the end of an infinite loop behind a portal get it too.
+- The effects are collected only while effect instances are in the RTAS (`_UltraRTEffects > 0`) and the switch is on.
+  Camera rays on the near side never collect effects (the game draws those itself), so the near side is not doubled.
+- Switch: `EffectGeometrySettings.portalEffects`, `-ultrart-portal-effects on|off`, bench `fxg.portalEffects=0` (on).
+- **Billboards face the camera's image.** An effect nearer to one of the camera's images through a portal than to the
+  camera (`PortalView.SqrDistance` with the nearest index) is baked for a hidden camera at that image. The hidden camera
+  faces the main camera's forward and up as that image sees them (`PortalView.Forwards`/`Ups`, from
+  `SceneProxies.PortalViewpoints`), like the game's portal camera. Bench `fxg.portalBillboards=0` bakes for the main camera
+  as before. Sprites keep their own transform.
+
+**Providence and other glowing enemy transparents.** `EffectSpawner` now logs every renderer of a bench enemy once per type
+(`Enemy renderer: ...`). A bench Providence has these:
+
+| Part | Renderer | Shader, blend |
+|---|---|---|
+| `Primary Wings`, `SecondaryWings` (54 v each) | skinned | `ULTRAKILL/Master`, TRANSPARENCY, SrcAlpha OneMinusSrcAlpha, EMISSIVE, no VERTEX_LIGHTING (fullbright), VERTEX_DISPLACEMENT |
+| `Eye` (4 v) | skinned | Master, SrcAlpha OneMinusSrcAlpha, EMISSIVE, fullbright |
+| `Rainbow_Large`, `Rainbow_Small` | skinned | Master, SrcAlpha One (additive), SCROLLING, VERTEX_DISPLACEMENT |
+| `Plane` (`GlowStrong`, 121 v) | mesh | `ULTRAKILL/Sprites/Default` (premultiplied alpha blend) |
+| `SpawnEffect Projectile/Sphere` (`Charge 1`, the pink egg while it spawns) | mesh | `Sprites/Default` |
+| `Back_Glow` | skinned | `Standard`, not traced (section 18) |
+| `Particle System (2)`, `AmbientEffects/Trail` | particles, trail | alpha-blended `Particles/Standard Unlit`, `Default-Line`: not glowing, not traced |
+
+None of them reached the trace: `EffectGeometry` only took particles, sprites, trails and lines, and the transparent pass
+only took water, glass and blood. Now `EffectGeometry.TrackEnemyHierarchy` takes the glowing transparent meshes of every
+enemy: enemies awake at the scene build, and every `EnemyIdentifier.OnEnable` through `Patches.PendingHierarchies`. It
+takes a `MeshRenderer` or `SkinnedMeshRenderer` when its material is a fullbright (no VERTEX_LIGHTING) Master TRANSPARENCY
+material that blends SrcAlpha One, One One or SrcAlpha OneMinusSrcAlpha, or a sprite-shader mesh. Outlines are left out.
+A skinned mesh is baked each frame (`BakeMesh`); a mesh renderer's own mesh is placed with its transform. They use the
+effect billboards' path (`EffectProxy`, mask 0x10, any-hit only): order-independent, no sorting, nothing in the opaque
+G-buffer, and they show in reflections too. Other enemies in 8-3 that qualify: the Deathcatcher's `ChargeSphere`
+(additive) and its spawn sphere.
+- **Alpha-blended layers** (`EffectProxy` `_Mode` 2) are composited order-independently, as a weighted average. The any-hit
+  sums colour x alpha and alpha, and multiplies the transmittance. `EffectsAlongT` returns the additive layers plus the
+  blended layers' average colour x (1 - transmittance), and the transmittance. Behind a portal the camera ray multiplies
+  the hit's albedo and emission (or the sky) by that transmittance before it adds the effects (`g_PortalFxT`). A plain sum
+  of the layers made the spawn sphere (front and back faces) and the wings an opaque white blob.
+- Colour: texture x `_Color` x vertex colour, as the fullbright Master and sprite shaders draw it. Meshes without vertex
+  colours read white (`_UseVC` 0).
+- Bench `fxg.enemyMeshes=0` leaves them out.
+
+**Checks** (alt and main, SDR, 2560 x 1440, trace scale 0.5, temporary suites since deleted, runs
+`bench/results/20261121-23*_tmp-portal-fx*`):
+- *Candle flames through 8-3 b's strip portals* (the theatre chandeliers' `FireSimple` sprites, fresh load, frozen): back in
+  `_raw` and in the final. With `fxg.portalEffects=0` the candles have no flames (7,015 `_raw` and 8,877 final pixels
+  change by more than 20).
+- *Providence through the False Starts doorway* (a bench Providence 16 m through the doorway, `ThroughPortals`, frozen,
+  4 shots per mode): over Providence's region, |final - off| is 63.9 without the meshes and **20.1** with them (`_raw`:
+  71.4 -> 21.8), the same in all 4 shots. The game's view shows the spawn egg near white (240, 208, 253), with the wings and
+  eye in front. Ours shows the egg at (255, 255, 255), clipped: the corridor behind it is traced brighter than the game's in
+  either mode, (255, 207, 255) against (229, 153, 242). The wings and eye are blended into the egg instead of drawn in
+  front of it (order-independent). The doorway's sliding slab moves on wall-clock time and covers Providence in some
+  shots: take several shots per mode.
+- *Providence direct* (8-3 b, 7 m in front): pathtrace with and without the meshes gives the same final image, so the
+  near side, where the game draws Providence itself, is not doubled.
+- *An explosion 30 m through 8-2's hallway portal*: its core is an opaque traced sphere in every mode. The game lights the
+  corridor (and, through its portal lights, the near side) bright orange with the explosion's light; the trace does not,
+  with or without this change. **Open**: the explosion's light behind a portal.
+- *Regressions* (|final - off| frame means, against the base build's run `20261121-224314`): 8-3 crushers 26.2 -> 26.7,
+  8-3 drop up 19.9 -> 21.3 (its `off` alone moves by 13.5 between runs), 8-3 limbo portal 33.7 -> 33.5, 1-1 start 15.5
+  (16.2 with `fxg.enemyMeshes=0`).
+
+**Limits**: Providence's VERTEX_DISPLACEMENT (wing flutter) and the rainbows' SCROLLING are not reproduced (rest pose,
+still texture). An enemy whose bounds straddle a portal is also drawn by the game's `PortalAwareRenderer` clone on the near
+side, so it can show twice there. DXR may run the any-hit twice for one triangle, as for the billboards.
+
+### The Limbo sky behind a portal (`Proxy.shader`, `SceneProxies.SkyWallShows`, `PathTrace.raytrace`)
+
+Section 19 left 8-3's Limbo sky behind the Dimensional Arena's portal too bright: (255, 255, 255) in `_raw` where the game
+shows a pale blue. The RT sky there is the Limbo diorama's `LimboSkySky` (`Skybox/Panoramic`, `_Tint` 0.5, `_Exposure` 1:
+x1 in gamma space, so the tint was read correctly). The game never shows that sphere directly. Its sky walls (`ScreenSky`,
+`ScreenField`: Master LIMBO_WALLS) show the diorama's render (`_LimboSky`) through their 32 x 32 `screen4B` scanline
+texture, whose alpha averages **0.659**. That matches the game / RT ratio measured over the view (about 0.66).
+
+Now a sky wall's proxy carries that share in `_SkyWall` (the mean alpha of its source texture, `TextureMean.Of`), and its
+hit reports the share in `p.alpha` along with the miss. A camera ray behind a portal that ends on a sky wall shows the sky
+times that share. One that misses without meeting a wall takes the scene's smallest sky-wall share while the RT sky is a
+Limbo diorama's sphere (`Plugin.SkyIsLimbo`: a renderer under a `LimboSkybox`'s root), else 1. Bounce rays, sky light and
+reflections keep the full sky, so 1-1 and the other Limbo levels are lit as before.
+
+Result on `8-3 limbo portal` (the pixels that end on a sky wall behind the portal, without the HUD): **(254, 254, 254) ->
+(160, 180, 186) in `_raw`, (161, 182, 187) in the final**, against the game's (180, 215, 225). That is within 11-17 %,
+slightly dark, where it was clipped white. The bright green field above the doorway in this pose is not behind the portal
+(it is a traced surface on the near side) and is unchanged.
+
+### Cost (2560 x 1440, exclusive perf lock, `-Perf`, 2026-11-21)
+
+Main, RTX 5070 Ti, trace scale 0.5, pathtrace. "on" = the defaults, "off" = `fxg.portalEffects=0+fxg.enemyMeshes=0`. Static
+poses ran on, off, then on again (as `fxg.glow=1`, a neutral variant) in one launch; the combat route ran one mode per pass.
+Runs `bench/results/20261121-235346_tmp-portal-fx-perf` (static) and `20261121-235033_tmp-portal-fx-perf` (combat).
+
+| Scenario | GPU total ms, on / off / on | dispatch ms, on / off / on | avg frame ms, on / off / on |
+|---|---|---|---|
+| 8-3 b (strip portals, candles behind them) | 5.81 / 5.79 / 5.84 | 2.65 / 2.63 / 2.68 | 9.23 / 9.63 / 9.27 |
+| 8-3 doorway, Providence behind it | 6.37 / 6.33 / 6.36 | 3.16 / 3.13 / 3.16 | 9.39 / 9.37 / 9.27 |
+| 8-3 combat route (`perf-combat.json`) | 6.42 / 6.37 | 3.20 / 3.18 | 10.10 / 10.31 |
+
+About +0.03 ms of dispatch where effects or Providence are behind a portal, and up to +0.05 ms GPU in combat (the enemy
+glow meshes' instances in the RTAS: rtas 0.21 vs 0.17 ms there). Frame times are within run-to-run noise. Plugin CPU for
+the effect geometry ("emissive" section) was 0.17-0.21 ms per frame either way.
