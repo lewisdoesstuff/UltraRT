@@ -60,8 +60,7 @@
       "Path": { "Type": "static", "Approach": "../recordings/5-2-water-1115.json", "Duration": 1 },
       "Tag": ["WRATH /// SECOND", "WAVES OF THE STARLESS SEA"] },
 
-    { "Kind": "title", "Name": "combat slot", "Bars": 4,
-      "Card": { "Text": "COMBAT FOOTAGE", "AccentFrom": 7, "Sub": "PLACEHOLDER - 4 BARS (6.0 S)", "Y": 0.45, "OutFade": 0.2 } },
+    { "Kind": "video", "Name": "combat", "Source": "trailer/combat/2026-11-21_14-31-04.mp4", "In": 16.0, "Bars": 4 },
 
     { "Kind": "beauty", "Name": "P-2 street", "Scene": "Level P-2", "File": "final-p-2-street", "Bars": 5,
       "Path": { "Type": "static", "Approach": "../recordings/p-2-vent-smoke.json", "Duration": 1 },
