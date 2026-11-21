@@ -617,12 +617,14 @@ Levels that differ from the global policy, and why:
 |---|---|---|
 | 0-3 | fixtures `medium` 0.15 | the lava pillars' lights (class `fixture`, found with `lc.class.fixture=0`: dark +41 -> +16 in the worst view; fills do nothing there) fog the void around them. At 0.15: +41 -> +30 in that view, median +9.9 -> +7.3 (`20261118-004340_pn-v_alt`). The rest is those lights' bounce |
 | 4-3, 5-3 | fixtures and the like x1.2, `medium` 0.8 | at x1.8 the bright end is x1.4-1.7 of the game's and the first hall of 4-3 clips to yellow (`20261118-000500_pn-a_alt`) |
-| 7-1 | fixtures and the like x1; exposure `followGame` 1 | black halls with a few white lights: the boost and an exposure above the game both turn the walls grey (dark +45 at x1.8, +31 at x1 without `followGame`, +9.4 with it; before +15.8) |
+| 7-1 | fixtures and the like x1; exposure `followGame` 1 | black halls with a few white lights: the boost and an exposure above the game both turn the walls grey (dark +45 at x1.8, +31 at x1 without `followGame`, +9.4 with it; before +15.8). Since 2026-11-21 also the suns unshadowed and `followGameUp` 0.5 ("Playtest of 2026-11-20") |
 | 7-3 | the strengths of 2026-11-17 (fills x0.5, fixtures x0.7, player x0.6); `followGame` 1 | as 7-1: +18.9 without `followGame`, +9.1 with it (before +12.2) |
 | 8-2 | the strengths of 2026-11-17 (fills x0.35, fixtures x0.5) | under the plain policy the offices' dark walls come out lit (storage room dark +82 against +42); kept: +15.1 (before +14.7) |
 | 7-2 | gameplay x0.6, player x0.85 (player back at x1 since "7-3: brighter") | third batch |
 | 3-1 | the eyes (`fixture:eye`, a global class since 2026-11-20) `medium` 650 | the eye fills its room with haze, as the game's beam meshes do; no `followGame` (user: lit areas may be brighter than stock). "3-1's eye rooms" below |
 | P-2 | player x0.6 (back at x1 since "7-3: brighter") | third batch |
+| 4-4 | the Ground Floor hallway fills x0.3, V2's arena torches x0.75 and its two spots x1; the skeleton closets' spots re-aimed through the bars (2026-11-21) | playtest of 2026-11-20: "Playtest of 2026-11-20" below |
+| 2-2 | the generator core's lights `reach` 1, x3 (glow) and x2 (centre) (2026-11-21) | the same |
 
 **`followGame`** (`"exposure": { "followGame": F }` in a level file, 0-1; `AutoExposureSettings.levelFollowGame`): the
 level's exposure follows the game downwards as between 2026-11-17 and the punch defaults (0.9 beyond 0.1 EV). For
@@ -965,6 +967,46 @@ its light) and took class `fixture:orb`, so the punch policy's x2.5 lit the whol
 Pathtrace, user pose x1.59 -> x1.38, under the eye x1.38 -> x1.32, the walkway x1.42 -> x1.30; the 3-1 tour median
 x1.36 -> x1.35 (its views are at checkpoints, where the Stairways' eye is not lit yet).
 
+## Playtest of 2026-11-20: 4-4, 7-1, 2-2 (2026-11-21, `t3/level-lighting-4-4-7-1-2-2`)
+
+The user's poses of 2026-11-20 (`BepInEx\ultrart\poses.jsonl`), copied as `bench/recordings/u1120-4-4-1..4.json`,
+`u1120-7-1-1.json`, `u1120-2-2-1.json`. 7-1's cemetery is the 2026-11-18 pose `u1118-7-1-2` ("7-1 graves"), the boss
+hall `4-4-v2-chair.json` (Load `checkpoint`, as in "Torches x1.25"). Runs `20261121-004413_llt-diag_alt` and
+`20261121-004942_llt-diag2_alt` (attribution: class switches, `lc.solo=none`, `vol.strength=0`, light census),
+`20261121-005812_llt-r3`, `20261121-010348_llt-r4_alt` (proposal layers), `20261121-010937_llt-final` (SDR,
+`-ultrart-hdr off`) and `20261121-011309_llt-hdr` (HDR10 captures: `-ultrart-hdr-paperwhite 0 -ultrart-hdr-capture raw
+-monitor 1`, 2560x1440; Unity logged `HDR display: available=False`, the swapchain proxy still presented and captured
+HDR10). Sheets: `bench/results/review/level-lighting-4-4-7-1-2-2/` (`sdr_<pose>.png`: the game, before, after;
+`hdr_<pose>.png`: the HDR10 frames in linear light with 600 nits as white, and their nits false colour). Numbers are the
+frame's mean luma (0-255, SDR, pathtrace) unless said; "clip" is the share of pixels in the top 55 % of the frame with a
+channel at 254 or more.
+
+| Item | Cause | Change | Game | Before | After |
+|---|---|---|---|---|---|
+| 4-4 pose 1: no bar shadows on the hall floor | the game's light placement. Each skeleton closet's light (`SkeletonCloset*/Point Light*`, a spot of range 5, intensity 15, pure green, 87 degrees) sits just inside the bars and points away from the hall into the cell, and its range ends 5 m out: nothing reaches the floor in the game either | per-light entries in `Level 4-4.json`: moved 0.75 m deeper into the cell and 0.5 m up, re-aimed out through the bars at the floor (`normal` (-+0.6, -0.8, 0), 90 degrees), range x2, `reach` 1, x0.5. The bars throw stripes across the hall; the skeletons are lit from behind | 15.0 | 18.6 | 23.0 |
+| 4-4 poses 2 and 3: the doorway room turns from yellow to a flat neon orange as you step in | not haze (`vol.strength=0`: 103.8 -> 103.5) and not a switch: the two orange fills of `3 - Ground Floor/Hallway/Decorations` (intensity 10, range 15) light the doorway room 2.4x the game's (fills off: 105 -> 57), and its bounce washes the door frame orange | rule `ground floor hallway fills`: x0.3 | pose 3: 43.1, clip 7.9 % | 105.2, clip 24.8 % | 65.3, clip 5.6 %; pose 2: 23.6 / 29.8 / 25.4 |
+| 4-4 HDR: "too orange, maybe clips" | the level's light has no blue: the suns are (1, 0.47, 0) and (1, 0.43, 0), every fill and glow light of the Ground Floor and Sand Hall (1, 0.69-0.79, 0). The game's own HDR10 frame has as little: 85 % (pose 3) and 95 % (pose 4) of its lit pixels carry under 1 % of their red in blue; RT 82 % and 80 % before, 88 % and 62 % after. What was wrong is the brightness | the same fills rule. No recolour: a white lift would take away 4-4's gold, which is the game's; how a saturated colour looks at high nits is the display transform's (`t3/hdr-clipping-fix`) | pose 3: 23.5 nits mean, 0 % above 2x paper white (200) | 106.4 nits, 5.7 % | 36.8 nits, 0.13 % |
+| 4-4 pose 4 (Sand Hall) | below the game already (48.7 against 54.7, clip 1 % against 8 %; HDR 23 against 33 nits) | none (46.6, 23.5 nits) | | | |
+| 4-4 V2's arena "far too overexposed" | its torches: the green pillar torches (range 40), the yellow wall torches (intensity 8, range 30) and the orange pillar tops at the global `fixture:torch` x1.25 (torches off: 70 -> 51); the throne spot and the spot above it at x1.5 / x2.5 | rules `boss arena torches` x0.75 and `boss arena spots` x1 | 56.9, clip 0.7 % | 70.0, clip 3.9 % | 50.7, clip 1.4 % (HDR: 24.8 / 43.0 / 22.1 nits, above 2x paper white 0 / 1.5 / 0.3 %) |
+| 7-1 cemetery: haze "nowhere near strong enough", tan instead of white | not the haze: the white is the game's lighting. The game lights 7-1 with two white suns (intensity 1), unshadowed, plus ambient 0.26, which drives the tan grass and crosses past white per channel, and its fog (linear 10-100 m, white) does the rest; the traced image gets the same fog. Traced, the suns are shadowed by the lattice roof and the tall walls, the warm sky (`skyboxtest 6`) is the light, and the exposure stops at its +2 EV cap 1.9 EV (cemetery) to 3.3 EV (the 2026-11-18 start pose) under the game (`game match ... correction +3.23 EV`, colour match blue x1.55) | `"classes": { "sun": { "shadows": false } }` in `Level 7-1.json`: the suns as the game draws them. The game switches them off in the black halls (the red start hall logs `sun none`), so those stay dark | 221.4, rgb (238, 238, 238) | 191.0, rgb (217, 212, 206); 182, (196, 186, 172) in the first runs | 193.4, rgb (216, 215, 214) |
+| 7-1 pose 1: the marble corridor "very very bright", the courtyard doorway burnt white | `followGameUp` 1 (2026-11-18) let the exposure climb up to +2 EV towards the game's white | `followGameUp` 0.5, with the suns above: the halls come up from the sun, the doorway keeps its detail | 176.2 | 148.2 to 186 (between loads) | 161.1 |
+| 7-1 hall 4 (2026-11-18 pose, check) | | the same | 186.3 | 148.7 | 163.6 |
+| 2-2 pose 1: the stairs beside the glowing core "should be brighter" | the core's light is seven yellow lights on its glass shield (`2 - Generator Room/2 Nonstuff/Core/Point Light` to `(6)`, range 15, intensity 5, class `glow`) and two orange ones inside it (`(7)`, `(8)`, range 30, intensity 20, `scripted`). With `reach` 0 (the game's short falloff) the stairs 6-10 m out got almost nothing (all core lights off: 91.1 -> 88.3). The shield is glass and no emitter, so it lights nothing itself | rules `generator core glow lights` (`reach` 1, x3) and `generator core centre lights` (`reach` 1, x2) in `Level 2-2.json` | 88.9 | 93.8 | 108.9: the treads red-lit as in the game |
+
+**Tried and dropped**
+- 4-4: the closet spots moved 1.5 m deep (into the cell's back wall: dark), and at x1 (the hall green at 42, 3x the
+  game's); 2.0 m out of range at x0.3 (stripes too faint). The hallway fills at x0.35 / x0.2 (pose 3: 66.9 / 60.0;
+  below 0.3 what is left is the doorway room's own sun and bounce).
+- 4-4: the Sand Hall spotlights, the sky fill (`skyfill`) or the suns off at pose 3: no change (105.7, 104.7, 105.6).
+- 7-1: `followGameUp` lowered alone (0.5: pose 1 158; 0.25: 148) leaves the cemetery tan; the suns unshadowed at x0.6
+  look as at x1 (auto exposure). `followGameUp` 0.25 with the suns: the halls 148-152, greyer than the game.
+- 2-2: the glass-shield lights moved 1.5 m out or unshadowed: no change (they are not blocked; the falloff is it).
+  `reach` 1 at the game's strengths: 97.5.
+
+**Open**
+- 4-4's colour in HDR is the display transform's (`04094f7`, `t3/hdr-clipping-fix`, not in this branch's base 1926eef).
+- 7-1 has no sun shadows now (the game has none either).
+
 ## Playtest of 2026-11-18: level look and stray lights (`t3/level-look-3`)
 
 The user's playtest of master bc987a8 (HDR on), items 4 and 5. Poses: `bench/suites/user-1118.json`; the suite for
@@ -981,7 +1023,7 @@ said.
 | 1-4 street lamps "dim overall", less pool on the ground | handed over to their glass (`t3/emissive-all`), a lamp lights sideways and its own base shades the ground | `keep` 0.35 on 1-4's `street lamp bulbs` rule (a hybrid: 35 % stays a light) | pose 1: 31.9 | 39.9, no pool | 43.9, a pool under each lamp (run `20261118-221749_look3-prop_alt`) |
 | 8-2 pose 2: the night street too bright | the street is lit by the sky alone (`lc.solo=none`: 40.4 against 49.7), and the exposure sat well above the game | `"followGame": 0.75` in `Level 8-2.json` | 27.1 | 48.2 | 34.5. At 1: 30.1, but the offices (pose 4, "about right" for the user) go 75 -> 58; at 0.75: 63 (game 54) |
 | 8-2 pose 3: "a light that doesn't cast a shadow" | best reading: the 56 lamps over doors (`DoorLight/Point Light`, and a second point light floating 2 m in front) were classified as fills, not fixtures | rule `door lights` in `Level 8-2.json`: handed to their `Ceiling_Light` panel (42 handed, 11 without a part) | 48.3 | 50.5 | 43.0 (run `20261118-222308_look3-prop2`). **Not confirmed with the user which light was meant** |
-| 7-1 pose 1: the white haze "much denser with RT off" | not the fog (it is applied, and `vol.strength=0` changes nothing): the traced start area is 1 EV under the game. The game match lifts by 0.75 beyond 0.35 EV, does not count the game's fog in full, and stops at +1 EV | new `"followGameUp": 1` in `Level 7-1.json` | 198.5 | 145.0 | 172.2 |
+| 7-1 pose 1: the white haze "much denser with RT off" | not the fog (it is applied, and `vol.strength=0` changes nothing): the traced start area is 1 EV under the game. The game match lifts by 0.75 beyond 0.35 EV, does not count the game's fog in full, and stops at +1 EV | new `"followGameUp": 1` in `Level 7-1.json` (0.5 since 2026-11-21, with the suns unshadowed: "Playtest of 2026-11-20") | 198.5 | 145.0 | 172.2 |
 | 7-1 pose 6: "the water is too bright" | the water is vertex lit by the game's own lights (white, as the game's hall), and the traced hall around it was grey: 76 against the game's 160 | the same `followGameUp`: the hall comes up to the water. Pose 4: 72.6 -> 130.6 (game 186.6); with the variants below, pose 6: 76.4 -> 121.9, pose 3: 76.7 -> 138.0 (game 173.6) | | | |
 | 2-4 pose 3: the red light RT shows and the game does not | | kept (user: "looks phenomenally good") | | | |
 

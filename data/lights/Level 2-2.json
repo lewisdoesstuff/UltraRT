@@ -227,5 +227,27 @@
       "note": "wall: moved 0.34 m into the room [wall]"
     }
   ],
-  "added": []
+  "added": [],
+  "rules": [
+    {
+      "name": "generator core glow lights",
+      "path": "^2 - Generator Room/2 Nonstuff/Core/Point Light( \\([0-6]\\))?$",
+      "class": "glow",
+      "set": {
+        "reach": 1,
+        "intensity": 3.0
+      },
+      "note": "The seven yellow lights on the generator core's glass shield (range 15, intensity 5) are the light of the glowing wall. With the game's short falloff (reach 0) the spiral stairs beside the wall fell to black (user pose 1, 2026-11-20); relight's falloff and x3 light them as the game does."
+    },
+    {
+      "name": "generator core centre lights",
+      "path": "^2 - Generator Room/2 Nonstuff/Core/Point Light \\([78]\\)$",
+      "class": "scripted",
+      "set": {
+        "reach": 1,
+        "intensity": 2.0
+      },
+      "note": "The two orange lights inside the core (range 30, intensity 20): relight's falloff, x2."
+    }
+  ]
 }

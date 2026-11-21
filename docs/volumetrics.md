@@ -525,6 +525,16 @@ Options if the user wants the halo gone as well, not halved (not done):
 - a per-rule air share in `_rules.json` (a `handover.medium`), for the lamps that should glow in the fog and those
   that should not.
 
+### 7-1's white mist (2026-11-21, `t3/level-lighting-4-4-7-1-2-2`)
+
+User, playtest of 2026-11-20: 7-1's haze "still nowhere near strong enough", the cemetery clearer and tan where the game
+is thick white mist. Not the medium: the fog pass applies the game's own fog (linear 10-100 m, white) to the traced
+pixels, and `vol.strength=0` / `vol=0` change the cemetery by 1-2 luma. What was missing is the light under the fog: the
+game draws 7-1's two white suns unshadowed (plus ambient 0.26), which drives the tan grass and crosses to white, and
+traced they were shadowed by the roof lattice and walls, leaving the warm sky as the light, 1.9-3.3 EV under the game
+with the exposure at its cap. `Level 7-1.json` now unshadows the suns (docs/lighting-overrides.md, "Playtest of
+2026-11-20"): cemetery rgb (217, 212, 206) -> (216, 215, 214), game (238, 238, 238). No haze setting changed.
+
 ### Not done / limits
 - The game's fake light-shaft meshes that hang from a light are replaced by that light's volumetric cone (see "Lamp
   cones"); shafts with no light at their apex (sun shafts through windows, `Godrays`) and mist particles are left as

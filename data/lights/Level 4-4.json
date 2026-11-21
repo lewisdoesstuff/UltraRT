@@ -1,7 +1,187 @@
 {
   "version": 1,
   "scene": "Level 4-4",
-  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply.",
-  "lights": [],
-  "added": []
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply, except the rules and entries below (playtest of 2026-11-20, 'Playtest of 2026-11-20: 4-4, 7-1, 2-2').",
+  "lights": [
+    {
+      "path": "1 - Underground/Decorations/SkeletonCloset/Point Light",
+      "pos": [
+        5.75,
+        3.75,
+        344.0
+      ],
+      "type": "spot",
+      "offset": [
+        0.75,
+        0.5,
+        0
+      ],
+      "normal": [
+        -0.6,
+        -0.8,
+        0
+      ],
+      "angle": 90,
+      "range": 2.0,
+      "intensity": 0.5,
+      "reach": 1,
+      "shadows": true,
+      "note": "Skeleton closet behind bars: the game's spot (range 5, intensity 15, pure green) sits just inside the bars and points into the cell, so nothing reaches the hall floor. Moved 0.75 m deeper and 0.5 m up, aimed back out through the bars at the floor (range x2, relight's falloff, x0.5): the bars cast their shadows across the hall (user pose 1, 2026-11-20)."
+    },
+    {
+      "path": "1 - Underground/Decorations/SkeletonCloset (1)/Point Light (2)",
+      "pos": [
+        5.75,
+        3.75,
+        349.0
+      ],
+      "type": "spot",
+      "offset": [
+        0.75,
+        0.5,
+        0
+      ],
+      "normal": [
+        -0.6,
+        -0.8,
+        0
+      ],
+      "angle": 90,
+      "range": 2.0,
+      "intensity": 0.5,
+      "reach": 1,
+      "shadows": true,
+      "note": "Skeleton closet behind bars: the game's spot (range 5, intensity 15, pure green) sits just inside the bars and points into the cell, so nothing reaches the hall floor. Moved 0.75 m deeper and 0.5 m up, aimed back out through the bars at the floor (range x2, relight's falloff, x0.5): the bars cast their shadows across the hall (user pose 1, 2026-11-20)."
+    },
+    {
+      "path": "1 - Underground/Decorations/SkeletonCloset (2)/Point Light (4)",
+      "pos": [
+        5.75,
+        3.75,
+        354.0
+      ],
+      "type": "spot",
+      "offset": [
+        0.75,
+        0.5,
+        0
+      ],
+      "normal": [
+        -0.6,
+        -0.8,
+        0
+      ],
+      "angle": 90,
+      "range": 2.0,
+      "intensity": 0.5,
+      "reach": 1,
+      "shadows": true,
+      "note": "Skeleton closet behind bars: the game's spot (range 5, intensity 15, pure green) sits just inside the bars and points into the cell, so nothing reaches the hall floor. Moved 0.75 m deeper and 0.5 m up, aimed back out through the bars at the floor (range x2, relight's falloff, x0.5): the bars cast their shadows across the hall (user pose 1, 2026-11-20)."
+    },
+    {
+      "path": "1 - Underground/Decorations/SkeletonCloset (3)/Point Light (1)",
+      "pos": [
+        -5.75,
+        3.75,
+        344.0
+      ],
+      "type": "spot",
+      "offset": [
+        -0.75,
+        0.5,
+        0
+      ],
+      "normal": [
+        0.6,
+        -0.8,
+        0
+      ],
+      "angle": 90,
+      "range": 2.0,
+      "intensity": 0.5,
+      "reach": 1,
+      "shadows": true,
+      "note": "Skeleton closet behind bars: the game's spot (range 5, intensity 15, pure green) sits just inside the bars and points into the cell, so nothing reaches the hall floor. Moved 0.75 m deeper and 0.5 m up, aimed back out through the bars at the floor (range x2, relight's falloff, x0.5): the bars cast their shadows across the hall (user pose 1, 2026-11-20)."
+    },
+    {
+      "path": "1 - Underground/Decorations/SkeletonCloset (4)/Point Light (5)",
+      "pos": [
+        -5.75,
+        3.75,
+        354.0
+      ],
+      "type": "spot",
+      "offset": [
+        -0.75,
+        0.5,
+        0
+      ],
+      "normal": [
+        0.6,
+        -0.8,
+        0
+      ],
+      "angle": 90,
+      "range": 2.0,
+      "intensity": 0.5,
+      "reach": 1,
+      "shadows": true,
+      "note": "Skeleton closet behind bars: the game's spot (range 5, intensity 15, pure green) sits just inside the bars and points into the cell, so nothing reaches the hall floor. Moved 0.75 m deeper and 0.5 m up, aimed back out through the bars at the floor (range x2, relight's falloff, x0.5): the bars cast their shadows across the hall (user pose 1, 2026-11-20)."
+    },
+    {
+      "path": "1 - Underground/Decorations/SkeletonCloset (5)/Point Light (3)",
+      "pos": [
+        -5.75,
+        3.75,
+        349.0
+      ],
+      "type": "spot",
+      "offset": [
+        -0.75,
+        0.5,
+        0
+      ],
+      "normal": [
+        0.6,
+        -0.8,
+        0
+      ],
+      "angle": 90,
+      "range": 2.0,
+      "intensity": 0.5,
+      "reach": 1,
+      "shadows": true,
+      "note": "Skeleton closet behind bars: the game's spot (range 5, intensity 15, pure green) sits just inside the bars and points into the cell, so nothing reaches the hall floor. Moved 0.75 m deeper and 0.5 m up, aimed back out through the bars at the floor (range x2, relight's falloff, x0.5): the bars cast their shadows across the hall (user pose 1, 2026-11-20)."
+    }
+  ],
+  "added": [],
+  "rules": [
+    {
+      "name": "ground floor hallway fills",
+      "path": "^3 - Ground Floor/Hallway/Decorations/Point Light",
+      "class": "fill",
+      "set": {
+        "intensity": 0.3
+      },
+      "note": "The two orange fills (intensity 10, range 15) of the hallway behind the green Underground's door: at full strength the doorway room read 2.4x the game (luma 105 against 43) and washed orange (user pose 3, 2026-11-20)."
+    },
+    {
+      "name": "boss arena torches",
+      "path": "^7 - Boss Arena 1/.*Torch[^/]*/Fire$",
+      "class": "fixture:torch",
+      "set": {
+        "intensity": 0.75
+      },
+      "note": "V2's arena: the green pillar torches (range 40), the yellow wall torches (intensity 8, range 30) and the orange ones on the pillar tops. At the global torch x1.25 the arena was 'far too overexposed' (user, 2026-11-20): the left wall burnt yellow, the pillars glowed white-green."
+    },
+    {
+      "name": "boss arena spots",
+      "path": "^7 - Boss Arena 1/7 Nonstuff/(Throne )?Spot Light$",
+      "class": "accent",
+      "set": {
+        "intensity": 1.0
+      },
+      "note": "The throne and the spot above it at the game's strength (accent x2.5 / glow x1.5 globally)."
+    }
+  ]
 }
