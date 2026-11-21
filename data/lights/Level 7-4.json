@@ -1,0 +1,303 @@
+{
+  "version": 1,
+  "scene": "Level 7-4",
+  "note": "7-4 Earthmover lighting, emissives, and atmosphere pass (2026-11-21): crimson horizon directional rim light with controlled air scattering (7-4 has no active sun), calibrated emissive scaling on Back city windows (Cent_WindowLit) and hull/interior conduits (Cent_SmallLights), volumetric cleanup of the 4800 m desert killzone spot and 900 m head searchlight, Back city duplicate light dedup + blue searchlight shafts, Brain shop fix + hot-pink laser barrier area light + golden ceiling-grate shaft + cyan/magenta neon punch, Flesh interior cyan shaft & crimson depth.",
+  "emitters": [
+    {
+      "name": "earthmover city windows",
+      "material": "^Cent_WindowLit$",
+      "scale": 1.8,
+      "note": "Warm yellow glowing windows across the Back city buildings and hull structures (8,213 m2, lum 0.487). Scale 1.8 pours warm golden reflections onto the dark steel streets without flooding the alleys."
+    },
+    {
+      "name": "earthmover small conduit lights",
+      "material": "^Cent_SmallLights$",
+      "scale": 2.2,
+      "note": "Small glowing hull, interior, neck, and brain conduit/indicator strips (4,047 m2, lum 0.205)."
+    },
+    {
+      "name": "earthmover defence cores",
+      "material": "^DefenceCore$",
+      "scale": 3.0,
+      "note": "Glowing defence tower cores."
+    },
+    {
+      "name": "earthmover control panels",
+      "material": "^DawgControls$",
+      "scale": 2.5
+    },
+    {
+      "name": "bunker doors",
+      "material": "^BunkerDoor2?$",
+      "scale": 2.5
+    },
+    {
+      "name": "checkpoint platforms",
+      "material": "^CheckPointPlatform 1$",
+      "scale": 2.2
+    },
+    {
+      "name": "active jump pads",
+      "material": "^JumpPadOn$",
+      "glow": 2.0,
+      "note": "Unlit active jump-pad surface emits local glow."
+    },
+    {
+      "name": "unlit pink accents",
+      "material": "^Basic Color - Pink Unlit$",
+      "glow": 1.8,
+      "note": "Unlit hot-pink accents emit vivid magenta glow (1,034 m2 total across Brain/hull)."
+    }
+  ],
+  "rules": [
+    {
+      "name": "desert killzone spot",
+      "path": "^Environment/KillZone/DesertSand/Point Light$",
+      "class": "fill",
+      "set": {
+        "intensity": 1.0,
+        "reach": 0,
+        "medium": 0
+      },
+      "note": "4,800 m white downward spot at y=177. Was classed accent (x2.5) and stole 38-61% of volumetric light importance across the entire Earthmover (including inside the Brain and Belly). Dropping its medium frees volumetrics for local lights."
+    },
+    {
+      "name": "earthmover head searchlight",
+      "path": "Head/Spot Light \\(1\\)$",
+      "class": "fill",
+      "set": {
+        "reach": 0,
+        "medium": 0.1
+      },
+      "note": "900 m head searchlight at y=901 stole 20-29% of volumetric light importance from 450 m away."
+    },
+    {
+      "name": "intro checkered hall light",
+      "path": "^Intro/Point Light$",
+      "class": "fill",
+      "set": {
+        "intensity": 0.42,
+        "reach": 0
+      },
+      "note": "Keeps the checkered marble intro corridor moody instead of lifting the whole hall flat."
+    },
+    {
+      "name": "first room opened door light",
+      "path": "^FirstRoom/Room/FinalDoor/OpenedLight$",
+      "class": "prefab:finaldoor",
+      "set": {
+        "intensity": 0.5,
+        "reach": 0
+      },
+      "note": "Caps inverse-square spill of OpenedLight (I=8, R=15) into the dark intro marble corridor."
+    },
+    {
+      "name": "brain shop lights",
+      "path": "Hide When Outside/Shop \\(1\\)/(Canvas/)?Point Light$",
+      "class": "prefab:shop",
+      "set": {
+        "intensity": 0.2,
+        "reach": 0
+      },
+      "note": "The Brain checkpoint's Shop (1) missed the global 'Shop/' rule and blasted I=15 + I=5 white light across the Brain corridor, washing out the cyan/magenta contrast."
+    },
+    {
+      "name": "brain corridor steam jumppad",
+      "path": "Hide When Outside/BrainPath/JumpPads \\(Enabled\\)/JumpPadSteam Variant[^/]*/Point Light$",
+      "class": "fill",
+      "set": {
+        "intensity": 0.3,
+        "color": [0.45, 0.85, 1.0],
+        "reach": 0,
+        "medium": 0.3
+      },
+      "note": "Tones down the harsh I=10 white light right behind the Brain checkpoint and tints it cool cyan so the neon cyan and hot-pink Brain lighting owns the corridor."
+    },
+    {
+      "name": "brain corridor cyan and neon lights",
+      "path": "Hide When Outside/Lights/Point Light \\((38|39|43)\\)$",
+      "class": "fill",
+      "set": {
+        "intensity": 1.05,
+        "reach": 0.25,
+        "medium": 2.2
+      },
+      "note": "Vivid cyan lights of the Brain corridor and boss chamber without lifting dark metal crevices."
+    },
+    {
+      "name": "brain hot-pink neon lights",
+      "path": "Hide When Outside/Lights/Point Light( \\((1|2|40|41|42)\\))?$",
+      "class": "fill",
+      "set": {
+        "intensity": 1.35,
+        "reach": 0.5,
+        "medium": 2.5
+      },
+      "note": "Vivid hot-pink/magenta lights of the Brain climb and boss chamber."
+    },
+    {
+      "name": "neck orange pipe lights",
+      "path": "Hide When Outside/Lights/Point Light \\((35|36|37)\\)$",
+      "class": "fill",
+      "set": {
+        "intensity": 1.25,
+        "reach": 0.5,
+        "medium": 2.2
+      }
+    },
+    {
+      "name": "back city duplicate lights off",
+      "path": "Hide When Inside/City Lights/",
+      "class": "fill",
+      "set": {
+        "intensity": 0
+      },
+      "note": "Exact coordinate duplicates of AlwaysActive/Visual/City Lights (both were active simultaneously at Back)."
+    },
+    {
+      "name": "back city searchlights",
+      "path": "AlwaysActive/Visual/City Lights/CentaurSpotlight[^/]*/Light$",
+      "class": "accent",
+      "set": {
+        "intensity": 1.8,
+        "reach": 0.75,
+        "medium": 3.5
+      },
+      "note": "Cool blue searchlights sweeping Earthmover's Back city: punchy volumetric cones contrasting against warm golden window glow."
+    },
+    {
+      "name": "back city warm street lights",
+      "path": "AlwaysActive/Visual/City Lights/Point Light",
+      "class": "fill",
+      "set": {
+        "intensity": 0.9,
+        "reach": 0,
+        "medium": 1.4
+      },
+      "note": "Local warm street pools while keeping alley crevices dark."
+    },
+    {
+      "name": "security mainframe glow",
+      "path": "SecuritySystemFight/MainFrameGlow$",
+      "class": "scripted",
+      "set": {
+        "intensity": 1.4,
+        "reach": 0.5,
+        "medium": 2.0
+      }
+    },
+    {
+      "name": "interior cyan ceiling spotlight",
+      "path": "Interior NonStuff/AlwaysOnLights/Point Light \\(32\\)$",
+      "class": "fill",
+      "set": {
+        "intensity": 1.3,
+        "reach": 0.5,
+        "medium": 3.2
+      },
+      "note": "Iconic electric-cyan overhead shaft in the Flesh Interior."
+    },
+    {
+      "name": "interior cyan accent light",
+      "path": "Interior NonStuff/AlwaysOnLights/Point Light \\(33\\)$",
+      "class": "fill",
+      "set": {
+        "intensity": 1.2,
+        "reach": 0.25,
+        "medium": 2.0
+      }
+    },
+    {
+      "name": "interior crimson belly lights",
+      "path": "Interior NonStuff/AlwaysOnLights/(Main Light|Point Light \\((44|45)\\))$",
+      "class": "fill",
+      "set": {
+        "intensity": 1.08,
+        "reach": 0.25,
+        "medium": 1.8
+      },
+      "note": "Deep crimson belly lights giving dramatic bloody contrast against the cyan overhead shafts while keeping deep crevices dark."
+    },
+    {
+      "name": "front walkway golden lamps",
+      "path": "Main/Exterior/NonStuff/Lights/Point Light \\((19|20|21|22)\\)$",
+      "class": "fill",
+      "set": {
+        "intensity": 1.08,
+        "reach": 0.25,
+        "medium": 1.6
+      }
+    },
+    {
+      "name": "exterior leg and vent lights",
+      "path": "(Main/Exterior/NonStuff/Lights/Point Light( \\((6|7|17|18|25|26|29|32|34|35|36)\\))?$|Side 1/Vent[123]Light$)",
+      "class": "fill",
+      "set": {
+        "intensity": 1.3,
+        "reach": 0.25,
+        "medium": 1.8
+      }
+    }
+  ],
+  "lights": [],
+  "added": [
+    {
+      "id": "earthmover-horizon-rim",
+      "kind": "directional",
+      "normal": [0.55, -0.38, 0.74],
+      "color": [1.0, 0.28, 0.08],
+      "intensity": 0.58,
+      "shadows": true,
+      "medium": 0.12,
+      "note": "Low crimson-amber directional rim light from the burning horizon / distant Earthmover flash (22 deg elevation from -X/-Z). Carves dramatic RT shadow relief and metallic specular across the Front hull, Back city, and Leg while medium=0.12 avoids lifting dark silhouettes into orange haze and RT shadows keep sealed interiors untouched."
+    },
+    {
+      "id": "brain-laser-barrier-front",
+      "kind": "area",
+      "pos": [0.0, 796.5, 622.6],
+      "shape": "rect",
+      "size": [9.0, 3.2],
+      "normal": [0.0, 0.0, -1.0],
+      "tangent": [1.0, 0.0, 0.0],
+      "color": [1.0, 0.04, 0.48],
+      "intensity": 1.65,
+      "range": 16.0,
+      "shadows": true,
+      "medium": 2.0,
+      "bind": "Main/Centaur Full/Hide When Outside/BeamsGroup (3)/Centaur Brain Beam Obstacle",
+      "note": "Vivid hot-pink area light for the giant Brain corridor laser barrier (LineRenderer, not in the emissive triangle table). Bound to the barrier renderer so it turns off when the beams deactivate."
+    },
+    {
+      "id": "brain-laser-barrier-back",
+      "kind": "area",
+      "pos": [0.0, 796.5, 631.8],
+      "shape": "rect",
+      "size": [9.0, 3.2],
+      "normal": [0.0, 0.0, 1.0],
+      "tangent": [1.0, 0.0, 0.0],
+      "color": [1.0, 0.04, 0.48],
+      "intensity": 1.65,
+      "range": 16.0,
+      "shadows": true,
+      "medium": 2.0,
+      "bind": "Main/Centaur Full/Hide When Outside/BeamsGroup (3)/Centaur Brain Beam Obstacle",
+      "note": "Back-facing side of the Brain corridor laser barrier wall."
+    },
+    {
+      "id": "brain-ceiling-grate-amber",
+      "kind": "area",
+      "pos": [0.0, 800.8, 615.5],
+      "shape": "rect",
+      "size": [6.0, 11.0],
+      "normal": [0.0, -1.0, 0.0],
+      "tangent": [1.0, 0.0, 0.0],
+      "color": [1.0, 0.44, 0.04],
+      "intensity": 2.4,
+      "range": 14.0,
+      "shadows": true,
+      "medium": 2.8,
+      "bind": "Main/Centaur Full/Hide When Outside/Visual/NeckPlatforming",
+      "note": "Warm golden-amber area light above the Brain corridor ceiling grate, replacing the hidden NeckPipesGlow fake cone at this elevation so real RT amber shafts and grate shadows slice through the electric-cyan metal slats."
+    }
+  ]
+}

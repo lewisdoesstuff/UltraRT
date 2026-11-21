@@ -144,7 +144,8 @@ namespace UltraRT
                 var d = _lightData[sun * 4];
                 sunDir = new Vector4(d.x, d.y, d.z, Mathf.Cos(Mathf.Max(0f, _sunAngle) * Mathf.Deg2Rad));
                 var c = _lightData[sun * 4 + 1] * lightExposure;
-                sunColor = new Color(Mathf.Pow(Mathf.Max(0f, c.x), 2.2f), Mathf.Pow(Mathf.Max(0f, c.y), 2.2f), Mathf.Pow(Mathf.Max(0f, c.z), 2.2f));
+                float sm = Mathf.Max(0f, _lightMedium[sun]);
+                sunColor = new Color(Mathf.Pow(Mathf.Max(0f, c.x), 2.2f) * sm, Mathf.Pow(Mathf.Max(0f, c.y), 2.2f) * sm, Mathf.Pow(Mathf.Max(0f, c.z), 2.2f) * sm);
             }
 
             var frame = new VolumetricsFrame

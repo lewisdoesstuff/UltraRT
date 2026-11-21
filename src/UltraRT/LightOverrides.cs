@@ -77,10 +77,11 @@ namespace UltraRT
     {
         [JsonProperty("id")] public string Id;
         /// <summary>area (default); spot (a spot light: "normal" is where it points, "angle" its full cone in degrees, default
-        /// 30). "skyportal" is reserved for window portals (not implemented: packed as a plain area light).</summary>
+        /// 30); directional ("normal" is the direction the light travels). "skyportal" is reserved for window portals
+        /// (not implemented: packed as a plain area light).</summary>
         [JsonProperty("kind", NullValueHandling = NullValueHandling.Ignore)] public string Kind;
         [JsonProperty("angle", NullValueHandling = NullValueHandling.Ignore)] public float? Angle;
-        [JsonProperty("pos")] public float[] Pos;
+        [JsonProperty("pos", NullValueHandling = NullValueHandling.Ignore)] public float[] Pos;
         [JsonProperty("shape", NullValueHandling = NullValueHandling.Ignore)] public string Shape;
         [JsonProperty("size", NullValueHandling = NullValueHandling.Ignore)] public float[] Size;
         [JsonProperty("normal", NullValueHandling = NullValueHandling.Ignore)] public float[] Normal;
@@ -89,6 +90,8 @@ namespace UltraRT
         [JsonProperty("color", NullValueHandling = NullValueHandling.Ignore)] public float[] Color;
         [JsonProperty("intensity", NullValueHandling = NullValueHandling.Ignore)] public float? Intensity;
         [JsonProperty("range", NullValueHandling = NullValueHandling.Ignore)] public float? Range;
+        /// <summary>Multiplier on what the light scatters in the air (volumetrics). Absent = 1.</summary>
+        [JsonProperty("medium", NullValueHandling = NullValueHandling.Ignore)] public float? Medium;
         [JsonProperty("shadows", NullValueHandling = NullValueHandling.Ignore)] public bool? Shadows;
         /// <summary>Culling mask as hex ("FFFFFFFF" = every layer, the default).</summary>
         [JsonProperty("mask", NullValueHandling = NullValueHandling.Ignore)] public string Mask;
@@ -330,7 +333,8 @@ namespace UltraRT
                 }
                 foreach (var a in f.Added ?? new List<LightAddEntry>())
                 {
-                    if (string.IsNullOrEmpty(a.Id) || a.Pos == null || a.Pos.Length < 3) continue;
+                    bool dir = string.Equals(a.Kind, "directional", StringComparison.OrdinalIgnoreCase);
+                    if (string.IsNullOrEmpty(a.Id) || (!dir && (a.Pos == null || a.Pos.Length < 3))) continue;
                     a.Origin = origin;
                     added[a.Id] = a;
                 }
