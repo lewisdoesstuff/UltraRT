@@ -1188,6 +1188,23 @@ hotel wall lights, hotel desk lamps. 8-2 keeps its hand-tuned level rules for th
 heads x2) and standing lamps. 1-4's hand-tuned lamp rules are gone; its lamps and orbs run at three times the global
 gain (at the global gain the lamp garden's walls read at p95 x0.62 of the game's, at x4 x1.22 with the dark end up 18).
 
+**Part colour (2026-11-21, `t3/reflections-and-p2-emissives`).** User, playtest of 2026-11-20: "should the lamps in
+P-2 appear white if they're giving off red light?" P-2's street lamps are `Streetlight` fixtures with a red point light
+(colour (1, 0.136, 0), intensity 10, range 35) over a white fullbright bulb (`Light`); the game draws the bulb white (and
+its 16x16 glow sprite red). Handed over (`street lamp bulbs`), the bulb's emitter-table radiance is the light's red but
+the camera, reflections and bounces saw the white texture. A fullbright part (not emissive in the game) whose handed
+lights all have one strong colour now shows it: its proxy albedo x lerp(white, the lights' chroma (max channel 1),
+`Plugin._handoverTint` = **0.85**) (`Plugin.Handover.cs`, `PlanHandoverTints`). Conditions: the lights' chroma agree
+(no channel differs by more than 0.15), the smallest channel of their mean chroma is at most 0.5, the part material is
+not EMISSIVE in the game, and no renderer in the scene uses that material without being such a part (1-4's statue orbs
+share the lamps' `Light`). The tint is restored when the handover is rebuilt. `-ultrart-handover-tint F`, bench
+`plugin._handoverTint=F` (0 = the game's white). Log: `Handover (<scene>) part colour: ...`. On 2026-11-21: P-2 tints
+`Light` x (1.00, 0.25, 0.15) on 26 parts and `BoneWallRedUnlit` (bone lights) x (1.00, 0.15, 0.15) on 6; 1-4 keeps
+`Light` (lights of several colours) and 1-1 keeps `ExplosionSphere` (other renderers). Sheet
+`bench/results/review/reflections-and-p2/P-2_red_lamps.jpg` (`20261121-014736_tmp-rp2-a`; the final run's capture of the same pose caught one
+of P-2's decorative lightning flashes and is not used). Seen on the way, not changed: the area colour match gives P-2's
+street a gain of about (1.0, 1.5, 0.65) at this pose, so the lamp poles read greenish against the game's black.
+
 **Air share (2026-11-19).** The part keeps the handed light's `medium` in the air: before, its glass scattered the
 full x2.5 output in the fog (the street lamps' "sprite" halo; docs/volumetrics.md, "Handed-over lamps in the air").
 

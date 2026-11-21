@@ -90,6 +90,10 @@ namespace UltraRT
             _playerAnimator = null;
             _playerModelRoot = null;
             _playerProxies.Clear();
+            _glowLinks.Clear();
+            _glowWeapon = null;
+            _glowWeaponSeen = false;
+            _glowAppliedGain = -1f;
             _playerBody = null;
             _playerBodyVerts = 0;
         }
@@ -167,6 +171,287 @@ namespace UltraRT
                 _log.LogInfo($"Mirror surface '{GameControlPath(d.Source.transform)}' material '{m.name}' layer {d.SourceObject.layer} active {d.SourceObject.activeInHierarchy} " +
                              $"bounds centre {b.center:F2} size {b.size:F2} forward {d.SourceTransform.forward:F2} mask 0x{d.Mask:X2}");
             }
+        }
+
+        /// <summary>
+        /// V1's own emissive materials on the body (the wings, <c>V1Wing</c>) glow x this in RT: they are only ever seen in
+        /// reflections, where the game's own yellow (emission 1) read faint, most of all in a terminal's CRT glass that
+        /// reflects about a quarter head-on (user, 2026-11-20). Set every frame (Plugin's _v1Glow, bench
+        /// plugin._v1Glow=F, -ultrart-v1-glow F); 1 = the game's emission. docs/reflections.md, "V1's glow".
+        /// </summary>
+        public static float PlayerEmissionGain = 2.5f;
+
+        /// <summary>
+        /// The third-person weapon in V1's hand glows as the first-person one does, x this (0 = not at all, as before
+        /// 2026-11-21). The game's third-person guns (<c>M_Railcannon Unlit</c>, <c>Pistol New Unlit</c>, ...) have no
+        /// EMISSIVE keyword: the game only draws them fullbright in 8-x's portal mirrors, so the railcannon's coils and
+        /// pips were matte in every RT reflection while the viewmodel's glowed. Each third-person renderer is linked to the
+        /// viewmodel renderer of the held weapon with the same name and main texture, and its proxy takes that renderer's
+        /// live emission (colour and intensity, property block first: the railcannon's charge, its variation or custom
+        /// colour) every frame. Plugin's _v1WeaponGlow, bench plugin._v1WeaponGlow=F, -ultrart-v1-weapon-glow F.
+        /// </summary>
+        public static float PlayerWeaponGlow = 1f;
+
+        private static readonly int IdEmissiveTexG = Shader.PropertyToID("_EmissiveTex");
+        private static readonly int IdEmissiveMaskG = Shader.PropertyToID("_EmissiveMask");
+        private static readonly int IdAlbedoEmissiveG = Shader.PropertyToID("_UseAlbedoAsEmissive");
+        private static readonly int IdEmColorG = Shader.PropertyToID("_EmissiveColor");
+        private static readonly int IdEmIntensityG = Shader.PropertyToID("_EmissiveIntensity");
+        private static readonly int IdMainTexG = Shader.PropertyToID("_MainTex");
+
+        /// <summary>A third-person renderer whose proxy mirrors a viewmodel renderer's emission, per material slot.</summary>
+        private sealed class WeaponGlowLink
+        {
+            public DynamicProxy D;
+            public Renderer Fp;
+            public int[] FpSlot;         // per third-person slot: the viewmodel slot it follows, -1 none
+            public Material[] MadeFrom;  // per slot: the source material the glow material was made from
+            public Material[] Glow;      // per slot: our material on the proxy
+            public Color[] LastColor;
+            public float[] LastIntensity;
+        }
+
+        private readonly List<WeaponGlowLink> _glowLinks = new List<WeaponGlowLink>();
+        private readonly List<Material> _glowMats = new List<Material>(4);
+        private readonly List<Material> _glowFpMats = new List<Material>(4);
+        private readonly MaterialPropertyBlock _glowBlock = new MaterialPropertyBlock();
+        private GameObject _glowWeapon;
+        private bool _glowWeaponSeen;
+        private float _glowAppliedGain = -1f;
+
+        /// <summary>Per frame (Plugin, after SyncDynamic): the wings' gain and the held weapon's glow.</summary>
+        public void UpdatePlayerGlow()
+        {
+            if (_playerProxies.Count == 0) return;
+            ApplyWingGain();
+
+            GameObject current = null;
+            if (PlayerWeaponGlow > 0f)
+            {
+                var gc = MonoSingleton.GetInstance(typeof(GunControl)) as GunControl; // never creates one
+                if (gc != null) current = gc.currentWeapon;
+            }
+            if (!ReferenceEquals(current, _glowWeapon) || (current == null) != !_glowWeaponSeen)
+            {
+                ClearWeaponGlow();
+                _glowWeapon = current;
+                _glowWeaponSeen = current != null;
+                if (current != null) BuildWeaponGlow(current);
+            }
+            for (int i = 0; i < _glowLinks.Count; i++) UpdateWeaponGlow(_glowLinks[i]);
+        }
+
+        /// <summary>The body's emissive materials (the wings) x <see cref="PlayerEmissionGain"/>.</summary>
+        private void ApplyWingGain()
+        {
+            if (_playerBody == null || _playerBody.Source == null) return;
+            float gain = Mathf.Max(0f, PlayerEmissionGain);
+            _playerBody.Source.GetSharedMaterials(_glowMats);
+            foreach (var src in _glowMats)
+            {
+                if (src == null || !src.IsKeywordEnabled("EMISSIVE") || !src.HasProperty(IdEmIntensityG)) continue;
+                if (!_playerMaterialCache.TryGetValue(src, out var pm) || pm == null) continue;
+                float want = Mathf.Max(src.GetFloat(IdEmIntensityG), 0.0001f) * gain;
+                if (pm.GetFloat(IdEmIntensityG) != want) pm.SetFloat(IdEmIntensityG, want);
+            }
+            if (gain != _glowAppliedGain && _glowAppliedGain >= 0f) _log.LogInfo($"V1 glow: body emission x{gain:F2}");
+            _glowAppliedGain = gain;
+        }
+
+        private void BuildWeaponGlow(GameObject weapon)
+        {
+            var fps = weapon.GetComponentsInChildren<Renderer>(true);
+            var notes = new List<string>();
+            foreach (var d in _playerProxies)
+            {
+                if (d == _playerBody || d.Source == null || d.Proxy == null) continue;
+                Renderer best = null;
+                int bestScore = 0;
+                foreach (var fp in fps)
+                {
+                    if (fp == null || fp.name != d.Source.name) continue;
+                    int score = 1 + (fp.transform.parent != null && d.SourceTransform.parent != null && fp.transform.parent.name == d.SourceTransform.parent.name ? 1 : 0);
+                    if (score > bestScore) { best = fp; bestScore = score; }
+                }
+                if (best == null) continue;
+                d.Source.GetSharedMaterials(_glowMats);
+                best.GetSharedMaterials(_glowFpMats);
+                var slots = new int[_glowMats.Count];
+                for (int i = 0; i < slots.Length; i++)
+                {
+                    slots[i] = -1;
+                    var tm = _glowMats[i];
+                    // Same slot first, else the viewmodel's first slot that fits.
+                    for (int pass = 0; pass < 2 && slots[i] < 0; pass++)
+                        for (int j = 0; j < _glowFpMats.Count; j++)
+                        {
+                            if (pass == 0 && j != i) continue;
+                            var fm = _glowFpMats[j];
+                            if (!GlowCompatible(tm, fm, out string why)) { if (pass == 0) notes.Add($"'{d.Source.name}' slot {i} '{tm?.name}' -> '{fm?.name}': {why}"); continue; }
+                            slots[i] = j;
+                            break;
+                        }
+                    if (slots[i] >= 0) notes.Add($"'{d.Source.name}' slot {i} '{tm?.name}' glows as '{GameControlPath(best.transform)}' '{_glowFpMats[slots[i]]?.name}'");
+                }
+                // Linked also without a glowing slot: the custom gun colours (CUSTOM_COLORS) are per renderer too.
+                _glowLinks.Add(new WeaponGlowLink
+                {
+                    D = d, Fp = best, FpSlot = slots, MadeFrom = new Material[slots.Length], Glow = new Material[slots.Length],
+                    LastColor = new Color[slots.Length], LastIntensity = new float[slots.Length],
+                });
+            }
+            _log.LogInfo($"V1 weapon glow: '{weapon.name}' {_glowLinks.Count} linked renderer(s)" + (notes.Count > 0 ? ": " + string.Join("; ", notes.Take(16)) : ""));
+        }
+
+        /// <summary>A viewmodel material whose emission a third-person material can show: EMISSIVE, and when the emission
+        /// is shaped by the main texture (albedo as emissive, the alpha mask), the same main texture.</summary>
+        private static bool GlowCompatible(Material tp, Material fp, out string why)
+        {
+            why = null;
+            if (tp == null || fp == null) { why = "no material"; return false; }
+            if (!fp.IsKeywordEnabled("EMISSIVE") || !fp.HasProperty(IdEmColorG)) { why = "viewmodel not emissive"; return false; }
+            bool mask = fp.HasProperty(IdEmissiveMaskG) && fp.GetFloat(IdEmissiveMaskG) > 0.5f;
+            bool albedo = fp.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") || fp.HasProperty(IdAlbedoEmissiveG) && fp.GetFloat(IdAlbedoEmissiveG) > 0.5f;
+            var tt = tp.HasProperty(IdMainTexG) ? tp.GetTexture(IdMainTexG) : null;
+            var ft = fp.HasProperty(IdMainTexG) ? fp.GetTexture(IdMainTexG) : null;
+            if ((mask || albedo) && !ReferenceEquals(tt, ft)) { why = $"main texture '{tt?.name}' vs '{ft?.name}'"; return false; }
+            if (!mask && !albedo && !(fp.HasProperty(IdEmissiveTexG) && fp.GetTexture(IdEmissiveTexG) != null) && !ReferenceEquals(tt, ft)) { why = "untextured emission on another texture"; return false; }
+            return true;
+        }
+
+        private static readonly int IdIdTexG = Shader.PropertyToID("_IDTex");
+        private static readonly int IdCustomColorsG = Shader.PropertyToID("_CustomColors");
+        private static readonly int[] IdCustomG = { Shader.PropertyToID("_CustomColor1"), Shader.PropertyToID("_CustomColor2"), Shader.PropertyToID("_CustomColor3") };
+        private readonly MaterialPropertyBlock _glowTpBlock = new MaterialPropertyBlock();
+
+        /// <summary>CUSTOM_COLORS on a third-person gun material (GunColorGetter swaps in "... CustomColor" materials for
+        /// alternate and custom gun colours) with a 2D colour-mask texture.</summary>
+        private Texture CustomColorMask(Material src) =>
+            src != null && src.IsKeywordEnabled("CUSTOM_COLORS") && src.HasProperty(IdIdTexG) ? Tex2D(src, "_IDTex") : null;
+
+        private void UpdateWeaponGlow(WeaponGlowLink l)
+        {
+            var d = l.D;
+            if (d.Source == null || d.Proxy == null || l.Fp == null) return;
+            if (!d.Visible) return;
+            d.Source.GetSharedMaterials(_glowMats);
+            l.Fp.GetSharedMaterials(_glowFpMats);
+            l.Fp.GetPropertyBlock(_glowBlock);
+            bool tpBlockRead = false;
+            Material[] proxyMats = null;
+            for (int i = 0; i < l.FpSlot.Length && i < _glowMats.Count; i++)
+            {
+                var src = _glowMats[i];
+                if (src == null) continue;
+                int j = l.FpSlot[i];
+                var fm = j >= 0 && j < _glowFpMats.Count ? _glowFpMats[j] : null;
+                bool glow = fm != null && fm.IsKeywordEnabled("EMISSIVE");
+                var idTex = CustomColorMask(src);
+                if (!glow && idTex == null)
+                {
+                    // Nothing of ours to show (the gun's colours changed back): the plain lit variant.
+                    if (l.Glow[i] != null)
+                    {
+                        if (proxyMats == null) proxyMats = d.Proxy.sharedMaterials;
+                        if (i < proxyMats.Length && ReferenceEquals(proxyMats[i], l.Glow[i])) { proxyMats[i] = PlayerProxyOrDisabled(src); d.Proxy.sharedMaterials = proxyMats; }
+                        RetireGlow(l.Glow[i]);
+                        l.Glow[i] = null;
+                        l.MadeFrom[i] = null;
+                    }
+                    continue;
+                }
+                var baseMat = PlayerProxyOrDisabled(src);
+                if (baseMat == _disabledMaterial) continue;
+                if (proxyMats == null) proxyMats = d.Proxy.sharedMaterials;
+                if (i >= proxyMats.Length) continue;
+                var g = l.Glow[i];
+                bool fresh = g == null || !ReferenceEquals(l.MadeFrom[i], src);
+                if (fresh)
+                {
+                    RetireGlow(g);
+                    g = new Material(baseMat) { name = baseMat.name + " (V1 glow)" };
+                    _ownMaterials.Add(g); // destroyed with the scene (SceneProxies.Sync.cs)
+                    if (IsTwoSided(baseMat)) _twoSidedProxies.Add(g);
+                    l.Glow[i] = g;
+                    l.MadeFrom[i] = src;
+                }
+                if (fresh || (Time.frameCount & 15) == 0)
+                {
+                    // The lit variant's own values (lit weight, colour) follow it; the emission is the viewmodel's.
+                    g.CopyPropertiesFromMaterial(baseMat);
+                    if (glow)
+                    {
+                        bool mask = fm.HasProperty(IdEmissiveMaskG) && fm.GetFloat(IdEmissiveMaskG) > 0.5f;
+                        bool albedo = fm.IsKeywordEnabled("_USEALBEDOASEMISSIVE_ON") || fm.HasProperty(IdAlbedoEmissiveG) && fm.GetFloat(IdAlbedoEmissiveG) > 0.5f;
+                        g.SetFloat(IdEmissiveMaskG, mask ? 1f : 0f);
+                        g.SetFloat(IdAlbedoEmissiveG, albedo ? 1f : 0f);
+                        var et = fm.HasProperty(IdEmissiveTexG) ? Tex2D(fm, "_EmissiveTex") : null;
+                        g.SetTexture(IdEmissiveTexG, et != null ? et : Texture2D.whiteTexture);
+                    }
+                    g.SetFloat(IdCustomColorsG, idTex != null ? 1f : 0f);
+                    if (idTex != null) g.SetTexture(IdIdTexG, idTex);
+                    l.LastIntensity[i] = -1f;
+                }
+                if (!ReferenceEquals(proxyMats[i], g)) { proxyMats[i] = g; d.Proxy.sharedMaterials = proxyMats; }
+
+                if (idTex != null)
+                {
+                    // The colours live in a property block (the third-person renderer's, else the viewmodel's), falling
+                    // back to the material's own values.
+                    if (!tpBlockRead) { d.Source.GetPropertyBlock(_glowTpBlock); tpBlockRead = true; }
+                    foreach (int id in IdCustomG)
+                    {
+                        Color cc = _glowTpBlock.HasColor(id) ? _glowTpBlock.GetColor(id) : _glowBlock.HasColor(id) ? _glowBlock.GetColor(id)
+                                 : src.HasProperty(id) ? src.GetColor(id) : Color.white;
+                        if (g.GetColor(id) != cc) g.SetColor(id, cc);
+                    }
+                }
+                if (!glow)
+                {
+                    if (l.LastIntensity[i] != 0f) { g.SetFloat(IdEmIntensityG, 0f); l.LastIntensity[i] = 0f; }
+                    continue;
+                }
+                Color c = _glowBlock.HasColor(IdEmColorG) ? _glowBlock.GetColor(IdEmColorG) : _glowBlock.HasVector(IdEmColorG) ? (Color)_glowBlock.GetVector(IdEmColorG) : fm.GetColor(IdEmColorG);
+                float k = _glowBlock.HasFloat(IdEmIntensityG) ? _glowBlock.GetFloat(IdEmIntensityG) : fm.HasProperty(IdEmIntensityG) ? fm.GetFloat(IdEmIntensityG) : 1f;
+                k = Mathf.Max(k, 0f) * Mathf.Max(PlayerWeaponGlow, 0f);
+                if (c != l.LastColor[i] || k != l.LastIntensity[i])
+                {
+                    g.SetColor(IdEmColorG, c);
+                    g.SetFloat(IdEmIntensityG, Mathf.Max(k, 0.0001f));
+                    l.LastColor[i] = c;
+                    l.LastIntensity[i] = k;
+                }
+            }
+        }
+
+        /// <summary>A glow material no proxy uses any more: destroyed a few frames later (SceneProxies.Sync.cs).</summary>
+        private void RetireGlow(Material g)
+        {
+            if (g == null || !_ownMaterials.Remove(g)) return;
+            _retiredMaterials.Add((g, Time.frameCount));
+        }
+
+        /// <summary>Puts the third-person proxies back on their plain (lit variant) materials.</summary>
+        private void ClearWeaponGlow()
+        {
+            foreach (var l in _glowLinks)
+            {
+                var d = l.D;
+                if (d.Source == null || d.Proxy == null) continue;
+                var proxyMats = d.Proxy.sharedMaterials;
+                bool changed = false;
+                for (int i = 0; i < proxyMats.Length && i < l.Glow.Length; i++)
+                {
+                    if (l.Glow[i] == null || !ReferenceEquals(proxyMats[i], l.Glow[i])) continue;
+                    proxyMats[i] = l.MadeFrom[i] != null ? PlayerProxyOrDisabled(l.MadeFrom[i]) : _disabledMaterial;
+                    changed = true;
+                }
+                if (changed) d.Proxy.sharedMaterials = proxyMats;
+                foreach (var g in l.Glow) RetireGlow(g);
+            }
+            _glowLinks.Clear();
+            _glowWeapon = null;
+            _glowWeaponSeen = false;
         }
 
         private void NotePlayerProxy(Renderer source)

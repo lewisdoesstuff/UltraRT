@@ -813,6 +813,39 @@ keeps a small unlit share so the blue reads: `SceneProxies.PlayerModelUnlit` = 0
 same frame: `bench/results/review/v1-unlit-share.png` (`20261117-201615_diag-v1-grey_alt` against
 `20261117-201813_trailer-fixes_alt`). The guns V1 holds get the same share.
 
+**V1's glow** (2026-11-21, `t3/reflections-and-p2-emissives`; user, playtest of 2026-11-20: "the railgun doesn't glow in
+reflections (1-4 pose 2)" and "should V1's wings glow more in the terminal reflection?"). `SceneProxies.Player.cs`,
+`UpdatePlayerGlow`, every frame after the dynamic sync:
+- *The held gun.* The game's third-person guns have no EMISSIVE keyword (`M_Railcannon Unlit`, `Pistol New Unlit`, ...;
+  the game only draws them fullbright in 8-x's portal mirrors), so the railcannon's pips were matte in every RT
+  reflection while the viewmodel's glowed. `Railcannon.SetMaterialIntensity` drives only the viewmodel: body and pips get
+  `_EmissiveColor` = the variation colour and `_EmissiveIntensity` = the charge (body charge / 5 while recharging, each
+  pip its own part, 1 when full) in their property blocks. Each third-person renderer is now linked to the viewmodel
+  renderer of the held weapon (`GunControl.currentWeapon`) with the same name (`Railcannon/BigPip`, `Pips_1`-`4`,
+  `Railcannon`), and where that renderer's material is EMISSIVE (with the same main texture when the emission is shaped
+  by it: `_EmissiveMask`, albedo as emissive) the proxy gets its own material copy that follows the viewmodel's live
+  emission (block first, then material) x `PlayerWeaponGlow` (1). Links are rebuilt on a weapon switch; materials that
+  go out of use are retired. Log: `V1 weapon glow: '<weapon>' N linked renderer(s): ...`. Plugin `_v1WeaponGlow`,
+  `-ultrart-v1-weapon-glow F`, bench `plugin._v1WeaponGlow=F` (0 = as before).
+- *Custom gun colours.* `GunColorGetter` swaps the third-person guns to `... CustomColor` materials (CUSTOM_COLORS) like
+  the viewmodel's (the user plays with alternate colours). `Proxy.shader` now has the game's CUSTOM_COLORS albedo
+  (`_IDTex.a` blended towards `_CustomColor1`-`3` by its rgb masks, at most 80 %, as `ViewmodelGBuffer.shader`), set
+  per renderer on the same linked copies (colours from the third-person renderer's block, else the viewmodel's, else
+  the material). Other proxies leave `_CustomColors` at 0.
+- *The wings.* V1's own emissive materials on the body (`V1Wing`, the game's yellow at emission 1) glow x
+  `PlayerEmissionGain` = **2.5** in RT (Plugin `_v1Glow`, `-ultrart-v1-glow F`, bench `plugin._v1Glow=F`; 1 = the game's).
+  A terminal's CRT glass reflects about a quarter head-on, so at the game's emission the wings read as faint smudges.
+
+Measured (main install, the user's save with the railcannon, SDR, trace scale 0.5; `20261121-020810_tmp-rp2-final`,
+before = `plugin._v1WeaponGlow=0+plugin._v1Glow=1` in the same launch): 1-4 pose 2's mirror shows the pips as cyan rings
+(before: dark grey); at this angle the barrel side carries no emissive mask and stays as it was. 1-1's terminal from 6 m
+(`(6.8, -0.5, 261)`, closer the shop UI covers the screen) shows the wings clearly yellow against the dark glass,
+the screen itself not washed out. No extra rays: the cost is a few property reads per frame for the held gun's 1-6
+renderers (perf lock, `20261121-021902_tmp-rp2-perf`, 1-4 lamps: GPU 4.20 -> 4.20 ms, plugin CPU 0.76 -> 0.81 ms
+average, within the run-to-run spread of that column). Sheets: `bench/results/review/reflections-and-p2/1-4_pose_2_railcannon_mirror.jpg`,
+`1-1_terminal_V1_wings.jpg`. Not verified: HDR (the display was not in HDR mode during the run), other weapons' glows
+(the revolver's charge, the nailgun's heat) beyond the link log.
+
 **Water tint and P-2's puddle** (2026-11-17). The trailer's yellow-green patch on P-2's street is the game's `Puddle`
 object, which is traced as water (`Water 6 Still`: colour (0.22, 0, 0), alpha 0.5, texture `Fixed Water Texture`).
 In pathtrace a path that passes through water is tinted by `lerp(1, albedo, 0.48)` whatever the game's alpha is

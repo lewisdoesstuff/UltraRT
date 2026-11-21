@@ -45,11 +45,38 @@ namespace UltraRT
         /// <summary>Bench variants lc.handover=0 (the lights stay, no part is scaled) and lc.hgain=F (on every gain).</summary>
         private bool _handoverOn = true;
         private float _handoverGain = 1f;
+        /// <summary>
+        /// A fullbright part (not emissive in the game) whose lights all have one strong colour shows that colour: its proxy
+        /// albedo x lerp(white, the lights' chroma, this). P-2's street lamps light the street red from white bulbs (user,
+        /// 2026-11-20: "should the lamps appear white if they're giving off red light?"). 0 = the game's white bulb.
+        /// Bench plugin._handoverTint=F, -ultrart-handover-tint F. docs/lighting-overrides.md, "Handover", "Part colour".
+        /// </summary>
+        private float _handoverTint = 0.85f;
+        /// <summary>Parts whose lights' chroma (max channel 1) has a smaller channel at most this: "one strong colour".</summary>
+        private const float HandoverTintMinChroma = 0.5f;
+        /// <summary>The lights of one part material agree when no channel of their chroma differs by more than this.</summary>
+        private const float HandoverTintSpread = 0.15f;
+
+        /// <summary>Per part material name: the handed lights' chroma range and the renderers that carry them.</summary>
+        private sealed class PartTint
+        {
+            public Vector3 Min = Vector3.one * 9f, Max = Vector3.one * -9f, Sum;
+            public float Weight;
+            public readonly HashSet<Material> Sources = new HashSet<Material>();
+            public readonly HashSet<Renderer> Renderers = new HashSet<Renderer>();
+        }
+        private readonly Dictionary<string, PartTint> _handTintParts = new Dictionary<string, PartTint>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Source material -> tint still to apply (its proxy material may not exist yet).</summary>
+        private readonly List<KeyValuePair<Material, Color>> _handTintPending = new List<KeyValuePair<Material, Color>>();
+        /// <summary>Proxy material -> its colour before the tint (restored when the handover is rebuilt).</summary>
+        private readonly Dictionary<Material, Color> _handTinted = new Dictionary<Material, Color>();
+        private Dictionary<Material, int> _handMatUsers;
+        private SceneProxies _handMatUsersScene;
 
         private const float HandoverK = 0.003205f; // relight's physical curve (UltraRTLights.hlsl, _RelightLinearK's default)
         private const float HandoverMaxGamma = 3f; // colour x intensity above this only widens the white patch around the game's light: an emitter would flood the room with it
 
-        private string HandoverVariantKey => (_handoverOn ? "on" : "off") + _handoverGain.ToString(CultureInfo.InvariantCulture);
+        private string HandoverVariantKey => (_handoverOn ? "on" : "off") + _handoverGain.ToString(CultureInfo.InvariantCulture) + "t" + _handoverTint.ToString(CultureInfo.InvariantCulture);
 
         /// <summary>The fixture of a light for a handover: renderers under the nearest ancestors (three levels up at most;
         /// more than 24 renderers is a room) whose material the rule names. One entry per renderer and material.</summary>
@@ -109,6 +136,7 @@ namespace UltraRT
             _handAir.Clear();
             _handBaked.Clear();
             _handParts.Clear();
+            RestoreHandoverTints();
             if (_proxies == null || !_lightOverrides || !_handoverOn || !_lightOv.Classes.HasHandovers) return;
             _handBuilding = true;
             try
@@ -133,9 +161,12 @@ namespace UltraRT
                     float air = Mathf.Max(0f, rb.Medium);
                     bool baked = false;
                     var hl = new HandedLight { Rule = rule, Parts = parts.Count };
+                    var lc = new Vector3(l.color.r, l.color.g, l.color.b);
+                    float lmax = Mathf.Max(lc.x, Mathf.Max(lc.y, lc.z));
                     foreach (var p in parts)
                     {
                         _handParts.Add(p.Value);
+                        if (lmax > 1e-4f) NoteTintPart(p.Key, p.Value, lc / lmax, share.x * 0.2126f + share.y * 0.7152f + share.z * 0.0722f);
                         if (p.Key.isPartOfStaticBatch)
                         {
                             // Baked into a static batch: no object of its own in the RT scene. Its world bounds
@@ -168,12 +199,100 @@ namespace UltraRT
                     _handed[l] = hl;
                     cnt[h.Keep > 0f ? 1 : 0]++;
                 }
+                PlanHandoverTints();
                 if (perRule.Count > 0)
                     Logger.LogInfo($"Handover ({_lightOv.Scene}): {_handed.Count} lights to {_handPower.Count} parts and {_handBaked.Values.Sum(x => x.Count)} baked parts; " +
                                    string.Join("; ", perRule.Select(kv => $"'{kv.Key}' {kv.Value[0]} handed, {kv.Value[1]} hybrid, {kv.Value[2]} without a part")));
             }
-            catch (Exception e) { Logger.LogWarning($"Handover: failed, the lights stay: {e.Message}"); _handed.Clear(); _handPower.Clear(); _handAir.Clear(); _handBaked.Clear(); _handParts.Clear(); }
-            finally { _handBuilding = false; }
+            catch (Exception e) { Logger.LogWarning($"Handover: failed, the lights stay: {e.Message}"); _handed.Clear(); _handPower.Clear(); _handAir.Clear(); _handBaked.Clear(); _handParts.Clear(); _handTintPending.Clear(); }
+            finally { _handBuilding = false; _handTintParts.Clear(); }
+        }
+
+        private void NoteTintPart(Renderer r, string name, Vector3 chroma, float weight)
+        {
+            if (!_handTintParts.TryGetValue(name, out var t)) _handTintParts[name] = t = new PartTint();
+            t.Min = Vector3.Min(t.Min, chroma);
+            t.Max = Vector3.Max(t.Max, chroma);
+            float w = Mathf.Max(weight, 1e-6f);
+            t.Sum += chroma * w;
+            t.Weight += w;
+            t.Renderers.Add(r);
+            foreach (var m in r.sharedMaterials)
+                if (m != null && CleanMaterialName(m.name) == name) t.Sources.Add(m);
+        }
+
+        /// <summary>
+        /// Which part materials take their lights' colour (<see cref="_handoverTint"/>): fullbright (not emissive in the game),
+        /// every handed light of one strong colour, and no renderer in the scene uses the material that is not such a part
+        /// (1-4's statue orbs share the street lamps' <c>Light</c>: a tint per material would colour them too).
+        /// </summary>
+        private void PlanHandoverTints()
+        {
+            if (_handoverTint <= 0f || _handTintParts.Count == 0) return;
+            if (_handMatUsers == null || !ReferenceEquals(_handMatUsersScene, _proxies))
+            {
+                _handMatUsersScene = _proxies;
+                _handMatUsers = new Dictionary<Material, int>();
+                foreach (var r in FindObjectsByType<MeshRenderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                {
+                    if (r == null || SceneProxies.IsProxyObject(r.gameObject)) continue;
+                    foreach (var m in r.sharedMaterials)
+                        if (m != null) { _handMatUsers.TryGetValue(m, out int n); _handMatUsers[m] = n + 1; }
+                }
+            }
+            var notes = new List<string>();
+            foreach (var kv in _handTintParts)
+            {
+                var t = kv.Value;
+                var spread = t.Max - t.Min;
+                var chroma = t.Sum / Mathf.Max(t.Weight, 1e-6f);
+                float mn = Mathf.Min(chroma.x, Mathf.Min(chroma.y, chroma.z));
+                string why = null;
+                if (Mathf.Max(spread.x, Mathf.Max(spread.y, spread.z)) > HandoverTintSpread) why = "lights of several colours";
+                else if (mn > HandoverTintMinChroma) why = $"pale light (min channel {mn:F2})";
+                else
+                    foreach (var m in t.Sources)
+                    {
+                        if (m.IsKeywordEnabled("EMISSIVE") || m.IsKeywordEnabled("_EMISSION")) { why = "emissive in the game"; break; }
+                        int users = _handMatUsers.TryGetValue(m, out int u) ? u : 0;
+                        if (users > t.Renderers.Count) { why = $"{users - t.Renderers.Count} other renderer(s) use '{m.name}'"; break; }
+                    }
+                if (why != null) { notes.Add($"'{kv.Key}' kept ({why})"); continue; }
+                var tint = Vector3.Lerp(Vector3.one, chroma, Mathf.Clamp01(_handoverTint));
+                var c = new Color(tint.x, tint.y, tint.z, 1f);
+                foreach (var m in t.Sources) _handTintPending.Add(new KeyValuePair<Material, Color>(m, c));
+                notes.Add($"'{kv.Key}' x ({tint.x:F2}, {tint.y:F2}, {tint.z:F2}) on {t.Renderers.Count} part(s)");
+            }
+            if (notes.Count > 0) Logger.LogInfo($"Handover ({_lightOv.Scene}) part colour: " + string.Join("; ", notes));
+            ApplyHandoverTints();
+        }
+
+        /// <summary>Tints the proxy materials of planned parts once they exist (a few entries, tried while any is left).</summary>
+        private void ApplyHandoverTints()
+        {
+            if (_handTintPending.Count == 0 || _proxies == null) return;
+            for (int i = _handTintPending.Count - 1; i >= 0; i--)
+            {
+                var kv = _handTintPending[i];
+                if (kv.Key == null) { _handTintPending.RemoveAt(i); continue; }
+                var pm = _proxies.ProxyMaterialOf(kv.Key);
+                if (pm == null || !pm.HasProperty("_Color")) continue;
+                if (!_handTinted.ContainsKey(pm))
+                {
+                    var o = pm.GetColor("_Color");
+                    _handTinted[pm] = o;
+                    pm.SetColor("_Color", new Color(o.r * kv.Value.r, o.g * kv.Value.g, o.b * kv.Value.b, o.a));
+                }
+                _handTintPending.RemoveAt(i);
+            }
+        }
+
+        private void RestoreHandoverTints()
+        {
+            foreach (var kv in _handTinted)
+                if (kv.Key != null) kv.Key.SetColor("_Color", kv.Value);
+            _handTinted.Clear();
+            _handTintPending.Clear();
         }
 
         /// <summary>The air share of a part that already gives <paramref name="had"/> at <paramref name="hadAir"/> and takes
@@ -234,6 +353,7 @@ namespace UltraRT
             var h = rule?.Handover;
             if (h == null || !_handoverOn) return null;
             EnsureHandover();
+            ApplyHandoverTints();
             if (!_handed.TryGetValue(l, out var hl)) return "no part";
             // Only once the part's triangles are in the emissive table: a part that is not traced (or not yet) must not
             // cost the light.

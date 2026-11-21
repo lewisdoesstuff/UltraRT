@@ -135,6 +135,9 @@ namespace UltraRT
         /// their screen-resolution colour was the organ behind them, which showed through (docs/dlss.md, "Emitters in front of
         /// the game's depth"). Bench plugin._rrFrontEmitters=0, -ultrart-rr-nofrontemitters: off.</summary>
         public bool FrontEmitters = true;
+        /// <summary>Emission stays out of RR's signal and is added back at screen resolution (docs/dlss.md, "Emission outside
+        /// RR"; _RRParams2.w). Bench plugin._rrEmitOutside=0, -ultrart-rr-emit-inside: the old way (X = c / D with E in both).</summary>
+        public bool EmissionOutside = true;
 
         public RenderTexture Final => _final;
         /// <summary>Set before Execute: Finish also writes the HDR bloom source into it (must be the output size; null = not
@@ -393,7 +396,7 @@ namespace UltraRT
 
             int k;
             cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(tw, th, 1f / tw, 1f / th));
-            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, PlayerFilter ? 1f : 0f, FrontEmitters ? 1f : 0f, 0f));
+            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, PlayerFilter ? 1f : 0f, FrontEmitters ? 1f : 0f, EmissionOutside ? 1f : 0f));
             cmd.SetComputeVectorParam(cs, "_CamPos", cam.transform.position);
             cmd.SetComputeMatrixParam(cs, "_InvViewProj", i.viewProj.inverse);
             cmd.SetComputeVectorParam(cs, "_ReflParams", i.reflParams);

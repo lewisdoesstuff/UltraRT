@@ -139,8 +139,41 @@ smears the texel grid, clearly so at 1/3 scale. So RR no longer sees textures:
   has nothing yet), then tone maps as before. Auto exposure's input is remodulated at trace resolution.
 
 Textures and silhouettes converge to the game's own texel grid at any render scale, and RR only reconstructs
-lighting, which is smooth. Cost: 0.25 ms at 1440p (the `rr` slot goes from 1.32 to 1.57 ms at 1/3 scale). It is on
+lighting, which is smooth. (Since 2026-11-21 the emission is no longer part of D for RR's signal: "Emission outside RR"
+below.) Cost: 0.25 ms at 1440p (the `rr` slot goes from 1.32 to 1.57 ms at 1/3 scale). It is on
 for relight and pt-dn under RR too.
+
+### Emission outside RR (2026-11-21)
+
+User, P-2 pose 1 (playtest of 2026-11-20): "strange staircase-y aliasing on some slanted emissive surfaces". The
+light bars on P-2's slanted corridor wall had a stair-stepped bright seam along their edges in pathtrace; relight and
+the game were clean. Not the depth match (`plugin._matchDebug=1` marked no pixel there), not front emitters
+(`plugin._rrFrontEmitters=0` the same), not bloom or haze (`vfx.enabled=0`, `vol.strength=0` the same). The cause was
+the remodulation itself: with the emission inside both the signal and D, an emitter's X = (lit + E) / (reflectance + E)
+differs from the unlit wall's X next to it (here X about 2 on the bar against about 1.1 on the wall, `_rrFinishDebug=2`).
+RR rebuilds that step at trace resolution, and the crisp screen-resolution D multiplied the bar's high X into the
+border texels next to it: a seam that steps with the trace grid wherever an emitter's edge is slanted on screen.
+
+Fix (`DlssRR.EmissionOutside`, on; `-ultrart-rr-emit-inside`, bench `plugin._rrEmitOutside=0` = before; `_RRParams2.w`):
+- `Prepare`: RR's signal is the lit part only, over the reflectance only:
+  X = ((albedo x keep + w) x Disp(L) + spec) x e / (albedo x keep + specW + w), with w = `kEmitWhite` 0.05 where the
+  sample emits (0 elsewhere: unchanged): an emitter's X is the light that reaches it, continuous with the surface around
+  it. The albedo guides are the lobes' shares of that denominator.
+- `Finish`: final = Disp(X) x (D - E) + E with E = D x the emissive share of the trace sample whose D is nearest the
+  pixel's screen-resolution D (`EmitShare`, 3x3; the emission alone is read first, D only where something emits). The
+  share follows the edges of the screen-resolution D, so an emitter keeps the texel edge the game draws. Bloom's and the
+  HDR boost's emission use that screen-resolution E too (they used the trace sample's).
+- `ExposureInput`: the lit part is X x (D - E).
+Emission is noise-free, so nothing is lost by keeping it out of RR; fullbright surfaces now show D exactly.
+
+Measured (main install, SDR, trace scale 0.5, `20261121-020426_tmp-rp2-c`, before/after in one launch): P-2 pose 1's bar edge
+is a straight texel edge like the game's (sheet `bench/results/review/reflections-and-p2/P-2_pose_1_slanted_emissive.jpg`); whole-frame
+means before -> after: P-2 pose 1 122.0 -> 121.8, 1-4 lamps 40.1 -> 40.1, 0-5 lava 72.1 -> 72.1, 6-2 start 33.8 -> 34.2
+(mean absolute differences 2.4-4.8 of 255, from the gun's bob and the lava's animation between the captures). Cost
+(exclusive perf lock, 2560x1440, trace scale 0.5, `20261121-021902_tmp-rp2-perf`, before/after alternating in one pass):
+P-2 pose 1 GPU total 7.24 -> 7.23 ms, `rr` slot 1.83 -> 1.82 ms; 1-4 lamps 4.20 -> 4.20 ms, `rr` 1.95 -> 1.95 ms: none
+measurable. Not verified in HDR (the display was not in HDR mode during the runs; the HDR path uses the same
+screen-resolution emission).
 
 ### Exact jitter grid
 

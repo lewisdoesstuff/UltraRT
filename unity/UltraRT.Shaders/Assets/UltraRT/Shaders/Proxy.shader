@@ -12,6 +12,14 @@ Shader "UltraRT/Proxy"
         _UseAlbedoAsEmissive ("Use Albedo As Emissive", Float) = 0
         // ULTRAKILL/Master _EmissiveMask: the emission is multiplied by the main texture's alpha^2.2 (decompiled).
         _EmissiveMask ("Emissive Mask (albedo alpha)", Float) = 0
+        // ULTRAKILL/Master CUSTOM_COLORS (alternate and custom gun colours): the albedo is _IDTex.a, blended towards
+        // _CustomColor1-3 by its rgb masks (at most 80 %), as ViewmodelGBuffer.shader. Set per renderer on V1's
+        // third-person guns (SceneProxies.Player.cs, "V1's glow").
+        _CustomColors ("CUSTOM_COLORS", Float) = 0
+        _IDTex ("Custom colour masks (rgb) and grey albedo (a)", 2D) = "white" {}
+        _CustomColor1 ("Custom colour 1", Color) = (1,1,1,1)
+        _CustomColor2 ("Custom colour 2", Color) = (1,1,1,1)
+        _CustomColor3 ("Custom colour 3", Color) = (1,1,1,1)
         // Emitter mask by rule (SceneProxies.Glow.cs): above 0, only texels whose luminance passes it glow.
         _EmissiveThreshold ("Emissive Threshold (luminance; 1 + chroma)", Float) = 0
         _Cutoff ("Alpha cutoff", Float) = 0
@@ -140,7 +148,10 @@ Shader "UltraRT/Proxy"
             float4 _MainTex_ST;
             Texture2D _EmissiveTex;
             Texture2D _BlendTex;
+            Texture2D _IDTex;
             SamplerState my_point_repeat_sampler;
+            float _CustomColors;
+            float4 _CustomColor1, _CustomColor2, _CustomColor3;
 
             float4 _Color;
             float4 _EmissiveColor;
@@ -594,6 +605,16 @@ Shader "UltraRT/Proxy"
                     texUV = uv * _MainTex_ST.xy + _MainTex_ST.zw;
                     if (_Scrolling * _UltraRTTexScroll > 0.5) texUV += _ScrollOffset.xy + _ScrollSpeed.xy * _UltraRTRainTime;
                     albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_MainTex, lodUv, cap)) * _Color;
+                    [branch] if (_CustomColors > 0.5)
+                    {
+                        float4 id = _IDTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_IDTex, lodUv, cap));
+                        float3 t = id.rgb * 0.8;
+                        float3 c = id.aaa;
+                        c = lerp(c, id.a * _CustomColor1.rgb, t.x);
+                        c = lerp(c, id.a * _CustomColor2.rgb, t.y);
+                        c = lerp(c, id.a * _CustomColor3.rgb, t.z);
+                        albedo.rgb = c;
+                    }
                     litWeight = 1.0 - _Unlit;
                     if (_BloodFill > 0.0) albedo.rgb *= BloodFillTint(tri, b);
                     // ULTRAKILL VERTEX_BLENDING: vertex colour r < 0.5 is the secondary surface. Missing colours read as white.
