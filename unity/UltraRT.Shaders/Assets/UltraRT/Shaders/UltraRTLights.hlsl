@@ -23,9 +23,11 @@
 //   [3] cos(spot/2) (-1 for non-spot), 1 / (cos(spot/4) - cos(spot/2)), unshadowed (1 = fill light), w: <= -1 the
 //       light is an image through portal side -w - 1 (below, "Portal images"; Plugin.PortalLights.cs), else unused
 // Area lights (per-level light overrides, LightOverrides.cs; docs/lighting-overrides.md) keep this layout:
-//   [2] xyz the emission normal (rect/disc emit to its side only), w half-size x (sphere/disc: radius)
+//   [2] xyz the emission normal (rect/disc emit to its side only; line: the line's unit axis), w half-size x
+//       (sphere/disc: radius; line: half its length)
 //   [3] x = -2 - half-size y (<= -2 marks an area light; every spot test sees "no cone"), y = shape | octahedral tangent
-//       << 2 (shape 1 sphere, 2 rect, 3 disc; tangent 2 x 10 bits; an exact integer in a float)
+//       << 2 (shape 0 line, 1 sphere, 2 rect, 3 disc; tangent 2 x 10 bits, never 0 for a line, so y > 0; an exact
+//       integer in a float). A line (a laser beam, CombatLights.cs) lights all round, like a sphere.
 //   They are evaluated at the point of the shape closest to the receiver (the game's falloff from there, times the
 //   emitter cosine for rect/disc), so every sampler treats them as a deterministic light, and their shadow rays aim at a
 //   uniform random point on the shape (soft shadows the size of the emitter).
@@ -362,7 +364,9 @@ float3 LightAreaClosest(float4 l0, float4 l2, float4 l3, float3 p)
     float3 c = l0.xyz;
     float hx = max(l2.w, 0.0), hy = max(-l3.x - 2.0, 0.0);
     float3 v = p - c;
-    if (shape <= 1u)
+    // Line (a beam): the nearest point of the segment c +- axis * hx, so a long beam lights its whole length evenly.
+    if (shape == 0u) return c + l2.xyz * clamp(dot(v, l2.xyz), -hx, hx);
+    if (shape == 1u)
     {
         float d = length(v);
         return d > hx ? c + v * (hx / d) : c;
@@ -386,7 +390,8 @@ float3 LightAreaSample(float4 l0, float4 l2, float4 l3, float3 p, float u1, floa
     uint shape = code & 3u;
     float3 c = l0.xyz;
     float hx = max(l2.w, 0.0), hy = max(-l3.x - 2.0, 0.0);
-    if (shape <= 1u)
+    if (shape == 0u) return c + l2.xyz * ((u1 * 2.0 - 1.0) * hx); // line: a uniform point along it
+    if (shape == 1u)
     {
         float z = u1 * 2.0 - 1.0, phi = u2 * 6.28318530718, rr = sqrt(max(0.0, 1.0 - z * z));
         float3 o = float3(rr * cos(phi), z, rr * sin(phi));

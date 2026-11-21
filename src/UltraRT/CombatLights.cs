@@ -49,7 +49,17 @@ namespace UltraRT
         private readonly HashSet<int> _beamIds = new HashSet<int>();
         private readonly List<LineRenderer> _tmpLines = new List<LineRenderer>(8);
         private readonly Vector3[] _pts = new Vector3[32];
-        private const int MaxBeams = 64;
+        // 7-4 alone has 37 ContinuousBeams in its scene (the Brain's laser barriers).
+        private const int MaxBeams = 256;
+
+        // Line-light candidates this frame (sustained beams): squared distance to the camera, beam index << 5 | segment.
+        private const int MaxLineCandidates = 512;
+        private readonly float[] _lineDist = new float[MaxLineCandidates];
+        private readonly int[] _lineKey = new int[MaxLineCandidates];
+
+        /// <summary>The average colour of a texture (EffectLights.TexAverage): a sustained beam's hue when its material is
+        /// white and the colour is in the texture (the Mindflayer's beam material, which 7-4's Brain barriers use too).</summary>
+        public Func<Texture, Color> TexAverage;
 
         // ---------------------------------------------------------------- flashes (parry, lightning)
 
@@ -98,7 +108,7 @@ namespace UltraRT
 
         private int _sceneHandle = -1;
         private float _holdUntil = -1f, _holdStart = -1f;
-        private int _logBeams, _logBolts, _logParries;
+        private int _logBeams, _logBolts, _logParries, _logSustained;
         private int _lastPacked;
         /// <summary>Lights packed in the last Append (beams + flashes).</summary>
         public int Packed => _lastPacked;
@@ -109,7 +119,7 @@ namespace UltraRT
 
         public void Clear()
         {
-            _beams.Clear(); _beamIds.Clear(); _flashes.Clear();
+            _beams.Clear(); _beamIds.Clear(); _flashes.Clear(); _logSustained = 0;
             PendingParries.Clear(); PendingStrikes.Clear(); Armed.Clear(); _armedAge.Clear(); ForcedBolts.Clear(); PendingDecor.Clear(); ForcedDecor.Clear();
             _holdUntil = -1f; _holdStart = -1f;
         }
@@ -135,8 +145,10 @@ namespace UltraRT
         {
             // Pre-placed enemies (a level's Mindflayer) carry their ContinuousBeam from the start; RevolverBeams in a scene
             // are prefab templates or spawned, never pre-placed live ones.
+            int n = 0;
             foreach (var cb in UnityEngine.Object.FindObjectsOfType<ContinuousBeam>(true))
-                if (cb != null && cb.gameObject.scene.IsValid()) AddBeam(cb.GetComponent<LineRenderer>(), null, cb);
+                if (cb != null && cb.gameObject.scene.IsValid()) { AddBeam(cb.GetComponent<LineRenderer>(), null, cb); n++; }
+            if (n > 0) _log.LogInfo($"Combat lights: {n} ContinuousBeams in the scene (tracked {_beams.Count}, cap {MaxBeams})");
         }
 
         private void AddBeam(LineRenderer lr, RevolverBeam rb, ContinuousBeam cb)
@@ -156,13 +168,19 @@ namespace UltraRT
                 if (rb.strongAlt) gain *= 1.4f;
             }
             else gain = 1.2f; // Mindflayer: a thick sustained beam
-            _beams.Add(new Beam { Lr = lr, Rb = rb, Cb = cb, Id = id, Gain = gain, RangeGain = rangeGain, Hue = BeamHue(lr), Name = lr.name });
+            var hue = BeamHue(lr, cb != null ? TexAverage : null);
+            _beams.Add(new Beam { Lr = lr, Rb = rb, Cb = cb, Id = id, Gain = gain, RangeGain = rangeGain, Hue = hue, Name = lr.name });
+            if (cb != null && _logSustained++ < 12)
+                _log.LogInfo($"Combat lights: sustained beam '{BoltPath(lr.transform)}' width {cb.originalWidth:F2}, hue ({hue.r:F2}, {hue.g:F2}, {hue.b:F2}), " +
+                             $"material '{(lr.sharedMaterial != null ? lr.sharedMaterial.name : "-")}', active {lr.gameObject.activeInHierarchy}");
         }
 
-        /// <summary>The line's colour: the gradient's average (rgb x alpha) x the material's tint, normalised to max 1.</summary>
-        private static Color BeamHue(LineRenderer lr)
+        /// <summary>The line's colour: the gradient's average (rgb x alpha) x the material's tint, normalised to max 1. With
+        /// texAverage (sustained beams), x the main texture's average colour as well (normalised first).</summary>
+        private static Color BeamHue(LineRenderer lr, Func<Texture, Color> texAverage = null)
         {
             Color c = Color.white;
+            bool fromTexture = false;
             try
             {
                 var a = lr.startColor; var b = lr.endColor;
@@ -173,6 +191,21 @@ namespace UltraRT
                     if (m.HasProperty("_TintColor")) c *= m.GetColor("_TintColor");
                     else if (m.HasProperty("_Color")) c *= m.GetColor("_Color");
                     if (m.HasProperty("_EmissiveColor")) { var e = m.GetColor("_EmissiveColor"); if (Mx(e) > 0.05f) c *= e; }
+                    var tex = texAverage != null ? m.mainTexture : null;
+                    if (tex != null)
+                    {
+                        // A beam texture is a white-hot core in a coloured glow: the average comes out pale ((1, 0.72,
+                        // 0.87) for the Mindflayer's pink beam). The glow's colour is what lights the room: ^4 brings
+                        // back its saturation ((1, 0.27, 0.57)), and no white is mixed in below.
+                        var t = texAverage(tex);
+                        float mt = Mx(t);
+                        if (mt > 1e-3f)
+                        {
+                            t *= 1f / mt;
+                            c *= new Color(Mathf.Pow(t.r, 4f), Mathf.Pow(t.g, 4f), Mathf.Pow(t.b, 4f), 1f);
+                            fromTexture = true;
+                        }
+                    }
                 }
             }
             catch (Exception) { c = Color.white; }
@@ -180,7 +213,7 @@ namespace UltraRT
             if (mx < 1e-3f) return new Color(1f, 0.9f, 0.7f);
             c *= 1f / mx;
             // A beam's core is white-hot: keep a little white in the light so a red line doesn't paint the room pure red.
-            return Color.Lerp(c, Color.white, 0.15f);
+            return fromTexture ? c : Color.Lerp(c, Color.white, 0.15f);
         }
 
         private static float Mx(Color c) => Mathf.Max(c.r, Mathf.Max(c.g, c.b));
@@ -504,6 +537,11 @@ namespace UltraRT
                     }
                 }
 
+                // Sustained beams as line lights, nearest first, ahead of the shot chains (they light the room for as long as
+                // they are on).
+                if (s.beamLights > 0f && s.beamLines)
+                    PackLines(camPos, data, masks, packed, ids, medium, first, ref count, Mathf.Min(cap, count + Mathf.Max(0, s.lineMaxLights)));
+
                 // Beams, newest first.
                 if (s.beamLights > 0f)
                 {
@@ -513,6 +551,7 @@ namespace UltraRT
                     {
                         var b = _beams[bi];
                         var lr = b.Lr;
+                        if (b.Cb != null && s.beamLines) continue; // a line light (PackLines)
                         if (lr == null || !lr.enabled || !lr.gameObject.activeInHierarchy) continue;
                         float env;
                         if (b.Rb != null)
@@ -542,6 +581,95 @@ namespace UltraRT
             if (lit) _holdUntil = Time.realtimeSinceStartup + Mathf.Max(0f, s.exposureHoldTail);
             _lastPacked = count - first;
             return count;
+        }
+
+        /// <summary>
+        /// One line light per segment of every sustained beam (ContinuousBeam) that is on, within lineCull of the camera,
+        /// the nearest lineMaxLights of them: the whole beam lights the walls, floor and ceiling evenly along its length,
+        /// and the light follows the line as it moves (read every frame). Intensity follows the line's width (the game
+        /// widens a beam in and narrows it out; Providence's pincer shrinks its beams at the end).
+        /// </summary>
+        private void PackLines(Vector3 camPos, Vector4[] data, uint[] masks, Light[] packed, int[] ids, float[] medium, int first, ref int count, int cap)
+        {
+            var s = Settings;
+            float cull2 = s.lineCull * s.lineCull;
+            int nc = 0;
+            for (int bi = 0; bi < _beams.Count && nc < MaxLineCandidates; bi++)
+            {
+                var b = _beams[bi];
+                if (b.Cb == null) continue;
+                var lr = b.Lr;
+                if (lr == null || !lr.enabled || !lr.gameObject.activeInHierarchy) continue;
+                // originalWidth is set in the beam's Awake (0 until it is first switched on): fall back to the widest seen.
+                if (lr.widthMultiplier > b.Width0) b.Width0 = lr.widthMultiplier;
+                float w0 = LineWidth0(b);
+                if (lr.widthMultiplier < w0 * 0.02f) continue;
+                int np = Mathf.Min(lr.positionCount, _pts.Length);
+                if (np < 2) continue;
+                var a = Pt(lr, 0);
+                for (int sg = 0; sg + 1 < np && nc < MaxLineCandidates; sg++)
+                {
+                    var c = Pt(lr, sg + 1);
+                    float d2 = SegDist2(camPos, a, c);
+                    if (d2 <= cull2)
+                    {
+                        _lineDist[nc] = d2;
+                        _lineKey[nc] = (bi << 5) | sg;
+                        nc++;
+                    }
+                    a = c;
+                }
+            }
+            if (nc == 0) return;
+            int before = count;
+            if (nc > cap - count) Array.Sort(_lineDist, _lineKey, 0, nc);
+            for (int k = 0; k < nc && count < cap; k++)
+            {
+                var b = _beams[_lineKey[k] >> 5];
+                int sg = _lineKey[k] & 31;
+                var lr = b.Lr;
+                float w0 = LineWidth0(b);
+                float env = Mathf.Clamp01(lr.widthMultiplier / w0);
+                float kk = env * b.Gain * s.beamLights * s.lineIntensity;
+                if (kk < 0.02f) continue;
+                var pa = Pt(lr, sg);
+                var pb = Pt(lr, sg + 1);
+                if ((pb - pa).sqrMagnitude < 1e-4f) continue;
+                float range = Mathf.Max(0.5f, s.lineRange * Mathf.Sqrt(Mathf.Max(w0, 0.05f) / 0.35f));
+                LightOverrides.PackLine(pa, pb, 0f, 0f, 0f, out var centre, out var l2, out var l3);
+                int j = count * 4;
+                var col = b.Hue * kk;
+                data[j] = new Vector4(centre.x, centre.y, centre.z, range);
+                data[j + 1] = new Vector4(col.r, col.g, col.b, 0f);
+                data[j + 2] = l2;
+                data[j + 3] = l3;
+                masks[count] = ~0u;
+                packed[count] = null;
+                ids[count] = unchecked(b.Id * 31 + sg * 7 + 0x3C000000);
+                if (medium != null && count < medium.Length) medium[count] = s.lineMedium;
+                count++;
+            }
+            float now = Time.realtimeSinceStartup;
+            if (now >= _nextLineLog && _lineLogs < 20)
+            {
+                _nextLineLog = now + 10f; _lineLogs++;
+                _log.LogInfo($"Combat lights: {count - before} line lights packed ({nc} beam segments within {s.lineCull:F0} m, " +
+                             $"slots from {before}, cap {cap})");
+            }
+        }
+
+        private float _nextLineLog;
+        private int _lineLogs;
+
+        private static float LineWidth0(Beam b) => Mathf.Max(b.Cb.originalWidth > 0f ? b.Cb.originalWidth : b.Width0, 1e-4f);
+
+        /// <summary>Squared distance from p to the segment ab.</summary>
+        private static float SegDist2(Vector3 p, Vector3 a, Vector3 b)
+        {
+            var ab = b - a;
+            float l2 = ab.sqrMagnitude;
+            float t = l2 > 1e-8f ? Mathf.Clamp01(Vector3.Dot(p - a, ab) / l2) : 0f;
+            return (a + ab * t - p).sqrMagnitude;
         }
 
         private void PackSegment(Beam b, int sg, Vector3 a, Vector3 c, float k, Vector3 camPos, float cull,

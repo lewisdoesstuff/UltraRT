@@ -22,7 +22,7 @@ namespace UltraRT
     {
         private readonly ManualLogSource _log;
         private readonly HashSet<string> _described = new HashSet<string>();
-        private float _nextCensus, _nextTotals;
+        private float _nextCensus, _nextTotals, _nextLines;
 
         private sealed class Agg { public int Seen, Max; public string Example; }
         private readonly Dictionary<string, Agg> _totals = new Dictionary<string, Agg>();
@@ -105,6 +105,31 @@ namespace UltraRT
             }
         }
 
+        /// <summary>Every enabled LineRenderer within 120 m: path, components, points, width, colours, material (which
+        /// lines are lasers, and what moves them).</summary>
+        private void LogLines(Camera cam)
+        {
+            var camPos = cam != null ? cam.transform.position : Vector3.zero;
+            int n = 0;
+            foreach (var lr in UnityEngine.Object.FindObjectsOfType<LineRenderer>())
+            {
+                if (!lr.enabled || lr.bounds.SqrDistance(camPos) > 120f * 120f) continue;
+                if (n++ >= 60) break;
+                int pc = lr.positionCount;
+                var a = pc > 0 ? lr.GetPosition(0) : Vector3.zero;
+                var b = pc > 1 ? lr.GetPosition(pc - 1) : a;
+                if (!lr.useWorldSpace) { a = lr.transform.TransformPoint(a); b = lr.transform.TransformPoint(b); }
+                string comps = string.Join("+", lr.GetComponents<Component>().Select(c => c.GetType().Name).Where(x => x != "Transform" && x != "LineRenderer"));
+                var par = lr.transform.parent;
+                string pcomps = par != null ? string.Join("+", par.GetComponents<Component>().Select(c => c.GetType().Name).Where(x => x != "Transform")) : "-";
+                var m = lr.sharedMaterial;
+                _log.LogInfo($"  line '{Bench.GameControl.PathOf(lr.transform)}' comps [{comps}] parent [{pcomps}] world {lr.useWorldSpace} points {pc} " +
+                             $"a ({a.x:F1}, {a.y:F1}, {a.z:F1}) b ({b.x:F1}, {b.y:F1}, {b.z:F1}) len {Vector3.Distance(a, b):F1} width {lr.widthMultiplier:F2} " +
+                             $"col {Col(lr.startColor)}/{Col(lr.endColor)} layer {lr.gameObject.layer} {(m != null ? Describe(m) : "-")}");
+            }
+            _log.LogInfo($"effect lines: {n} enabled line renderers within 120 m");
+        }
+
         private void Census(Camera cam)
         {
             var camPos = cam != null ? cam.transform.position : Vector3.zero;
@@ -156,6 +181,7 @@ namespace UltraRT
                 a.Seen++;
                 a.Max = Math.Max(a.Max, kv.Value);
             }
+            if (lines > 0 && Time.time >= _nextLines) { _nextLines = Time.time + 5f; LogLines(cam); }
             _log.LogInfo($"effect census t={Time.time:F1}: lights {lights} ({near} within 30 m, {varying} with varying intensity, {lightsByRoot.Count} roots); " +
                          $"live particle systems {particles} ({particlesLit} with a light in their hierarchy), lines {lines}, trails {trails}, sprites {sprites}, transparent meshes {meshes}; " +
                          $"unlit additive within 30 m: {unlitNear}; spawned lights tracked {_spawnedLights.Count}, spawns dropped {EffectSpawns.Dropped}");

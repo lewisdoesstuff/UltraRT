@@ -83,6 +83,17 @@ namespace UltraRT
         public float gunFlashHold = 0.02f, gunFlashFade = 0.06f;
         /// <summary>At most this many beam lights per frame (newest beams first; flashes and effect lights come before).</summary>
         public int beamMaxLights = 24;
+        /// <summary>Sustained beams (ContinuousBeam: 7-4's Brain laser barriers, the Mindflayer, Providence's pincer beams;
+        /// 2026-11-21, docs/emissive-lights.md "Laser beams") get one line light per segment instead of a point chain, so
+        /// the whole beam lights the walls evenly and follows it as it sweeps. false = the old chain.</summary>
+        public bool beamLines = true;
+        /// <summary>Line light intensity (x beamLights x the beam's width ratio), range (m, x sqrt of the line's width / 0.35:
+        /// the Mindflayer's beam is 0.35 wide, 7-4's barriers 2) and weight in the air (0: volumetrics would see the line
+        /// as a point at its middle).</summary>
+        public float lineIntensity = 3f, lineRange = 10f, lineMedium = 0f;
+        /// <summary>Line lights: at most this many per frame (the beams nearest the camera), within lineCull m of it.</summary>
+        public int lineMaxLights = 40;
+        public float lineCull = 70f;
         /// <summary>Parry burst: a light ~1.2 m in front of the camera at every parry, on real time (the game's hit-stop
         /// freezes game time). A strength: 0 = off (-ultrart-parry-light).</summary>
         public float parryLight = 1f;
@@ -422,7 +433,7 @@ namespace UltraRT
         }
 
         /// <summary>Average of rgb x alpha (what an additive blend adds per pixel of the quad), from a 16x16 Blit + ReadPixels.</summary>
-        private Color TexAverage(Texture tex) => _texCache.TryGetValue(tex, out var c) ? c : (_texCache[tex] = Downsample(tex, Vector2.one, Vector2.zero));
+        internal Color TexAverage(Texture tex) => _texCache.TryGetValue(tex, out var c) ? c : (_texCache[tex] = Downsample(tex, Vector2.one, Vector2.zero));
 
         /// <summary>The same for one sprite (its rectangle of a sprite sheet). Cached per sprite: animated flames swap sprites.</summary>
         private Color SpriteAverage(Sprite s)

@@ -66,6 +66,7 @@ namespace UltraRT
             {
                 _combatLights = new CombatLights(Logger, _effectSettings);
                 _effectLights = new EffectLights(Logger) { Settings = _effectSettings, Spawned = OnEffectSpawned };
+                _combatLights.TexAverage = _effectLights.TexAverage;
                 _effectGeometry = new EffectGeometry(Logger) { Settings = _fxgSettings };
                 _effectGeometry.SetShader(_effectProxyShader);
                 _effectLights.GlowSink = _effectGeometry.Track;
