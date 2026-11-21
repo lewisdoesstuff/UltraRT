@@ -462,6 +462,8 @@ namespace UltraRT
             public float Distance;   // from the light to the side's opening (the closest point of the rectangle)
             public float ExitDistance; // from the light to the exit opening, in world space (rigid: = the image to the side's opening)
             public bool ExitFacesLight; // the light is on the side of the exit that the image lights (a loop: same room)
+            public Vector3 ExitDir;  // the way light leaves the exit (into the receiving room)
+            public Vector3 ExitAx, ExitAy; // the exit opening's half extents (travel x the side's axes x half width / height)
             // A mirror in all but name: light comes back out of the exit the way it went in (a U-turn: 8-2's starting
             // pool, a floor portal into a copy of the street) or the portal is a level's mirror (8-2's MirrorBig into a
             // mirrored copy of the room). Its far side is a copy lit by its own copies of the lights.
@@ -526,7 +528,7 @@ namespace UltraRT
                 // Light leaves the exit moving along travel x f (the side's forward): the light itself on that side of the
                 // exit's plane means the exit opens into the light's own room (8-3's sideways loops, 8-2's looping halls).
                 bool facesLight = Vector3.Dot(p - s.ExitC, s.ExitDir) > 0f;
-                output.Add(new PortalImage { Pos = v, Exit = s.ExitC, ExitView = s.ExitView, Travel = s.Travel, Distance = d, ExitDistance = exitDist, ExitFacesLight = facesLight, MirrorLike = s.MirrorLike, Span = s.Span, Side = s.Index });
+                output.Add(new PortalImage { Pos = v, Exit = s.ExitC, ExitView = s.ExitView, Travel = s.Travel, Distance = d, ExitDistance = exitDist, ExitFacesLight = facesLight, ExitDir = s.ExitDir, ExitAx = s.ExitAx, ExitAy = s.ExitAy, MirrorLike = s.MirrorLike, Span = s.Span, Side = s.Index });
             }
             output.Sort((a, b) => a.Distance.CompareTo(b.Distance));
             if (output.Count > max) output.RemoveRange(max, output.Count - max);
@@ -536,7 +538,7 @@ namespace UltraRT
         private struct ImageSide
         {
             public int Index;
-            public Vector3 C, F, Ax, Ay, ExitC, ExitDir;
+            public Vector3 C, F, Ax, Ay, ExitC, ExitDir, ExitAx, ExitAy;
             public float Hw, Hh, Rad, Span, ExitView;
             public Matrix4x4 Travel, Back;
             public bool MirrorLike;
@@ -564,6 +566,7 @@ namespace UltraRT
                 {
                     Index = s.Index, C = c, F = f, Ax = ax / w, Ay = ay / h, Hw = 0.5f * w, Hh = 0.5f * h, Rad = 0.5f * Mathf.Sqrt(w * w + h * h),
                     Travel = s.Travel, Back = s.Travel.inverse, ExitC = exitC, ExitDir = exitDir, Span = (exitC - c).magnitude,
+                    ExitAx = s.Travel.MultiplyVector(ax * 0.5f), ExitAy = s.Travel.MultiplyVector(ay * 0.5f),
                     MirrorLike = s.FakeMirror || Vector3.Dot(exitDir, f) < -0.5f,
                     ExitView = ExitViewDistance(exitC, cam, views),
                 });

@@ -9,7 +9,7 @@ Files:
 - `unity/.../PathTrace.raytrace`, `CacheUpdate.raytrace`, `DebugView.raytrace`: use `TraceScene`.
 - `unity/.../UltraRTLights.hlsl`: portal-aware light importance (ReSTIR also reprojected through portals until it was removed on 2026-11-19); lights imaged through portals (section 15).
 - `unity/.../UltraRTPortalBuffers.hlsl`: the sides' travel and quad buffers, shared by the portal and light includes.
-- `src/UltraRT/Plugin.PortalLights.cs`: scene lights imaged through portals (section 15).
+- `src/UltraRT/Plugin.PortalLights.cs`: scene lights and handed-over fixtures imaged through portals (sections 15, 20).
 - `unity/.../Composite.shader`: the depth test at portal pixels.
 - `unity/.../Upsample.compute`: the temporal upsampler of the replace modes, same depth rule, reprojects through portals.
 - `src/UltraRT/SceneProxies.cs`: layer-30 renderers get their own instance mask.
@@ -470,8 +470,8 @@ The shader treats an image as two things:
 | one hop | images are never imaged again (packed after every source) | feedback through 8-3's loops |
 | same place | the image within 1 m of the light | a pair that leads back to itself |
 | mirror | the light makes a U-turn (the exit faces the way the entrance does: `dot(T f, f) < -0.5`), or the portal's path contains "Mirror" | 8-2's starting pool (a floor portal into a copy of the street, 300 m away), `MirrorBig` (into a mirrored copy of the hub room), the island's `Mirror`, the storage room's ceiling portal. The copy behind has its own copies of the lights, as behind the game's real mirrors (never imaged) |
-| loop | an exit within `_portalLightLoopSpan` (100 m) that opens into the light's own room (the light is on the side of the exit's plane the image lights), or a local portal (exit within 100 m of its entrance) whose exit the light sees straight through the level (`Physics.Raycast` on the game's Environment colliders, cached per pair for a second) | 8-3's Clockwork Crushers: the sideways loops (22 m) by the first rule, Portals A/B at the hall's ends (23 m) by the second; the Escher TV; 8-2's looping entrance hall `Portal Left` (80 m) and Black Lodge corridor (45 m). 8-2's BigDoors (2.75 x 6 m double doors) are as local but open into another room behind a wall: they keep their images |
-| contiguous | the exit opening within the light's reach in world space | shadow rays ignore portals, so the real light already reaches what lies behind the exit straight through the world: 8-3's Shifting Hallway (doorways 10-12 m apart along one hall), 8-2's garage (20 m) |
+| loop | *(since 2026-11-21, section 20)* an exit within `_portalLightLoopSpan` (100 m) or the light's reach of the light, or within 100 m of its entrance, that the light reaches straight through the level (`LightReachesExit`: rays to five points of the exit's opening, 0.5 m into the room it opens into, on the game's Environment colliders; only opaque geometry blocks, not glass; cached per pair for a second), with the light on the exit's lit side or the exit beyond its reach | 8-3's Clockwork Crushers (the sideways loops behind their glass walls, Portals A/B at the hall's ends); the Escher TV; 8-2's looping entrance hall `Portal Left` (80 m) and Black Lodge corridor (45 m). 8-2's BigDoors (2.75 x 6 m double doors) are as local but open into another room behind a wall: they keep their images. *Before 2026-11-21: an exit within 100 m on whose lit side the light was (the plane's half-space alone) was a loop without the sight test: 8-3's Fallway lost its lamps' images (section 20); `plugin._portalLightHalfSpace=1` restores that rule* |
+| contiguous | *(since 2026-11-21)* the same sight test, for an exit within the light's reach that the light is not on the lit side of | shadow rays ignore portals, so the real light already reaches what lies behind the exit straight through the world: 8-3's Shifting Hallway (doorways 10-12 m apart along one hall), 8-2's garage (20 m). *Before: any exit within reach, walled off or not* |
 
 **Budget.** Pairs are scored by luminance x (0.05 + (1 - distance to the opening / reach)^2), divided by
 1 + (how far the exit is from the camera or its nearest portal viewpoint, beyond the light's reach, / 30 m)^2; exits more
@@ -819,3 +819,94 @@ The worst frames (36-41 ms) were all in the passes with portal grids on.
 Earlier runs of the base build and this branch on the same poses: 8-3 b 37.5 (old) / 36.5 (new), 8-2's portal side 1
 14.5 / 14.3. The crushers' side loops (`maxRecursions` 1, `canSeeItself` off) now show the room past the loop where the old
 3-hop limit showed the loop's own walls again, like the game.
+
+## 20. The lighting seam at a portal's border (2026-11-21, `t3/portal-border-lighting-seam`)
+
+The user's 8-3 playtest of 2026-11-21: standing at a Fallway portal, a sharp change of lighting runs along the portal's
+border; standing back in the hallway, what is seen through the doorway looks darker and noisier. The bench pose 144
+(`8-3 portal light`) shows it as a knife-edge step across the carpet under the second archway: in `_raw`, column 1000
+(of 2560), the floor goes from 23 to 8 (luma 0-255) at the portal's border, x2.9. The game itself shows a step there
+too (its portal view has the other room's lights): 16 to 10, x1.6.
+
+Two causes, both in the images of section 15.
+
+**The loop guard skipped lights in other rooms.** "Loop" was: the light is on the exit's lit side of the exit's plane,
+and the exit within 100 m. A plane's half-space is infinite: 8-3's Fallway (`4 - Fallway`, three `Segment` rooms 20 m
+apart at z 427 with diagonal portals between them, and its doorway portal into the hallway at z 473) satisfies it for
+every lamp, 28-59 m away behind solid walls. The log of the final run of section 19 has every dome lamp next to an
+opening skipped this way ("0.9 m from the opening, exit 36.2 m from the light (opens into its room)"). Now the loop and
+contiguous guards ask whether the real light reaches the room the exit opens into straight through the level
+(`LightReachesExit`): rays from the light to five points of the exit's opening (centre and four at 60 % of the half
+extents), each 0.5 m into that room, on the game's Environment colliders; any clear ray counts. Only opaque geometry
+blocks (a collider with a renderer on its object whose material is under queue 2500 and not named glass): the Clockwork
+Crushers' sideways loops sit behind glass walls, and with every collider blocking, 25 of their pairs became images (first run, `20261121-230917`) (the
+hall lit by its own lamps again). The log names the blocker (`exit walled off by 'Cube (4)'`). Cached per pair for a
+second; `plugin._portalLightHalfSpace=1` restores the old rule.
+
+**Fixtures handed over to their glowing part were not imaged at all.** Since the handover (docs/lighting-overrides.md,
+"Handover") most lamps in 8-3 give their light through their part's emissive triangles: the dome lamps keep 0.35 of the
+light (a hybrid), the hotel wall lights, standing lamps, supermarket and lounge lamps keep none (299 lights in 8-3:
+195 handed in full, 104 hybrids). Emissive triangles are sampled in world space, so their light stops at a portal; a bounce
+ray that crosses a portal and hits them counts nothing (`_EmissiveBounceWeight` is 0 while they are sampled); and the
+images only carried what the packed light kept. Now:
+- a hybrid's image carries the whole fixture (its packed colour x `HandedImageIntensity / Intensity`);
+- a light handed over in full is packed in a scratch slot at its pre-handover strength, as a source of images only
+  (`_handedOff`, collected in `GatherLightsBody`), and released before the images are packed;
+- the image's strength is what the fixture gives the room, in linear power of the original light: keep^2.2 (keep scales
+  the gamma colour) + 2 x the part's gain (`LightClasses.HandoverGain` 0.25 x the rule's `gain` x `lc.hgain`): a
+  Lambertian emitter (EmissiveLights' `lightScale` 4) gives its hemisphere twice what a point light of the same total
+  does. Dome lamps: 0.099 + 0.325 = 0.42 of the original light. The first try used the full original light (1.0), which
+  lit the hallway ~2.4x what its own lamps do there (frame mean 48.9 -> 53.8 against the game's 40.9);
+  `plugin._portalHandedGain` scales it (linear power).
+- `plugin._portalHandedLights=0` turns it off. No double light: the part's triangles light the light's own room in
+  world space, the image only the room behind the exit, clipped to the opening (section 15).
+
+### Results (final run `bench/results/20261121-231901_tmp-portal-border_alt`, 2560 x 1440, `bench/suites/portal-border-light.json` (run under its temporary name `tmp-portal-border`); "before" = `plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0`, in the same launch)
+
+The floor across the border at pose 144 (luma, columns 1000 / 1150, the last row before the border -> the first after):
+
+| | `_raw` | final | game (`off`) |
+|---|---|---|---|
+| before | 23 -> 8 (x2.9) / 27 -> 13 (x2.1) | 27 -> 13 / 31 -> 18 | 16 -> 10 (x1.6) / 19 -> 13 (x1.5) |
+| now | 26 -> 18 (x1.4) / 32 -> 22 (x1.45) | 30 -> 23 / 36 -> 26 | |
+
+The step is now about the game's own. Frame means (now - before, luma), and |x - off| over the frame without the HUD:
+
+| Scenario | final mean | `_raw` mean | dark pixels (< 40) | |final - off| before -> now |
+|---|---|---|---|---|
+| 8-3 portal light (pose 144) | +1.74 (x1.044) | +1.97 (x1.061) | +2.0 | 8.9 -> 11.0 |
+| 8-3 back a (hallway, 10 m further back) | +0.08 | +0.29 | +0.7 | 10.7 -> 11.0 |
+| 8-3 crushers | +0.90 (x1.007) | +0.91 | (takes differ: the crushers move) | 32.4 -> 22.8 |
+| 8-2 portal side 1 | -0.05 | -0.02 | +0.3 | 16.3 -> 16.3 |
+| 8-2 hallway portal | -0.27 | -0.08 | +0.7 | 14.9 -> 14.8 |
+
+- The added light sits at the border: the floor, walls and arch around the doorway, and the Fallway seen through it
+  (its segments now light each other across their portals). The hallway near the camera is unchanged. RT was already
+  brighter than the game in this hallway (section 19: |final - off| 7.9), so the frame-wide distance to the game grows;
+  the user's verdict on that hallway's brightness (2026-11-21): fine as it is.
+- 8-2: unchanged; every mirror pair is still skipped as before (the starting pool, `MirrorBig`, the storage room).
+- Crushers: the sideways loops are guarded by the sight test (25 loop pairs, all "sees the exit"; 4 sideways-loop pairs still imaged, walled off). Images that remain:
+  the lamps of the side rooms and the far end (walled off by `Door Object`, `Cube (5)`, `Cube (6)`) and Portals A/B where
+  the moving crushers (`Cube(Clone)`, `Cylinder`) block the line, as before.
+- Bursts (32 frames, pathtrace; masked = pixels the game keeps still): pose 144 masked sigma / block 0.29 / 0.17 -> 0.45 /
+  0.25, all pixels 2.11 / 1.64 -> 2.08 / 1.35; back a, all pixels 2.33 / 1.80 -> 2.62 / 1.90. Up to +50 % on the masked
+  pixels at pose 144 (they gained the most light), within the two-run spread elsewhere (section 19: 0.25-0.30 masked
+  for one mode).
+- Cost (GPU timer, visual lock, alt): pose 144 GPU total 5.39 -> 5.53 ms, dispatch 2.51 -> 2.65 ms; back a 5.44 -> 5.49 /
+  2.56 -> 2.62 ms. Plugin CPU "lights" +0.10-0.15 ms (0.69 -> 0.84 at pose 144: the sight test's raycasts, and 62-68
+  candidates for 16 slots where there were 14 candidates).
+
+### Audit: what else treats a surface behind a portal differently (2026-11-21)
+
+- `PortalViewpoints` (3 hops, 16 viewpoints, 120 m per hop) covers pose 144 and the hallway 10 m further back: the
+  doorway is 10-20 m away, inside one hop. Light importance (`LightSampling`), emitter importance (`EmissiveLights`,
+  rebuilt when the first viewpoint moves 1 m or their count changes, at most every 0.25 s) and the cache's cell size
+  (`CacheLevelF`, the same 16 points) all read it. Nothing to change.
+- **Open: glowing surfaces that are not handed-over fixtures do not light through portals.** NEE samples emissive
+  triangles in world space (blocked behind a portal), and a bounce ray that crosses a portal and hits one counts its
+  emission x `_EmissiveBounceWeight` = 0. Fixtures are covered by the images above; screens, signs and other emissive
+  textures next to a portal still stop at its border. Counting emission in full on a bounce that crossed a portal would
+  fix it without bias, but noisily (small emitters found by cosine sampling), and for fixtures it would double the
+  images.
+- Behind a portal RR gets the unfolded ray length as depth (`_NormalDepth.w` = `tTotal`, continuous across the border)
+  and the portal's first-hit distance in `_InstanceId`'s high half (section 17); no discontinuity at the border.

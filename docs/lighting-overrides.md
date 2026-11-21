@@ -1247,6 +1247,9 @@ with a `handover` block hands a fixture's light to the fixture's own glowing par
 - `part`: a regex on the material name of the mesh that glows, searched under the light's first three ancestors (at
   most 24 renderers). `gain` (default 1) scales the output; `keep` (default 0) is the share of the light that stays, for
   a **hybrid**; `keepMedium` its air share.
+- Through portals (layer 8) the part's triangles light nothing (world-space sampling); since 2026-11-21 the fixture is
+  imaged through them as a light of keep^2.2 + 2 x gain x 0.25 of the original light's linear power, also when it keeps
+  nothing (docs/portals.md, section 20).
 - The part's triangles join the emissive triangle table with a radiance that makes their total output equal the
   light's: `lin(colour x intensity x class policy, clamped to gamma 3)^2.2 x gain x pi x K x range^2 x cone`
   (`K` 0.003205 as in the light model, `cone` = 0.5 (1 - cos(spot angle / 2)) for a spot, 1 for a point light), times
