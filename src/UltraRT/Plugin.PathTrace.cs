@@ -73,6 +73,9 @@ namespace UltraRT
         /// menu): its first use after a new shader bundle took 16-33 s (the driver's shader cache misses; about 0.2 s on a hit),
         /// which froze the first switch to pathtrace. Flag -ultrart-pt-noprewarm.</summary>
         public bool prewarm = true;
+        /// <summary>Stochastic single-lobe BSDF selection on glossy primary hits in pathtrace (halves secondary paths on glossy
+        /// pixels, unbiased under DLSS RR). Off in High/Ultra; on in Performance/Competitive presets. Bench ptx.singleLobe=1.</summary>
+        public bool singleLobe = false;
     }
 
     public partial class Plugin
@@ -160,7 +163,7 @@ namespace UltraRT
             _cmd.SetRayTracingVectorParam(shader, "_PtParams2", new Vector4(Mathf.Max(0f, s.maxRadiance), s.specularLobes ? 1f : 0f, s.skyAtVertices ? 1f : 0f,
                 rr ? Mathf.Clamp(s.directSamplesRR, 1, 4) : 1f));
             bool trans = s.transparents && SceneProxies.Transparents.enabled && _proxies != null && _proxies.ActiveTransparent > 0;
-            _cmd.SetRayTracingVectorParam(shader, "_PtParams3", new Vector4(trans ? 1f : 0f, Mathf.Clamp01(s.transparentTint), Mathf.Max(0f, s.footprint), 0f));
+            _cmd.SetRayTracingVectorParam(shader, "_PtParams3", new Vector4(trans ? 1f : 0f, Mathf.Clamp01(s.transparentTint), Mathf.Max(0f, s.footprint), s.singleLobe ? 1f : 0f));
             if (full && !_ptLoggedDenoiser)
             {
                 _ptLoggedDenoiser = true;

@@ -90,6 +90,12 @@ namespace UltraRT
         public bool Active => Settings.enabled && Settings.mode != RadianceCacheMode.Off && UpdateShader != null && _resolve != null;
         public int Capacity => _capacity;
         public long GpuBytes => _keys == null ? 0 : (long)_capacity * BytesPerSlot;
+        internal ComputeBuffer KeysBuffer => _keys ?? _dummyKeys;
+        internal ComputeBuffer ResolvedBuffer => _resolved ?? _dummyResolved;
+        internal int ActiveModeValue => Active ? (int)Settings.mode : 0;
+        internal Vector4 GridParams => new Vector4(Mathf.Max(0.05f, Settings.cellSize), 1f / Mathf.Max(0.5f, Settings.lodDistance),
+            Settings.normalOffset, Settings.levelFallback ? 1f : 0f);
+        internal Vector4 QueryParams => new Vector4(Mathf.Max(1f, Settings.minSamples), Mathf.Max(0f, Settings.queryJitter), 0f, 0f);
 
         private const int BytesPerSlot = 4 + 32 + 16; // key, accumulators, resolved
         private const float FixedScale = 2048f; // ULTRART_CACHE_SCALE in UltraRTCache.hlsl

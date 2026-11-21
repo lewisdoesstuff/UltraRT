@@ -408,6 +408,29 @@ void RayGenBody(bool full)
             cacheWrite = all((cWarp - cBlk * cStride) == cPick);
         }
 
+        // Stochastic single-lobe BSDF selection (Wave 3, ptx.singleLobe): on glossy primary hits in pathtrace, trace
+        // either the specular OR diffuse secondary path with balanced probability (unbiased in expectation).
+        bool slPickSpec = false, slSkipSpec = false;
+        float slInvPdf = 1.0;
+        if (full && _PtParams3.w > 0.5 && _Mode == 0 && !cacheWrite && _ReflParams.x > 0.5)
+        {
+            SurfaceMaterial slMat = MaterialFromPayload(p.material, p.flags);
+            if (slMat.mode != ULTRART_REFL_NONE)
+            {
+                float3 slSpecW;
+                float slKeep;
+                SpecularTerms(slMat, p.albedo, saturate(dot(n, -ray.Direction)), _ReflParams.yz, slSpecW, slKeep);
+                if (dot(slSpecW, float3(0.2126, 0.7152, 0.0722)) >= _ReflParams.w)
+                {
+                    float ws = dot(ToLight(slSpecW), float3(0.2126, 0.7152, 0.0722));
+                    float wd = dot(ToLight(p.albedo * slKeep), float3(0.2126, 0.7152, 0.0722)) * p.alpha;
+                    float pS = clamp(ws / max(ws + wd, 1e-5), 0.15, 0.85);
+                    if (Rand(rng) < pS) { slPickSpec = true; slInvPdf = 1.0 / pS; }
+                    else { slSkipSpec = true; slInvPdf = 1.0 / (1.0 - pS); }
+                }
+            }
+        }
+
         // One cosine-weighted diffuse bounce (pdf cancels the cosine and the 1/pi of Lambert).
         // Radiance cache (docs/radiance-cache.md): mode 2 reads the indirect light at the primary hit and skips the bounce
         // ray; mode 1 takes the lighting at the bounce hit from the cache (all further bounces, no shadow ray).
@@ -418,7 +441,11 @@ void RayGenBody(bool full)
         if (full)
         {
             // Path tracing: N multi-bounce paths with next-event estimation at every vertex (UltraRTPathTraceFull.hlsl).
-            indirect = PtIndirect(pos, n, nv, hitCone, cacheWrite, direct, rng);
+            if (!slPickSpec)
+            {
+                indirect = PtIndirect(pos, n, nv, hitCone, cacheWrite, direct, rng);
+                if (slSkipSpec) indirect *= slInvPdf;
+            }
             cachedPrimary = true;
         }
         else if (_CacheMode == 2 && !cacheWrite)
@@ -575,7 +602,7 @@ void RayGenBody(bool full)
         // One reflection ray where the specular term is worth it (the same weights the composites use).
         SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
         float4 refl = float4(0, 0, 0, -1);
-        if (_ReflParams.x > 0.5 && mat.mode != ULTRART_REFL_NONE && _Mode != 2)
+        if (_ReflParams.x > 0.5 && mat.mode != ULTRART_REFL_NONE && _Mode != 2 && !slSkipSpec)
         {
             float NdotV = saturate(dot(n, -ray.Direction));
             float3 specW;
@@ -587,7 +614,11 @@ void RayGenBody(bool full)
                 if (dot(L, nv) < 1e-3) L = reflect(ray.Direction, nv); // detail normal tilted the lobe below the surface
                 float dist;
                 float3 lr;
-                if (full) lr = PtReflection(pos, nv, n, ray.Direction, mat.roughness, hitCone, rng, dist); // specular paths
+                if (full)
+                {
+                    lr = PtReflection(pos, nv, n, ray.Direction, mat.roughness, hitCone, rng, dist); // specular paths
+                    if (slPickSpec) lr = LightToDisplay(ToLight(lr) * slInvPdf);
+                }
                 else lr = TraceReflection(pos, nv, L, mat.roughness >= 0.03, 2.0 * mat.roughness * mat.roughness, pixelAngle, tTotal, rng, dist);
                 refl = float4(lr, dist);
                 // Non-denoised output (pt, pt-direct, accumulation): apply it here. Denoised modes resolve the filtered

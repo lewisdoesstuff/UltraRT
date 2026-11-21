@@ -58,6 +58,11 @@ int      _RisLightCount;     // entries in _LightAlias (every shadowed light, on
 StructuredBuffer<uint4>  _LightAlias;
 int      _FillCount;
 StructuredBuffer<uint>   _FillLights;   // indices of unshadowed fill lights
+// World-space light grid (ReGIR-lite, Wave 3): 32x16x32 camera-centered 4 m cells, 8 x uint16 light indices per uint4.
+StructuredBuffer<uint4>  _LightGrid;
+StructuredBuffer<float>  _LightGlobalPdf;
+float4   _LightGridOrigin; // xyz world origin, w cellSize (4 m)
+float    _LightGridOn;     // 1 = active
 
 // Moving occluders (docs/denoiser.md, "Moving shadows"): world AABBs of dynamic objects that moved in the last frames (the
 // player's third-person model first, then the nearest moving enemies and props), each the union of this frame's and the
@@ -908,6 +913,25 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
     float share = _EmissiveCount > 0 ? _EmissiveParams.x : 0.0;
     if (_RisLightCount <= 0) share = _EmissiveCount > 0 ? 1.0 : 0.0;
     if (_RisLightCount <= 0 && share <= 0.0) return r;
+
+    // World-space light grid (ReGIR-lite, Wave 3): one 16-byte load gets up to 8 local lights for p's 4 m cell.
+    uint cIdx[8];
+    uint cCount = 0u;
+    [branch] if (_LightGridOn > 0.5 && _RisLightCount > 0)
+    {
+        int3 gc = (int3)floor((p - _LightGridOrigin.xyz) / _LightGridOrigin.w);
+        if (gc.x >= 0 && gc.x < 32 && gc.y >= 0 && gc.y < 16 && gc.z >= 0 && gc.z < 32)
+        {
+            uint4 packed = _LightGrid[(uint)gc.x + (uint)gc.y * 32u + (uint)gc.z * 512u];
+            cIdx[0] = packed.x & 0xFFFFu; cIdx[1] = packed.x >> 16;
+            cIdx[2] = packed.y & 0xFFFFu; cIdx[3] = packed.y >> 16;
+            cIdx[4] = packed.z & 0xFFFFu; cIdx[5] = packed.z >> 16;
+            cIdx[6] = packed.w & 0xFFFFu; cIdx[7] = packed.w >> 16;
+            [unroll] for (uint j = 0u; j < 8u; j++) { if (cIdx[j] != 0xFFFFu) cCount++; }
+        }
+    }
+    float invCell = cCount > 0u ? (1.0 / (float)cCount) : 0.0;
+
     for (int k = 0; k < count; k++)
     {
         float u = Rand(rng);
@@ -926,9 +950,32 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
         }
         else
         {
+            float ul = saturate((u - share) / (1.0 - share));
             uint li;
             float pdf;
-            SampleLightTable(saturate((u - share) / (1.0 - share)), li, pdf);
+            if (cCount > 0u)
+            {
+                // Exact 50/50 MIS mixture between local cell list (uniform over top K local lights) and global alias table.
+                if (ul < 0.5)
+                {
+                    uint slot = min((uint)(ul * 2.0 * (float)cCount), cCount - 1u);
+                    li = cIdx[slot];
+                    float pGlobal = _LightGlobalPdf[li];
+                    pdf = 0.5 * invCell + 0.5 * pGlobal;
+                }
+                else
+                {
+                    float pGlobal;
+                    SampleLightTable(saturate((ul - 0.5) * 2.0), li, pGlobal);
+                    bool inCell = false;
+                    [unroll] for (uint j = 0u; j < 8u; j++) { if (cIdx[j] == li) inCell = true; }
+                    pdf = 0.5 * pGlobal + (inCell ? 0.5 * invCell : 0.0);
+                }
+            }
+            else
+            {
+                SampleLightTable(ul, li, pdf);
+            }
             code = li;
             if (pdf > 0.0 && LightEval(li, p, n, layer, L, dist, c))
             {

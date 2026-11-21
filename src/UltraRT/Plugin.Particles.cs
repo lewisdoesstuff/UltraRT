@@ -168,17 +168,21 @@ namespace UltraRT
 
             var u = _particleLight.RtShader;
             var ambient = RenderSettings.ambientLight;
-            _cmd.SetRayTracingBufferParam(u, "_Lights", _lightBuffer);
-            _cmd.SetRayTracingBufferParam(u, "_LightMasks", _lightMaskBuffer);
-            _cmd.SetRayTracingIntParam(u, "_LightCount", _surfLightCount);
-            _cmd.SetRayTracingFloatParam(u, "_LightRadius", _lightRadius);
-            _cmd.SetRayTracingVectorParam(u, "_Relight", RelightParams);
-            _cmd.SetRayTracingFloatParam(u, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
-            _lightSampling.BindTables(_cmd, u);
-            _emissive.Bind(_cmd, u, _lightSamplingSettings.mode);
-            _cmd.SetRayTracingVectorParam(u, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
-            BindSky(u);
-            _radianceCache?.BindRayTracingLookup(_cmd, u);
+            bool useRq = _particleSettings.rayQuery && _rayQuery != null && _rayQuery.Ready && _rayQuery.HasTlas;
+            if (!useRq)
+            {
+                _cmd.SetRayTracingBufferParam(u, "_Lights", _lightBuffer);
+                _cmd.SetRayTracingBufferParam(u, "_LightMasks", _lightMaskBuffer);
+                _cmd.SetRayTracingIntParam(u, "_LightCount", _surfLightCount);
+                _cmd.SetRayTracingFloatParam(u, "_LightRadius", _lightRadius);
+                _cmd.SetRayTracingVectorParam(u, "_Relight", RelightParams);
+                _cmd.SetRayTracingFloatParam(u, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
+                _lightSampling.BindTables(_cmd, u);
+                _emissive.Bind(_cmd, u, _lightSamplingSettings.mode);
+                _cmd.SetRayTracingVectorParam(u, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
+                BindSky(u);
+                _radianceCache?.BindRayTracingLookup(_cmd, u);
+            }
 
             float ambientScale = 2f * (_relightActive ? 1f - Mathf.Clamp01(RelightParams.w) : 1f); // the game's lit term is 2 x ambient + lights
             var frame = new ParticleLightFrame
@@ -190,6 +194,25 @@ namespace UltraRT
                 ambient = ambient * ambientScale,
                 lightsChanged = _lightSampling.LightSetChanged || _emissive.SetChanged,
                 linear = LinearActive,
+                rayQuery = _rayQuery,
+                lights = _lightBuffer,
+                lightMasks = _lightMaskBuffer,
+                lightCount = _surfLightCount,
+                lightSampling = _lightSampling,
+                emissive = _emissive,
+                cache = _radianceCache,
+                skyTex = _lastSkyTex,
+                skyColor = new Vector4(ambient.r, ambient.g, ambient.b, 1f),
+                skyTint = _lastSkyTint,
+                skyParams = _lastSkyParams,
+                skyLight = SkyLightParams,
+                relight = new Vector4(_relightActive ? _relightFalloff : 0f, _relightActive ? _relightExposure : 1f, RelightLinearK, _preLinearLights && LinearActive ? 1f : 0f),
+                lightRadius = _lightRadius,
+                fixtureShadows = _fixtureShadows ? 1f : 0f,
+                portalQuads = _proxies.PortalImageQuadBuffer,
+                portalTravels = _proxies.PortalBuffer,
+                portalImagesOn = PortalLightImages > 0,
+                cacheViews = _portalViews,
             };
             _gpu?.Begin(_cmd, SlotParticles);
             _particleLight.Execute(_cmd, frame);
@@ -213,7 +236,7 @@ namespace UltraRT
                 Logger.LogInfo($"Lit particles: {(_litParticles?.Active == true ? "active" : "inactive")}, {_litParticles?.Count ?? 0} materials, " +
                                $"last scan {_particleScanMs:F2} ms (list {_litParticles?.LastFindMs:F2} ms for {_litParticles?.LastMaterials}, " +
                                $"classify {_litParticles?.LastClassifyMs:F2} ms for {_litParticles?.LastNew} new, atmosphere {_litParticles?.LastAtmosMs:F2} ms, " +
-                               $"orb glows {_litParticles?.OrbPasses} passes, last {_litParticles?.LastOrbMs:F2} ms), mode {name}, strength {strength}");
+                               $"orb glows {_litParticles?.OrbPasses} passes, last {_litParticles?.LastOrbMs:F2} ms), mode {name}, strength {strength}, rq={(_rayQuery != null ? $"ready={_rayQuery.Ready}/tlas={_rayQuery.HasTlas}/pl={_rayQuery.PlDispatches}" : "off")}");
                 if (_litParticles != null) _litParticles.OrbPasses = 0;
             }
         }

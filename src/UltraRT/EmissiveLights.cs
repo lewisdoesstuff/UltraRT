@@ -505,6 +505,21 @@ namespace UltraRT
         public long PendingTicks, VisibilityTicks, TransformTicks;
         public long AliasTicks;
 
+        internal ComputeBuffer TrisBuffer => _tris != null && _triCount > 0 ? _tris : _dummy4;
+        internal ComputeBuffer OwnersBuffer => _ownersBuf != null && _owners.Count > 0 ? _ownersBuf : _dummy4;
+        internal ComputeBuffer AliasBuffer => _alias != null && Settings.enabled && ActiveCount > 0 ? _alias : _dummy4;
+        internal ComputeBuffer ActiveBuffer => _active != null && _triCount > 0 ? _active : _dummy1;
+        internal int BoundCount => Settings.enabled ? ActiveCount : 0;
+        internal int BoundTriCount => Settings.enabled ? _triCount : 0;
+        internal Vector4 BoundParams
+        {
+            get
+            {
+                float dmin = Mathf.Max(1e-3f, Settings.minDistance);
+                return new Vector4(Mathf.Clamp(Settings.share, 0.01f, 0.99f), Mathf.Max(0f, Settings.lightScale) / Mathf.PI, dmin * dmin, 0f);
+            }
+        }
+
         /// <summary>Bind everything UltraRTLights.hlsl declares for emitters. Call on every PathTrace dispatch, after LightSampling.Bind.</summary>
         public void Bind(CommandBuffer cmd, RayTracingShader shader, LightSamplingMode mode)
         {

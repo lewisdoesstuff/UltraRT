@@ -1,0 +1,72 @@
+// World-Space Light Grid (ReGIR-lite, Wave 3): 32x16x32 camera-centered 4 m cells (128x64x128 m).
+// Each cell stores up to 8 local shadowed light indices packed into a single uint4 (16 B/cell, 256 KB total, L2-resident).
+// Ranked by attenuated luminance to the cell's AABB, skipping directional lights (handled by global alias) and lights whose
+// reach (2 x range) does not intersect the cell.
+#pragma kernel BuildGrid
+
+StructuredBuffer<float4> _Lights;       // 4 x float4 per light
+StructuredBuffer<uint>   _RisLightIdx;  // shadowed light indices (0.._RisLightCount-1)
+RWStructuredBuffer<uint4> _LightGrid;   // 32*16*32 = 16384 uint4s (8 x uint16 light indices per cell, 0xFFFF = empty)
+
+float4 _GridOrigin; // xyz world origin (snapped to cellSize), w cellSize (4.0 m)
+uint4  _GridDims;   // x=32, y=16, z=32, w=_RisLightCount
+
+[numthreads(4, 4, 4)]
+void BuildGrid(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _GridDims.x || id.y >= _GridDims.y || id.z >= _GridDims.z) return;
+
+    float cell = _GridOrigin.w;
+    float3 bmin = _GridOrigin.xyz + (float3)id * cell;
+    float3 bmax = bmin + cell;
+
+    uint  topIdx[8];
+    float topW[8];
+    [unroll] for (int k = 0; k < 8; k++) { topIdx[k] = 0xFFFFu; topW[k] = 0.0; }
+
+    uint count = _GridDims.w;
+    for (uint i = 0u; i < count; i++)
+    {
+        uint li = _RisLightIdx[i];
+        float4 l0 = _Lights[li * 4u];
+        if (l0.w <= 0.0) continue; // directional lights stay in global alias table
+        float4 l3 = _Lights[li * 4u + 3u];
+        if (l3.w < -0.5) continue; // portal images stay in global alias table (opening-clipped)
+
+        float reach = 2.0 * l0.w;
+        float3 closest = clamp(l0.xyz, bmin, bmax);
+        float3 d = l0.xyz - closest;
+        float d2 = dot(d, d);
+        if (d2 >= reach * reach) continue;
+
+        float3 col = _Lights[li * 4u + 1u].rgb;
+        float lum = dot(col, float3(0.2126, 0.7152, 0.0722));
+        if (lum <= 0.0) continue;
+
+        float rRef = 0.5 * l0.w;
+        float w = lum * (rRef * rRef) / max(d2, 0.25);
+
+        if (w > topW[7])
+        {
+            int pos = 7;
+            [unroll] for (int s = 6; s >= 0; s--)
+            {
+                if (w > topW[s])
+                {
+                    topW[s + 1] = topW[s];
+                    topIdx[s + 1] = topIdx[s];
+                    pos = s;
+                }
+            }
+            topW[pos] = w;
+            topIdx[pos] = li;
+        }
+    }
+
+    uint cellIdx = id.x + id.y * _GridDims.x + id.z * (_GridDims.x * _GridDims.y);
+    _LightGrid[cellIdx] = uint4(
+        topIdx[0] | (topIdx[1] << 16),
+        topIdx[2] | (topIdx[3] << 16),
+        topIdx[4] | (topIdx[5] << 16),
+        topIdx[6] | (topIdx[7] << 16));
+}

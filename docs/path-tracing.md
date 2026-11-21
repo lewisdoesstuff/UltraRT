@@ -127,7 +127,8 @@ the light comes from: contact shadows and colour bleeding within the first two b
 | `remodulate`, `remodExactGrid` | on, on | UltraRT's denoiser remodulates as RR does, with the exact N x N jitter grid at 1/3 (or 1/5) |
 | `remodSharpness`, `remodMaxWeight` | 1, 6 | the remodulated lighting's upsampler: sample weight exp(-x d^2), history cap |
 | `prewarm` | on | compile RayGenPT's pipeline on the session's first trace (Warm-up), only when the session starts in pathtrace or a benchmark runs (relight players get no menu freeze; their first switch to pathtrace compiles it instead) |
-| `lightsRR`, `candidatesRR`, `directSamplesRR` | 1 (RIS), 16, 1 | light sampling at the primary hit under RR (`lightsRR` 0 = reference, 1 = RIS; 2 was ReSTIR until 2026-11-19) |
+| `lightsRR`, `candidatesRR`, `directSamplesRR` | 1 (RIS), 16, 1 | light sampling at the primary hit under RR (`lightsRR` 0 = reference, 1 = RIS; 2 was ReSTIR until 2026-11-19); with the World-Space Light Grid active (`ls.grid=1`), RIS uses `risCandidatesGrid` = 8 candidates |
+| `singleLobe` | off | stochastic single-lobe BSDF selection at glossy primary hits (1 secondary path instead of separate diffuse + specular paths, weighted by `1/p` for unbiased energy; on in the `Performance` and `Competitive` quality presets; bench `ptx.singleLobe=1`) |
 
 ## Effects in reflections
 

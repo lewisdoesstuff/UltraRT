@@ -4,9 +4,13 @@ Ray-traced single scattering for relight, pathtrace (and pt-dn): sun shafts thro
 shafts around torches, lamps and explosions, in the level's own atmosphere. The same pass also gives the ray-traced
 image back the game's distance fog, which the replace modes had lost.
 
-Code: `unity/.../Shaders/Volumetrics.raytrace` (the march), `Volumetrics.compute` (ray lengths, temporal filter),
-`VolumetricsComposite.shader` (upsample, fog, composite), `src/UltraRT/Volumetrics.cs` (settings, resources, dispatch),
-`src/UltraRT/Plugin.Volumetrics.cs` (wiring). Bench suites `volumetrics-quick` (looks) and `volumetrics` (bursts).
+Code: `unity/.../Shaders/Volumetrics.raytrace` (DXR raygen fallback for stained-glass levels),
+`native/UltraRT.Native/shaders/VolumetricsRQ.hlsl` + `native/UltraRT.Native/RayQuery.cpp` + `src/UltraRT/RayQueryBridge.cs`
+(native D3D12 `cs_6_5` inline `RayQuery` march used on scenes without stained-glass windows since 2026-11-21; bench A/B `vol.rayQuery=0`,
+eliminating Unity's per-`DispatchRays` shader-table rebuild and cutting render-thread CPU from ~0.46 ms to ~0.05 ms in 8-x),
+`Volumetrics.compute` (ray lengths, temporal filter), `VolumetricsComposite.shader` (upsample, fog, composite),
+`src/UltraRT/Volumetrics.cs` (settings, resources, dispatch), `src/UltraRT/Plugin.Volumetrics.cs` (wiring).
+Bench suites `volumetrics-quick` (looks) and `volumetrics` (bursts).
 
 ## Survey: the game's own atmosphere
 

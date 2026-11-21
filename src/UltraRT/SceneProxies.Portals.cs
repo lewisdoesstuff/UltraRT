@@ -105,6 +105,60 @@ namespace UltraRT
 
         /// <summary>Portal sides in the RTAS right now.</summary>
         public int PortalSidesInRtas => _portalSidesInRtas;
+        internal ComputeBuffer PortalBuffer => _portalBuffer;
+        internal ComputeBuffer PortalImageQuadBuffer => _portalImageQuadBuffer;
+
+        /// <summary>
+        /// Wave 3: trim redundant deep PortalRenderV2 raster recursions on non-mirror portals while RT replaces them.
+        /// Mirrors are untouched, depth-0 portal quads/views stay intact (for depth matching, skyboxes &amp; particles),
+        /// RT still reads the saved original appearsInRecursions for full 3-hop ray-traced portals, and originals are
+        /// restored immediately when RT turns off or on scene unload. Bench plugin._portalRasterTrim=0.
+        /// </summary>
+        public static bool PortalRasterTrim = true;
+        private readonly Dictionary<Portal, (int maxRec, bool appears)> _savedPortalRec = new Dictionary<Portal, (int, bool)>();
+        private bool _portalRasterTrimmed;
+
+        private bool OriginalAppearsInRecursions(Portal portal)
+        {
+            if (portal == null) return false;
+            if (_savedPortalRec.TryGetValue(portal, out var orig)) return orig.appears;
+            return portal.appearsInRecursions;
+        }
+
+        /// <summary>Applies or restores PortalRenderV2 recursion trimming on non-mirror portals.</summary>
+        public void ApplyPortalRasterTrim(bool rtActive)
+        {
+            bool want = rtActive && PortalRasterTrim;
+            if (!want)
+            {
+                if (_portalRasterTrimmed) RestorePortalRasterTrim();
+                return;
+            }
+            var mgr = MonoSingleton.GetInstance(typeof(PortalManagerV2)) as PortalManagerV2;
+            if (mgr == null || !(GetPortalList(mgr) is List<Portal> portals) || portals.Count == 0) return;
+            for (int i = 0; i < portals.Count; i++)
+            {
+                var p = portals[i];
+                if (p == null || p.mirror) continue;
+                if (!_savedPortalRec.ContainsKey(p))
+                    _savedPortalRec[p] = (p.maxRecursions, p.appearsInRecursions);
+                if (p.maxRecursions != 0) p.maxRecursions = 0;
+                if (p.appearsInRecursions) p.appearsInRecursions = false;
+            }
+            _portalRasterTrimmed = true;
+        }
+
+        public void RestorePortalRasterTrim()
+        {
+            foreach (var kv in _savedPortalRec)
+            {
+                if (kv.Key == null) continue;
+                kv.Key.maxRecursions = kv.Value.maxRec;
+                kv.Key.appearsInRecursions = kv.Value.appears;
+            }
+            _savedPortalRec.Clear();
+            _portalRasterTrimmed = false;
+        }
 
         private static readonly Matrix4x4 PortalFlip = Matrix4x4.Scale(new Vector3(-1f, 1f, -1f)); // NativePortal.ScaleMatrix
         private static readonly Matrix4x4 MirrorFlip = Matrix4x4.Scale(new Vector3(1f, 1f, -1f));  // reflection about local z = 0
@@ -214,7 +268,7 @@ namespace UltraRT
                     FakeMirror = Bench.GameControl.PathOf(portal.transform).IndexOf("mirror", StringComparison.OrdinalIgnoreCase) >= 0 };
                 s.Material = new Material(PortalShader) { name = $"UltraRT Portal {s.Index}" };
                 s.Material.SetFloat("_PortalIndex", s.Index);
-                s.Material.SetFloat("_PortalNoRecursion", portal.appearsInRecursions ? 0f : 1f);
+                s.Material.SetFloat("_PortalNoRecursion", OriginalAppearsInRecursions(portal) ? 0f : 1f);
                 s.Material.SetFloat("_PortalSeesLayer", portal.canSeePortalLayer ? 1f : 0f);
                 s.Material.SetFloat("_PortalMirror", portal.mirror ? 1f : 0f);
                 s.Proxy = CreateMeshProxy($"{portal.name} {(exitSide ? "exit" : "enter")} [UltraRT]", null, _portalQuad, new[] { s.Material });
@@ -603,6 +657,7 @@ namespace UltraRT
 
         private void DisposePortals()
         {
+            RestorePortalRasterTrim();
             foreach (var s in _portalSideList) if (s.Material != null) Object.Destroy(s.Material);
             _portalSideList.Clear();
             _portalSides.Clear();

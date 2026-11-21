@@ -679,6 +679,59 @@ Exclusive `-Perf`, main slot, 2560×1440, trace scale 0.5, RTX 5070 Ti (`bench/r
 
 In `8-3 combat` pathtrace, frames > 16.7 ms dropped from **779 → 248 → 207** (-73% vs Wave 0), worst `336.9 → 300.1 → 254.1 ms`, and RT-CPU `total` dropped `5.39 → 4.49 ms` (`cache` `1.01 → 0.01 ms`). In `8-2 portal side 1` pathtrace, `>16.7 ms` is **0** (1% low **72 fps**). Visual verification on `alt` (`20261121-174435_combat-visual_alt`, `20261121-174435_perf-visual_alt`): all 11 screenshots (`8-3`, `1-4`, `0-1`, `6-2`, PT & RL) clean with zero errors and automatic runtime split-out for moving Escher cubes in 8-3.
 
+## 2026-11-21 performance audit — Wave 3 (branch `t3/perf-waves`)
+
+High-impact DXR Tier 1.1, light-sampling, portal-raster, and preset wins from [perf-audit-2026-11-21.md](perf-audit-2026-11-21.md), phase C (plus bonus `PortalRenderV2` recursion trimming):
+
+1. **Native D3D12 `cs_6_5` inline `RayQuery` bridge for Volumetrics and ParticleLight** (`native/UltraRT.Native/RayQuery.cpp`,
+   `native/UltraRT.Native/shaders/VolumetricsRQ.hlsl`, `native/UltraRT.Native/shaders/ParticleLightRQ.hlsl`,
+   `src/UltraRT/RayQueryBridge.cs`, `src/UltraRT/Volumetrics.cs`, `src/UltraRT/ParticleLighting.cs`; bench A/B `vol.rayQuery=0`,
+   `pl.rayQuery=0`): hooks `ID3D12GraphicsCommandList4::BuildRaytracingAccelerationStructure` (vtable slot 72) during
+   `BeginRtasBuild`/`EndRtasBuild` to capture Unity's scene TLAS GPU VA and dispatches DXC-compiled `cs_6_5` inline `RayQuery`
+   compute shaders directly on Unity's command list with automatic resource-state transitions. Eliminates two of Unity's
+   per-`DispatchRays` shader-table rebuilds: in `8-3`, `volumetrics` RT-CPU dropped **`0.48 → 0.05 ms`** (-90%, GPU `0.48 → 0.37 ms`)
+   and `particles` RT-CPU dropped **`0.83 → 0.02–0.03 ms`** (-97%). Scenes with stained-glass windows (`_sgBound > 0`, e.g. `1-3`, `1-4`)
+   automatically keep `Volumetrics.raytrace` so colored shafts through stained-glass panes stay tinted.
+2. **Redundant deep `PortalRenderV2` raster recursion trimming** (`src/UltraRT/SceneProxies.Portals.cs`, `src/UltraRT/Plugin.cs`;
+   bench A/B `plugin._portalRasterTrim=0`): while RT replaces opaque portal views (`Kind.Denoised`), non-mirror portals are capped to
+   `maxRecursions = 0, appearsInRecursions = false` so depth-0 raster views (portal depth, skyboxes, transparents/particles) and all
+   mirrors stay untouched while eliminating depth 1..3 recursive `PortalManagerV2.portalCamera` scene renders (~3.5 ms of vanilla CPU in
+   `8-3 b`). RT still reads the saved original `appearsInRecursions` for full 3-hop ray-traced portals, and originals are restored
+   immediately whenever RT turns `off`, switches to a debug mode, or unloads.
+3. **World-Space Light Grid (ReGIR-lite)** (`unity/UltraRT.Shaders/Assets/UltraRT/Shaders/LightGrid.compute`, `UltraRTLights.hlsl`,
+   `src/UltraRT/LightSampling.cs`; bench A/B `ls.grid=0`): builds a camera-centered `32×16×32` 4 m cell grid (256 KB VRAM, 8 local
+   shadowed `uint16` light indices per cell ranked by attenuated AABB luminance) when >12 shadowed lights are active, enabling a 100%
+   unbiased 50/50 MIS mixture (`0.5/cellCount + 0.5*pGlobal`) with `risCandidatesGrid = 8` instead of 16 (`8-3 b` pathtrace `dispatch`
+   GPU `2.83 → 2.53 ms`).
+4. **Stochastic Single-Lobe BSDF selection** (`src/UltraRT/Plugin.PathTrace.cs`, `PathTrace.raytrace`; bench `ptx.singleLobe=1`):
+   opt-in unbiased stochastic selection between specular and diffuse secondary paths on glossy primary hits (1 secondary path instead
+   of 2, weighted by `1/p`); enabled by the `Performance` and `Competitive` quality presets.
+5. **Quality presets (`Ultra`, `High`, `Performance`, `Competitive`)** (`src/UltraRT/Plugin.Presets.cs`, `src/UltraRT/SettingsMenu.cs`):
+   single Main-page dropdown + `-ultrart-preset <name>` CLI flag; `High` matches the default settings.
+
+### Wave 3 & Cumulative Result (Wave 0 → Wave 1 → Wave 2 → Wave 3)
+
+Exclusive `-Perf`, main slot, 2560×1440, trace scale 0.5, RTX 5070 Ti (`bench/results/20261121-185921_perf-{core,combat,1440p}` vs Wave 2 `f2f3d63`, Wave 1 `92deb36`, Wave 0 `96dda9c`):
+
+| Scenario | Mode | Wave 0 ms (fps) | Wave 1 ms (fps) | Wave 2 ms (fps) | Wave 3 ms (fps) | Total Delta vs W0 | 1% low (W0→W3) | RT-CPU `frame` (W0→W3) |
+|---|---|---|---|---|---|---|---|---|
+| 0-1 metal (`perf-1440p`) | pathtrace | — | 7.34 (136) | 7.29 (137) | **7.10 (141)** | -0.24 ms vs W1 | 87 → **117** (W1→W3) | 6.03 → **5.01** (W1→W3) |
+| 1-4 lamps (`perf-1440p`) | pathtrace | — | 6.19 (162) | 5.92 (169) | **5.77 (173)** | -0.42 ms vs W1 | 111 → **140** (W1→W3) | 5.44 → **4.97** (W1→W3) |
+| 0-3 ghosts (`perf-1440p`) | pathtrace | 8.42 (119) | 7.49 (134) | 7.47 (134) | **7.44 (134)** | **-0.98 ms (+13.2%)** | 83 → **117** | 7.56 → **6.45** |
+| 6-2 start (`perf-1440p`) | pathtrace | — | 7.05 (142) | 6.95 (144) | **6.95 (144)** | -0.10 ms vs W1 | 98 → **132** (W1→W3) | 6.27 → **6.00** (W1→W3) |
+| 0-5 lava (`perf-1440p`) | pathtrace | — | 7.38 (136) | 7.26 (138) | **7.10 (141)** | -0.28 ms vs W1 | 93 → **124** (W1→W3) | 6.58 → **5.98** (W1→W3) |
+| 0-2 run combat (`perf-core`) | pathtrace | 11.00 (91) | 10.20 (98) | 10.05 (100) | **10.41 (96)** | **-0.59 ms (+5.7%)** | 30 → **38** | 9.16 → **7.83** |
+| 8-2 portal side 1 (`perf-1440p`) | pathtrace | 14.49 (69) | 14.07 (71) | 13.03 (77) | **12.21 (82)** | **-2.28 ms (+18.8%)** | 57 → **66** | 12.83 → **10.51** |
+| 8-3 b (`perf-1440p`) | pathtrace | 17.97 (56) | 16.96 (59) | 16.48 (61) | **12.84 (78)** | **-5.13 ms (+39.3%)** | 27 → **68** | 16.14 → **11.13** |
+| 8-3 combat (`perf-combat`) | pathtrace | 16.64 (60) | 15.14 (66) | 14.42 (69) | **13.79 (72)** | **-2.85 ms (+20.7%)** | 12 → **15** | 14.39 → **11.42** |
+| 8-3 combat (`perf-combat`) | relight | 18.52 (54) | 17.58 (57) | — | **15.74 (64)** | **-2.78 ms (+17.7%)** | 14 → **15** | 15.83 → **11.74** |
+
+Highlights:
+- **`8-3 b` pathtrace** jumped from **56 fps → 78 fps (+39.3%)**, 1% low **27 → 68 fps (+152%)**, **0 frames > 16.7 ms** (worst `15.0 ms`), sitting only **`+3.09 ms`** above vanilla `off` (`9.75 ms`).
+- **`8-3 combat` pathtrace** dropped **`779 → 151`** frames > 16.7 ms (**-80.6%** vs Wave 0), with our own `total` RT-CPU down from **`5.39 → 3.37 ms`** (`cache` `1.01 → 0.01 ms`, `particles` `0.83 → 0.03 ms`, `volumetrics` `0.48 → 0.05 ms`).
+- **`8-2 portal side 1` pathtrace** jumped **69 → 82 fps (+18.8%)**, **0 frames > 16.7 ms** (worst `15.8 ms`), `total` RT-CPU **`2.93 ms`**.
+- **Visual verification on `alt`** (`20261121-184837_combat-visual_alt`, `20261121-185643_perf-visual_alt`, `20261121-185643_portal-pair_alt`): `0-1`, `6-2`, `1-4`, `8-2` portals (both `pathtrace` and clean `off` restore), `8-3 b`, and `8-3 combat` verified clean with zero D3D12 errors and 3,955+ native `VolumetricsRQ` and `ParticleLightRQ` dispatches.
+
 ## How these were measured (and traps)
 
 - Suites: `perf-1440p` (seven poses, relight + pathtrace interleaved, 8-2/8-3 with `off`), `perf-1440p-short`,

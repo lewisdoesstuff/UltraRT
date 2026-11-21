@@ -42,6 +42,7 @@ namespace UltraRT.Editor
                     "Assets/UltraRT/Shaders/EffectProxy.shader",
                     "Assets/UltraRT/Shaders/Exposure.compute",
                     "Assets/UltraRT/Shaders/LavaProxy.shader",
+                    "Assets/UltraRT/Shaders/LightGrid.compute",
                     "Assets/UltraRT/Shaders/LitParticle.shader",
                     "Assets/UltraRT/Shaders/MotionCopy.compute",
                     "Assets/UltraRT/Shaders/ParticleLight.compute",
