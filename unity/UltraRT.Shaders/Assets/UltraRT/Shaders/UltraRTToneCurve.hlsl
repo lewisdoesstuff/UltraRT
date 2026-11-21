@@ -257,24 +257,55 @@ float UltraRTHdrShoulder(float x, float k, float top, float white)
     return min(k + room * d * (1.0 + d * room / (range * range)) / (d + room), top);
 }
 
+// Asymptotic shoulder in linear light (docs/hdr.md, "Clipping"): x up to the knee k is unchanged, then
+//   k + room (1 - (1 + d / (n room))^-n),  d = x - k, room = top - k
+// Slope 1 at the knee (no kink), every derivative continuous above it, and it approaches top as x grows without ever
+// reaching it: the slope stays positive, so a brighter light is always a brighter pixel. n sets the tail: the excess
+// falls off as a power (d^-n), so values far above SDR white (0-3's walls: 60-200x paper white) keep a gradation that an
+// exponential or the extended Reinhard above (which reaches top at a finite white and is cut flat there) loses.
+// n = 1.5 at a 1170 nit peak over 380 nit paper white (top 3.08 in light): 2x paper white -> 1.52, 5x -> 2.28, 11.2x (the
+// SDR white point, where mode 1 reaches the peak) -> 2.73 (89 % of the peak), 26x -> 2.96, 100x -> 3.06.
+float UltraRTHdrRolloff(float x, float k, float top, float n)
+{
+    if (x <= k) return x;
+    float room = top - k;
+    return k + room * (1.0 - pow(1.0 + (x - k) / (n * room), -n));
+}
+
 // The display transform (display units in and out, 1 = paper white). tone: x knee (display; the SDR curve's, so darks
-// and midtones are the SDR image's), y the display peak, z the scene value that reaches it (display), w the mode:
+// and midtones are the SDR image's), y the display peak, z the scene value that reaches it (display; modes 0-2) or the
+// tail exponent n (mode 3), w the mode:
 //   0 brightest channel: the shoulder runs on the colour's brightest channel, in linear light, and the colour
 //     is scaled with it. Hue and saturation are kept exactly (no hue drift from a curve in display gamma), nothing passes
 //     the peak, and nothing is whitened: a hot orange wall stays orange, a beam stays its colour at the peak.
-//   1 per channel (default): each channel through the shoulder. Hot colours turn towards yellow and white as they near
-//     the peak, the way film does and the way the game's SDR clipping does at white: 0-3's beams over the hot wall stay
-//     the solid yellow the game shows, only with the display's range.
+//   1 per channel (the default until 2026-11-21): each channel through the shoulder. Hot colours turn towards yellow
+//     and white as they near the peak, the way film does and the way the game's SDR clipping does at white. Its shoulder
+//     reaches the peak at the white point and is cut there: every channel above it (39 % of 0-3's back wall, 8-1's lamp
+//     on the green wallpaper) is one flat value, and the leading channel plateaus while the others still climb.
 //   2 luminance: the luminance through the shoulder, the colour scaled with it; where a channel would pass the peak the
 //     colour is pulled towards its luminance to fit (very bright saturated colours whiten).
+//   3 film (default since 2026-11-21): per channel, as 1, through the asymptotic UltraRTHdrRolloff. Like a film's dye
+//     layers, each channel saturates on its own: a colour whitens only as far as its weaker channels carry light (8-1's
+//     lamp light, warm on green, goes pale towards the lamp; 0-3's beams, orange light with almost no blue, stay gold),
+//     and nothing is ever cut flat. No channel mixing: a crosstalk that lifts the weak channels by the leading one
+//     bleached 0-3's beams white even at 5 %.
 float3 UltraRTHdrDisplay(float3 c, float4 tone)
 {
     float top = max(tone.y, 1.0);
     float3 x = pow(max(c, 0.0), 2.2);
+    // 4 (debug, -ultrart-hdr-tone log): the scene itself, log-encoded per channel so the frame's whole range (up to the
+    // sanitise limit 64, 9410 in light) fits under the peak: y = peak x log2(1 + x) / log2(9411). tools/hdr/hdr10-view.py
+    // --scene inverts it. For designing and checking the display transform on captured frames, not for viewing.
+    if (tone.w > 3.5) return pow(pow(top, 2.2) * log2(1.0 + x) / log2(9411.0), 1.0 / 2.2);
     float kL = pow(clamp(tone.x, 0.05, top), 2.2), tL = pow(top, 2.2), wL = pow(max(tone.z, top), 2.2);
     if (tL <= kL * 1.001) return pow(min(x, tL), 1.0 / 2.2);
     float3 o;
-    if (tone.w < 0.5)
+    if (tone.w > 2.5)
+    {
+        float n = clamp(tone.z, 0.25, 8.0);
+        o = float3(UltraRTHdrRolloff(x.r, kL, tL, n), UltraRTHdrRolloff(x.g, kL, tL, n), UltraRTHdrRolloff(x.b, kL, tL, n));
+    }
+    else if (tone.w < 0.5)
     {
         float m = max(x.r, max(x.g, x.b));
         o = m > 1e-6 ? x * (UltraRTHdrShoulder(m, kL, tL, wL) / m) : x;

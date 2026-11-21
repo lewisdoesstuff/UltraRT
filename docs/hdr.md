@@ -36,8 +36,9 @@ See also: [relight.md](relight.md) ("HDR displays": why Unity itself can't do it
 | `HDRBloom` | `-ultrart-hdr-bloom X` | 1 | room above SDR white for bloom's glow, in display units (1 = up to twice SDR white in display gamma, or the peak). 0 = as in SDR |
 | `HDRHighlights` | `-ultrart-hdr-highlights on\|off` | true | the gain map as a whole; off = the SDR image at paper white |
 | `HDRNative` | `-ultrart-hdr-native on\|off` | true (since 2026-11-20) | native float HDR ("Native float HDR"); off = the gain map. Applies live (the game's targets are rebuilt). Bench `plugin._hdrNative=0\|1` |
-| | `-ultrart-hdr-tone channel\|max\|lum` | channel | native only: how the display transform rolls colours into the peak: per channel, by the brightest channel, or by luminance ("Native float HDR"). Bench `plugin._hdrToneMode=1\|0\|2` |
-| | `-ultrart-hdr-white X` | 0 | composite value (display gamma, 1 = SDR white) that reaches the peak; 0 = the tone curve's white point (3). Lower = harsher. Native: the scene value that reaches the peak |
+| | `-ultrart-hdr-tone film\|channel\|max\|lum\|log` | film (channel before 2026-11-21) | native only: how the display transform rolls colours into the peak: `film` per channel on a curve that approaches the peak and never reaches it ("Clipping"); `channel` per channel, cut flat at the white point; by the brightest channel; by luminance ("Native float HDR"); `log` is a debug capture of the scene itself. Bench `plugin._hdrToneMode=3\|1\|0\|2\|4` |
+| | `-ultrart-hdr-tail N` | 1.5 | native `film` only: the tail exponent n of its curve ("Clipping"). Higher = brighter mid highlights and a flatter top; lower = more gradation near the peak and dimmer mid highlights. Bench `plugin._hdrToneTail` |
+| | `-ultrart-hdr-white X` | 0 | composite value (display gamma, 1 = SDR white) that reaches the peak; 0 = the tone curve's white point (3). Lower = harsher. Native `channel`, `max`, `lum`: the scene value that reaches the peak (`film` has none) |
 | | `-ultrart-hdr-hue sdr\|channel\|floor` | sdr | gain map only: colour of the composite's highlights: `sdr` = the SDR image's hue at the HDR curve's luminance and saturation (since 2026-11-20, "Highlight colour"); `channel` = the HDR curve's colour per channel; `floor` = per channel with no gain below 1 (before 2026-11-20). Bench `plugin._hdrGainMode=0\|2\|1` |
 | | `-ultrart-hdr-saturation X` | 0.3 | gain map only, with `sdr`: share of the saturation the SDR rolloff took that HDR gives back (0 = the SDR colour's, just brighter; 1 = the HDR curve's). Bench `plugin._hdrSaturation` |
 | | `-ultrart-hdr-gamma srgb\|2.2` | 2.2 | how the SDR image is decoded |
@@ -272,7 +273,10 @@ luminance), which was the floor's error, not the curve's.
 
 ### Auto exposure
 While HDR output is active the auto exposure's key is x1.3 (docs/relight.md, "No darkening towards the game"): a
-bright scene is darkened less, since its highlights have the display's headroom. SDR is unchanged.
+bright scene is darkened less, since its highlights have the display's headroom. SDR is unchanged. It acts only where
+auto exposure darkens: at the 2026-11-21 clipping poses (4-4 hallway and sandstone block, 8-1 lamp) the exposure was
+x1.000 with the key at x1.3 and at x1.0 (`ae.hdrKeyScale=1`), and the scene values differed by 0-2.5 %, so it was left
+as it is ("Clipping").
 
 ## Native float HDR (2026-11-20, `t3/hdr-native-float`)
 The gain map grafts HDR onto a finished 8-bit frame, and everything drawn after our composite needs its own rule to keep
@@ -309,12 +313,15 @@ the SDR image, nothing clamped at 1):
   compiled away by fxc), so no NaN, infinity or negative value from any game or mod shader reaches the display.
 
 **The display transform** (`UltraRTHdrDisplay` in `UltraRTToneCurve.hlsl`), in linear light: identity up to the SDR
-curve's knee (0.75 display), so everything below the highlights is the SDR image; above it an extended Reinhard
-shoulder (slope 1 at the knee) that brings the tone curve's white point (3, `-ultrart-hdr-white`) to the display's peak.
-What reached SDR white reaches the peak, and nothing passes it. Three ways to apply it to a colour
+curve's knee (0.75 display), so everything below the highlights is the SDR image. Above it, since 2026-11-21, the
+`film` curve: per channel, approaching the peak without ever reaching it ("Clipping" below). Until then it was an
+extended Reinhard shoulder (slope 1 at the knee) that brought the tone curve's white point (3, `-ultrart-hdr-white`) to
+the display's peak and was cut there; `channel`, `max` and `lum` still use it. Ways to apply it to a colour
 (`-ultrart-hdr-tone`):
-- `channel` (default): each channel through the shoulder. Hot colours turn towards yellow and white, as they do in SDR
-  and in the game: 0-3's beams stay yellow, walls keep their saturation.
+- `film` (default since 2026-11-21): each channel through the asymptotic curve.
+- `channel` (the default until 2026-11-21): each channel through the cut shoulder. Hot colours turn towards yellow and
+  white, as they do in SDR and in the game: 0-3's beams stay yellow, walls keep their saturation. Every channel above
+  the white point is one flat value at the peak.
 - `max`: by the brightest channel, the colour scaled with it: hue and saturation kept exactly.
 - `lum`: by luminance, a colour that would pass the peak pulled towards its luminance. Saturated highlights whiten:
   0-3's beams came out pure white (1163 nits in all three channels), so it is not the default.
@@ -335,7 +342,8 @@ gradation (the output dither is off in native mode); no floor, hue or saturation
 
 ### Measured (2026-11-20, RTX 5070 Ti, 2560x1440, HDR10, peak 1170 nits, paper white 250)
 0-3, `pathtrace` with DLSS RR, gain map and native in the same launch (run `20261120-222657_hdrn-a`; luminance of the
-HDR10 frame):
+HDR10 frame; native was the `channel` transform then; since 2026-11-21 `film` puts less of the frame at the peak,
+"Clipping"):
 
 | Pose | Mean, gain map / native | At least 90 % of the peak, gain map / native |
 |---|---|---|
@@ -364,8 +372,123 @@ Native costs about 0.05-0.09 ms more than the gain map: the `HdrScene` kernel an
 the bytes for every game pass that touches `mainTex`), and the present pass reading two textures (0.08-0.09 ms against
 0.05 ms). The SDR column is another launch, so its difference to the HDR columns is within noise.
 
+## Clipping (2026-11-21, `t3/hdr-clipping-fix`)
+The user, playing with native float HDR at paper white 0 (Windows' SDR white: 380 nits on their 1170 nit OLED, so
+3.08x in light above paper white, against 4.68x at the 250 nits of the earlier captures), saw bright lights clip in
+nearly every level. Worst: 4-4's sunlit hallway with slats (user poses 2 and 3: "way too orange", clipping), 4-4's light
+beam over the tilted sandstone block (pose 4), 4-4's V2 arena, 8-1's floor lamp against the green wallpaper (pose 2: a
+blown-out green highlight), and 0-3.
+
+**Cause: the shoulder was cut at the white point.** `channel` ran each channel through an extended Reinhard shoulder
+that reaches the peak at the SDR white point (3 display, 11.2x paper white in light) and is clamped there
+(`min(..., top)`), with a slope of 0.09 just below it: a kink, then nothing. In many places the scene is far past that
+point. Measured with a capture of the scene itself (`-ultrart-hdr-tone log`, below; brightest channel in light, 1 =
+paper white):
+
+| Pose | p90 | p99 | p99.9 | above 11.2x (cut flat) |
+|---|---|---|---|---|
+| 0-3 back wall | 60 | 175 | 218 | 39.1 % |
+| 0-3 user view | 14.8 | 71 | 155 | 11.5 % |
+| 8-1 pose 2 (lamp) | 1.3 | 23 | 47 | 2.6 % |
+| 4-4 pose 3 (hallway) | 2.3 | 13 | 22 | 1.5 % |
+| 1-1 fire | 0.8 | 10 | 13 | 0.3 % |
+| 4-4 pose 2 | 0.1 | 1.4 | 7.6 | 0.06 % |
+| 4-4 pose 4 (block) | 0.3 | 1.3 | 2.4 | 0 % |
+
+Every channel above 11.2x was one value, at the peak. The wallpaper pattern around 8-1's lamp and the structure of
+0-3's hot walls were gone. Per channel, the leading channel went flat while the others still climbed: 8-1's lamp light
+(21 / 26 / 4.8 in the scene) became one flat cream-yellow area with a hard edge, with a lime band around it where green
+was at the peak and red was still rising.
+
+**Change** (`UltraRTToneCurve.hlsl` `UltraRTHdrRolloff`, mode 3 `film`, the new default): per channel, in linear light,
+with `k` the knee (0.75 display, 0.53 in light), `top` the peak over paper white, `room = top - k`, `d = x - k`:
+
+    f(x) = x                                         for x <= k
+    f(x) = k + room * (1 - (1 + d / (n room))^-n)    above
+
+Slope 1 at the knee (no kink; every derivative continuous above it). The curve approaches `top` as `x` grows but never
+reaches it, and its slope is never 0, so a brighter light is always a brighter pixel. The excess falls off as a power
+(`d^-n`), so values far above SDR white keep some gradation that an exponential tail would lose. `n` = 1.5
+(`-ultrart-hdr-tail`). At 1170 / 380 nits, display value in light (x paper white):
+
+| Scene (x paper white, light) | 2 | 5 | 11.2 | 26 | 50 | 100 | 200 |
+|---|---|---|---|---|---|---|---|
+| `channel` (before) | 1.49 | 2.32 | 3.08 (peak) | 3.08 | 3.08 | 3.08 | 3.08 |
+| `film`, n = 1.5 | 1.52 | 2.28 | 2.73 | 2.96 | 3.03 | 3.06 | 3.07 |
+
+Up to about 5x paper white, `film` is within 2 % of before; the old white point lands at 89 % of the peak instead of
+on it. n was picked on the captured scenes, offline, with the same function in numpy (the simulation of the old curve
+reproduced the in-game share at the peak: 39.3 % against 39.4 %). n = 2 (2.81 at 11.2x) left 8-1's hot spot nearly as
+flat as before; n = 1 (2.59) dims mid highlights by 15 %.
+
+The curve stays per channel, with no mixing of channels, on purpose. Other designs tried on the same scenes:
+- *Brightest channel (hue kept), whitened by how hard it was compressed* (Lottes' crosstalk): 0-3's beams are orange
+  light in the scene (37 / 11 / 0.2), so they came out pure white, or orange where the whitening was weak. The user
+  wants them gold and yellow, which is what per-channel saturation makes of that light.
+- *Per channel with a crosstalk* (a share of the leading channel added to the weak ones above the old white point,
+  AgX-like): at 5 % the beams were already pale cream to white.
+- *Hue from the input, saturation from the per-channel result*: orange beams again.
+- *Luminance shoulder plus the SDR film rolloff with the peak as top*: the beams' luminance is near the peak, so there
+  is no room left for colour: white (as with `lum`).
+
+Per channel is how a film's dye layers saturate: a colour whitens only as far as its weaker channels carry light. 8-1's
+lamp (warm light on green, blue 4.8 at the hot spot) goes pale towards the lamp; 0-3's beams (almost no blue) stay gold.
+
+**Measured** (alt install, 2026-11-21, 2560x1440 HDR10, paper white 0 = 380 nits, peak 1170; `pathtrace` with DLSS RR;
+`channel` and `film` in the same launch, run `bench/results/20261121-003317_hdrclip-ab_alt`; scene captures
+`-001857_hdrclip-data_alt` and `-002550_hdrclip-data_alt`). Share of pixels with a channel at 99.9 % / 99 % of the peak
+or more (flat at the peak), and mean luminance:
+
+| Pose | Before: >= 99.9 % / 99 % | After | Mean nits, before / after |
+|---|---|---|---|
+| 0-3 back wall | 27.2 / 39.4 % | 1.16 / 6.9 % | 483 / 461 |
+| 0-3 user view | 7.47 / 11.7 % | 0.055 / 0.79 % | 234 / 228 |
+| 8-1 pose 2 (lamp) | 1.67 / 2.71 % | 0.006 / 0.035 % (the bulb) | 104 / 102 |
+| 4-4 pose 3 (hallway) | 0.79 / 1.66 % | 0 / 0 % | 106 / 106 |
+| 4-4 pose 2 | 0.036 / 0.062 % | 0 / 0 % | 16.9 / 15.9 |
+| 4-4 pose 4 (block) | 0.001 / 0.001 % | 0 / 0 % | 22.6 / 22.4 |
+| 1-1 fire | 0.20 / 0.45 % | 0 / 0 % | 40.5 / 50.1 (each capture has its own fire) |
+
+Colour of the regions the user named (region mean, nits R / G / B, hue in linear Rec.709, before -> after):
+- 0-3 beam (user view): 887 / 514 / 1, hue 34.7 -> 836 / 513 / 1, hue 36.8.
+- 0-3 upper-left wall panel: hue 30.0 -> 31.2, saturation 1.00 in both (amber, not coral).
+- 0-3 near beam (back wall): 1162 / 1094 / 122 -> 1123 / 1012 / 116, hue 56 -> 53 (yellow).
+- 8-1 hot spot: 1078 / 1152 / 615 -> 1003 / 1098 / 620.
+
+The game's 8-bit screenshot (the transformed frame cut at SDR white) changes by 1-3 / 255 on average.
+
+**What else was checked:**
+- *Auto exposure's x1.3 key* ("Auto exposure" above): exposure x1.000 at every pose with either key; not the cause.
+- *Screen effects pass 5 and bloom*: they add to the float frame before the display transform (Denoise.compute
+  `HdrScene` runs at the Virtual Camera's pre-render), so the new curve rolls them off with everything else.
+- *The present pass* (`Hdr.cpp`): its hue-keeping clamp at the peak (`OutputNative`) and `min(nits, peak)` no longer
+  act, since nothing reaches the peak, and Rec.709 to Rec.2020 of non-negative colours stays in gamut. The 8-bit
+  fallback was also checked: the only pixels shown at paper white or below where the scene was above 1.3x paper white
+  were the HUD's weapon icon (drawn in float above 1), as intended.
+- *4-4 pose 4, the beam over the block*: the block's hot patch is 1.5-1.9x paper white in the scene, below where the two
+  curves differ (`sim_4-4_pose_4_beam_on_block.png`, from a frame where the beam was on it). At that pose, 99 % of the
+  lit pixels have no blue at all in the scene (79 % at pose 2, 33 % at pose 3, 81 % in 0-3's user view): the colour of
+  the level's light. Such a colour sits on the edge of the gamut at every brightness, with saturation 1 and no weak
+  channel to whiten into. The SDR curve pales it by luminance (the `film` rolloff); HDR keeps it. That is where "way too
+  orange" and the flat neon look come from. It is the scene's colour, not the display transform, and is left open as a
+  lighting question.
+
+**Scene captures** (for designing and checking a display transform offline): `-ultrart-hdr-tone log` with
+`-ultrart-hdr-peak 10000` (bench `plugin._hdrToneMode=4+plugin._hdrPeak=10000`) encodes the scene per channel as
+`peak * log2(1 + x) / log2(9411)` (9411 = 64^2.2, the sanitise limit), and `tools/hdr/hdr10-view.py --scene` decodes
+it. A linear capture at 10000 nits is cut at 26x paper white, and 27 % of 0-3's back wall is above that.
+
+Review sheets (columns before / after; rows peak-scaled and paper-white exposed) and `stats.txt` are in
+`bench\results\review\hdr-clipping-fix\` in the main checkout; the `crop_*.png` sheets are the regions the user named.
+
+Left:
+- Not yet judged on the display.
+- 0-3's back wall still has 6.9 % of its pixels within 1 % of the peak: 60-200x paper white is more than any curve can
+  spread over the last 1 % of a display's range.
+- 4-4's light has no blue (above).
+
 ### Known gaps (native)
-- Not judged on the display yet: everything is measured from captured HDR10 frames.
+- Not judged on the display yet: everything is measured from captured HDR10 frames (the 2026-11-21 `film` curve too).
 - Paper white: the captures used 250 nits while Windows shows SDR content at 380 nits on the display they were taken on,
   so HDR looks dimmer overall than SDR there. `HDRPaperWhiteNits` 0 (the default) follows Windows; set a value only on
   purpose.
@@ -399,7 +522,9 @@ the bytes for every game pass that touches `mainTex`), and the present pass read
 - `python tools/hdr/hdr10-view.py <file> --paper <nits> --sdr <screenshot.png> [--peak <nits>]` decodes one: luminance
   percentiles, the share of pixels above paper white, a false-colour map of where they are, the difference to the game's
   own screenshot, and `<name>.peak.png`, the frame scaled so the peak is white (what is brighter than what on the
-  display, with hue: an effect against the wall behind it).
+  display, with hue: an effect against the wall behind it). It also prints, per channel, the share of pixels at 99 % and
+  99.9 % of the peak (cut flat). `--sheet <out.png> <file2> ...` puts captures side by side (rows peak-scaled and
+  paper-white exposed; `--crop`, `--scale`); `--scene` decodes a `-ultrart-hdr-tone log` capture ("Clipping").
 - **The game must be on the HDR display.** The bench window opens on the display Unity remembers; on 2026-11-20 it opened
   on an SDR one at 1920x1080 (`hdr.log`: `HDR output not used: HDR is off for the game's display`) and wrote no HDR10
   frame. Add `'-monitor','1','-screen-width','2560','-screen-height','1440'` to `-Extra` (bench.ps1 puts the user's
