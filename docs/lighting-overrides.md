@@ -340,7 +340,8 @@ at fixed exposure. First full board, 43 levels, 644 views, 2a44606 (kept locally
 Auto exposure hides most of the excess (medians x1.0-1.26 at shipped settings), which is why the fixed-exposure
 column is the one to rank by: it is the light the level's lights add. 37 of 43 levels are over x1.2 there. Not
 measured by a tour: 7-4, 4-S and 2-S (the captures are the same image in every mode: something of the game's covers
-the view at their stops), and 7-1 reads x0.46 (dim, not bright: its own case). P-2 is bright at shipped settings by
+the view at their stops; for 7-4 it was NaN camera rays, fixed on 2026-11-21: docs/scene-proxies.md, "Cameras with a far
+plane at infinity"), and 7-1 reads x0.46 (dim, not bright: its own case). P-2 is bright at shipped settings by
 its exposure exception, which is the user's call to keep (plan, section 8).
 
 The in-game census of the same runs: 21,982 lights in 43 levels (with what levels instantiate), every one with a
@@ -642,6 +643,10 @@ Seen on the way, not from this policy:
   (unchanged by the policy). Open.
 - **7-4 and 4-S**: the path-traced frames of their tour views equal the game's (all ratios x1.00): ray tracing is not
   applied at those views (7-4's are a cutscene camera). **2-S** has no tour stops. Not looked into.
+  *(2026-11-21: 7-4 was not a cutscene camera. Its camera's far plane is 5,000,000 m, so every camera ray was NaN and
+  missed, in play as well. Fixed on `t3/7-4-earthmover-rt`: docs/scene-proxies.md, "Cameras with a far plane at
+  infinity". 4-S is the third-person level: the screen shows its follow camera, not the player camera the trace
+  attaches to. Still open. The 7-4 rows in the tables of 2026-11-18 are from before the fix.)*
 - **5-2**, one view (stop 3, view 0) is x4.8 in the punch frame: a lightning flash in that frame, not the policy.
 - **7-1 and 7-3** stay below the game at the bright end (p95 x0.58-0.68): the game's white windows are not bright in
   the path-traced image (window beams, plan A5).
@@ -743,7 +748,7 @@ The exceptions, checked again:
 
 Still open from the night, unchanged by this: 4-1's green hall is far above the game at either strength (highlights
 11 -> 18 % against 0.8 %: its lights are fills and accents with a long reach in the game itself); 0-E dark +45.9;
-7-4 and 4-S tour frames equal the game's.
+7-4 and 4-S tour frames equal the game's (7-4 fixed on 2026-11-21, see above; 4-S open).
 
 As shipped (`20261118-132411_punch-all_alt`, suite `punch-all`, 0 exceptions) the six spot-check levels match the layer runs: 0-3 highlights 1.3 %, chroma x1.29, dark +9.4; 4-3 bright end x1.21, dark +1.2; 2-4 x1.30, +4.2; 1-4 x1.00, +6.5; P-2 x0.98, +0.5; 7-3 x0.61, +7.8.
 

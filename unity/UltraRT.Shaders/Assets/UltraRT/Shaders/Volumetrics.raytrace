@@ -465,10 +465,8 @@ void VolumeRayGen()
     tEnd = min(tEnd, _VolParams.y);
 
     float2 ndc = ((float2)id + 0.5) * _VolDim.zw * 2.0 - 1.0;
-    float4 farPt = mul(_VolInvViewProj, float4(ndc, 1.0, 1.0));
-    farPt.xyz /= farPt.w;
     float3 o = _VolCamPos.xyz;
-    float3 dir = normalize(farPt.xyz - o);
+    float3 dir = UltraRTCameraRay(_VolInvViewProj, ndc, o);
 
     uint rng = (id.x * 1973u + id.y * 9277u + frame * 26699u) | 1u;
     float3 sigmaS = _VolMedium.rgb;

@@ -51,9 +51,7 @@ float3 UniformSphere(float u1, float u2)
 float3 FroxelToWorld(float3 g)
 {
     float2 ndc = g.xy / _PLGrid.xy * 2.0 - 1.0;
-    float4 farPt = mul(_PLInvViewProj, float4(ndc, 1.0, 1.0));
-    farPt.xyz /= farPt.w;
-    float3 dir = normalize(farPt.xyz - _CamPos.xyz);
+    float3 dir = UltraRTCameraRay(_PLInvViewProj, ndc, _CamPos.xyz);
     float depth = _PLDepth.x * exp2(g.z / _PLGrid.z * _PLDepth.y); // view depth, exponential slices
     return _CamPos.xyz + dir * (depth / max(dot(dir, _PLCamFwd.xyz), 1e-3));
 }

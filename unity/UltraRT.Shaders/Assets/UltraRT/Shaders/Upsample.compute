@@ -58,7 +58,7 @@ groupshared float  gsZv[TILE_N];    // eye depth of the hit along the path (seen
 float3 ReconstructWorld(float2 ndc, float eyeZ)
 {
     float4 f = mul(_InvScreenVP, float4(ndc, 1.0, 1.0));
-    float3 dir = f.xyz / f.w - _CamPos.xyz;
+    float3 dir = f.xyz - _CamPos.xyz * f.w; // homogeneous: finite with the far plane at infinity (UltraRTCamera.hlsl)
     return _CamPos.xyz + dir * (eyeZ / dot(dir, _CamFwd.xyz));
 }
 

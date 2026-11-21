@@ -19,6 +19,7 @@ Shader "UltraRT/VolumetricsComposite"
         HLSLINCLUDE
             #include "UnityCG.cginc"
             #include "UltraRTDither.hlsl"
+            #include "UltraRTCamera.hlsl"
 
             Texture2D _VolSceneColor;          // copy of the target (screen resolution)
             Texture2D _UltraRTGameDepth;       // the game's depth (raw), set by the plugin for the RT composite
@@ -251,9 +252,8 @@ Shader "UltraRT/VolumetricsComposite"
                 bool sky = z >= _VolViewRay.w;
                 float tEnd = sky ? 1e9 : d;
                 float zPerT = z / max(d, 1e-4);
-                float4 farPt = mul(_VolScreenInvViewProj, float4(i.uv * 2.0 - 1.0, 1.0, 1.0));
                 float3 o = _VolCamPosC.xyz;
-                float3 dir = normalize(farPt.xyz / farPt.w - o);
+                float3 dir = UltraRTCameraRay(_VolScreenInvViewProj, i.uv * 2.0 - 1.0, o);
                 float3 sum = 0;
                 if (_VolBeamParams.z > 0.5) { sum = _VolBeamColor.Sample(my_point_clamp_sampler, i.uv).rgb * _VolBeamParams.w; nb = 0; }
                 [loop] for (int h = 0; h < nb; h++)

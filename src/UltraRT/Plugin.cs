@@ -971,7 +971,8 @@ namespace UltraRT
                 _attachedEvent = ev;
                 if (_camSwitchLogs++ < 20)
                     Logger.LogInfo($"RT attached to camera {Bench.GameControl.PathOf(cam.transform)} at {ev} (id {cam.GetInstanceID()}, " +
-                                   $"clear {cam.clearFlags}, target {(cam.targetTexture != null ? cam.targetTexture.name : "screen")}, mask {cam.cullingMask:X})");
+                                   $"clear {cam.clearFlags}, target {(cam.targetTexture != null ? cam.targetTexture.name : "screen")}, mask {cam.cullingMask:X}, " +
+                                   $"near {cam.nearClipPlane} far {cam.farClipPlane}{(cam.farClipPlane / cam.nearClipPlane > 1e7f ? ": far plane past float precision (UltraRTCamera.hlsl)" : "")})");
             }
 
             _cmd.Clear();

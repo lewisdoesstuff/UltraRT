@@ -20,6 +20,31 @@ namespace UltraRT
         public static string SkinProbeFilter;
         private static readonly MaterialPropertyBlock ProbeBlock = new MaterialPropertyBlock();
 
+        /// <summary>Diagnostics (-ultrart-viewprobe): RTAS instances of dynamic proxies with a non-finite transform or
+        /// bounds, and the largest ones. One bad instance can make every ray miss.</summary>
+        public IEnumerable<string> DescribeRtasExtremes(int max = 12)
+        {
+            var list = new List<(float size, string line)>();
+            int n = 0, bad = 0;
+            foreach (var d in _dynamic)
+            {
+                if (!d.Visible || d.Proxy == null) continue;
+                n++;
+                var m = d.Proxy.localToWorldMatrix;
+                var b = d.Proxy.bounds;
+                bool finite = true;
+                for (int i = 0; i < 16; i++) if (float.IsNaN(m[i]) || float.IsInfinity(m[i])) finite = false;
+                foreach (var v in new[] { b.center, b.size }) if (float.IsNaN(v.x + v.y + v.z) || float.IsInfinity(v.x + v.y + v.z)) finite = false;
+                float size = b.size.magnitude;
+                string line = $"{(d.SourceTransform != null ? Bench.GameControl.PathOf(d.SourceTransform) : "?")} {d.Proxy.GetType().Name} mask 0x{d.Mask:X} " +
+                              $"bounds centre {b.center} size {b.size} scale {d.Proxy.transform.lossyScale} finite {finite}";
+                if (!finite) { bad++; yield return "NON-FINITE " + line; }
+                list.Add((float.IsNaN(size) ? float.MaxValue : size, line));
+            }
+            yield return $"{n} dynamic instances in the RTAS, {bad} non-finite; largest:";
+            foreach (var e in list.OrderByDescending(e => e.size).Take(max)) yield return e.line;
+        }
+
         public IEnumerable<string> DescribeView(Camera cam, float coneDeg = 30f, float maxDist = 40f, int max = 60)
         {
             if (cam == null) yield break;

@@ -211,8 +211,9 @@ namespace UltraRT
         {
             Vector3 Dir(float px, float py)
             {
-                var ndc = new Vector3((px + 0.5f) / w * 2f - 1f, (py + 0.5f) / h * 2f - 1f, 1f);
-                return (invViewProj.MultiplyPoint(ndc) - camPos).normalized;
+                // Homogeneous, as UltraRTCameraRay: finite with the far plane at infinity (7-4).
+                var p = invViewProj * new Vector4((px + 0.5f) / w * 2f - 1f, (py + 0.5f) / h * 2f - 1f, 1f, 1f);
+                return ((Vector3)p - camPos * p.w).normalized;
             }
             float cx = w / 2, cy = h / 2;
             float a = (Dir(cx + 1, cy) - Dir(cx, cy)).magnitude;

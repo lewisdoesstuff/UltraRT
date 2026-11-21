@@ -6,6 +6,7 @@
 //   Atrous    variance-guided, depth-aware a-trous wavelet passes (5x5 B-spline, step 1, 2, 4, ...) over the accumulated
 //             in-scattering: wide where the estimate is still noisy, stopping at shaft edges once it has converged.
 #pragma kernel Depth
+#include "UltraRTCamera.hlsl"
 #pragma kernel Temporal
 #pragma kernel Atrous
 
@@ -61,8 +62,7 @@ float Lum(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
 float3 RayDir(float2 uv)
 {
-    float4 farPt = mul(_InvViewProj, float4(uv * 2.0 - 1.0, 1.0, 1.0));
-    return normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+    return UltraRTCameraRay(_InvViewProj, uv * 2.0 - 1.0, _CamPos.xyz);
 }
 
 [numthreads(8, 8, 1)]
