@@ -119,6 +119,32 @@ void PortalGlassSegment(RayDesc seg, float tEnd)
         seg.TMin = h.t + 0.01; // the next surface (the hall's other wall)
     }
 }
+
+// Glowing effects behind portals (docs/portals.md, "Effects and Providence through portals"): fire, explosions, flashes,
+// projectiles, trails and glowing enemy parts (EffectGeometry.cs) that the game's portal views drew. The traced pixel
+// replaces those views (raster skip, or the replace composites at opaque pixels), so every camera-ray segment past a hop
+// collects them with the effects ray (EffectsAlongRange: one any-hit ray over the billboards, mask 0x10, opaque water and
+// glass culled) into g_PortalFx, in display units, dimmed by the water and glass of earlier segments. The ray generation
+// shader adds it to the hit's emission. Requested with g_PortalFxWanted (only while effects are in the RTAS: no cost
+// otherwise).
+#include "UltraRTEffects.hlsl"
+int _UltraRTPortalEffects; // 1: collect effects behind portals (EffectGeometrySettings.portalEffects; -ultrart-portal-effects)
+static bool g_PortalFxWanted = false;
+static float3 g_PortalFx = 0;
+static float g_PortalFxT = 1.0; // the share of the hit (or sky) that shows through alpha-blended glow meshes
+
+// One segment past a hop, seg.TMin to tEnd: its effects (before this segment's water and glass: an approximation, they
+// are not sorted against each other) and its water and glass.
+void PortalLayersSegment(RayDesc seg, float tEnd, bool glass)
+{
+    [branch] if (g_PortalFxWanted)
+    {
+        float4 e = EffectsAlongT(seg.Origin, seg.Direction, seg.TMin, max(tEnd, 0.0));
+        g_PortalFx += g_PortalGlass.a * g_PortalFxT * e.rgb;
+        g_PortalFxT *= e.a;
+    }
+    [branch] if (glass) PortalGlassSegment(seg, tEnd);
+}
 #endif
 
 // TraceRay that follows portals. On return `ray` is the last segment, so the hit point is ray.Origin + ray.Direction * p.t
@@ -142,7 +168,10 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     bool stopAtMirror = (inFlags & ULTRART_TRACE_STOP_AT_MIRROR) != 0u;
 #ifdef ULTRART_PORTAL_GLASS
     bool portalGlass = (inFlags & ULTRART_TRACE_PORTAL_GLASS) != 0u;
-    if (portalGlass) g_PortalGlass = float4(0, 0, 0, 1);
+    if (portalGlass || g_PortalFxWanted) g_PortalGlass = float4(0, 0, 0, 1);
+    g_PortalFx = 0;
+    g_PortalFxT = 1.0;
+    bool portalLayers = portalGlass || g_PortalFxWanted;
 #endif
     inFlags &= ~(ULTRART_TRACE_STOP_AT_MIRROR | ULTRART_TRACE_PORTAL_GLASS);
     uint baseMask = mask & ~(ULTRART_MASK_PORTAL_LAYER | ULTRART_MASK_PLAYER);
@@ -160,10 +189,11 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
         if (p.t < 0.0) p.albedo = 0; // a miss leaves the cone input there
 #ifdef ULTRART_PORTAL_GLASS
-        // Segments past a hop (on the near side the game draws its own, with the overlay). Not on a segment that ends
-        // at a portal mirror the camera ray stops at: the game's mirror view keeps its own.
-        [branch] if (portalGlass && i > 0u && !(stopAtMirror && (p.flags & ULTRART_FLAG_PORTAL) != 0u && (p.material & 2u) != 0u))
-            PortalGlassSegment(ray, p.t >= 0.0 ? p.t : ray.TMax);
+        // Segments past a hop (on the near side the game draws its own, with the overlay): water, glass and glowing
+        // effects (PortalLayersSegment). Not on a segment that ends at a portal mirror the camera ray stops at: the
+        // game's mirror view keeps its own.
+        [branch] if (portalLayers && i > 0u && !(stopAtMirror && (p.flags & ULTRART_FLAG_PORTAL) != 0u && (p.material & 2u) != 0u))
+            PortalLayersSegment(ray, p.t >= 0.0 ? p.t : ray.TMax, portalGlass);
 #endif
         if (p.t < 0.0 || (p.flags & ULTRART_FLAG_PORTAL) == 0u) return;
         if (path.firstT < 0.0) { path.firstT = p.t; path.first = p.instance; } // first segment: travelled is 0
@@ -216,7 +246,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
             TraceRay(_Scene, rayFlags, mask, 0, 1, 0, ray, p);
             if (p.t < 0.0) p.albedo = 0;
 #ifdef ULTRART_PORTAL_GLASS
-            [branch] if (portalGlass) PortalGlassSegment(ray, p.t >= 0.0 ? p.t : ray.TMax);
+            [branch] if (portalLayers) PortalLayersSegment(ray, p.t >= 0.0 ? p.t : ray.TMax, portalGlass);
 #endif
             return;
         }

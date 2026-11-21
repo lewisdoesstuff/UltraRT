@@ -10,8 +10,11 @@ Shader "UltraRT/EffectProxy"
         _MainTex ("Texture", 2D) = "white" {}
         // rgb: what multiplies texture x vertex colour (legacy particle shaders: 2 x _TintColor); a: the same for alpha.
         _Tint ("Tint", Color) = (1,1,1,1)
-        // 0: SrcAlpha One (rgb x alpha is added), 1: One One (rgb is added).
+        // 0: SrcAlpha One (rgb x alpha is added), 1: One One (rgb is added), 2: alpha blend (SrcAlpha OneMinusSrcAlpha:
+        // rgb x alpha is added and what is behind is dimmed by 1 - alpha; enemy glow meshes such as Providence's wings).
         _Mode ("Blend", Float) = 0
+        // 0: the mesh has no vertex colours (white).
+        _UseVC ("Vertex colours", Float) = 1
     }
 
     SubShader
@@ -47,6 +50,7 @@ Shader "UltraRT/EffectProxy"
             SamplerState my_point_repeat_sampler;
             float4 _Tint;
             float _Mode;
+            float _UseVC;
 
             [shader("anyhit")]
             void AnyHit(inout RayPayload p : SV_RayPayload, AttributeData attribs : SV_IntersectionAttributes)
@@ -58,12 +62,24 @@ Shader "UltraRT/EffectProxy"
                     float2 uv = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0) * b.x
                               + UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0) * b.y
                               + UnityRayTracingFetchVertexAttribute2(tri.z, kVertexAttributeTexCoord0) * b.z;
-                    float4 vc = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeColor) * b.x
-                              + UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeColor) * b.y
-                              + UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeColor) * b.z;
+                    float4 vc = 1.0;
+                    if (_UseVC > 0.5)
+                        vc = UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeColor) * b.x
+                           + UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeColor) * b.y
+                           + UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeColor) * b.z;
                     float4 c = _MainTex.SampleLevel(my_point_repeat_sampler, uv * _MainTex_ST.xy + _MainTex_ST.zw, 0) * vc * _Tint;
-                    float3 add = _Mode > 0.5 ? c.rgb : c.rgb * saturate(c.a);
-                    p.albedo += max(add, 0.0); // the effects ray's payload: albedo = radiance added along the segment
+                    float a = saturate(c.a);
+                    if (_Mode > 1.5)
+                    {
+                        // Alpha blend, order-independent (weighted average): p.normal = sum of colour x alpha, the first
+                        // emission word = sum of alpha, p.alpha = the transmittance left behind every layer. EffectsAlongT
+                        // resolves it as average colour x (1 - transmittance), which stays below the layers' colour however
+                        // many overlap (a sphere's front and back faces, two pairs of wings).
+                        p.normal += max(c.rgb, 0.0) * a;
+                        p.emissionHalf.x = asuint(asfloat(p.emissionHalf.x) + a);
+                        p.alpha *= 1.0 - a;
+                    }
+                    else p.albedo += max((_Mode > 0.5) ? c.rgb : c.rgb * a, 0.0); // additive: albedo = radiance added along the segment
                 }
                 IgnoreHit();
             }

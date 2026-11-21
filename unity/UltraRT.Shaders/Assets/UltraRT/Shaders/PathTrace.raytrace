@@ -28,6 +28,9 @@ float4   _CamPos;
 Texture2D _UltraRTPrevImage;
 float4x4  _UltraRTPrevViewProj;
 float     _UltraRTPortalFeedback;
+// How much of the Limbo sky the game shows behind a portal when the ray met no sky wall: the level's sky-wall scanline
+// share (SceneProxies.SkyWallShare) while the RT sky is a Limbo diorama's sphere, else 1 (Plugin.BindSky).
+float     _UltraRTLimboSkyShows;
 int       _UltraRTPortalCheapHops; // surfaces seen through more portals than this skip the extra light samples and the reflection ray (0 = never)
 int      _Mode;          // 0 full, 1 direct only, 2 indirect only
 uint     _FrameIndex;
@@ -339,9 +342,16 @@ void RayGenBody(bool full)
     float3 camDir = ray.Direction;
     RayDesc camRay = ray;
     PortalPath path;
+    // Glowing effects behind portals (docs/portals.md, "Effects and Providence through portals"): collected on every
+    // segment past a hop, only while effect billboards are in the RTAS.
+    g_PortalFxWanted = _UltraRTPortalEffects != 0 && _UltraRTEffects > 0;
     ULTRART_SET_RAY_KIND(ULTRART_RAY_CAMERA);
     TraceScene(RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ULTRART_MASK_SCENE | PlayerRayMask(ULTRART_PLAYER_CAMERA), inFlags, ray, p, path);
-    float4 portalGlass = (inFlags & ULTRART_TRACE_PORTAL_GLASS) != 0u ? g_PortalGlass : float4(0, 0, 0, 1); // before any other TraceScene
+    // Before any other TraceScene (which would reset them).
+    float4 portalGlass = (inFlags & ULTRART_TRACE_PORTAL_GLASS) != 0u || g_PortalFxWanted ? g_PortalGlass : float4(0, 0, 0, 1);
+    float3 portalFx = g_PortalFx; // display units, already dimmed by the water and glass in front of each effect
+    float portalFxT = g_PortalFxT; // what alpha-blended glow meshes (Providence's wings) leave of the hit behind them
+    g_PortalFxWanted = false;
 
     float3 c, lighting, albedo, emission;
     [branch] if (p.t < 0.0 && path.hops > 0u && path.mirrorT < 0.0 && _UltraRTPortalOwn != 0)
@@ -351,7 +361,11 @@ void RayGenBody(bool full)
         // emitter far behind the portal (albedo 0, emission = the sky in display units, like the game's sky pixel, no
         // exposure), with the portal's distance in the instance word: every composite matches it on the portal plane
         // like any surface behind a portal, and the denoisers carry it like a glowing wall.
-        c = PortalSkyRadiance(path.sky, ray.Direction); // a side's own sky (overrideSkyboxEnter / Exit), else the level's
+        // The game shows the Limbo diorama's sky only through its sky walls' scanline screens: a wall the ray met reports
+        // its mask's mean in p.alpha (Proxy.shader); a real miss takes the level's share while the sky is a Limbo sky.
+        // 8-3's Limbo sky behind the Dimensional Arena's portal was half again too bright without it.
+        float wallShows = p.alpha > 0.0 ? saturate(p.alpha) : (_UltraRTLimboSkyShows > 0.0 ? saturate(_UltraRTLimboSkyShows) : 1.0);
+        c = PortalSkyRadiance(path.sky, ray.Direction) * (wallShows * portalFxT) + portalFx; // a side's own sky (overrideSkyboxEnter / Exit), else the level's
         lighting = 0;
         albedo = 0;
         emission = c;
@@ -390,10 +404,10 @@ void RayGenBody(bool full)
                 if (vp.t < 0.0) fb = max(_UltraRTPrevImage.SampleLevel(my_linear_clamp_sampler, fuv, 0).rgb, 0.0);
             }
         }
-        c = fb;
+        c = fb * portalFxT + portalFx;
         lighting = 0;
         albedo = 0;
-        emission = fb;
+        emission = c;
         float tCap = path.travelled + p.t;
         _NormalDepth[id] = float4(-camDir, tCap);
         _InstanceId[id] = int2((int)(0x7Fu | (min(f32tof16(max(path.firstT, 1e-3)), 0x7BFFu) << 16)), 0);
@@ -669,6 +683,10 @@ void RayGenBody(bool full)
         // behind: albedo and emission are blended here, so every composite, the denoisers and DLSS RR take them.
         albedo = albedo * portalGlass.a + portalGlass.rgb;
         emission *= portalGlass.a;
+        // Glowing effects behind portals: what the game's additive blend added over its portal view, as emission (display
+        // units, like the emitters), so the composites, the denoisers and DLSS RR carry it like a glowing surface.
+        albedo *= portalFxT;
+        emission = emission * portalFxT + portalFx;
         float3 shown = LightToDisplay(lighting); // = lighting unless linear transport (_Radiance keeps lighting space)
         c = albedo * shown + emission;
 

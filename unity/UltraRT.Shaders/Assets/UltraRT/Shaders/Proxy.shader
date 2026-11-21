@@ -29,6 +29,7 @@ Shader "UltraRT/Proxy"
         // _Color (SceneProxies.cs, 2026-11-21: 3-1's mouth doors, MouthBlend).
         _VertexBlend ("Vertex blending (Master)", Float) = 0
         _BlendColor ("Blend colour", Color) = (1,1,1,1)
+        // > 0: a sky wall (LIMBO_WALLS) reports a miss, with the share of the sky it shows (its screen mask's mean) in p.alpha.
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
         _Transmit ("Stained glass: shadow rays pass, tinted by the colour x this (0 = opaque)", Float) = 0
@@ -746,7 +747,9 @@ Shader "UltraRT/Proxy"
                 bool wantCone = (p.flags & ULTRART_PAYLOAD_CONE) != 0u;      // p.albedo.xy: the ray cone (texture LOD)
                 float2 cone = p.albedo.xy;
                 // The game draws these as the sky (by view direction): the ray "escapes" here.
-                if (_SkyWall > 0.5) { p.t = -1.0; return; }
+                // p.alpha: how much of the sky the wall shows (its scanline mask; a real miss leaves 0). Only the camera ray
+                // behind a portal reads it (PathTrace.raytrace).
+                if (_SkyWall > 0.0) { p.t = -1.0; p.alpha = _SkyWall; return; }
                 bool wantMotion = (p.flags & ULTRART_PAYLOAD_WANT_MOTION) != 0u;
                 bool wantTransAlpha = (p.flags & ULTRART_PAYLOAD_TRANSPARENT) != 0u; // the transparent pass's ray (UltraRTCommon.hlsl)
 

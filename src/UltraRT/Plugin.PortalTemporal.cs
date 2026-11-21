@@ -29,6 +29,7 @@ namespace UltraRT
         private bool _cachePortalViews = true; // bench plugin._cachePortalViews=0: cache cells sized by the camera's distance alone
         private readonly System.Collections.Generic.List<Vector3> _portalViews = new System.Collections.Generic.List<Vector3>();
         private readonly System.Collections.Generic.List<Vector3> _portalViewFwd = new System.Collections.Generic.List<Vector3>(); // each image's view axis
+        private readonly System.Collections.Generic.List<Vector3> _portalViewUp = new System.Collections.Generic.List<Vector3>();  // and up axis
         private readonly Vector4[] _portalViewRows = new Vector4[16];
         private static readonly int CacheViewsId = Shader.PropertyToID("_UltraRTCacheViews"), CacheViewCountId = Shader.PropertyToID("_UltraRTCacheViewCount");
 
@@ -40,10 +41,16 @@ namespace UltraRT
         {
             _portalViews.Clear();
             _portalViewFwd.Clear();
-            if (_portals) _proxies.PortalViewpoints(_camera.transform.position, _portalViews, camFwd: _camera.transform.forward, fwdOutput: _portalViewFwd);
+            _portalViewUp.Clear();
+            if (_portals) _proxies.PortalViewpoints(_camera.transform.position, _portalViews, camFwd: _camera.transform.forward, fwdOutput: _portalViewFwd,
+                                                    camUp: _camera.transform.up, upOutput: _portalViewUp);
             PortalView.Enabled = _portalDistances;
             PortalView.Points.Clear();
             PortalView.Points.AddRange(_portalViews);
+            PortalView.Forwards.Clear();
+            PortalView.Forwards.AddRange(_portalViewFwd);
+            PortalView.Ups.Clear();
+            PortalView.Ups.AddRange(_portalViewUp);
             int n = _cachePortalViews ? Mathf.Min(_portalViews.Count, _portalViewRows.Length) : 0;
             for (int i = 0; i < _portalViewRows.Length; i++) _portalViewRows[i] = i < n ? (Vector4)_portalViews[i] : Vector4.zero;
             // Immediate, not on _cmd: Trace clears the command buffer after this point.

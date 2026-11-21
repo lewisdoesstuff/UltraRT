@@ -638,6 +638,11 @@ namespace UltraRT
                 _proxies.SetDisplaceShader(_displaceCs);
                 _proxies.Build();
                 _emissive.Build(_proxies);
+                // Glowing enemy transparents (EffectGeometry.TrackEnemyHierarchy): enemies awake at the build; the rest
+                // come through EnemyIdentifier.OnEnable (Patches.PendingHierarchies).
+                if (_effectGeometry != null)
+                    foreach (var en in FindObjectsByType<EnemyIdentifier>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+                        _effectGeometry.TrackEnemyHierarchy(en.gameObject);
                 Patches.PendingSpawns.Clear();
                 _spawnCursor = 0;
                 _spawnSeen.Clear();
@@ -685,6 +690,7 @@ namespace UltraRT
                 _nextLightScan = Time.realtimeSinceStartup + 1f;
                 _proxies.PruneLights();
                 _skyMaterial = FindSkyMaterial(_proxies.SkyRenderers, _camera != null ? _camera.transform.position : (Vector3?)null);
+                if (_skyMaterial != _skyLogged && _skyLogs < 16) { _skyLogs++; _skyLogged = _skyMaterial; LogSkyMaterial(_skyMaterial); }
             }
             // Most tracked lights are off (8-3: ~1,300 lights, ~100 on). Re-check the whole list at 4 Hz, and every frame
             // only the lights that were on (a light switching on is seen within 0.25 s; it used to take up to 1 s).
@@ -1364,9 +1370,33 @@ namespace UltraRT
             _cmd.SetRayTracingVectorParam(shader, PortalSkyId, new Vector4(tint.r, tint.g, tint.b, tex != null ? rot * Mathf.Deg2Rad : -1000f));
         }
 
+        private Material _limboCheckMat;
+        private bool _limboSky;
+        private static readonly int LimboSkyShowsId = Shader.PropertyToID("_UltraRTLimboSkyShows");
+
+        /// <summary>Whether the RT sky is a Limbo diorama's sky sphere (a renderer under a LimboSkybox's root): the game shows
+        /// that sky only through its sky walls' scanline screens (docs/portals.md, "The Limbo sky behind a portal").
+        /// Checked when the sky material changes.</summary>
+        private bool SkyIsLimbo(Material m)
+        {
+            if (ReferenceEquals(m, _limboCheckMat)) return _limboSky;
+            _limboCheckMat = m;
+            _limboSky = false;
+            if (m == null) return false;
+            foreach (var ls in FindObjectsByType<LimboSkybox>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            {
+                var root = ls.transform.parent != null ? ls.transform.parent : ls.transform;
+                foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                    if (r != null && r.sharedMaterial == m) { _limboSky = true; return true; }
+            }
+            return false;
+        }
+
         private void BindSky(RayTracingShader shader)
         {
             BindPortalSkies(shader);
+            // Camera rays behind a portal that miss: the share of the Limbo sky the game's sky walls show (1 elsewhere).
+            _cmd.SetRayTracingFloatParam(shader, LimboSkyShowsId, _proxies != null && SkyIsLimbo(_skyMaterial) ? _proxies.SkyWallShare : 1f);
             SkyParamsOf(_skyMaterial, out var tex, out var tint, out float rot);
             SgNoteSky(tex, tint); // stained glass follows the sky's brightness (Plugin.StainedGlass.cs, SgDayFactor)
             _lastSkyTex = tex;
@@ -1384,14 +1414,55 @@ namespace UltraRT
             BindSkyLight(shader, new Vector4(1f, rot * Mathf.Deg2Rad, 0, 0), tex, tint, Color.black); // also sets _SkyParams
         }
 
+        private Material _skyLogged;
+        private int _skyLogs;
+
+        /// <summary>The RT sky's material and what the trace reads from it (SkyParamsOf), at the scene build and when it changes.</summary>
+        private void LogSkyMaterial(Material m)
+        {
+            if (m == null || m.shader == null) { Logger.LogInfo("RT sky material: none"); return; }
+            float F(string n) => m.HasProperty(n) ? m.GetFloat(n) : float.NaN;
+            SkyParamsOf(m, out var tex, out var tint, out var rot);
+            Logger.LogInfo($"RT sky material '{m.name}' shader '{m.shader.name}' kw [{string.Join(" ", m.shaderKeywords)}] _Tint {(m.HasProperty("_Tint") ? m.GetColor("_Tint").ToString("F3") : "-")} " +
+                           $"_Exposure {F("_Exposure")} _Rotation {F("_Rotation")} _Color {(m.HasProperty("_Color") ? m.GetColor("_Color").ToString("F3") : "-")} tex '{(tex != null ? tex.name : "-")}' -> tint {tint} rot {rot}; colour space {QualitySettings.activeColorSpace}" +
+                           $"{(_camera != null ? $" (camera at {_camera.transform.position:F0})" : "")}");
+        }
+
+        /// <summary>The level's sky-wall materials (LIMBO_WALLS: they show the Limbo diorama's render, _LimboSky): what they
+        /// multiply it by. Diagnostic for the sky behind portals (docs/portals.md, "The Limbo sky behind a portal").</summary>
+        private void LogSkyWalls()
+        {
+            var seen = new HashSet<Material>();
+            foreach (var r in FindObjectsOfType<Renderer>(true))
+            {
+                if (seen.Count >= 8) break;
+                foreach (var m in r.sharedMaterials)
+                {
+                    if (m == null || m.shader == null || System.Array.IndexOf(m.shaderKeywords, "LIMBO_WALLS") < 0 || !seen.Add(m)) continue;
+                    float F(string n) => m.HasProperty(n) ? m.GetFloat(n) : float.NaN;
+                    string C(string n) => m.HasProperty(n) ? m.GetColor(n).ToString("F3") : "-";
+                    var tex = m.HasProperty("_MainTex") ? m.mainTexture : null;
+                    Color avg = tex != null ? TextureMean.Of(tex) : Color.white;
+                    Logger.LogInfo($"  sky wall '{Bench.GameControl.PathOf(r.transform)}' mat '{m.name}' shader '{m.shader.name}' kw [{string.Join(" ", m.shaderKeywords)}] _Color {C("_Color")} " +
+                                   $"em {C("_EmissiveColor")} emI {F("_EmissiveIntensity")} tex '{(tex != null ? $"{tex.name}' {tex.width}x{tex.height} filter {tex.filterMode}" : "-'")} st {(tex != null ? m.mainTextureScale + "/" + m.mainTextureOffset : "-")} mean {avg}");
+                }
+            }
+        }
+
         private void LogLightingEnvironment()
         {
             var sky = RenderSettings.skybox;
             var rtSky = _proxies != null ? FindSkyMaterial(_proxies.SkyRenderers, _camera != null ? _camera.transform.position : (Vector3?)null) : null;
             Logger.LogInfo($"RT sky: {(rtSky != null ? $"{rtSky.name} tex {rtSky.mainTexture?.name} {rtSky.mainTexture?.dimension}" : "none (flat ambient colour)")}");
             Logger.LogInfo($"Lighting env: ambientMode={RenderSettings.ambientMode} ambient={RenderSettings.ambientLight} sky={(sky ? sky.name + "/" + sky.shader.name : "none")} skyTex={(sky && sky.HasProperty("_MainTex") && sky.mainTexture ? sky.mainTexture.name : "-")} fog={RenderSettings.fog} fogColor={RenderSettings.fogColor}");
+            LogSkyMaterial(rtSky);
+            LogSkyWalls();
             foreach (var ls in FindObjectsByType<LimboSkybox>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                Logger.LogInfo($"  limbo skybox '{Bench.GameControl.PathOf(ls.transform)}' active={ls.isActiveAndEnabled} fakeCamStart={(ls.fakeCamStart ? ls.fakeCamStart.position.ToString() : "-")} playerStart={(ls.playerStart ? ls.playerStart.position.ToString() : "-")}");
+            {
+                var fc = ls.GetComponent<Camera>();
+                Logger.LogInfo($"  limbo skybox '{Bench.GameControl.PathOf(ls.transform)}' active={ls.isActiveAndEnabled} fakeCamStart={(ls.fakeCamStart ? ls.fakeCamStart.position.ToString() : "-")} playerStart={(ls.playerStart ? ls.playerStart.position.ToString() : "-")} " +
+                               $"fogOverrides {ls.useFogOverrides} dist {ls.overrideFogDistance} {ls.fogStart:F0}-{ls.fogEnd:F0} col {ls.overrideFogColor} {ls.fogColor} cam clear {(fc ? fc.clearFlags.ToString() : "-")} bg {(fc ? fc.backgroundColor.ToString() : "-")} far {(fc ? fc.farClipPlane : 0f):F0} hdr {(fc ? fc.allowHDR : false)}");
+            }
             foreach (var ss in FindObjectsByType<SpaceSkybox>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                 Logger.LogInfo($"  space skybox '{Bench.GameControl.PathOf(ss.transform)}' active={ss.isActiveAndEnabled} at {ss.transform.position}");
             foreach (var l in FindObjectsOfType<Light>().Where(l => l.type == LightType.Directional))
@@ -1524,7 +1595,11 @@ namespace UltraRT
             if (Patches.PendingHierarchies.Count > 0)
             {
                 long th = Perf.Now;
-                foreach (var go in Patches.PendingHierarchies) _proxies.AddHierarchy(go);
+                foreach (var go in Patches.PendingHierarchies)
+                {
+                    _proxies.AddHierarchy(go);
+                    _effectGeometry?.TrackEnemyHierarchy(go); // glowing enemy transparents (Providence) for the effects ray
+                }
                 Patches.PendingHierarchies.Clear();
                 Perf.Add(Perf.Sec.Hierarchies, th);
             }

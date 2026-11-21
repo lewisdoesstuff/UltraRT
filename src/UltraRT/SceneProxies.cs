@@ -1444,6 +1444,25 @@ namespace UltraRT
         public int FixtureVersion { get; private set; }
         public int FixtureCount { get; private set; }
         private static bool SourceSkyWall(Material m) => m != null && m.IsKeywordEnabled("LIMBO_WALLS");
+
+        /// <summary>
+        /// How much of the Limbo sky a sky wall shows: the mean alpha of its screen mask (8-3's ScreenSky / ScreenField: the
+        /// 32 x 32 'screen4B' scanlines, alpha 0.659). The game draws the diorama's render (_LimboSky) through that mask, so
+        /// its sky walls are about two thirds as bright as the sky texture; camera rays that end on a sky wall behind a portal
+        /// take this share of the sky (PathTrace.raytrace; docs/portals.md, "The Limbo sky behind a portal"). Bounce and sky
+        /// light keep the full sky. 1 = no mask.
+        /// </summary>
+        /// <summary>The smallest <see cref="SkyWallShows"/> of this scene's sky walls (1 = none): how much of the Limbo sky
+        /// the game shows on its screens, for camera rays behind a portal that miss without meeting a wall.</summary>
+        public float SkyWallShare { get; private set; } = 1f;
+
+        private static float SkyWallShows(Material src)
+        {
+            if (src == null || !src.HasProperty("_MainTex") || src.mainTexture == null) return 1f;
+            float a = TextureMean.Of(src.mainTexture).a;
+            return a > 0.02f && a <= 1f ? a : 1f;
+        }
+
         private bool IsTwoSided(Material proxy) => proxy != null && _twoSidedProxies.Contains(proxy);
 
         /// <summary>
@@ -1592,7 +1611,13 @@ namespace UltraRT
             NoteProxyMaterial(src, m); // runtime property changes (SceneProxies.Sync.cs)
             RegisterRain(src, m); // the game's rain on surfaces (SceneProxies.Rain.cs)
             if (SourceTwoSided(src)) _twoSidedProxies.Add(m);
-            if (SourceSkyWall(src)) { _skyWallProxies.Add(m); m.SetFloat("_SkyWall", 1f); }
+            if (SourceSkyWall(src))
+            {
+                _skyWallProxies.Add(m);
+                float shows = SkyWallShows(src);
+                m.SetFloat("_SkyWall", shows);
+                SkyWallShare = Mathf.Min(SkyWallShare, shows);
+            }
             return m;
         }
 

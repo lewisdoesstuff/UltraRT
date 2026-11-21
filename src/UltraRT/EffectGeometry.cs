@@ -35,6 +35,16 @@ namespace UltraRT
         public int maxQuads = 1200;
         /// <summary>Trails and lines (beams, projectile trails) too, not only particles and sprites.</summary>
         public bool trails = true;
+        /// <summary>Camera rays past a portal hop collect the effects too: the game's portal views drew them, and the trace
+        /// replaces those views (docs/portals.md, "Effects and Providence through portals"). -ultrart-portal-effects on|off.</summary>
+        public bool portalEffects = true;
+        /// <summary>Effects nearer one of the camera's images through a portal than to the camera are baked facing that
+        /// image (their billboards face the camera that sees them; 0 = always the main camera, as before).</summary>
+        public bool portalBillboards = true;
+        /// <summary>Glowing transparent meshes of enemies (Providence's wings, eye, rainbows and glow plane; fullbright Master
+        /// transparents and sprite-shader meshes under an EnemyIdentifier) are traced like the effects: in reflections and
+        /// behind portals. Alpha-blended ones also dim what is behind them.</summary>
+        public bool enemyMeshes = true;
     }
 
     /// <summary>
@@ -49,7 +59,7 @@ namespace UltraRT
     {
         public EffectGeometrySettings Settings = new EffectGeometrySettings();
 
-        private enum Kind { Particles, Sprite, Line, Trail }
+        private enum Kind { Particles, Sprite, Line, Trail, Mesh }
 
         private sealed class Entry
         {
@@ -61,6 +71,8 @@ namespace UltraRT
             public SpriteRenderer SR;
             public LineRenderer LR;
             public TrailRenderer TR;
+            public SkinnedMeshRenderer SMR; // Kind.Mesh: a skinned glow mesh (baked per frame), else a MeshRenderer's own mesh
+            public Mesh SourceMesh;         // Kind.Mesh with a MeshRenderer: its shared mesh
             public Material Source;
             public Mesh Mesh;
             public GameObject Go;
@@ -72,6 +84,7 @@ namespace UltraRT
             public Color32 SpriteColor;
             public bool SpriteFlipX, SpriteFlipY;
             public float Dist;
+            public int View = -1;     // nearest viewpoint: -1 the camera, else its image through a portal (PortalView.Points)
             public int Quads;         // billboards this frame (estimate, for the budget)
             public int Idle;          // frames since it was last wanted: after IdleFrames it is only polled now and then
             public int Space = -1;    // how the baked mesh maps to the world: 0 world, 1 position only, 2 the full transform
@@ -91,16 +104,17 @@ namespace UltraRT
         private struct MatKey : IEquatable<MatKey>
         {
             public Color32 Tint;
-            public bool OneOne;
+            public int Mode;   // EffectProxy _Mode: 0 SrcAlpha One, 1 One One, 2 alpha blend (SrcAlpha OneMinusSrcAlpha)
+            public bool NoVC;  // the mesh has no vertex colours (white)
             public Texture Tex;
             public Vector4 St;
-            public bool Equals(MatKey o) => Tint.r == o.Tint.r && Tint.g == o.Tint.g && Tint.b == o.Tint.b && Tint.a == o.Tint.a && OneOne == o.OneOne && ReferenceEquals(Tex, o.Tex) && St == o.St;
+            public bool Equals(MatKey o) => Tint.r == o.Tint.r && Tint.g == o.Tint.g && Tint.b == o.Tint.b && Tint.a == o.Tint.a && Mode == o.Mode && NoVC == o.NoVC && ReferenceEquals(Tex, o.Tex) && St == o.St;
             public override bool Equals(object o) => o is MatKey k && Equals(k);
             public override int GetHashCode()
             {
                 unchecked
                 {
-                    int h = (Tint.r | (Tint.g << 8) | (Tint.b << 16) | (Tint.a << 24)) ^ (OneOne ? 0x5A5A5A5A : 0);
+                    int h = (Tint.r | (Tint.g << 8) | (Tint.b << 16) | (Tint.a << 24)) ^ (Mode * 0x5A5A5A5A) ^ (NoVC ? 0x1234567 : 0);
                     if (Tex != null) h = h * 31 + Tex.GetInstanceID();
                     return h * 31 + St.GetHashCode();
                 }
@@ -117,7 +131,8 @@ namespace UltraRT
         private int _frames;
 
         private static readonly int MainTexId = Shader.PropertyToID("_MainTex"), TintId = Shader.PropertyToID("_Tint"), ModeId = Shader.PropertyToID("_Mode"),
-            CountId = Shader.PropertyToID("_UltraRTEffects"), ParamsId = Shader.PropertyToID("_UltraRTEffectParams");
+            CountId = Shader.PropertyToID("_UltraRTEffects"), ParamsId = Shader.PropertyToID("_UltraRTEffectParams"),
+            PortalFxId = Shader.PropertyToID("_UltraRTPortalEffects"), UseVcId = Shader.PropertyToID("_UseVC");
         private const int ViewmodelLayer = 13;
         private static readonly string[] NotGlows = { "rain", "heat" };
         /// <summary>Frames a new mesh and proxy wait before AddInstance (as portal quads: an instance added in the frame its
@@ -150,15 +165,19 @@ namespace UltraRT
             _matPool.Clear();
         }
 
-        private Material PooledMaterial(Color tint, bool oneOne, Texture tex, Vector2 scale, Vector2 offset)
+        private Material PooledMaterial(Color tint, bool oneOne, Texture tex, Vector2 scale, Vector2 offset) =>
+            PooledMaterial(tint, oneOne ? 1 : 0, false, tex, scale, offset);
+
+        private Material PooledMaterial(Color tint, int mode, bool noVC, Texture tex, Vector2 scale, Vector2 offset)
         {
             if (tex == null) tex = Texture2D.whiteTexture;
-            var key = new MatKey { Tint = (Color32)tint, OneOne = oneOne, Tex = tex, St = new Vector4(scale.x, scale.y, offset.x, offset.y) };
+            var key = new MatKey { Tint = (Color32)tint, Mode = mode, NoVC = noVC, Tex = tex, St = new Vector4(scale.x, scale.y, offset.x, offset.y) };
             if (_matPool.TryGetValue(key, out var mat) && mat != null) return mat;
             if (_matPool.Count > 256) ClearMatPool();
             mat = new Material(_shader) { name = "UltraRT effect (pooled)", hideFlags = HideFlags.HideAndDontSave };
             mat.SetColor(TintId, tint);
-            mat.SetFloat(ModeId, oneOne ? 1f : 0f);
+            mat.SetFloat(ModeId, mode);
+            mat.SetFloat(UseVcId, noVC ? 0f : 1f);
             mat.SetTexture(MainTexId, tex);
             mat.SetTextureScale(MainTexId, scale);
             mat.SetTextureOffset(MainTexId, offset);
@@ -194,6 +213,69 @@ namespace UltraRT
             _entries.Add(e);
         }
 
+        private readonly List<Renderer> _hierScratch = new List<Renderer>(64);
+        private readonly Dictionary<Material, int> _meshModes = new Dictionary<Material, int>();
+        private int _meshLogs;
+
+        /// <summary>How an enemy's transparent material blends, as an EffectProxy _Mode (-1: not a glowing mesh). Fullbright
+        /// (no VERTEX_LIGHTING) ULTRAKILL/Master transparents: SrcAlpha One = 0, One One = 1, SrcAlpha OneMinusSrcAlpha = 2;
+        /// sprite-shader meshes (premultiplied alpha blend) = 2. Lit transparents (glass-like) and outlines are left out.</summary>
+        private int GlowMeshMode(Material m)
+        {
+            if (m == null || m.shader == null) return -1;
+            if (_meshModes.TryGetValue(m, out int mode)) return mode;
+            mode = -1;
+            try
+            {
+                string s = m.shader.name;
+                string n = m.name.ToLowerInvariant();
+                if (n.Contains("outline")) mode = -1;
+                else if (s == "ULTRAKILL/Master")
+                {
+                    // shaderKeywords, not IsKeywordEnabled: the latter reads false for some Master keywords.
+                    var kw = m.shaderKeywords;
+                    if (Array.IndexOf(kw, "TRANSPARENCY") >= 0 && Array.IndexOf(kw, "VERTEX_LIGHTING") < 0 && m.HasProperty("_SrcBlend") && m.HasProperty("_DstBlend"))
+                    {
+                        int src = Mathf.RoundToInt(m.GetFloat("_SrcBlend")), dst = Mathf.RoundToInt(m.GetFloat("_DstBlend"));
+                        if (dst == (int)BlendMode.One) mode = src == (int)BlendMode.One ? 1 : src == (int)BlendMode.SrcAlpha ? 0 : -1;
+                        else if (dst == (int)BlendMode.OneMinusSrcAlpha && src == (int)BlendMode.SrcAlpha) mode = 2;
+                    }
+                }
+                else if (s == "ULTRAKILL/Sprites/Default" || s == "Sprites/Default") mode = 2;
+            }
+            catch (Exception) { mode = -1; }
+            _meshModes[m] = mode;
+            return mode;
+        }
+
+        /// <summary>An enemy's hierarchy (woken, spawned or present at the scene build): its glowing transparent meshes
+        /// (<see cref="GlowMeshMode"/>) are tracked like effects.</summary>
+        public void TrackEnemyHierarchy(GameObject root)
+        {
+            if (root == null || _shader == null || !Settings.enemyMeshes) return;
+            // Pending hierarchies are woken enemies and portal clones: only enemies' parts.
+            if (root.GetComponentInParent<EnemyIdentifier>(true) == null && root.GetComponentInChildren<EnemyIdentifier>(true) == null) return;
+            if (_meshModes.Count > 4096) _meshModes.Clear();
+            root.GetComponentsInChildren(true, _hierScratch);
+            foreach (var r in _hierScratch)
+            {
+                if (r == null || r.gameObject.layer == ViewmodelLayer || !(r is MeshRenderer || r is SkinnedMeshRenderer)) continue;
+                if (r.name.EndsWith("[UltraRT]", StringComparison.Ordinal)) continue;
+                var m = r.sharedMaterial;
+                if (GlowMeshMode(m) < 0) continue;
+                int id = r.GetInstanceID();
+                if (_ids.Contains(id)) continue;
+                var e = new Entry { R = r, Id = id, Kind = Kind.Mesh, Source = m, SMR = r as SkinnedMeshRenderer };
+                e.SourceMesh = e.SMR != null ? e.SMR.sharedMesh : r.GetComponent<MeshFilter>()?.sharedMesh;
+                if (e.SourceMesh == null) continue;
+                _ids.Add(id);
+                _entries.Add(e);
+                if (_meshLogs++ < 24)
+                    _log.LogInfo($"Effect geometry: enemy glow mesh '{Bench.GameControl.PathOf(r.transform)}' mat '{m.name}' / '{m.shader.name}' mode {GlowMeshMode(m)}, {e.SourceMesh.vertexCount} verts");
+            }
+            _hierScratch.Clear();
+        }
+
         /// <summary>
         /// Per traced frame, before the RTAS is built: drop destroyed effects, pick the nearest active ones, rebuild their
         /// meshes and keep their instances in step. Sets the globals the effects ray reads.
@@ -222,6 +304,7 @@ namespace UltraRT
                 }
                 bool want = on && e.R.enabled && e.R.gameObject.activeInHierarchy;
                 if (want && (e.Kind == Kind.Line || e.Kind == Kind.Trail) && !s.trails) want = false;
+                if (want && e.Kind == Kind.Mesh) { want = s.enemyMeshes && e.SourceMesh != null && GlowMeshMode(e.R.sharedMaterial) >= 0; e.Quads = want ? Mathf.Max(1, e.SourceMesh.vertexCount / 4) : 1; }
                 e.Quads = 1;
                 if (want && e.Kind == Kind.Particles) { int n = e.PS.particleCount; e.Quads = n; want = n > 0 && n <= s.maxParticles; }
                 if (want && e.Kind == Kind.Sprite) want = e.SR.sprite != null && e.SR.color.a > 0.004f;
@@ -229,7 +312,7 @@ namespace UltraRT
                 if (want && e.Kind == Kind.Trail) e.Quads = Mathf.Max(1, e.TR.positionCount);
                 if (want)
                 {
-                    e.Dist = PortalView.SqrDistance(e.R.bounds.center, cp); // or to the camera's image through a portal
+                    e.Dist = PortalView.SqrDistance(e.R.bounds.center, cp, out e.View); // or to the camera's image through a portal
                     float lim = e.Kind == Kind.Sprite && s.maxSpriteDistance > 0f ? Mathf.Min(s.maxDistance, s.maxSpriteDistance) : s.maxDistance;
                     want = e.Dist <= lim * lim;
                 }
@@ -275,6 +358,7 @@ namespace UltraRT
             Active = active;
             if (active > _maxActive) _maxActive = active;
             Shader.SetGlobalInt(CountId, active);
+            Shader.SetGlobalInt(PortalFxId, s.portalEffects ? 1 : 0);
             Shader.SetGlobalVector(ParamsId, new Vector4(Mathf.Max(0f, s.glow), Mathf.Clamp(s.smoothBelow, 0f, 0.55f), Mathf.Clamp01(s.roughWeight), Mathf.Max(0f, s.coverFade)));
 
             _ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
@@ -297,6 +381,24 @@ namespace UltraRT
             if (e.Go == null) Create(e);
             if (e.R.sharedMaterial != e.Source) { e.Source = e.R.sharedMaterial; ConfigureMaterial(e); }
             var t = e.R.transform;
+            if (e.Kind == Kind.Mesh)
+            {
+                ConfigureMaterial(e); // the game fades these materials' colour (pooled by tint: cheap when unchanged)
+                if (e.SMR != null)
+                {
+                    // Skinned: this frame's pose, relative to the renderer's position and rotation, scale applied.
+                    e.SMR.BakeMesh(e.Mesh, true);
+                    if (e.Mesh.vertexCount < 3) return false;
+                    e.Go.transform.SetPositionAndRotation(t.position, t.rotation);
+                    e.Go.transform.localScale = Vector3.one;
+                }
+                else
+                {
+                    e.Go.transform.SetPositionAndRotation(t.position, t.rotation);
+                    e.Go.transform.localScale = t.lossyScale;
+                }
+                return true;
+            }
             if (e.Kind == Kind.Sprite)
             {
                 var sr = e.SR;
@@ -316,10 +418,12 @@ namespace UltraRT
                 return e.Mesh.vertexCount > 0;
             }
 
-            // The renderers' own billboards for this camera, with rotation and scale baked in.
-            if (e.Kind == Kind.Particles) e.PSR.BakeMesh(e.Mesh, cam, true);
-            else if (e.Kind == Kind.Line) e.LR.BakeMesh(e.Mesh, cam, true);
-            else e.TR.BakeMesh(e.Mesh, cam, true);
+            // The renderers' own billboards for this camera, with rotation and scale baked in. An effect seen through a
+            // portal faces the camera's image there, as in the game's portal view (its portal camera sits at that image).
+            var bakeCam = BakeCamera(e, cam);
+            if (e.Kind == Kind.Particles) e.PSR.BakeMesh(e.Mesh, bakeCam, true);
+            else if (e.Kind == Kind.Line) e.LR.BakeMesh(e.Mesh, bakeCam, true);
+            else e.TR.BakeMesh(e.Mesh, bakeCam, true);
             if (e.Mesh.vertexCount < 3) return false;
             e.Mesh.RecalculateBounds();
             // Where the baked mesh sits depends on the simulation space; find out once per effect by comparing it with the
@@ -342,6 +446,39 @@ namespace UltraRT
             else if (e.Space == 1) { gt.SetPositionAndRotation(t.position, Quaternion.identity); gt.localScale = Vector3.one; }
             else { gt.SetPositionAndRotation(t.position, t.rotation); gt.localScale = t.lossyScale; }
             return true;
+        }
+
+        private Camera _viewCam;
+        private int _viewCamFor = -2, _viewCamFrame = -1;
+
+        /// <summary>The camera an effect's billboards are baked for: the main camera, or (portalBillboards) a hidden camera
+        /// at the main camera's image through a portal when the effect is nearer that image (PortalView).</summary>
+        private Camera BakeCamera(Entry e, Camera cam)
+        {
+            if (!Settings.portalBillboards || e.View < 0 || e.View >= PortalView.Points.Count || e.View >= PortalView.Forwards.Count || e.View >= PortalView.Ups.Count)
+                return cam;
+            var f = PortalView.Forwards[e.View];
+            var u = PortalView.Ups[e.View];
+            if (f.sqrMagnitude < 1e-6f || u.sqrMagnitude < 1e-6f) return cam;
+            if (_viewCam == null)
+            {
+                var go = new GameObject("UltraRT effect view [UltraRT]") { hideFlags = HideFlags.HideAndDontSave };
+                Object.DontDestroyOnLoad(go);
+                _viewCam = go.AddComponent<Camera>();
+                _viewCam.enabled = false; // never renders: only its pose and projection are read by BakeMesh
+                _viewCamFor = -2;
+            }
+            if (_viewCamFor != e.View || _viewCamFrame != _frame)
+            {
+                _viewCamFor = e.View;
+                _viewCamFrame = _frame;
+                _viewCam.transform.SetPositionAndRotation(PortalView.Points[e.View], Quaternion.LookRotation(f, u));
+                _viewCam.fieldOfView = cam.fieldOfView;
+                _viewCam.aspect = cam.aspect;
+                _viewCam.nearClipPlane = cam.nearClipPlane;
+                _viewCam.farClipPlane = cam.farClipPlane;
+            }
+            return _viewCam;
         }
 
         private void BuildSprite(Entry e, Color32 c)
@@ -389,12 +526,14 @@ namespace UltraRT
             e.Mesh.MarkDynamic();
             e.Go = new GameObject($"{e.R.name} (effect) [UltraRT]") { hideFlags = HideFlags.HideAndDontSave };
             e.Go.transform.SetParent(_root.transform, false);
-            e.Go.AddComponent<MeshFilter>().sharedMesh = e.Mesh;
+            bool ownMesh = !(e.Kind == Kind.Mesh && e.SMR == null);
+            e.Go.AddComponent<MeshFilter>().sharedMesh = ownMesh ? e.Mesh : e.SourceMesh; // a MeshRenderer's glow mesh: its own
             e.Proxy = e.Go.AddComponent<MeshRenderer>();
             e.Proxy.shadowCastingMode = ShadowCastingMode.Off;
             e.Proxy.receiveShadows = false;
             e.Proxy.forceRenderingOff = true; // never rasterised; still eligible for the RTAS
-            e.Proxy.rayTracingMode = RayTracingMode.DynamicGeometry; // the mesh changes every frame
+            // The mesh changes every frame (billboards, skinning); a MeshRenderer's glow mesh only moves.
+            e.Proxy.rayTracingMode = ownMesh ? RayTracingMode.DynamicGeometry : RayTracingMode.DynamicTransform;
             ConfigureMaterial(e);
         }
 
@@ -403,6 +542,18 @@ namespace UltraRT
         {
             var m = e.Source;
             if (e.Proxy == null || _shader == null) return;
+            if (e.Kind == Kind.Mesh)
+            {
+                // Fullbright Master / sprite shader: texture x _Color x vertex colour (if the mesh has them).
+                int mode = Mathf.Max(0, GlowMeshMode(m));
+                Color c = m != null && m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
+                bool hasTex = m != null && m.HasProperty(MainTexId);
+                bool noVC = e.SourceMesh == null || !e.SourceMesh.HasVertexAttribute(VertexAttribute.Color);
+                var pm = PooledMaterial(c, mode, noVC, hasTex ? m.mainTexture : null, hasTex ? m.mainTextureScale : Vector2.one,
+                                        hasTex ? m.mainTextureOffset : Vector2.zero);
+                if (!ReferenceEquals(e.Mat, pm)) { e.Mat = pm; e.Proxy.sharedMaterial = pm; }
+                return;
+            }
             Color tint = m != null ? LitParticles.EffectTint(m) : Color.white; // swapped materials (soft particles) keep their tint and blend
             bool oneOne = m != null && LitParticles.EffectSrcOne(m);
             Texture tex = Texture2D.whiteTexture;
@@ -469,6 +620,8 @@ namespace UltraRT
         {
             Clear();
             ClearMatPool();
+            if (_viewCam != null) Object.Destroy(_viewCam.gameObject);
+            _viewCam = null;
             if (_root != null) Object.Destroy(_root);
             _root = null;
         }

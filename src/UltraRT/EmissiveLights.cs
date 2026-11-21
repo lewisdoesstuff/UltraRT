@@ -624,7 +624,7 @@ namespace UltraRT
                 // StaticSceneOptimizer atlas geometry: an emissive average over a whole level atlas would be meaningless,
                 // except for a variant made for one fixture part's slots.
                 && (!IsAtlas(m) || AtlasPart(m))
-                && !(m.HasProperty("_SkyWall") && m.GetFloat("_SkyWall") > 0.5f);
+                && !(m.HasProperty("_SkyWall") && m.GetFloat("_SkyWall") > 0f);
             _emissiveMaterial[m] = e;
             return e;
         }

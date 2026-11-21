@@ -403,14 +403,17 @@ namespace UltraRT
         /// lights around what the camera sees through a portal are sampled like lights near the camera.
         /// </summary>
         public void PortalViewpoints(Vector3 camPos, List<Vector3> output, float maxDistance = 120f, int max = 16, int hops = 3,
-            Vector3 camFwd = default, List<Vector3> fwdOutput = null)
+            Vector3 camFwd = default, List<Vector3> fwdOutput = null, Vector3 camUp = default, List<Vector3> upOutput = null)
         {
             output.Clear();
             fwdOutput?.Clear();
+            upOutput?.Clear();
             _viewWork.Clear();
             _viewFwd.Clear();
+            _viewUp.Clear();
             _viewWork.Add((camPos, 0f, 0));
             _viewFwd.Add(camFwd);
+            _viewUp.Add(camUp);
             // Breadth first: the images of hop k are the sources of hop k + 1 (8-3's Shifting Hallway shows three
             // doorways in a row; with one hop, what is behind the second was far from every viewpoint again).
             int from = 0;
@@ -432,7 +435,7 @@ namespace UltraRT
                         if ((v - src).sqrMagnitude <= 1f) continue;
                         bool known = false;
                         foreach (var w in _viewWork) if ((w.p - v).sqrMagnitude <= 1f) { known = true; break; } // back through the pair
-                        if (!known && _viewWork.Count < 256) { _viewWork.Add((v, length + d, hop)); _viewFwd.Add(s.Travel.MultiplyVector(_viewFwd[k])); }
+                        if (!known && _viewWork.Count < 256) { _viewWork.Add((v, length + d, hop)); _viewFwd.Add(s.Travel.MultiplyVector(_viewFwd[k])); _viewUp.Add(s.Travel.MultiplyVector(_viewUp[k])); }
                     }
                 }
                 from = to;
@@ -445,6 +448,7 @@ namespace UltraRT
             {
                 output.Add(_viewWork[_viewOrder[k]].p);
                 fwdOutput?.Add(_viewFwd[_viewOrder[k]]);
+                upOutput?.Add(_viewUp[_viewOrder[k]]);
             }
         }
 
@@ -584,6 +588,7 @@ namespace UltraRT
 
         private readonly List<(Vector3 p, float length, int hop)> _viewWork = new List<(Vector3 p, float length, int hop)>();
         private readonly List<Vector3> _viewFwd = new List<Vector3>(); // the camera's forward axis as each image sees it
+        private readonly List<Vector3> _viewUp = new List<Vector3>();  // and its up axis
         private readonly List<int> _viewOrder = new List<int>();
 
         private Vector4[] _portalFogRows = new Vector4[2];

@@ -145,7 +145,8 @@ them: a screen next to a fire reflected an empty room (0-4's terminal). Now:
   payload and ignores the hit. One ray per specular segment (`EffectsAlong`: mask 0x10, `RAY_FLAG_CULL_OPAQUE`, so the
   opaque water/glass proxies under the same mask are skipped) collects every billboard in front of the hit.
 - Used by relight's (and, until 2026-11-19, hybrid's) reflection ray, the water/glass overlay's reflection and every specular segment of a
-  path. Camera rays don't (the game draws the effect itself, at full resolution); cosine bounces don't (effects light
+  path, and since 2026-11-21 by the camera ray's segments past a portal hop (docs/portals.md, section 20). Camera rays on
+  the near side don't (the game draws the effect itself, at full resolution); cosine bounces don't (effects light
   the scene through their point lights already; counting the billboards too would light it twice).
 - Tracked effects that are off are polled in turn (one in 12 per frame): most of a level's glowing effects are pooled
   fires and unlit torches. CPU 0.02-0.03 ms per frame with 200-500 tracked.
@@ -160,9 +161,13 @@ them: a screen next to a fire reflected an empty room (0-4's terminal). Now:
 
 `fxg.enabled=0` (bench), `-ultrart-noeffectgeometry`, settings menu "Fire and explosions in reflections".
 
-Limits: billboards face the main camera, so a reflection that looks along a billboard's plane sees it thin; the
-any-hit can run twice for one billboard (DXR allows it), which would double its glow in that pixel; effects through a
-portal are collected on the last segment only.
+- Glowing enemy transparents (Providence's wings, eye, rainbows and glow plane: fullbright Master transparents and
+  sprite-shader meshes under an enemy) use the same path since 2026-11-21, skinned ones baked per frame. Alpha-blended ones
+  are composited as a weighted average and dim what is behind them (docs/portals.md, section 20; bench `fxg.enemyMeshes=0`).
+
+Limits: billboards face the main camera (or, behind a portal, the camera's image there), so a reflection that looks
+along a billboard's plane sees it thin; the any-hit can run twice for one billboard (DXR allows it), which would double
+its glow in that pixel; a reflection ray through a portal collects effects on its last segment only.
 
 ## Transparents in the path
 
