@@ -279,6 +279,41 @@ Notes from making it:
   The nearest to the start is `2 - Reception/.../OfficeVendingMachine (2)` at (7.5, -10, 423.5); a teleport there with
   `"Load": "none"` lands in a void (the room is not loaded), so the shot needs a recorded route into the room.
 
+## The final trailer, v6 (2026-11-21, `trailer-final-v6`)
+
+The v6 plan at the final tier (2560x1440, 60 fps, RR at full scale: `2560x1440 -> 2560x1440`, quality 5), rendered on
+master 1a240ae, which has all the 2026-11-21 fixes (playtest visual fixes, combat hitches, 7-4 laser line lights).
+Slot 11 is now the user's combat recording: `{ "Kind": "video", "Source": "trailer/combat/2026-11-21_14-31-04.mp4",
+"In": 16.0, "Bars": 4 }` (2560x1440, 60 fps, Rec. 709, gitignored under `bench\results\trailer\combat\`). It replaces
+the placeholder card. Like every `shot` clip, it carries the PATH TRACED badge.
+
+Output: `bench\results\trailer\trailer-final-v6\` in the branch worktree, copied to the main checkout's
+`bench\results\trailer\trailer-final-v6\`:
+- `trailer-final-final.mp4`: 2560x1440, 60 fps, 117.83 s, 7070 frames, 600 MB.
+- `trailer-final-final-1080p.mp4`: 1920x1080, 60 fps, 117.83 s, 245 MB.
+- `contact-v6.jpg`: one row per clip, at 10, 35, 60 and 85 % of the clip.
+
+Takes: `20261121-162102_trailer-final-final-1_alt`, `-163025_...-2_alt`, `-163855_...-3_alt` and
+`-164154_...-4_alt`. Each run was its own alt launch with `-Extra '-ultrart-hdr','off'` (the log says `HDR display:
+available=False active=False`), and the lock was released between runs so a perf agent could take its turns. There
+were 0 failures, and the frames total 34 GB. Assembly took 32 minutes at below-normal process priority.
+
+Staged events, re-measured in the new takes (`events.py`-style: the largest frame-to-frame jump in mean brightness and
+in R/(G+B)):
+- **0-3**: the pillars come on at take frame 183 (v5d: 184), so `In` is 1.55 (was 1.567).
+- **6-2**: the organ hall turns red at take frame 642 (v5d: 641), so the final tier's `In` is 6.2 (was 6.183). The draft
+  tier keeps its own 6.433.
+
+In the cut, both land on the bar: the pillars on clip 2's frame 90 (1.500 s) and the red flip on clip 3's frame 270
+(4.500 s).
+
+Checks:
+- **Black frames** (`blackdetect`, d 0.03, pixel threshold 0.06): only the cards. The title types on black (0-2.03 s),
+  its fade-out frame is at 4.80 s, and the end card runs from 111.27 s.
+- **Combat clip against its source** (at `In` + t): it matches frame for frame (best offset 0), with a mean absolute
+  difference of about 1.35/255 and channel means about 1 level darker. That is encode noise, not a grade shift.
+- **Contact sheet**: every badge, level tag and wipe is in place. The end card's small print reads in full.
+
 ## Trailer v6 draft (2026-11-20, branch `t3/trailer-v6-paths`)
 
 New camera paths, constant-speed easing, a combat footage slot at the battle drop and hard switches in the battle half,
@@ -344,7 +379,8 @@ Plan (`bench/trailer/final-plan.json`):
 Total 1:57.8, as v5d. Staged events, re-measured on the new takes: 0-3's light pillars come on at frame 92 (3.067 s, the
 same as v5d), so `In` stays 1.567. The organ hall turns red at frame 328 of the draft take (10.933 s; mean 14 -> 64),
 0.25 s later than in v5d's final take (frame 641 at 60 fps, 10.68 s), so the draft tier's `In` is 6.433
-(`"TierIn": { "draft": 6.433 }`). The final tier keeps 6.183 until its own take is measured. In the cut the pillars
+(`"TierIn": { "draft": 6.433 }`). The final tier kept 6.183 until its own take was measured; it is now 6.2, and 0-3's
+`In` is 1.55 ("The final trailer, v6" above). In the cut the pillars
 land on clip frame 45 (1.500 s) and the red flip on clip frame 135 (4.500 s), both on the bar.
 
 Frame check (`timing.txt`): every clip has its planned length, and the master is the 20 clips joined (3535 frames). Each
