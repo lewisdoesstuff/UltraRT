@@ -66,7 +66,7 @@
    "Weapon": 1,
    "Path": {
     "Type": "static",
-    "Approach": "../recordings/u1120-P-2-2.json",
+    "Approach": "../recordings/u1120-p-2-2.json",
     "Duration": 6
    },
    "Effects": {
