@@ -452,6 +452,10 @@ the fog range, darker where the stain is wet (BloodWet.cs's birth times).
 
 - Used at relight's (and, until 2026-11-19, hybrid's) reflection hits and at the specular vertices of pathtrace's paths. Not at the camera
   hit: there the game's own decal is already in the image.
+- **Behind a portal** (since 2026-11-21, docs/portals.md section 18): at camera hits that crossed a portal, where the
+  game's decal can't reach (its depth there is the portal's plane). The grid also keeps the stains near the camera's
+  portal images (`_StainViews`, up to 8), and the fade goes by the ray's whole path length. `wet.stainPortals`
+  (`-ultrart-stain-portals on|off`); the grid is built when either use is on.
 - Cost (0-1 metal with stains spawned, `bench/results/20261115-021448_pt2-perf`): relight +0.13 ms GPU, pathtrace
   +0.33 ms, CPU +0.06 ms.
 - `wet.stainReflections` (settings menu "Blood stains in reflections", `-ultrart-stain-reflections on|off`);

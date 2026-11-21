@@ -23,6 +23,7 @@ namespace UltraRT.Bench
             var cc = MonoSingleton<CameraController>.Instance;
             if (cc == null) return;
             var cam = cc.transform;
+            ThroughPortals = spec.ThroughPortals;
             foreach (var kind in kinds)
             {
                 try { SpawnOne((kind ?? "").ToLowerInvariant(), cam, Mathf.Max(0.5f, spec.Distance)); }
@@ -71,9 +72,46 @@ namespace UltraRT.Bench
             Log?.LogInfo(sb.ToString());
         }
 
+        /// <summary>EffectSpec.ThroughPortals for the effects being spawned: rays follow the game's portals.</summary>
+        private static bool ThroughPortals;
+        private static int _castLogs;
+
+        /// <summary>
+        /// A ray for placing effects: straight (Physics.Raycast), or through the game's portals with ThroughPortals
+        /// (PortalPhysicsV2.Raycast, the game's own portal-following cast). <paramref name="end"/> = where the ray ends (the
+        /// hit, or its far end), <paramref name="endDir"/> its direction there (turned by every portal crossed).
+        /// </summary>
+        private static bool Cast(Vector3 origin, Vector3 dir, float maxDistance, int mask, out Vector3 end, out Vector3 endDir, out Vector3 normal, out Collider collider)
+        {
+            normal = Vector3.up;
+            collider = null;
+            endDir = dir;
+            if (!ThroughPortals)
+            {
+                bool h = Physics.Raycast(origin, dir, out var hit, maxDistance, mask, QueryTriggerInteraction.Ignore);
+                end = h ? hit.point : origin + dir * maxDistance;
+                if (h) { normal = hit.normal; collider = hit.collider; }
+                return h;
+            }
+            bool hp = PortalPhysicsV2.Raycast(origin, dir, maxDistance, mask, out var ph, out var trav, out var endPoint, QueryTriggerInteraction.Ignore);
+            if (trav != null && trav.Length > 0) endDir = trav[trav.Length - 1].exitDirection.normalized;
+            end = hp ? ph.point : endPoint;
+            if (hp) { normal = ph.normal; collider = ph.collider; }
+            if (_castLogs++ < 12)
+                Log?.LogInfo($"EffectSpawner: cast through portals from {origin:F1} dir {dir:F2}: {(trav?.Length ?? 0)} portal(s), " +
+                             $"{(hp ? $"hit '{(ph.collider != null ? GameControl.PathOf(ph.collider.transform) : "-")}' at {ph.point:F1}" : $"no hit, end {endPoint:F1}")}");
+            return hp;
+        }
+
         private static Vector3 InFront(Transform cam, float distance)
         {
             var dir = cam.forward;
+            if (ThroughPortals)
+            {
+                // Through the game's portals: 0.75 m short of a wall, or the ray's far end.
+                if (Cast(cam.position, dir, distance + 0.5f, ~(1 << 2), out var end, out var endDir, out _, out _)) return end - endDir * 0.75f;
+                return end - endDir * 0.5f;
+            }
             if (Physics.Raycast(cam.position, dir, out var hit, distance + 0.5f, ~(1 << 2), QueryTriggerInteraction.Ignore))
                 distance = Mathf.Max(0.5f, hit.distance - 0.75f);
             return cam.position + dir * distance;
@@ -197,6 +235,7 @@ namespace UltraRT.Bench
                     break;
                 }
                 case "bloodstain":
+                case "bloodstainahead":
                 {
                     // Blood stains straight into the game's stain buffer (as a splatter's drops do when they land), on
                     // the floor and the walls ahead: for the wet-blood look (docs/vfx.md), which needs fresh stains.
@@ -212,13 +251,16 @@ namespace UltraRT.Bench
                     int made = 0, hits = 0;
                     for (int k = 0; k < 9; k++)
                     {
-                        var dir = Quaternion.AngleAxis((k % 3 - 1) * 14f, cam.up) * Quaternion.AngleAxis(8f + (k / 3) * 12f, cam.right) * cam.forward;
-                        if (!Physics.Raycast(cam.position, dir, out var hit, 40f, ~((1 << 2) | (1 << 12) | (1 << 13)), QueryTriggerInteraction.Ignore)) continue;
+                        // "bloodstainahead": a tighter fan around the view axis (-4 to +4 degrees), for far walls (through portals).
+                        var dir = kind == "bloodstainahead"
+                            ? Quaternion.AngleAxis((k % 3 - 1) * 5f, cam.up) * Quaternion.AngleAxis(-4f + (k / 3) * 4f, cam.right) * cam.forward
+                            : Quaternion.AngleAxis((k % 3 - 1) * 14f, cam.up) * Quaternion.AngleAxis(8f + (k / 3) * 12f, cam.right) * cam.forward;
+                        if (!Cast(cam.position, dir, 40f, ~((1 << 2) | (1 << 12) | (1 << 13)), out var hitPoint, out _, out var hitNormal, out var hitCol)) continue;
                         hits++;
-                        var gz = hit.collider != null ? hit.collider.GetComponentInParent<GoreZone>() : null;
+                        var gz = hitCol != null ? hitCol.GetComponentInParent<GoreZone>() : null;
                         if (gz == null || gz.stains == null) gz = any;
                         if (gz == null) continue;
-                        gz.stains.CreateChild(hit.point, hit.normal, true, false);
+                        gz.stains.CreateChild(hitPoint, hitNormal, true, false);
                         made++;
                     }
                     if (made == 0) throw new InvalidOperationException($"no stain made ({hits} surfaces hit, gore zone {(any != null ? any.name : "none")})");
@@ -232,6 +274,19 @@ namespace UltraRT.Bench
                     var p = InFront(cam, distance);
                     if (Physics.Raycast(p, Vector3.down, out var floor, 10f, ~(1 << 2), QueryTriggerInteraction.Ignore)) p = floor.point;
                     UnityEngine.Object.Instantiate(nm.impactDust, p, Quaternion.identity);
+                    break;
+                }
+                case "cointoss":
+                {
+                    // The revolver's coin thrown as Revolver.ThrowCoin throws it (forward 20 m/s, up 15 m/s, real
+                    // physics): it flies through a portal ahead the way the player's does (SimplePortalTraveler).
+                    GameObject prefab = null;
+                    foreach (var r in UnityEngine.Object.FindObjectsOfType<Revolver>(true))
+                        if (r != null && r.coin != null) { prefab = r.coin; break; }
+                    if (prefab == null) throw new InvalidOperationException("no Revolver with a coin prefab");
+                    var go = UnityEngine.Object.Instantiate(prefab, cam.position - cam.up * 0.5f, cam.rotation);
+                    var rb = go.GetComponent<Rigidbody>();
+                    if (rb != null) rb.AddForce(cam.forward * 20f + Vector3.up * 15f, ForceMode.VelocityChange);
                     break;
                 }
                 case "coin":
@@ -499,6 +554,14 @@ namespace UltraRT.Bench
             var right = Vector3.Cross(Vector3.up, fwd);
             int n = _benchEnemies.Count;
             var pos = cam.position + fwd * distance + right * (((n + 1) / 2) * 3f * ((n & 1) == 0 ? 1f : -1f));
+            if (ThroughPortals)
+            {
+                // Where the camera sees that spot through the game's portals, facing the camera's image.
+                Cast(cam.position, (pos - cam.position).normalized, (pos - cam.position).magnitude, 0, out var endP, out var endD, out _, out _);
+                pos = endP;
+                fwd = Vector3.ProjectOnPlane(endD, Vector3.up).normalized;
+                if (fwd.sqrMagnitude < 0.5f) fwd = Vector3.forward;
+            }
             if (Physics.Raycast(pos + Vector3.up * 1f, Vector3.down, out var hit, 30f, LayerMask.GetMask("Environment", "Outdoors"), QueryTriggerInteraction.Ignore)) pos = hit.point;
             else pos += Vector3.down * 1.5f;
             var go = UnityEngine.Object.Instantiate(src.gameObject, pos, Quaternion.LookRotation(-fwd, Vector3.up));

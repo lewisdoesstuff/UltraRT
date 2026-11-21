@@ -201,9 +201,18 @@ namespace UltraRT
                         // Layer 30 ("Portal"): portal views with canSeePortalLayer add it to their culling mask (PortalRenderV2).
                         _portalLayerChecked = true;
                         int onLayer = 0, active = 0;
+                        var names = new System.Text.StringBuilder();
+                        int listed = 0;
                         foreach (var r in Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                            if (r.gameObject.layer == 30) { onLayer++; if (r.enabled && r.gameObject.activeInHierarchy) active++; }
-                        _log.LogInfo($"Portals: {onLayer} renderers on layer 30 ({active} active); main camera traces layer 30: {((_cameraMask >> 30) & 1) != 0}");
+                        {
+                            if (r.gameObject.layer != 30) continue;
+                            onLayer++;
+                            bool on = r.enabled && r.gameObject.activeInHierarchy;
+                            if (on) active++;
+                            if (listed++ < 24 && !IsPlayerModel(r))
+                                names.Append($"; '{Bench.GameControl.PathOf(r.transform)}' {r.GetType().Name}{(on ? "" : " off")}{(r.isPartOfStaticBatch ? " static-batched (not traced)" : "")}");
+                        }
+                        _log.LogInfo($"Portals: {onLayer} renderers on layer 30 ({active} active); main camera traces layer 30: {((_cameraMask >> 30) & 1) != 0}{names}");
                     }
                 }
             }

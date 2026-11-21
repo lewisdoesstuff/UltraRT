@@ -597,6 +597,13 @@ void RayGenBody(bool full)
                 }
             }
         }
+        // Blood stains behind a portal (docs/portals.md, "Blood stains through portals"): the game draws its stains as
+        // screen-space decals over the main view, which put them where the game's depth is, the portal's plane, so behind
+        // a portal there are none. Its own portal views (skipped while RT replaces them) drew them in each view. The
+        // stain grid (StainGrid.compute) holds the stains near the camera's portal images too: the game's composite
+        // (keep red, take green and blue, faded over the fog distances by the ray's whole length) on the albedo.
+        [branch] if (path.hops > 0u && _StainParams.x > 0.5 && _StainParams.x < 1.5 && _StainModes.y > 0.5)
+            albedo *= StainTintAt(pos, n, tTotal);
         // Ripple caustics under water planes (fullbright surfaces ignore light, so they get none).
         [branch] if (_UltraRTRipple.y > 0.5 && _UltraRTRipple.x > 0.0 && p.alpha > 0.0) // planes also bound for stained glass alone
         {

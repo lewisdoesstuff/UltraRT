@@ -56,7 +56,11 @@ namespace UltraRT
         public bool bloodFullRes;
         /// <summary>Blood stains show in reflections (Plugin.Stains.cs): reflection hits get the game's blood composite.</summary>
         public bool stainReflections = true;
-        /// <summary>Stains further than this from the camera (m) are left out of the reflection lookup.</summary>
+        /// <summary>Blood stains show on surfaces seen through a portal (Plugin.Stains.cs; docs/portals.md, "Blood stains
+        /// through portals"): the game's decals only reach the main view's depth, which is the portal's plane there.
+        /// Bench wet.stainPortals=0, flag -ultrart-stain-portals on|off.</summary>
+        public bool stainPortals = true;
+        /// <summary>Stains further than this from the camera (or its portal images) (m) are left out of the lookup.</summary>
         public float stainDistance = 80f;
         /// <summary>Debug (bench wet.stainDebug=1): stains found at reflection hits show bright green.</summary>
         public bool stainDebug;
@@ -78,11 +82,12 @@ namespace UltraRT
                     case "-ultrart-wet-blood": blood = On(); break;
                     case "-ultrart-wet-blood-dry": bloodDryTime = F(bloodDryTime); break;
                     case "-ultrart-stain-reflections": stainReflections = On(); break;
+                    case "-ultrart-stain-portals": stainPortals = On(); break;
                 }
             }
         }
 
-        public override string ToString() => FormattableString.Invariant($"rain {(rain ? "on" : "off")} (wetness {rainWetness}, puddles {puddles}), blood {(blood ? "on" : "off")} (wet {bloodWetTime} s, dry after {bloodDryTime} s), stains in reflections {(stainReflections ? "on" : "off")}");
+        public override string ToString() => FormattableString.Invariant($"rain {(rain ? "on" : "off")} (wetness {rainWetness}, puddles {puddles}), blood {(blood ? "on" : "off")} (wet {bloodWetTime} s, dry after {bloodDryTime} s), stains in reflections {(stainReflections ? "on" : "off")}, through portals {(stainPortals ? "on" : "off")}");
     }
 
     /// <summary>

@@ -644,7 +644,7 @@ Medium-complexity architectural & RT-CPU wins from [perf-audit-2026-11-21.md](pe
    +0.8–1.6 ms due to 2/32 warp stalls and 16 live `v1*` floats; switching to whole-warp tiling + 3-uint packed live
    state + 1 `DirectOne` site recovered ~0.8–1.0 ms GPU while keeping the full -1.0 ms RT-CPU win!).
 3. **C4 Static-Dynamic Merging** (`SceneProxies.StaticDynamic.cs`, `SceneProxies.cs`, `StaticGroups.cs`, A/B
-   `plugin._mergeStaticDynamic=0`): merges stationary non-batched opaque `MeshRenderer`s by `(watcher, layer, twoSided,
+   `plugin._mergeStaticDynamic=0`, read at scene build; since 2026-11-21 also `-ultrart-merge-static-dynamic on|off` for a whole launch): merges stationary non-batched opaque `MeshRenderer`s by `(watcher, layer, twoSided,
    skyWall)` into static world-space meshes at scene build (e.g. 8-3: 428 renderers → 47 groups, 9/161 active records vs
    581 unmerged; 1-3: 1018 → 77 groups, 10/471 vs 1855), with a runtime `Transform.hasChanged` split-out safety net
    (round-robin `SdPollPerFrame = 32`) that transparently promotes any unexpectedly animated object to a live

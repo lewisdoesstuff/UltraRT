@@ -1,0 +1,31 @@
+{
+ "Name": "portal-vis-1121",
+ "Note": "2026-11-21 8-3 playtest checks (docs/portals.md section 18): blood stains through a portal, Providence's Back_Glow card (no white hexagon), the Shifting Hallway exit slab and its _portalStart diagnostic. Frozen poses for A/B shots.",
+ "Scenarios": [
+  {
+   "Name": "8-2 hallway portal blood",
+   "Scene": "Level 8-2",
+   "Path": { "Type": "static", "Approach": "../recordings/u1118-8-2-4.json", "Duration": 3, "FreezeAtPose": true },
+   "Modes": [ "off", "pathtrace", "pathtrace+wet.stainPortals=0", "pathtrace+wet.stainDebug=1" ],
+   "Effects": { "Kinds": [ "bloodstainahead" ], "Every": 0, "Distance": 30, "ThroughPortals": true, "ShotDelay": 0.3 },
+   "Screenshots": [ 1.5 ]
+  },
+  {
+   "Name": "8-3 providence direct",
+   "Scene": "Level 8-3",
+   "Path": { "Type": "static", "Approach": "../recordings/8-3-b.json", "Duration": 3, "FreezeAtPose": true, "FreshLoad": true },
+   "FreshLoad": true,
+   "Modes": [ "off", "pathtrace", "albedo" ],
+   "Effects": { "Kinds": [ "enemy:Providence" ], "Every": 0, "Distance": 7, "ShotDelay": 0.3 },
+   "Screenshots": [ 1.5 ]
+  },
+  {
+   "Name": "8-3 hallway frozen",
+   "Scene": "Level 8-3",
+   "Path": { "Type": "static", "Approach": "../recordings/u1118-8-3-1.json", "Duration": 3, "FreezeAtPose": true },
+   "Modes": [ "off", "pathtrace", "pathtrace+plugin._portalStart=1" ],
+   "Screenshots": [ 1.5 ],
+   "ShotSettle": 0.05
+  }
+ ]
+}

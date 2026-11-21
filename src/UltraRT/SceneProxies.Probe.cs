@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -173,7 +174,7 @@ namespace UltraRT
                 if (bySource.TryGetValue(r, out var dp))
                     sb.Append($" proxy[visible={dp.Visible} mask=0x{dp.Mask:X} twoSided={dp.TwoSided} det={r.transform.localToWorldMatrix.determinant:F2} scale={r.transform.lossyScale:F2} " +
                               $"pos={r.transform.position:F2} proxyPos={(dp.Proxy != null ? dp.Proxy.transform.position : Vector3.zero):F2} " +
-                              $"mesh={(dp.Proxy != null && dp.Proxy.GetComponent<MeshFilter>() is MeshFilter pmf && pmf.sharedMesh != null ? pmf.sharedMesh.name + " readable=" + pmf.sharedMesh.isReadable : "-")} " +
+                              $"mesh={(dp.Proxy != null && dp.Proxy.GetComponent<MeshFilter>() is MeshFilter pmf && pmf.sharedMesh != null ? pmf.sharedMesh.name + " readable=" + pmf.sharedMesh.isReadable + MeanVertexColour(pmf.sharedMesh) : "-")} " +
                               $"mats={string.Join(",", dp.Proxy != null ? dp.Proxy.sharedMaterials.Select(m => m != null ? m.name : "-") : new string[0])} " +
                               $"{DescribeProxyState(dp)}]");
                 else if (r.isPartOfStaticBatch)
@@ -274,5 +275,21 @@ namespace UltraRT
             name.IndexOf("Blend", System.StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("Mesh", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
             name.IndexOf("Alpha", System.StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("Surface", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
             name == "_Cutoff" || name == "_CullMode" || name.IndexOf("Clip", System.StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("Intensity", System.StringComparison.OrdinalIgnoreCase) >= 0;
-    }
+
+        /// <summary>Probe: " vcol=(r, g, b, a)" (the mean vertex colour of a readable mesh), " vcol=none" or "".</summary>
+        private static string MeanVertexColour(Mesh m)
+        {
+            try
+            {
+                if (m == null || !m.isReadable) return "";
+                var c = m.colors32;
+                if (c == null || c.Length == 0) return " vcol=none";
+                Vector4 sum = Vector4.zero;
+                foreach (var x in c) sum += new Vector4(x.r, x.g, x.b, x.a);
+                sum /= 255f * c.Length;
+                return FormattableString.Invariant($" vcol=({sum.x:F2}, {sum.y:F2}, {sum.z:F2}, {sum.w:F2})");
+            }
+            catch (Exception) { return ""; }
+        }
+}
 }

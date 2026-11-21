@@ -218,6 +218,10 @@ namespace UltraRT
             // Bloodstain_Fallback (queue 2999): the game's blood stains on meshes, a multiplicative (DstColor Zero) decal whose
             // texture is white where there is no blood. Traced, it was an opaque white quad over the wall (0-2).
             if (s.StartsWith("ULTRAKILL/Bloodstain")) return false;
+            // Glow cards on Unity's Standard shader (Providence's 'Back_Glow', M_Providence_BackGlow: a 7-vertex hexagon fan
+            // behind its additive wings and glow sprites). Traced, it was a flat opaque white hexagon, and through a portal
+            // (where the game's own view of the wings is gone) all that was left of a Providence (8-3, 2026-11-21).
+            if (s == "Standard" && m.name.IndexOf("Glow", StringComparison.OrdinalIgnoreCase) >= 0) return false;
             return !(s.Contains("Particles") || s.Contains("Additive") || s.Contains("Skybox") || s.Contains("Sprite") || s.Contains("Stencil") || s.StartsWith("Hidden/ProBuilder"));
         }
 
