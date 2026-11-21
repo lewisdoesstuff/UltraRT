@@ -43,6 +43,10 @@ float4 _VolHazeParams;           // x low-res width, y height, z scale (in-scatt
 
 // Game match (docs/relight.md, "Game match"): the game's own frame before the RT composite, metered at the same pixels.
 Texture2D<float4> _GameColor;
+// The trace's instance ids (x >> 16: distance to the first portal). While the game's portal views are skipped
+// (_UltraRTPortalOwn, docs/portals.md "Raster skip") the game's frame is empty behind a portal: no game match there.
+Texture2D<int2> _AEInstanceId;
+int _UltraRTPortalOwn;
 float4 _GameMap;  // xy: game uv = 0.5 + (trace uv - 0.5) * xy (the guard band); z: 1 = flip y; 0 = off
 float4 _GameFog;  // x 1 = fog on, y mode (1 linear, 2 exp, 3 exp2), z start (linear) or density, w end
 float4 _Params5;  // x match strength up (RT darker than the game), y down, z dead band (EV), w max game fog factor
@@ -104,7 +108,9 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
             if (_GameMap.z > 0.5) uv.y = 1.0 - uv.y;
             uint gw, gh;
             _GameColor.GetDimensions(gw, gh);
-            if (all(uv >= 0.0) && all(uv < 1.0) && GameFogFactor(_NormalDepth[p].w) <= _Params5.w)
+            bool behindPortal = false;
+            if (_UltraRTPortalOwn != 0) { int ix = _AEInstanceId[p].x; behindPortal = ix > 65535 && ((uint)ix >> 16) != 0u; }
+            if (all(uv >= 0.0) && all(uv < 1.0) && !behindPortal && GameFogFactor(_NormalDepth[p].w) <= _Params5.w)
             {
                 // Pre-haze RT luminance against the game's colour (its own lighting, display units).
                 float3 colRT = _Albedo[p].rgb * lit * sp.a + sp.rgb;

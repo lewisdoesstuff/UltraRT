@@ -57,6 +57,8 @@ Shader "UltraRT/Composite"
             // Distance to the first portal surface on this trace texel's path, or -1 (docs/portals.md). The game draws a
             // portal's view as a quad, so its depth buffer holds the portal plane there, while our t is the distance along
             // the path through the portal to the far-side hit. The depth tests accept either.
+            int _UltraRTPortalOwn; // 1: the game's raster portal views are skipped (docs/portals.md, "Raster skip")
+
             float PortalT(float2 tuv)
             {
                 uint tw, th;
@@ -124,7 +126,8 @@ Shader "UltraRT/Composite"
                     float tp = PortalT(i.uv);
                     bool far = abs(gameViewZ - rtViewZ) <= rtViewZ * 0.03 + 0.05;
                     float pz = tp > 0.0 ? RtViewZ(traceUV, tp) : -1e9;
-                    bool plane = abs(gameViewZ - pz) <= pz * 0.03 + 0.05;
+                    // Raster skip: the game drew no view through the portal, its depth there is not the far side's (docs/portals.md).
+                    bool plane = abs(gameViewZ - pz) <= pz * 0.03 + 0.05 || (_UltraRTPortalOwn != 0 && tp > 0.0);
                     if (!far && !plane) discard;
                 }
 

@@ -251,6 +251,12 @@ Trails, lines and meshes are off by default (`virtualTrailsAndMeshes`). In the s
 - the vertex colour: the particle start colour, or the sprite colour;
 - the current sprite's own rectangle average, and the AnimatedTexture frame from the property block.
 
+Since 2026-11-21 the sprite-rectangle and animation-frame averages are read back asynchronously (`AsyncGPUReadback`,
+`EffectLights.ReadAverage`). A synchronous `ReadPixels` for each new frame stalled the CPU on the GPU's queue, at 4-7 ms per
+frame for runs of 30+ frames in 8-3 combat (docs/performance.md, "2026-11-21 portal raster skip, combat stalls and combat
+lights"). While its first read is in flight (1-3 frames), an emitter keeps its last colour, or gets no light that frame if
+it has none yet. The material's texture average (above) is still read synchronously, once per material.
+
 The light's colour is that product, normalised so its brightest channel is 1.
 
 **Intensity.** `intensityScale` (4) x strength. For comparison, the game's Fire light is 5. Strength = clamp(brightest channel x 4, 0, 1) x fill, where fill = 1 for sprites and 1 - e^(-count/4) for particles. Brightness rises at once and decays over a few frames, because particle counts jump.

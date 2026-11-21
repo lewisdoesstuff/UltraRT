@@ -337,7 +337,23 @@ void RayGenBody(bool full)
     float4 portalGlass = (inFlags & ULTRART_TRACE_PORTAL_GLASS) != 0u ? g_PortalGlass : float4(0, 0, 0, 1); // before any other TraceScene
 
     float3 c, lighting, albedo, emission;
-    if (p.t < 0.0)
+    [branch] if (p.t < 0.0 && path.hops > 0u && path.mirrorT < 0.0 && _UltraRTPortalOwn != 0)
+    {
+        // The sky seen through a portal or a mirror while the game's portal views are skipped (docs/portals.md, "Raster
+        // skip"): the game's pixel there is the empty portal composite, so the trace draws the sky. Written as an unlit
+        // emitter far behind the portal (albedo 0, emission = the sky in display units, like the game's sky pixel, no
+        // exposure), with the portal's distance in the instance word: every composite matches it on the portal plane
+        // like any surface behind a portal, and the denoisers carry it like a glowing wall.
+        c = SkyRadiance(ray.Direction);
+        lighting = 0;
+        albedo = 0;
+        emission = c;
+        _NormalDepth[id] = float4(-camDir, path.travelled + 4000.0);
+        _InstanceId[id] = int2((int)(0x7Fu | (min(f32tof16(max(path.firstT, 1e-3)), 0x7BFFu) << 16)), 0);
+        _Surface[id] = PackSurface(albedo, emission, 0u, 0u, 0.0);
+        _Reflection[id] = float4(0, 0, 0, -1);
+    }
+    else if (p.t < 0.0)
     {
         c = SkyRadiance(ray.Direction);
         lighting = ToLight(c); // lighting space; the composites convert back

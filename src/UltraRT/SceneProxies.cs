@@ -298,6 +298,7 @@ namespace UltraRT
             if (!SkipStaticBatches && batches.Count > 0) BuildStaticGroups(batches);
             if (!SkipStaticBatches && MergeStaticDynamic) BuildStaticDynamicGroups();
 
+            AddWarmHitGroups(); // one hidden instance per hit-group shader (SceneProxies.WarmHitGroups.cs)
             SyncDynamic(force: true);
             Rtas.Build();
             int dynamicRecords = _active.Sum(d => d.Flags.Count(f => f != RayTracingSubMeshFlags.Disabled));
@@ -1542,6 +1543,7 @@ namespace UltraRT
             Rtas = null;
             DisposeCutoutRtas();
             DisposePortals();
+            DisposeWarmHitGroups();
             RestorePlayerAnimatorCulling();
             foreach (var go in _proxyObjects) if (go != null) Object.Destroy(go);
             _proxyObjects.Clear();

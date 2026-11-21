@@ -230,6 +230,9 @@ void Prepare(uint3 id : SV_DispatchThreadID)
 // ---- Finish / ExposureInput
 Texture2D<float4> _RRColor;   // RR output (screen res)
 Texture2D<float>  _GameDepth; // the game's raw device depth (screen res)
+// 1 while the game's raster portal views are skipped (docs/portals.md, "Raster skip"): a through-portal sample also matches
+// a game pixel at or behind its portal plane (nothing of the game's stands in front of the opening there).
+int _UltraRTPortalOwn;
 RWTexture2D<float4> _Final;   // screen res: rgb displayed colour, a 1 = RT pixel
 // HDR bloom source (docs/vfx.md), screen res, linear light: what the tone curve compressed plus bright emission, as
 // Denoise.compute's Composite writes it for the other denoiser. A 1x1 dummy is bound when nobody wants it.
@@ -340,9 +343,22 @@ void Finish(uint3 id : SV_DispatchThreadID)
         {
             int ix = _InstanceId[k].x;
             uint pt = (uint)ix >> 16;
-            if (ix > 65535 && pt != 0u) hit = abs(f16tof32(pt) / rayLen - zg) <= tol; // portal plane (docs/portals.md)
+            if (ix > 65535 && pt != 0u)
+            {
+                float zp = f16tof32(pt) / rayLen;
+                hit = abs(zp - zg) <= tol || (_UltraRTPortalOwn != 0 && zg > zp - tol); // portal plane (docs/portals.md)
+            }
         }
         if (hit) { a = 1; kHit = k; break; }
+    }
+    // Raster skip (docs/portals.md, "Raster skip"): the game drew no view through the portal, so its depth there says
+    // nothing about what is behind the opening. The centre sample went through a portal and nothing of the 3x3 matched a
+    // surface of the game's (an occluder in the doorway is traced too and would have matched): take it.
+    if (a == 0.0 && _UltraRTPortalOwn != 0)
+    {
+        int2 k = clamp(kn, 0, tdim - 1);
+        int ix = _InstanceId[k].x;
+        if (ix > 65535 && ((uint)ix >> 16) != 0u && _NormalDepth[k].w >= 0.0) { a = 1; kHit = k; }
     }
     if (a == 0.0 && _Match.z > 0.0)
     {

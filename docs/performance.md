@@ -751,12 +751,99 @@ on, as it does with both off (`bench/results/20261121-201221_tmp-prs-diag_alt`: 
 the bridges vs 12.93 without, the same scene). The Wave 3 frame times above were measured without the composite draw;
 later tables use the fixed build.
 
+## 2026-11-21 portal raster skip, combat stalls and combat lights (branch `t3/portal-raster-skip-and-hitches`)
+
+Changes, all on by default:
+
+1. **Portal raster skip** (docs/portals.md section 17; `-ultrart-portal-raster-skip off`, bench `plugin._portalRasterSkip=0`):
+   the game's portal-camera renders are skipped while RT replaces the view. It comes on top of Wave 3's recursion trim.
+2. **Warm hit groups** (`SceneProxies.WarmHitGroups.cs`, bench `plugin._warmHitGroups=0`): one hidden mask-0 instance per
+   hit-group shader (Proxy, EffectProxy, LavaProxy, Portal) from the scene build on.
+   - Unity rebuilds every ray tracing pipeline when an instance with a shader the RTAS has not had yet comes in. That
+     happens once per process and RT shader, on the render thread.
+   - In 8-3 that was a ~250 ms frame two frames after the first effect proxy, and part of the 195-231 ms frame when the
+     False Starts room brings the level's first portal.
+3. **Effect-light texture averages without a GPU sync** (`EffectLights.ReadAverage`): sprite and animation-frame averages
+   now come from `AsyncGPUReadback`. Until a read arrives, the emitter keeps its last value, or skips the frame if it has
+   none.
+   - The old `Blit` + `ReadPixels` per new sprite or frame made the CPU wait for the GPU's queue: 4-7 ms per frame for
+     30+ frame runs whenever explosions or flames stepped through frames not seen yet.
+   - In 8-3 combat, 61 reads per 5 s now run async, and the effect step costs 24-46 us/frame.
+   - Per-material analysis (`Analyse`, once per material) and the beam hue stay synchronous: their result is cached for good.
+4. **Light classes on a power change** (`Plugin.LightClasses.cs`): a `PowerVersion` change now drops only the resolved
+   entries with a handover, not the whole table. The full re-resolve cost 3-7 ms per arena spawn in fights (187 ms once at
+   level start).
+
+### Result
+
+Exclusive `-Perf`, main, 2560x1440, trace scale 0.5, RTX 5070 Ti, one launch (suite order perf-1440p, perf-combat,
+perf-core, then the skip-off baseline; `bench/results/20261121-203500_*`), against Wave 3 (`20261121-185921_*`, `a994218`).
+
+Two caveats:
+- Wave 3's numbers were measured with the RT composite not drawn (the RayQuery bug above).
+- `off` itself ran 0.3-1.1 ms faster in this session than in Wave 3's, so differences in scenes without portals are partly
+  the session.
+
+The same-launch skip off / on rows are the clean A/B.
+
+| Scenario | Mode | Wave 3 ms (fps) | now ms (fps) | 1% low fps | p99 ms | worst ms | frames > 16.7 ms | GPU total ms | render thread `frame` ms |
+|---|---|---|---|---|---|---|---|---|---|
+| 0-1 metal (`perf-core`) | pathtrace | 8.24 (121) | 7.06 (142) | 101 | 8.3 | 16.3 | 0 | 5.96 | 5.02 |
+| 0-3 ghosts (`perf-core`) | pathtrace | 8.27 (121) | 7.37 (136) | 109 | 8.5 | 10.5 | 0 | 6.20 | 6.34 |
+| 0-2 run combat (`perf-core`) | pathtrace | 10.41 (96) | 9.24 (108) | 42 | 22.0 | 24.8 | 18 | 7.09 | 7.12 |
+| 1-4 lamps (`perf-1440p`) | pathtrace | 5.77 (173) | 5.26 (190) | 127 | 7.4 | 9.0 | 0 | 3.97 | 4.38 |
+| 6-2 start (`perf-1440p`) | pathtrace | 6.95 (144) | 6.37 (157) | 124 | 7.2 | 10.7 | 0 | 5.19 | 5.46 |
+| 0-5 lava (`perf-1440p`) | pathtrace | 7.10 (141) | 6.18 (162) | 131 | 7.2 | 8.8 | 0 | 4.90 | 5.22 |
+| 8-2 portal side 1, skip off | pathtrace | 12.21 (82) | 12.15 (82) | 53 | 13.1 | 30.6 | 1 | 6.35 | 10.54 |
+| 8-2 portal side 1 | pathtrace | 12.21 (82) | **9.87 (101)** | 66 | 14.8 | 15.8 | 0 | 6.37 | 8.18 |
+| 8-2 portal side 1 | relight | 14.37 (70) | **9.70 (103)** | 82 | 11.8 | 12.7 | 0 | 6.62 | 7.12 |
+| 8-2 portal side 1 | off | 5.98 (167) | 5.29 (189) | 129 | 7.6 | 7.9 | 0 | - | 3.73 |
+| 8-3 b, skip off | pathtrace | 12.84 (78) | 12.52 (80) | 38 | 20.0 | 33.1 | 2 | 5.71 | 10.74 |
+| 8-3 b | pathtrace | 12.84 (78) | **8.61 (116)** | 97 | 10.3 | 10.3 | 0 | 5.65 | 7.03 |
+| 8-3 b | relight | 15.03 (67) | **9.19 (109)** | 83 | 11.5 | 13.0 | 0 | 6.37 | 6.22 |
+| 8-3 b | off | 9.75 (103) | 8.67 (115) | 98 | 9.9 | 10.6 | 0 | - | 6.19 |
+| 8-3 combat, skip off (`tmp`) | pathtrace | 13.79 (72) | 13.33 (75) | 28 | 33.7 | 37.9 | 164 | 6.32 | 10.92 |
+| 8-3 combat (`perf-combat`) | pathtrace | 13.79 (72) | **11.46 (87)** | 29 | 32.1 | 40.7 | 122 | 6.38 | 9.20 |
+| 8-3 combat (`perf-combat`) | relight | 15.74 (64) | **12.36 (81)** | 28 | 33.1 | 45.0 | 133 | 6.77 | 8.64 |
+| 8-3 combat (`perf-combat`) | off | 8.28 (121) | 5.88 (170) | 39 | 22.4 | 34.5 | 70 | - | 3.31 |
+
+- **8-3 b pathtrace runs at vanilla's frame time** (8.61 ms against `off` 8.67). The skip saves 3.7-5.4 ms on the render
+  thread in 8-3 b and 2.4-5.1 ms in 8-2.
+- **0-1 metal in `perf-1440p`** (the first scenario after the warm-up) had one 29-35 ms frame and a 1 % low of 66 in both
+  modes. The same pose in `perf-core` is clean (101-114). Read it as a level-start leftover, not a regression.
+- **The 8-3 combat worst frame (40.7 against Wave 3's 275 ms) is not a like-for-like comparison.** Wave 3 ran `perf-combat`
+  second in its launch; here it ran after `perf-1440p`, whose 8-3 b scenario had already paid 8-3's once-per-process costs.
+  The fresh-launch measurements below are the ones to compare.
+
+### 8-3 combat stalls (fresh launches, alt, 8-3 combat recording, pathtrace)
+
+| Frame (s into the fight) | What happens | Before | Warm hit groups | Second pass in the same launch |
+|---|---|---|---|---|
+| 2.2-2.4 | False Starts room loads its random 1-1 piece (first portal of the level, mirrored Cerberus) | 195-231 ms | **63 ms** | 204 ms (before warming) |
+| 5.4 | Escher Entrance activates: +165 instances, the first mirror portal sides | 268-272 ms | 276 ms | none |
+| 5.75 | first effect proxy (a FireSprite, `UltraRT/EffectProxy`) | 249-250 ms | **none** | none |
+
+- The Escher stall is still open. It sits on the render thread (main thread `render` 243-268 ms, scripts 4-13 ms) and is
+  paid once per process. It does not come from the raster skip (250 ms with the skip off) or the PBR material maps (all
+  loaded at level start). Vanilla `off` peaks at 64 ms in the same fight.
+- The skip-off launch also had a 120 ms frame at 9.6 s that the skip-on launches did not.
+- Finding the Escher stall needs a GPU/ETW capture of that frame. The False Starts hitch at the start of 8-3 is known to
+  the user and was left (2026-11-21).
+
+**8-3 b allocations** (the brief's 70-82 KB/frame): `off` alone allocates 43 KB/frame there, the game's own. RT adds
+15-22 KB, with 0-1 gen-0 collections in a 4 s window, so it causes no stall. Not changed.
+
+**The viewmodel on the RayQuery bridge**: not done, see docs/viewmodel.md section 8.
+
 ## How these were measured (and traps)
 
 - Suites: `perf-1440p` (seven poses, relight + pathtrace interleaved, 8-2/8-3 with `off`), `perf-1440p-short`,
   `perf-8-3-diag`, `perf-dispatch-diag`, `perf-volpass`, `perf-visual`, `perf-volpass-visual`.
 - Builds compared in one hold: `build.ps1 -StageDir stage-x` per variant, then `deploy.ps1 -Stage stage-x` +
   `bench.ps1 -KeepOpen` per run. A bundle-only difference hot-reloads; a DLL difference relaunches.
+- **Once-per-process stalls follow the suite order** (2026-11-21): RT pipeline builds and the 8-3 Escher activation cost
+  ~250 ms only the first time in a launch. A suite that runs after another 8-3 scenario looks stall-free. Compare worst
+  frames only between runs with the same order, or use a fresh launch per variant.
 - **Don't build during your own perf run.** A dotnet build during one run raised every frame time 1-3 ms, `off` included
   (GPU slots unaffected).
 - **Warm up after a new bundle.** The first run after a launch with a new bundle had frame times 0.3-2 ms off (the driver

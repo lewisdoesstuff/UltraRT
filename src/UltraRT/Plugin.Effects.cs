@@ -126,8 +126,11 @@ namespace UltraRT
             bool fx = _effectSettings.spawnedLights || _effectSettings.virtualLights || _effectSettings.flicker;
             bool combat = _effectSettings.beamLights > 0f || _effectSettings.parryLight > 0f || _effectSettings.lightningFlash > 0f;
             if (!fx && !combat) return;
+            long t = Perf.Now;
             _effectLights.ProcessSpawns(_effectSurvey); // spawned since OnUpdate (coroutines, LateUpdate): no frame of delay
+            GlMark(10, ref t);
             if (fx) _lightCount = _effectLights.Append(_proxies, _activeLights, _activeLightsVersion, _lightData, _lightMasks, _packedLights, _lightIds, _lightCount, MaxLights, _camera.transform.position);
+            GlMark(11, ref t); // the rest of "effect" is the combat lights
             if (combat && _combatLights != null)
                 _lightCount = _combatLights.Append(_lightData, _lightMasks, _packedLights, _lightIds, _lightMedium, _lightCount, MaxLights, CombatLightReserve, _camera.transform.position);
         }
