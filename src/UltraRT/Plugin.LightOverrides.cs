@@ -206,10 +206,17 @@ namespace UltraRT
             float range = Mathf.Max(a.Range ?? 10f, 0.05f);
             var col = a.Color != null && a.Color.Length >= 3 ? new Vector3(a.Color[0], a.Color[1], a.Color[2]) : Vector3.one;
             col *= a.Intensity ?? 1f;
-            _lightData[i] = new Vector4(p.x, p.y, p.z, range);
             _lightData[i + 1] = new Vector4(col.x, col.y, col.z, 0f);
-            if (string.Equals(a.Kind, "spot", System.StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(a.Kind, "directional", System.StringComparison.OrdinalIgnoreCase))
             {
+                var d = LightOverrides.Vec(a.Normal, new Vector3(0.4f, -0.5f, 0.75f)).normalized;
+                _lightData[i] = new Vector4(-d.x, -d.y, -d.z, 0f);
+                _lightData[i + 2] = new Vector4(d.x, d.y, d.z, 0f);
+                _lightData[i + 3] = new Vector4(-1f, 1f, a.Shadows == false ? 0.75f : 0f, 0f);
+            }
+            else if (string.Equals(a.Kind, "spot", System.StringComparison.OrdinalIgnoreCase))
+            {
+                _lightData[i] = new Vector4(p.x, p.y, p.z, range);
                 var d = LightOverrides.Vec(a.Normal, Vector3.down).normalized;
                 _lightData[i + 2] = new Vector4(d.x, d.y, d.z, 0f);
                 var s3 = new Vector4(0f, 0f, a.Shadows == false ? 0.75f : 0f, 0f);
@@ -218,15 +225,17 @@ namespace UltraRT
             }
             else
             {
-            int shape = Mathf.Max(LightOverrides.ShapeCode(a.Shape), 1);
-            var n = LightOverrides.Vec(a.Normal, Vector3.down);
-            var t = LightOverrides.Vec(a.Tangent, LightOverrides.DefaultTangent(n.normalized));
-            float sx = a.Size != null && a.Size.Length > 0 ? a.Size[0] : 0.5f;
-            float sy = a.Size != null && a.Size.Length > 1 ? a.Size[1] : sx;
-            LightOverrides.PackArea(shape, n, t, 0.5f * sx, 0.5f * sy, a.Shadows == false ? 0.75f : 0f, 0f, out var l2, out var l3);
-            _lightData[i + 2] = l2;
-            _lightData[i + 3] = l3;
+                _lightData[i] = new Vector4(p.x, p.y, p.z, range);
+                int shape = Mathf.Max(LightOverrides.ShapeCode(a.Shape), 1);
+                var n = LightOverrides.Vec(a.Normal, Vector3.down);
+                var t = LightOverrides.Vec(a.Tangent, LightOverrides.DefaultTangent(n.normalized));
+                float sx = a.Size != null && a.Size.Length > 0 ? a.Size[0] : 0.5f;
+                float sy = a.Size != null && a.Size.Length > 1 ? a.Size[1] : sx;
+                LightOverrides.PackArea(shape, n, t, 0.5f * sx, 0.5f * sy, a.Shadows == false ? 0.75f : 0f, 0f, out var l2, out var l3);
+                _lightData[i + 2] = l2;
+                _lightData[i + 3] = l3;
             }
+            if (a.Medium.HasValue) _lightMedium[k] = Mathf.Max(0f, a.Medium.Value);
             uint mask = 0xFFFFFFFFu;
             if (!string.IsNullOrEmpty(a.Mask)) uint.TryParse(a.Mask, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out mask);
             _lightMasks[k] = mask;
@@ -366,6 +375,7 @@ namespace UltraRT
             if (_lightOv != null)
                 foreach (var a in _lightOv.Added)
                 {
+                    if (string.Equals(a.Kind, "directional", System.StringComparison.OrdinalIgnoreCase)) { list.Add((new EditTarget { Added = a }, 1e6f)); continue; }
                     float d = Vector3.Distance(a.Position, eye);
                     if (d <= 80f) list.Add((new EditTarget { Added = a }, d));
                 }
@@ -681,7 +691,7 @@ namespace UltraRT
                     foreach (var (t, d) in EditCandidates())
                     {
                         if (d > 40f || SameTarget(t, _editSel)) continue;
-                        if (!t.IsAdded && t.Light.type == LightType.Directional) continue;
+                        if (t.IsAdded ? string.Equals(t.Added.Kind, "directional", System.StringComparison.OrdinalIgnoreCase) : t.Light.type == LightType.Directional) continue;
                         var p = TargetPosition(t);
                         if (!Project(p, out var sp)) continue;
                         var rs = t.IsAdded ? null : ResolvedFor(t.Light);
@@ -738,7 +748,7 @@ namespace UltraRT
                     }
                 }
             }
-            if (!t.IsAdded && t.Light.type == LightType.Directional) return;
+            if (t.IsAdded ? string.Equals(t.Added.Kind, "directional", System.StringComparison.OrdinalIgnoreCase) : t.Light.type == LightType.Directional) return;
             tan = (tan - n * Vector3.Dot(tan, n)).normalized;
             if (tan.sqrMagnitude < 0.5f) tan = LightOverrides.DefaultTangent(n);
             var bt = Vector3.Cross(n, tan);

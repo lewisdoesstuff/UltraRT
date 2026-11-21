@@ -1002,3 +1002,23 @@ beside the default):
   the transmitted light. Where no shade is near, +0.02-0.09 ms.
 - The rest (+0.07-0.12 ms at pose 2) is 8-1's dome lamps becoming hybrids: their discs join the emissive table next to
   the 0.35 share of light that stays (docs/lighting-overrides.md, "Baked fixture parts").
+
+## 18. Level 7-4 Earthmover materials (2026-11-21, `t3/7-4-lighting-emissives`)
+
+Level 7-4 had no ray tracing until commit `2513832` (far plane 5,000,000 m), so its custom materials (`M_Centaur*`,
+`Cent_*`, `Centaur*`) had never been audited and fell back to `MetalStumpy` (roughness 0.4, metalness 0.6), making the
+colossus hull, Back city walkways, and Brain chamber metal look matte under the crimson sky. Targeted rules at the end
+of `src/UltraRT/ultrart-materials.json` cover 7-4's exclusive materials without touching shared global materials
+(`Flesh2`, `Minced2`):
+
+- **Hull & superstructure** (`M_Centaur*`, `Cent_Panel*`, `Cent_VerticalMetal`, `Cent_Door`, `Cent_Beams`,
+  `Cent_Duct`, `Cent_Hatch`, `M_Cent_PipeGreeble`): semi-gloss metallic steel (roughness 0.25-0.32, metalness
+  0.78-0.85, specWeight 1) so crimson sky, golden Back-city windows, and Brain neon reflect crisply across plates
+  and girders.
+- **Walkway floors & grates** (`Cent_MetalFloor`, `Cent_MetalTile`, `Cent_GrateFloor`): specular metal (roughness
+  0.22-0.24, metalness 0.82-0.85, specWeight 1) for clear colored bounce and floor reflections in Back city, Front walkway, and Brain.
+- **Windows & light housings** (`Cent_Window`, `Cent_WindowLit`, `Cent_SmallLights`): glossy glass/housings (roughness
+  0.14-0.18, specWeight 1).
+- **Flesh interior** (`CentaurMeat`, `CentaurBrainMeat`): glossy wet crimson flesh (`class: Flesh`, roughness 0.22, f0
+  0.04, specWeight 0.85) catching specular highlights from the electric-cyan overhead shaft and crimson belly lights.
+- **Printed sign** (`Cent_HotPipeSign`): `"detail": 0` to keep text crisp without embossed normal noise.

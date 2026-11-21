@@ -78,9 +78,12 @@ nearest one if several: ULTRAKILL reuses names like `Point Light`); otherwise an
 Checkpoints clone whole rooms in place and rooms are switched on later, so path + original position survives both. A
 light first seen while moving (a platform) keys on where it was then.
 
-**Added lights** are appended after the scene lights (and before the effect lights) as area lights, or as spots with
-`"kind": "spot"` (`normal` = where it points, `angle` = full cone, default 30; 2026-11-19). `bind` names a
-renderer by normalised path: the light is on only while that renderer is drawn (an emissive screen, a room that toggles).
+**Added lights** are appended after the scene lights (and before the effect lights) as area lights, as spots with
+`"kind": "spot"` (`normal` = where it points, `angle` = full cone, default 30; 2026-11-19), or as directional lights
+with `"kind": "directional"` (`normal` = direction the light travels, `pos` optional; 2026-11-21). An optional
+`"medium"` multiplier scales the light's scattering in volumetrics (including directional suns via `sunColor *
+_lightMedium[sun]`, default 1). `bind` names a renderer by normalised path: the light is on only while that renderer is
+drawn (an emissive screen, a room that toggles).
 
 **Level exposure** (`"exposure": { "rtBrightness": F, "note": ".." }`, 2026-11-17): the level's own RT brightness
 (docs/relight.md, "Follow the game"). The level is shown at least that bright, whatever the user's "RT brightness"
@@ -1015,6 +1018,77 @@ channel at 254 or more.
 **Open**
 - 4-4's colour in HDR is the display transform's (`04094f7`, `t3/hdr-clipping-fix`, not in this branch's base 1926eef).
 - 7-1 has no sun shadows now (the game has none either).
+
+## Level 7-4 ("...LIKE ANTENNAS TO HEAVEN") lighting, emissives, and atmosphere pass (2026-11-21, `t3/7-4-lighting-emissives`)
+
+Level 7-4 had zero ray tracing until commit `2513832` (its 5,000,000 m camera far plane turned every camera ray into
+NaN), so it had no `data/lights/Level 7-4.json` and no material/emissive audit. Baseline diagnostics
+(`20261121-022825_tmp-7-4-diag_alt`: 474 lights, 17 emitters, 204 proxy materials) found six causes of its flat
+look vs stock:
+
+1. **No active directional sun.** All 3 directional lights in 7-4 are disabled under `EditorLightsFiller/EditorLights/`,
+   so `Volumetrics` logged `sun none` and only the omnidirectional crimson `redsky` dome lit the exterior hull, Back
+   city, and legs.
+2. **Oversized spotlights starved volumetrics.** `Environment/KillZone/DesertSand/Point Light` (4,800 m white spot,
+   classed `accent` x2.5) took 38-61 % of volumetric light importance across every stop (including inside the Brain and
+   Belly); `Head/Spot Light (1)` (900 m) took another 20-29 %.
+3. **Unscaled emissive surfaces.** `Cent_WindowLit` (8,213 m^2 of Back city glowing windows, lum 0.487) and
+   `Cent_SmallLights` (4,047 m^2 of hull/interior/Brain conduits, lum 0.205) sat at scale 1.0, casting little light or
+   reflection onto the dark streets.
+4. **Brain chamber washout & missing barrier/grate lights.** `Hide When Outside/Shop (1)` missed `_rules.json`'s `Shop/`
+   rule and blasted white light (I=15 + I=2) right behind the Brain checkpoint alongside `JumpPadSteam Variant (2)`
+   (I=10 white). The giant hot-pink laser barrier (`BeamsGroup (3)/Centaur Brain Beam Obstacle`) is drawn by five
+   `LineRenderer`s (absent from the emissive triangle table), and `LightShafts` hid `NeckPipesGlow` while pairing it
+   with `Point Light (35)` 60 m lower down the neck.
+5. **Back city duplicate lights.** `Hide When Inside/City Lights/` duplicates `AlwaysActive/Visual/City Lights/` at
+   identical coordinates and both ran simultaneously.
+6. **Matte hull fallback.** All `M_Centaur*` and `Cent_*` steel materials fell back to `MetalStumpy` (r=0.4, m=0.6);
+   dedicated 7-4 rules in `src/UltraRT/ultrart-materials.json` (docs/materials.md section 16) give crisp semi-gloss
+   steel, glossy windows, and wet crimson flesh (`CentaurMeat`, `CentaurBrainMeat`).
+
+**Changes (`data/lights/Level 7-4.json`, `LightOverrides.cs`, `Plugin.LightOverrides.cs`, `Plugin.Volumetrics.cs`):**
+
+- Added `"kind": "directional"` and optional `"medium"` support on added lights, and multiplied volumetric `sunColor`
+  by `_lightMedium[sun]` (default 1, unchanged for all other levels).
+- Added **`earthmover-horizon-rim`** (`kind: "directional"`, `normal: [0.55, -0.38, 0.74]`, `color: [1.0, 0.28, 0.08]`,
+  `intensity: 0.58`, `shadows: true`, `medium: 0.12`): carves crimson-amber RT shadows and metallic rim specular across
+  the Front hull, Back city, and Leg while `medium: 0.12` prevents orange haze washout and RT shadows keep sealed
+  interiors untouched. (Pass 1 tried `intensity: 1.15, medium: 1.0`, which lifted dark silhouettes by +14 to +23 luma.)
+- Scaled emitters: `Cent_WindowLit` x1.8 (Pass 1 x6.0 flooded Back city to luma 74-77 and dark +42/+57),
+  `Cent_SmallLights` x2.2, `DefenceCore` x3.0, `DawgControls` / `BunkerDoor2?` x2.5, `CheckPointPlatform 1` x2.2,
+  `JumpPadOn` glow 2.0, `Basic Color - Pink Unlit` glow 1.8.
+- Light rules: dropped `desert killzone spot` (`medium: 0`, x1) and `earthmover head searchlight` (`medium: 0.1`);
+  disabled duplicate `Hide When Inside/City Lights/`; boosted Back city blue `CentaurSpotlight` shafts (x1.8, `reach`
+  0.75, `medium` 3.5) and capped warm street pools (x0.9, `reach` 0); toned down `Intro/Point Light` (x0.42) and
+  `FinalDoor/OpenedLight` (x0.5) for moody checkered-hall shadows; fixed `Brain Shop (1)` (`prefab:shop` x0.2) and
+  `JumpPadSteam Variant` (x0.3, cool cyan tint); tuned Brain cyan/hot-pink/neck lights, Flesh Interior electric-cyan
+  overhead shaft (`Point Light (32)` x1.3, `medium` 3.2) and crimson belly lights (x1.08, `medium` 1.8), Front walkway
+  lamps (x1.08, `medium` 1.6), and Leg/Vent lights (x1.3, `medium` 1.8).
+- Added bound area lights in Brain: **`brain-laser-barrier-front`** and **`-back`** (hot-pink `[1.0, 0.04, 0.48]`,
+  `intensity: 1.65`, `size: [9, 3.2]`, `range: 16`, `medium: 2.0`, bound to `Centaur Brain Beam Obstacle`) and
+  **`brain-ceiling-grate-amber`** (bound to `NeckPlatforming`).
+
+**Measured SDR (`2560x1440`, RTX 5070 Ti, `-ultrart-hdr off`, `20261121-022825_tmp-7-4-diag_alt` before ->
+`20261121-024705_tmp-7-4-pass1_alt` after; sheets `bench/results/review/7-4-lighting-emissives/`):**
+
+- 13-view pathtrace medians (`tools/lights/punch.py`): `hi%` 2.7 -> 3.6 % (game 2.7 %), `p95` x1.00 -> x1.05,
+  `sat` x0.98 -> x0.98, `chroma` x1.01 -> x1.06, `dark delta` +5.1 -> +6.9 (relight: `hi%` 3.6 %, `p95` x1.07,
+  `chroma` x1.09, `dark delta` +7.4).
+- Key view shifts (mean luma / p95 / chroma, pathtrace): First Room v0 43.4/60/19.6 -> 35.8/52/18.9 (game 23.4); Back v0
+  32.1/76/36.6 -> 36.7/86/40.1; Back v1 34.9/178/36.2 -> 40.2/177/37.5; Brain v0 86.8/157/97.5 -> 90.5/152/103.4; Brain
+  v1 69.8/210/73.1 -> 82.8/210/89.8; Front v0 73.8/183/73.6 -> 80.5/183/79.3; Interior v0 34.6/113/66.0 ->
+  42.8/140/75.9; Interior v1 28.9/98/45.1 -> 36.0/133/50.8; Leg v0 13.6/54/35.3 -> 15.6/54/37.9; Leg v1 19.7/54/41.6 ->
+  25.1/59/45.9.
+- GPU cost (`7-4 spawn`, 1440p, trace scale 0.5): pathtrace 5.85 ms GPU (147 fps, 0 GC), relight 5.94 ms GPU (145 fps,
+  0 GC) — neutral vs baseline (7.44 / 7.21 ms in visual runs).
+- **HDR10 verification** (`20261121-025215_tmp-7-4-hdr_alt`, `-ultrart-hdr-paperwhite 0 -ultrart-hdr-capture raw
+  -monitor 1`, 2560x1440 native float HDR10, paper white 380 nits, peak 1170 nits; sheet
+  `bench/results/review/7-4-lighting-emissives/7-4-hdr10-check.png`): clean highlights and zero washout across all 12
+  tour views (masking HUD/boss bar, clipped >=254 pixels: First Room 0.31 % / 3.01 % vs game 0.56 % / 3.45 %, Back
+  1.55 % / 5.53 % vs 0.88 % / 1.17 %, Brain 2.05 % / 6.68 % vs 30.74 % / 6.97 %, Front 2.17 % / 0.30 % vs 2.41 % /
+  0.58 %, Interior 2.17 % / 1.60 % vs 0.75 % / 0.73 %, Leg 0.00 % / 0.30 % vs 0.56 % / 0.58 %). Note: `Tour`
+  screenshots do not call `HdrCapture` (`.hdr10.bin`), so the sheet compares the HDR10-active native-float path's
+  captured PNGs against stock `off`.
 
 ## Playtest of 2026-11-18: level look and stray lights (`t3/level-look-3`)
 

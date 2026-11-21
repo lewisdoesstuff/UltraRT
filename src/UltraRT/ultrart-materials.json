@@ -93,6 +93,32 @@
     { "material": "Jericho", "lit": 0.6 },
     { "material": "CabalCrow", "lit": 0.6 },
     { "material": "Florp", "lit": 0.6 },
-    { "material": "Presentation", "lit": 0.6 }
+    { "material": "Presentation", "lit": 0.6 },
+
+    { "material": "M_CentaurBody", "roughness": 0.28, "metalness": 0.82, "specWeight": 1, "note": "7-4 Earthmover: colossal brushed steel hull, legs, shoulders, pads, neck (tagged MetalStumpy r=0.4 m=0.6; crisper metallic finish catches the crimson sky and horizon rim light)" },
+    { "material": "M_CentaurBackLeg", "roughness": 0.28, "metalness": 0.82, "specWeight": 1 },
+    { "material": "M_CentaurFLLeg", "roughness": 0.28, "metalness": 0.82, "specWeight": 1 },
+    { "material": "M_CentaurFRLEg", "roughness": 0.28, "metalness": 0.82, "specWeight": 1 },
+    { "material": "M_CentaurHeadNeck", "roughness": 0.28, "metalness": 0.82, "specWeight": 1 },
+    { "material": "M_CentaurMisc", "roughness": 0.28, "metalness": 0.82, "specWeight": 1 },
+    { "material": "M_CentaurPads*", "roughness": 0.28, "metalness": 0.82, "specWeight": 1 },
+    { "material": "M_CentaurShoulder", "roughness": 0.28, "metalness": 0.82, "specWeight": 1 },
+    { "material": "M_CentaurDestroyedShoulder", "roughness": 0.32, "metalness": 0.78, "specWeight": 1 },
+    { "material": "Cent_MetalFloor", "roughness": 0.22, "metalness": 0.85, "specWeight": 1, "note": "7-4 Earthmover: steel deck walkways and Brain chamber floors catch Back city yellow windows and Brain cyan/magenta lights" },
+    { "material": "Cent_MetalTile", "roughness": 0.24, "metalness": 0.82, "specWeight": 1 },
+    { "material": "Cent_Panel*", "roughness": 0.28, "metalness": 0.78, "specWeight": 1 },
+    { "material": "Cent_VerticalMetal", "roughness": 0.28, "metalness": 0.78, "specWeight": 1 },
+    { "material": "Cent_Door", "roughness": 0.26, "metalness": 0.80, "specWeight": 1 },
+    { "material": "Cent_GrateFloor", "roughness": 0.24, "metalness": 0.85, "specWeight": 1 },
+    { "material": "Cent_Beams", "roughness": 0.25, "metalness": 0.85, "specWeight": 1 },
+    { "material": "Cent_Duct", "roughness": 0.26, "metalness": 0.82, "specWeight": 1 },
+    { "material": "Cent_Hatch", "roughness": 0.28, "metalness": 0.82, "specWeight": 1 },
+    { "material": "M_Cent_PipeGreeble", "roughness": 0.25, "metalness": 0.85, "specWeight": 1 },
+    { "material": "Cent_Window", "roughness": 0.14, "metalness": 0.35, "f0": 0.06, "specWeight": 1, "note": "7-4 Earthmover: dark building windows and light housings with glossy glass specular" },
+    { "material": "Cent_WindowLit", "roughness": 0.14, "metalness": 0.35, "f0": 0.06, "specWeight": 1 },
+    { "material": "Cent_SmallLights", "roughness": 0.18, "metalness": 0.50, "f0": 0.05, "specWeight": 1 },
+    { "material": "CentaurMeat", "class": "Flesh", "roughness": 0.22, "metalness": 0, "f0": 0.04, "specWeight": 0.85, "note": "7-4 Earthmover: glossy wet crimson flesh and brain tissue" },
+    { "material": "CentaurBrainMeat", "class": "Flesh", "roughness": 0.22, "metalness": 0, "f0": 0.04, "specWeight": 0.85 },
+    { "material": "Cent_HotPipeSign", "detail": 0, "note": "7-4 Earthmover: printed warning sign (avoid PBRify embossing on letters)" }
   ]
 }
