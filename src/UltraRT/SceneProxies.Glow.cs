@@ -11,8 +11,9 @@ namespace UltraRT
     /// threshold (the mask); the proxy then lights the scene like any emissive surface (bounces and the emissive
     /// triangle table), and the fake light the game put next to it can go.
     ///
-    /// Only plain proxy materials: not the baked level atlas (its materials are whole-level atlases, a name cannot
-    /// pick a fixture out of them), not transparents, not the player. Per-renderer variants made before a rule change
+    /// Plain proxy materials, and atlas slots of a fixture part (the baked level atlas is one material for the whole level,
+    /// so such slots get a variant of their own named after the original: SceneProxies.AtlasVariant, 2026-11-21); not
+    /// transparents, not the player. Per-renderer variants made before a rule change
     /// keep their old mask until they are rebuilt (bench variants only: rules load before a level's proxies).
     /// </summary>
     internal sealed partial class SceneProxies
@@ -54,6 +55,9 @@ namespace UltraRT
         {
             foreach (var kv in _materialCache)
                 if (kv.Key != null && kv.Value != null && !_atlasProxies.Contains(kv.Value)) ApplyEmitterGlow(kv.Key, kv.Value);
+            // Atlas slots of a fixture part (AtlasVariant): their variant follows the original material's rule.
+            foreach (var kv in _atlasPartOriginals)
+                if (kv.Key != null && kv.Value != null) ApplyEmitterGlow(kv.Value, kv.Key);
         }
     }
 }

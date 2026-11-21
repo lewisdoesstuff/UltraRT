@@ -1317,6 +1317,55 @@ Sheets: `bench/results/review/emissive-all/handover-<level>.png` (game, lights, 
 **HDR.** A forced part is not emissive for the camera, so the HDR gain map (docs/hdr.md) does not see it as a highlight;
 parts the game marks emissive are unchanged.
 
+### Baked fixture parts (2026-11-21, `t3/8-1-lampshades-banners-fixtures`)
+
+The user's 8-1 playtest of 2026-11-20, pose 1: "these light fixtures don't glow as i'd expect them to". The ceiling domes
+(`FerryLamp*/Dome`: a transparent faceted `Glass` dome over a white disc, `Inner`, material `Basic Color - White NoFog`)
+are the 'dome lamps' rule's fixtures, but 50 of the 51 dome lights in 8-1 logged `handover: no part`. The disc is baked
+into the StaticSceneOptimizer level atlas: at run time its renderer shows `Batch Material Environment`, so neither the
+handover's part search (renderer materials by name) nor an emitter rule could find it ("Parts baked into the level atlas
+cannot be named by material", above). In RT the disc stayed the fullbright white it is in the game while the x2.5
+punched point light lit the walls around it: the frame was 2 EV over the game, auto exposure pulled it down, and the disc
+came out no brighter than the wallpaper next to it (disc 234/206/169, game 247/222/185; wall luma ~170, game ~50).
+
+What changed:
+- **An atlas variant per part.** `SceneProxies.AtlasVariant` gives a slot its own variant of the atlas proxy material,
+  named `... / part <original>`, when its original material is a handover part of an active rule or has an emitter
+  rule's `glow` (`AtlasPartWanted`, `LightClasses.IsHandoverPart`). Slots of other materials keep the shared variants.
+- **Handover**: `HandoverParts` also reads an atlas-baked renderer's original materials (`OriginalMaterials`), and such a
+  part is located like a static-batch part, by its world bounds (`_handBaked`, keyed by the part's name;
+  `PartNameOf` maps the variant back to it).
+- **Emissive table**: atlas materials stay out of it, except a part variant (`EmissiveLights.IsAtlasPart`); its emission
+  is taken as uniform over the slot (the atlas texture is addressed through TEXCOORD1 rects, so uv0 can't sample it), and
+  `ApplyPower` sets the amount from the light, as for any baked part.
+- **Glow** (`SceneProxies.Glow.cs`): an emitter rule's `glow` now reaches those variants (by the original material) and
+  follows rule changes (`SyncEmitterGlow`), so the camera, reflections and bloom see the disc as a light.
+
+The global 'dome lamps' rule (`_rules.json`) is now a hybrid, and `data/lights/Level 8-1.json` (new) adds the glow:
+
+```json
+"rules":    [ { "name": "dome lamps", "path": "Dome[^/]*(/[^/]*){0,2}$", "signals": ["!scripted"], "class": "fixture:lamp",
+                "handover": { "part": "^(Basic Color - White NoFog|LightPillar 1 NoCull)$", "keep": 0.35, "keepMedium": 0.4, "gain": 0.65 } } ],
+"emitters": [ { "name": "dome lamp discs", "material": "^Basic Color - White NoFog$", "glow": 4 } ]   // Level 8-1.json
+```
+
+48 of the 51 dome lights are handed over now (3 have no disc). A full handover (the global rule as it was) made the disc
+glow, but the wooden ceiling around each dome went black and the hallway read under the game (pose 1 screen luma 38, game
+44, the old fake light 94; `bench/results/20261121-014208_tmp-81`): the disc faces down, while the game's light (and a
+real frosted dome) also lights the ceiling. So the rule is a hybrid: 0.35 of the light stays, the disc carries 0.65 of
+its output (`gain`), the same total. Pose 1, frame mean linear lighting (game match, log2 over the near pixels):
+0.555 before (RT -0.88, game -2.43: the punched fake light 1.5 EV over the game) -> 0.221 (RT -2.21), the ceiling lit, the
+disc glowing with a bloom halo. Poses 3, 4, 5 (the lobby, the Fountain Room, the long hallway) are unchanged within
+0.001. Glow 4 and 8 look the same (the disc clips to white either way). Runs (2560x1440, SDR): `20261121-012408_tmp-81_alt`
+(before), `-014902_tmp-81_alt` (hybrid without the gain, as a proposal), `-022336_tmp-81_alt` and `-022822_tmp-81b` (as
+shipped). Screen luma is not comparable across these runs: the later ones hold a different, bright weapon. Review sheets
+`bench/results/review/8-1-fixes/8-1_pose_1_dome.jpg`, `8-1_pose_1_dome_crop.jpg` (local).
+
+Other levels with the same domes (5-3, 8-2, 8-3, 8-4) get the atlas part variants too (the global rule names the part):
+their baked domes are now handed over as the same hybrid, without the glow (the glow rule is 8-1's, because `Basic
+Color - White NoFog` may be a plain white surface elsewhere). Their domes that were not baked (handed over in full until
+now) are hybrids too. Not checked in a screenshot in those levels.
+
 ## Area lights (shader)
 
 Area lights keep the 4 x float4 per-light layout, so no buffer, UAV or payload changed (still 8 UAVs in PathTrace, 64-byte

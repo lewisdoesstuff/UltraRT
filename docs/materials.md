@@ -909,3 +909,96 @@ That A/B switched the strength at run time, so it could not see a compile-time c
 0.05-0.10 ms of relight dispatch in scenes with no flesh at all (0-1, 0-3, 6-2; 2026-11-20, [performance.md](performance.md),
 "2026-11-20 batch"), from the state it keeps live through the light-sampling loop. Since then that state is the wrap
 and the view only (the tint and rim come from `_UltraRTFleshSss` where used); most of the cost remains.
+
+## 16. Translucent shades (2026-11-21, `t3/8-1-lampshades-banners-fixtures`)
+
+The user's 8-1 playtest of 2026-11-20 (pose 2, the standing lamp in the green bedroom): "should these lamp shades be
+slightly translucent?". In RT the shade was an opaque cylinder: dark from outside while its own bulb burned inside it,
+and on the wallpaper behind it a razor-sharp black band between the bright cones that leave through its top and bottom.
+
+**The game says so.** `StandingLampShade` (`ULTRAKILL/Master`, `_CullMode` 0) is the one material in 8-1 with Master's
+`TRANSMISSION` keyword (`-ultrart-viewprobe`; `_TransmissionColor` is white on every material, the keyword is what
+differs). So the keyword is the switch, no rule or name list: any material that has it is a thin translucent sheet.
+
+**What it does** (`SceneProxies.Glass.cs` `ApplyTransmit` / `SourceTranslucent`, `Proxy.shader`, `UltraRTLights.hlsl`
+"thin translucent surfaces", `PathTrace.raytrace`):
+- The proxy material gets `_Translucent` 1; the closest hit sets payload flag bit 15 (`ULTRART_FLAG_TRANSLUCENT`). That
+  bit was free: the byte above bit 8 is the instance id's low byte, which only carries the game layer (0-31), so
+  `PayloadLayer` now masks it to 7 bits.
+- **The shade glows from inside**: around the primary hit's direct light (`TranslucentBegin` / `TranslucentEnd`, beside the
+  flesh scatter's), a light *behind* the sheet lights it with `translucency x |n.L|` (diffuse transmission; the albedo
+  the lighting is multiplied by tints it cream). Its shadow ray starts on the sheet's back side (`VisibleRaw` flips the
+  2 cm offset when the ray leaves through the back), so the bulb inside the shade lights the shade's outside, and the
+  shade goes dark when its lamp is off. Lambert in front is unchanged; RIS sees the transmitted term in its target, so
+  candidates aren't wasted. Unshadowed fill lights keep `n.L > 0` (they would shine through walls). Bounce, reflection,
+  cache and particle evaluations are untouched.
+- **A soft shadow on the wall**: the sheet also transmits in shadow rays, through the stained-glass any-hit (section 12):
+  transmittance = albedo^2.2 x `_Transmit` x glass gain x `translucentShadow`. A sheet without a `"transmit"` rule gets
+  `_Transmit` 1, so the share is the runtime setting. The band between the cones on the wallpaper is a dim, soft
+  shadow of the shade instead of a black cut-out; the cones keep their shape.
+
+| Flag | Default | |
+|---|---|---|
+| `-ultrart-translucency F`, bench `mat.translucency=F` | 0.04 | share of the back light that comes through (0 = off), shader-side |
+| `-ultrart-translucent-shadow F`, bench `mat.translucentShadow=F` | 0.06 | the sheet's factor in shadow rays (0 = opaque), shader-side |
+
+**Tuning (alt, 2560x1440, SDR, pose 2).** The first defaults (0.5 / 0.35, read as "~30 % through the fabric") flooded
+the wall: the standing lamp's bulb is a handed-over emitter carrying the lamp's whole punched output (x2.5) from a few
+centimetres inside the shade, so even a 20 % leak sideways out-lit the room and blew the wallpaper to white. Run
+`bench/results/20261121-020543_tmp-81_alt` (translucency 0.03 / 0.06 / 0.1, shadow 0.04 / 0.06 / 0.08): the shade
+reads cream at all of them (near white at its middle, as a lit fabric shade does), the band between the cones is about
+0.3 of the cone in display luma (70 against 239 at 0.04; 78 at 0.08), soft, with the shade's outline still readable.
+0.04 / 0.06 chosen. Frame mean linear lighting 0.358 before -> 0.385 after (`20261121-012408_tmp-81_alt` against
+`-022336_tmp-81_alt`, exposure x1 in both): the shade's own glow and the band, nothing else. **The standing lamp's cones
+clip** in both (luma 239 where the game has 83 at the wall above the shade): that is the handed-over lamp's strength, not
+the shade, and is not changed here. (One run, `20261121-012721_tmp-81_alt`, logged this pose at mean 1.83 with auto
+exposure at -2 EV; the runs before and after it did not reproduce that.)
+
+The red lobby's table lamps (pose 3) are a different fixture: `DeskLampShade` is emissive in the game (no
+`TRANSMISSION`), handed over by 'hotel desk lamps' already, and the near ones are unlit shades in the game too. The far
+standing lamp in that view is a `StandingLampShade` and now glows as it does in the game (it was a grey cone).
+
+Cost: see "GPU cost of sections 16 and 17" below.
+
+## 17. Shading normals at grazing angles (2026-11-21, `t3/8-1-lampshades-banners-fixtures`)
+
+The same playtest, 8-1 pose 4 (the Fountain Room): "the shadowing on these banner things seems strange ... they seem to
+shift as you walk around". The hanging banners (`HotelWallFlagTall`, `Curtain_Middle`, one-sided `_CullMode` 2, static
+batch) and the arch drapes are curved low-poly meshes with smoothed normals. The hit shader flipped the shading normal
+to face the ray by the *interpolated* normal: `if (dot(n, ray) > 0) n = -n`. Where a front-facing triangle's smoothed
+normal tilts past the view direction (the bulge of the cloth seen from below), that mirrored the normal to the far side:
+the pixel was lit by the lights behind the banner and its shadow rays started 2 cm behind the cloth. Dark curved blotches
+whose outline depends only on the view direction, so they slid across the cloth as the player moved.
+
+**Fix** (`Proxy.shader` ClosestHit): the side comes from the triangle's own face normal (oriented to the vertex normal's
+side, so either winding works): a ray from behind the face flips the normal (two-sided back faces, as before), a ray from
+in front never does. A shading normal that still faces away from the eye is bent until it just faces it (`n.V` >= 0.01),
+so `p.normal` keeps facing the ray as every consumer expects (ray offsets, the hemisphere tests, the detail normal's
+own clamp). A degenerate triangle keeps the old rule. Every proxy surface goes through this; on flat geometry the result
+is the same as before.
+
+Result (alt and main, 2560x1440, pathtrace; pose 4 plus three more views from 4-6 m away at other yaws and pitches): the
+blotches are gone in all four views; the banners read as even red cloth with soft folds, as in the game. Review sheet
+`bench/results/review/8-1-fixes/8-1_pose_4_banners.jpg` (local, game-derived). Frame mean linear lighting at pose 4 is
+unchanged (0.201 -> 0.202): the fix moves light within the cloth, it adds none.
+
+### GPU cost of sections 16 and 17
+
+Exclusive perf hold, main slot, 2560x1440, RTX 5070 Ti, `-Perf`, the build before (`df7dd4c`) and after deployed in turn
+(old, new, old, new), relight and pathtrace alternating every 1.5 s; trace dispatch ms (runs
+`bench/results/20261121-021130_tmp-81-perf` .. `-021700_`, then `-022010_tmp-81-perf2` / `-022140_` with `lc.handover=0`
+beside the default):
+
+| Pose | relight old -> new | pathtrace old -> new | with every handover off (`lc.handover=0`): relight / pathtrace |
+|---|---|---|---|
+| 0-1 metal (no translucent sheet, not 8-1) | 3.02 / 3.04 -> 3.00 / 3.00 | 2.79 / 2.79 -> 2.77 / 2.77 | |
+| 8-1 pose 2 (the lamp shade fills the view's middle) | 2.26 / 2.27 -> 2.57 / 2.60 | 1.56 / 1.56 -> 1.80 / 1.81 | 2.22 -> 2.46 / 1.55 -> 1.72 |
+| 8-1 pose 5 (the long hallway, no shade) | 2.71 / 2.72 -> 2.93 / 2.93 | 1.79 / 1.79 -> 1.92 / 1.94 | 2.97 -> 3.06 / 2.02 -> 2.04 |
+
+- Nothing outside 8-1's changed surfaces: the translucent state in the light model and the face-normal test in the hit
+  shader cost nothing measurable (0-1 metal, -0.02 ms).
+- With a shade in view, +0.17-0.24 ms (handovers off, so the shade alone): shadow rays that meet the shade now run the
+  stained-glass any-hit (a texture read) and carry on to the light instead of stopping, and the shade's own pixels take
+  the transmitted light. Where no shade is near, +0.02-0.09 ms.
+- The rest (+0.07-0.12 ms at pose 2) is 8-1's dome lamps becoming hybrids: their discs join the emissive table next to
+  the 0.35 share of light that stays (docs/lighting-overrides.md, "Baked fixture parts").

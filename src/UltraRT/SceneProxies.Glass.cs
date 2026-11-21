@@ -42,15 +42,35 @@ namespace UltraRT
         public static void SetGlassGlobals(bool sceneHasGlass) =>
             Shader.SetGlobalVector(IdGlobalGlass, new Vector4(Glass.enabled ? Mathf.Max(0f, Glass.gain) : 0f, sceneHasGlass ? 1f : 0f, 0f, 0f));
 
-        /// <summary>Sets _Transmit on a new proxy material from its source's "transmit" rule.</summary>
+        private static readonly int IdTranslucent = Shader.PropertyToID("_Translucent");
+        /// <summary>Proxy materials of thin translucent sheets (TRANSMISSION), for the scene log.</summary>
+        public int TranslucentMaterials;
+
+        /// <summary>The game marks a thin translucent sheet with Master's TRANSMISSION keyword (8-1's fabric lamp shades;
+        /// docs/materials.md "Translucent shades"). Read through the keyword list as well: IsKeywordEnabled has missed
+        /// keywords on Master materials before.</summary>
+        internal static bool SourceTranslucent(Material m) =>
+            m != null && (m.IsKeywordEnabled("TRANSMISSION") || System.Array.IndexOf(m.shaderKeywords ?? System.Array.Empty<string>(), "TRANSMISSION") >= 0);
+
+        /// <summary>Sets _Transmit on a new proxy material from its source's "transmit" rule, and _Translucent (lit from behind
+        /// too) on a translucent sheet, whose shadow rays pass with MaterialMaps' translucentShadow unless a rule says otherwise.</summary>
         private void ApplyTransmit(Material src, Material proxy)
         {
-            if (!Glass.enabled || src == null || proxy == null) return;
+            if (src == null || proxy == null) return;
+            bool sheet = SourceTranslucent(src);
+            if (sheet)
+            {
+                proxy.SetFloat(IdTranslucent, 1f);
+                TranslucentMaterials++;
+            }
+            if (!Glass.enabled) return;
             float t = _classifier.TransmitOf(src);
+            // A sheet without a rule: transmit 1, scaled in the any-hit by the runtime setting (_UltraRTTranslucency.y).
+            if (t <= 0f && sheet) t = 1f;
             if (t <= 0f) return;
             proxy.SetFloat(IdTransmit, t);
             GlassMaterials++;
-            ProbeLit("glass", src, $"transmit {t:0.##}");
+            ProbeLit("glass", src, $"transmit {t:0.##}{(sheet ? " (translucent sheet)" : "")}");
         }
 
         /// <summary>A proxy material with _Transmit, or a source material with a "transmit" rule: its submesh must run the
@@ -80,6 +100,6 @@ namespace UltraRT
 
         private string GlassSummary() =>
             $"Stained glass ({Glass}): {GlassMaterials} proxy materials and {GlassAtlasSlots} atlas variants transmit, " +
-            $"{GlassTransparentInstances} transparent instances (re)added with the geometry bit";
+            $"{GlassTransparentInstances} transparent instances (re)added with the geometry bit; {TranslucentMaterials} translucent sheets (TRANSMISSION)";
     }
 }

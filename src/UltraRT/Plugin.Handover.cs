@@ -66,7 +66,10 @@ namespace UltraRT
                 {
                     if (r == null) continue;
                     string last = null;
-                    foreach (var m in r.sharedMaterials)
+                    // Baked into the StaticSceneOptimizer atlas: the renderer shows the atlas material; the part is its original.
+                    var mats = r.sharedMaterials;
+                    if (OriginalMaterials.IsCaptured(r) && OriginalMaterials.TryGet(r, out var orig, out _, out _) && orig != null) mats = orig;
+                    foreach (var m in mats)
                     {
                         if (m == null) continue;
                         string n = CleanMaterialName(m.name);
@@ -136,7 +139,7 @@ namespace UltraRT
                     foreach (var p in parts)
                     {
                         _handParts.Add(p.Value);
-                        if (p.Key.isPartOfStaticBatch)
+                        if (p.Key.isPartOfStaticBatch || (p.Key is MeshRenderer pm && OriginalMaterials.IsCaptured(pm)))
                         {
                             // Baked into a static batch: no object of its own in the RT scene. Its world bounds
                             // (a little padded) pick its triangles out of the batch.
@@ -215,7 +218,19 @@ namespace UltraRT
             if (!_lightOverrides || !_handoverOn || _lightOv == null || proxyMaterial == null || !_lightOv.Classes.HasHandovers) return false;
             if (_lightOv.Scene != SafeCurrentScene()) return false;
             EnsureHandover();
-            return _handParts.Count > 0 && _handParts.Contains(CleanMaterialName(proxyMaterial.name));
+            return _handParts.Count > 0 && _handParts.Contains(PartNameOf(proxyMaterial));
+        }
+
+        /// <summary>The part name a proxy material stands for: its own, or for an atlas slot variant made for a fixture part
+        /// (SceneProxies.AtlasVariant) the original material's.</summary>
+        private string PartNameOf(Material proxyMaterial) => _proxies?.AtlasPartName(proxyMaterial) ?? CleanMaterialName(proxyMaterial.name);
+
+        /// <summary>SceneProxies.AtlasPartWanted: atlas slots of this original get a variant of their own (a handover part, or
+        /// an emitter rule's glow), so the handover and the glow can reach them.</summary>
+        private bool AtlasPartWanted(Material original)
+        {
+            if (!_lightOverrides || _lightOv == null || original == null) return false;
+            return EmitterGlow(original).x > 0f || (_lightOv.Classes.HasHandovers && _lightOv.Classes.IsHandoverPart(CleanMaterialName(original.name)));
         }
 
         /// <summary>EmissiveLights.BakedPowerOf.</summary>
@@ -224,7 +239,7 @@ namespace UltraRT
             if (!_lightOverrides || !_handoverOn || _lightOv == null || proxyMaterial == null || !_lightOv.Classes.HasHandovers) return null;
             if (_lightOv.Scene != SafeCurrentScene()) return null;
             EnsureHandover();
-            return _handBaked.TryGetValue(CleanMaterialName(proxyMaterial.name), out var list) ? list : null;
+            return _handBaked.TryGetValue(PartNameOf(proxyMaterial), out var list) ? list : null;
         }
 
         /// <summary>BuildResolved: the light's own strength once its part carries it. Returns "handed", "hybrid", or

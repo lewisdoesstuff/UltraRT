@@ -90,6 +90,9 @@ namespace UltraRT
         /// mark it emissive (a fullbright bulb): its albedo stands in for the emission, the target sets the amount, and
         /// triangles of it that belong to no part are left out again. Nothing changes for the camera.</summary>
         public Func<Material, bool> IsPowerPart;
+        /// <summary>An atlas slot variant made for one fixture part (SceneProxies.AtlasVariant: 8-1's dome lamp discs). Such a
+        /// material covers only that part's slots, so unlike the level atlas it may join the table.</summary>
+        public Func<Material, bool> IsAtlasPart;
 
         /// <summary>What a submesh emits, summed, in the mesh's own space: for a skinned mesh that cannot be in the table
         /// (Plugin.EnemyGlow.cs). Power = sum of Le x area; centre and normal are weighted by luminance x area; radius is
@@ -600,11 +603,20 @@ namespace UltraRT
             if (m == null) return false;
             if (_emissiveMaterial.TryGetValue(m, out bool e)) return e;
             e = (NaturallyEmissive(m) || PowerPart(m))
-                // StaticSceneOptimizer atlas geometry: an emissive average over a whole level atlas would be meaningless.
-                && !(m.HasProperty("_AtlasMode") && m.GetFloat("_AtlasMode") > 0.5f)
+                // StaticSceneOptimizer atlas geometry: an emissive average over a whole level atlas would be meaningless,
+                // except for a variant made for one fixture part's slots.
+                && (!IsAtlas(m) || AtlasPart(m))
                 && !(m.HasProperty("_SkyWall") && m.GetFloat("_SkyWall") > 0.5f);
             _emissiveMaterial[m] = e;
             return e;
+        }
+
+        private static bool IsAtlas(Material m) => m.HasProperty("_AtlasMode") && m.GetFloat("_AtlasMode") > 0.5f;
+
+        private bool AtlasPart(Material m)
+        {
+            if (IsAtlasPart == null) return false;
+            try { return IsAtlasPart(m); } catch { return false; }
         }
 
         private static bool NaturallyEmissive(Material m) =>
@@ -920,6 +932,9 @@ namespace UltraRT
                 baseLe = m.GetColor("_EmissiveColor") * m.GetFloat("_EmissiveIntensity");
                 baseLe = new Color(baseLe.r * tint.r, baseLe.g * tint.g, baseLe.b * tint.b);
             }
+            // A fixture part's atlas slots (IsAtlasPart): the texture is the whole level atlas, addressed through TEXCOORD1
+            // rects, so uv0 would sample the wrong place. The part is taken as uniform (ApplyPower sets the amount).
+            if (IsAtlas(m)) tex = null;
             var img = tex != null ? LowRes(tex) : null;
             // _EmissiveThreshold (an emitter mask, SceneProxies.Glow.cs): as Proxy.shader, only texels above the
             // threshold glow. On the 32x32 copy, so a mask of single texels is averaged before the step: approximate.

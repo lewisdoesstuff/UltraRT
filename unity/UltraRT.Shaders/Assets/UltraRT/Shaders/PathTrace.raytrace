@@ -386,9 +386,11 @@ void RayGenBody(bool full)
 
         // Flesh subsurface (UltraRTLights.hlsl): crimson wrap light at this hit's direct light only.
         FleshSssBegin((p.flags >> 24) & 0x1Fu, -ray.Direction);
+        TranslucentBegin(p.flags); // thin translucent sheets (lamp shades): lit from behind too (UltraRTLights.hlsl)
         float3 direct = DirectLighting(pos, n, layer, rng);
         if (full) PtMoreDirect(direct, pos, n, layer, rng); // pathtrace: more light samples per pixel (RIS)
         FleshSssEnd();
+        TranslucentEnd();
         // Stained-glass windows: their mosaic projected into the room, one shadow ray (UltraRTStainedGlass.hlsl).
         [branch] if (_UltraRTStainedGlassCount > 0)
             direct += StainedGlassLight(pos, n, nv, tTotal * pixelAngle / max(abs(dot(nv, ray.Direction)), 0.2), rng);

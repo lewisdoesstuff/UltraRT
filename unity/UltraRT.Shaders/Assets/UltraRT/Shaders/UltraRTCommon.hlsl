@@ -81,6 +81,10 @@ struct RayPayload
 // pose in uv7, SceneProxies.Displaced.cs). The game's blood stains do not stick to it, so fresh-blood gloss is not applied
 // there (PathTrace, _BloodWetGloss.w; docs/vfx.md "Wet blood on moving surfaces").
 #define ULTRART_FLAG_DISPLACED 0x80u
+// hit -> ray gen: a thin translucent surface (the game's TRANSMISSION keyword: 8-1's fabric lamp shades; docs/materials.md
+// "Translucent shades"). Light arriving on its back comes through to the front (UltraRTLights.hlsl, TranslucentBegin).
+// Bit 15 is free: the instance id's low byte above it carries the game layer (0-31), so PayloadLayer masks it off.
+#define ULTRART_FLAG_TRANSLUCENT 0x8000u
 #define ULTRART_FLAG_DETAIL 0x8u // ray gen -> hit: apply per-texel detail (primary rays only; reflection, bounce, cache and
                                  // volumetric rays skip it). Hit -> ray gen: p.normal carries a per-texel detail normal; on
                                  // primary rays (WANT_MOTION) the vertex normal is in p.primitive bits 0-23 (PackOct24)
@@ -122,7 +126,7 @@ float3 PayloadEmission(RayPayload p)
     return float3(f16tof32(p.emissionHalf.x), f16tof32(p.emissionHalf.x >> 16), f16tof32(p.emissionHalf.y));
 }
 
-uint PayloadLayer(RayPayload p) { return (p.flags >> 8) & 0xFFu; }
+uint PayloadLayer(RayPayload p) { return (p.flags >> 8) & 0x7Fu; } // bit 15: ULTRART_FLAG_TRANSLUCENT
 float3 PayloadCaustic(RayPayload p) { return float3(f16tof32(p.uvHalf), f16tof32(p.uvHalf >> 16), f16tof32(p.emissionHalf.y >> 16)); }
 float2 PayloadUV(RayPayload p) { return float2(f16tof32(p.uvHalf), f16tof32(p.uvHalf >> 16)); }
 

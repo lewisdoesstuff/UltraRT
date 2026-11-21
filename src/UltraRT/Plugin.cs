@@ -227,7 +227,7 @@ namespace UltraRT
             _lightBuffer = new ComputeBuffer(MaxLights * 4, 16);
             _lightMaskBuffer = new ComputeBuffer(MaxLights, 4);
             _lightSampling = new LightSampling(MaxLights) { Settings = _lightSamplingSettings };
-            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart };
+            _emissive = new EmissiveLights(Logger) { Settings = _emissiveSettings, LightScaleOf = EmitterLightScale, PowerOf = HandoverPower, BakedPowerOf = HandoverBakedPower, IsPowerPart = HandoverIsPart, IsAtlasPart = m => _proxies != null && _proxies.AtlasPartName(m) != null };
             var go = new GameObject("UltraRT.Host") { hideFlags = HideFlags.HideAndDontSave };
             DontDestroyOnLoad(go);
             _host = go.AddComponent<CoroutineHost>();
@@ -589,7 +589,7 @@ namespace UltraRT
                 var playerCam = MonoSingleton<CameraController>.Instance != null ? MonoSingleton<CameraController>.Instance.cam : null;
                 var cam = playerCam != null ? playerCam : Camera.allCameras.FirstOrDefault(c => c.name == "Main Camera") ?? Camera.main;
                 Logger.LogInfo($"RT layer mask from {(cam != null ? Bench.GameControl.PathOf(cam.transform) : "none")}: 0x{(cam != null ? cam.cullingMask : ~0):X8}");
-                _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy) { EmitterGlowOf = EmitterGlow };
+                _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy) { EmitterGlowOf = EmitterGlow, AtlasPartWanted = AtlasPartWanted };
                 _proxies.SetDisplaceShader(_displaceCs);
                 _proxies.Build();
                 _emissive.Build(_proxies);

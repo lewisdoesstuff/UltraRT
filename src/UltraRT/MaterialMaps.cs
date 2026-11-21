@@ -52,10 +52,20 @@ namespace UltraRT
         public float fleshWrap = 0.45f;
         /// <summary>-ultrart-flesh-rim F (bench mat.fleshRim): view-dependent backlit scatter at grazing light (0 = off).</summary>
         public float fleshRim = 0f;
+        /// <summary>-ultrart-translucency F (bench mat.translucency): thin translucent sheets (the game's TRANSMISSION
+        /// keyword: 8-1's fabric lamp shades; docs/materials.md "Translucent shades"): the share of the light reaching the
+        /// back of the sheet that comes through to its front, at the primary hit. 0 = off. Shader-side, instant.</summary>
+        public float translucency = 0.04f;
+        /// <summary>-ultrart-translucent-shadow F (bench mat.translucentShadow): the same sheets in shadow rays, as a
+        /// stained-glass "transmit" factor (transmittance = albedo^2.2 x F x the glass gain): the wall behind a shade gets a
+        /// share of the lamp instead of a black band. 0 = opaque. Shader-side, instant (a "transmit" rule on the material is
+        /// scaled by it too).</summary>
+        public float translucentShadow = 0.06f;
 
         public override string ToString() => $"{(enabled ? "on" : "off")}, source {source}, normal x{normalStrength:0.##}, roughness x{roughness:0.##}, " +
                                              $"lod {(lod ? "on" : "off")} (bias {lodBias:0.##}, aniso {lodAniso:0.##}, toksvig {toksvig:0.##}, albedo {(albedoLod ? "on" : "off")}), " +
-                                             $"flesh subsurface {fleshSss:0.##} (wrap {fleshWrap:0.##}, rim {fleshRim:0.##})";
+                                             $"flesh subsurface {fleshSss:0.##} (wrap {fleshWrap:0.##}, rim {fleshRim:0.##}), " +
+                                             $"translucency {translucency:0.##} (shadow {translucentShadow:0.##})";
     }
 
     /// <summary>
@@ -79,6 +89,7 @@ namespace UltraRT
         public static readonly int LodId = Shader.PropertyToID("_UltraRTTexLod");
         public static readonly int Lod2Id = Shader.PropertyToID("_UltraRTTexLod2");
         public static readonly int FleshSssId = Shader.PropertyToID("_UltraRTFleshSss");
+        public static readonly int TranslucencyId = Shader.PropertyToID("_UltraRTTranslucency");
 
         private sealed class Entry
         {
