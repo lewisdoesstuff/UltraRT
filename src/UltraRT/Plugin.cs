@@ -82,8 +82,12 @@ namespace UltraRT
         private RenderTexture _output;
         private ComputeBuffer _lightBuffer;
         private readonly Vector4[] _lightData = new Vector4[MaxLights * 4];
+        private readonly Vector4[] _lightDataGpu = new Vector4[MaxLights * 4];
         private readonly uint[] _lightMasks = new uint[MaxLights];
         private ComputeBuffer _lightMaskBuffer;
+        /// <summary>Bench A/B: plugin._preLinearLights=0 uploads gamma-space light colours and lets every shader run pow(rgb, 2.2).</summary>
+        private bool _preLinearLights = true;
+        private static readonly int UltraRTLinearLightsId = Shader.PropertyToID("_UltraRTLinearLights");
         private int _lightCount;
         private float _nextLightScan, _nextActiveLights;
         private readonly List<Light> _activeLights = new List<Light>();
@@ -688,8 +692,28 @@ namespace UltraRT
                 PackSceneLight(l, ResolveLight(l), mainSun);
             }
             FlagPlayerLights();   // Plugin.PlayerLights.cs: V1 never shadows the player's own lights (flashlight, held torch)
-            _lightBuffer.SetData(_lightData, 0, 0, Math.Max(1, _lightCount) * 4);
-            _lightMaskBuffer.SetData(_lightMasks, 0, 0, Math.Max(1, _lightCount));
+            int uploadLights = Math.Max(1, _lightCount);
+            if (_preLinearLights && LinearActive)
+            {
+                Array.Copy(_lightData, _lightDataGpu, uploadLights * 4);
+                for (int k = 0; k < _lightCount; k++)
+                {
+                    var c = _lightDataGpu[k * 4 + 1];
+                    _lightDataGpu[k * 4 + 1] = new Vector4(
+                        c.x > 0f ? Mathf.Pow(c.x, 2.2f) : 0f,
+                        c.y > 0f ? Mathf.Pow(c.y, 2.2f) : 0f,
+                        c.z > 0f ? Mathf.Pow(c.z, 2.2f) : 0f,
+                        c.w);
+                }
+                _lightBuffer.SetData(_lightDataGpu, 0, 0, uploadLights * 4);
+                Shader.SetGlobalFloat(UltraRTLinearLightsId, 1f);
+            }
+            else
+            {
+                _lightBuffer.SetData(_lightData, 0, 0, uploadLights * 4);
+                Shader.SetGlobalFloat(UltraRTLinearLightsId, 0f);
+            }
+            _lightMaskBuffer.SetData(_lightMasks, 0, 0, uploadLights);
         }
 
         private int _surfLightCount;
@@ -1525,7 +1549,7 @@ namespace UltraRT
                 TraceRadianceCache(shader, w, h, invViewProj, ambient);
                 Perf.Add(Perf.Sec.Cache, tc);
                 BindTransparents(shader, denoised, viewProj, w, h); // water and glass (Plugin.Transparent.cs)
-                BindBloodWet(shader); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
+                BindBloodWet(shader, w, h); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
                 BindStains(shader, kind == Kind.Denoised || kind == Kind.Reflection); // blood stains at reflection hits (Plugin.Stains.cs)
                 BindStainedGlass(shader); // stained-glass windows project their mosaic (Plugin.StainedGlass.cs)
                 BindPathTrace(shader, full, rr);
@@ -1570,7 +1594,10 @@ namespace UltraRT
             }
             _cmd.BeginSample(SampleTrace);
             _gpu?.Begin(_cmd, SlotDispatch);
-            _cmd.DispatchRays(shader, pt && full ? (imgEntry ? "RayGenPTImg" : "RayGenPT") : imgEntry ? "RayGenImg" : "RayGen", (uint)w, (uint)h, 1);
+            string entry = pt && _lightSampling.ActiveMode == LightSamplingMode.Reference
+                ? "RayGenRef"
+                : pt && full ? (imgEntry ? "RayGenPTImg" : "RayGenPT") : imgEntry ? "RayGenImg" : "RayGen";
+            _cmd.DispatchRays(shader, entry, (uint)w, (uint)h, 1);
             _rtTracedFrame = Time.frameCount; // white orb shells follow it (SceneProxies.OrbShells.cs)
             RequestRayCounts(pt, w, h, (full ? "pathtrace" : kind == Kind.Denoised ? "relight/pt-dn" : kind.ToString()) + (_transRect ? "" : ", transRect off")); // plugin._rayCounts=1 (Plugin.RayCounts.cs)
             _gpu?.End(_cmd, SlotDispatch);
@@ -1721,8 +1748,8 @@ namespace UltraRT
 
         // ---------------------------------------------------------------- GPU timing (opt-in, -ultrart-gputimer)
 
-        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotFrame = 22, SlotCount = 23; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs)
-        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace", "frame" };
+        private const int SlotTotal = 0, SlotRtas = 1, SlotDispatch = 2, SlotDenoise = 3, SlotBlit = 4, SlotCache = 5, SlotExposure = 6, SlotPreAlpha = 7, SlotUpsample = 8, SlotVolumetrics = 9, SlotVolLate = 10, SlotDisplace = 21, SlotFrame = 22, SlotVeils = 23, SlotCount = 24; // 21: vertex displacement (before the RTAS build); 11-15: viewmodel pass and its stages (Plugin.Viewmodel.cs), 16: SlotParticles (Plugin.Particles.cs), 17-18: DLSS RR (Plugin.Dlss.cs), 19-20: screen effects (Plugin.Vfx.cs), 23: SlotVeils (Plugin.Veils.cs)
+        private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace", "frame", "veils" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
         private long _lastResolved;

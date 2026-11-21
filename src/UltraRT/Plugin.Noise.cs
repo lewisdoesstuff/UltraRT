@@ -60,15 +60,13 @@ namespace UltraRT
         private bool _bakedLightMasks = true;
         private readonly HashSet<Light> _globalLights = new HashSet<Light>();
         private object _globalLightsOwner;
-        private float _nextGlobalLightScan;
 
         private uint BakedLightMask(Light l)
         {
             if (!_bakedLightMasks) return 0u;
-            if (!ReferenceEquals(_globalLightsOwner, _proxies) || Time.realtimeSinceStartup >= _nextGlobalLightScan)
+            if (!ReferenceEquals(_globalLightsOwner, _proxies))
             {
                 _globalLightsOwner = _proxies;
-                _nextGlobalLightScan = Time.realtimeSinceStartup + 5f;
                 _globalLights.Clear();
                 foreach (var sso in FindObjectsOfType<StaticSceneOptimizer>())
                     if (sso != null && sso.globalLights != null)

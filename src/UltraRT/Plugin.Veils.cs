@@ -24,6 +24,8 @@ namespace UltraRT
         private static readonly int VeilTexId = Shader.PropertyToID("_VeilTex");
         /// <summary>Bench: plugin._coneCoverOverride K (>= 0) replaces the level's coneCover (-1: the level's).</summary>
         private float _coneCoverOverride = -1f;
+        /// <summary>Bench A/B: plugin._veilMiniRtas=0 traces VeilTrace against the full scene RTAS instead of the tiny VeilRtas.</summary>
+        private bool _veilMiniRtas = true;
 
         /// <summary>
         /// Light cones over the traced image (2026-11-21; the level's "exposure": { "coneCover": K }, docs/lighting-overrides.md
@@ -82,12 +84,35 @@ namespace UltraRT
             EnsureGBuffer(ref _veilTex, w, h, RenderTextureFormat.ARGBHalf, "UltraRT Veils");
             _veilTex.filterMode = FilterMode.Bilinear;
             var invViewProj = (_camera.projectionMatrix * _camera.worldToCameraMatrix).inverse; // no jitter, no guard band
+            bool mini = _veilMiniRtas && _depthCopy != null && _gNormalDepth != null && _gInstanceId != null;
+            RayTracingAccelerationStructure rtas = _proxies.Rtas;
+            _gpu?.Begin(_cmd, SlotVeils);
+            if (mini)
+            {
+                _proxies.UpdateVeilRtas();
+                if (_proxies.VeilRtas != null && _proxies.VeilRtasInstances > 0)
+                {
+                    _cmd.BuildRayTracingAccelerationStructure(_proxies.VeilRtas);
+                    rtas = _proxies.VeilRtas;
+                }
+                else mini = false;
+            }
             _veilShader.SetShaderPass("UltraRTHit");
-            _cmd.SetRayTracingAccelerationStructure(_veilShader, "_Scene", _proxies.Rtas);
+            _cmd.SetRayTracingAccelerationStructure(_veilShader, "_Scene", rtas);
             _cmd.SetRayTracingTextureParam(_veilShader, "_VeilOutput", _veilTex);
             _cmd.SetRayTracingMatrixParam(_veilShader, "_VeilInvViewProj", invViewProj);
             _cmd.SetRayTracingVectorParam(_veilShader, "_VeilCamPos", _camera.transform.position);
             _cmd.SetRayTracingVectorParam(_veilShader, "_VeilParams", new Vector4(Mathf.Max(0f, s.gain), Mathf.Max(0f, s.cover), s.everywhere, coneCover));
+            float near = _camera.nearClipPlane, far = _camera.farClipPlane;
+            Vector4 zp = SystemInfo.usesReversedZBuffer
+                ? new Vector4(-1f + far / near, 1f, (-1f + far / near) / far, 1f / far)
+                : new Vector4(1f - far / near, far / near, (1f - far / near) / far, far / near / far);
+            float miniMode = !mini ? 0f : _proxies.PortalSidesInRtas > 0 ? 1f : 2f;
+            _cmd.SetRayTracingVectorParam(_veilShader, "_VeilMini", new Vector4(miniMode, _guardScale.x, _guardScale.y, _flipY ? 1f : 0f));
+            _cmd.SetRayTracingVectorParam(_veilShader, "_VeilZParams", zp);
+            if (_depthCopy != null) _cmd.SetRayTracingTextureParam(_veilShader, "_VeilGameDepth", _depthCopy);
+            if (_gNormalDepth != null) _cmd.SetRayTracingTextureParam(_veilShader, "_VeilNormalDepth", _gNormalDepth);
+            if (_gInstanceId != null) _cmd.SetRayTracingTextureParam(_veilShader, "_VeilInstanceId", _gInstanceId);
             var fc = RenderSettings.fogColor;
             _cmd.SetRayTracingVectorParam(_veilShader, "_VeilFog", new Vector4(fogMode, RenderSettings.fogStartDistance, RenderSettings.fogEndDistance, RenderSettings.fogDensity));
             _cmd.SetRayTracingVectorParam(_veilShader, "_VeilFogColor", new Vector4(fc.r, fc.g, fc.b, fog ? Mathf.Clamp01(s.fog) : 0f));
@@ -103,11 +128,12 @@ namespace UltraRT
             _cmd.DispatchRays(_veilShader, "RayGen", (uint)w, (uint)h, 1);
             _cmd.SetGlobalTexture(VeilTexId, _veilTex);
             _cmd.DrawProcedural(Matrix4x4.identity, _veilCompositeMat, 0, MeshTopology.Triangles, 3);
-            string state = $"{_proxies.VeilsVisible > 0}/{fog}/{portalFog}/{coneCover}";
+            _gpu?.End(_cmd, SlotVeils);
+            string state = $"{_proxies.VeilsVisible > 0}/{fog}/{portalFog}/{coneCover}/{mini}";
             if (state != _veilLogged && _veilLogs++ < 12)
             {
                 _veilLogged = state;
-                Logger.LogInfo($"Veil pass: {_proxies.VeilsVisible} veil proxies in the RTAS, {_proxies.PortalSidesInRtas} portal sides, {w}x{h}, gain {s.gain} cover {s.cover}, cone cover {coneCover:F2}, fog behind portals {(fog ? $"x{s.fog} (level fog mode {fogMode}, {RenderSettings.fogStartDistance:F0}-{RenderSettings.fogEndDistance:F0} m{(portalFog ? ", a portal with its own fog" : "")})" : "off")}");
+                Logger.LogInfo($"Veil pass: {_proxies.VeilsVisible} veil proxies, {_proxies.PortalSidesInRtas} portal sides ({(mini ? $"mini RTAS {_proxies.VeilRtasInstances} inst" : "full RTAS")}), {w}x{h}, gain {s.gain} cover {s.cover}, cone cover {coneCover:F2}, fog behind portals {(fog ? $"x{s.fog} (level fog mode {fogMode}, {RenderSettings.fogStartDistance:F0}-{RenderSettings.fogEndDistance:F0} m{(portalFog ? ", a portal with its own fog" : "")})" : "off")}");
             }
         }
     }

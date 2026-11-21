@@ -26,6 +26,8 @@ namespace UltraRT
         public int maxInstances = 48;
         /// <summary>Effects farther from the camera than this are left out (m).</summary>
         public float maxDistance = 80f;
+        /// <summary>Small glowing sprites (candles, small flames) farther than this are left out (m): sub-pixel in reflections.</summary>
+        public float maxSpriteDistance = 35f;
         /// <summary>Particle systems with more live particles than this are left out (their mesh is rebuilt every frame).</summary>
         public int maxParticles = 400;
         /// <summary>Most billboards in the RTAS at once, nearest effects first: every specular ray that crosses a billboard
@@ -84,6 +86,9 @@ namespace UltraRT
         private readonly List<Vector2> _uvs = new List<Vector2>(4);
         private readonly List<Color32> _colors = new List<Color32>(4);
         private readonly List<int> _tris = new List<int>(6);
+        private struct SpriteGeom { public Vector2[] Verts, Uvs; public ushort[] Tris; }
+        private readonly Dictionary<Sprite, SpriteGeom> _spriteCache = new Dictionary<Sprite, SpriteGeom>();
+        private static readonly RayTracingSubMeshFlags[] OneEnabled = { RayTracingSubMeshFlags.Enabled };
         private RayTracingAccelerationStructure _rtas;
         private Shader _shader;
         private GameObject _root;
@@ -181,7 +186,8 @@ namespace UltraRT
                 if (want)
                 {
                     e.Dist = PortalView.SqrDistance(e.R.bounds.center, cp); // or to the camera's image through a portal
-                    want = e.Dist <= maxD2;
+                    float lim = e.Kind == Kind.Sprite && s.maxSpriteDistance > 0f ? Mathf.Min(s.maxDistance, s.maxSpriteDistance) : s.maxDistance;
+                    want = e.Dist <= lim * lim;
                 }
                 if (want) { e.Idle = 0; _wanted.Add(e); }
                 else { if (e.Idle < IdleFrames) e.Idle++; Remove(e); }
@@ -205,7 +211,7 @@ namespace UltraRT
                     if (!e.InRtas)
                     {
                         if (++e.Wait < AddDelay) continue;
-                        rtas.AddInstance(e.Proxy, new[] { RayTracingSubMeshFlags.Enabled }, enableTriangleCulling: false,
+                        rtas.AddInstance(e.Proxy, OneEnabled, enableTriangleCulling: false,
                             frontTriangleCounterClockwise: false, mask: SceneProxies.TransparentMask, id: 0);
                         e.InRtas = true;
                         if (_addLogs++ < 24)
@@ -252,8 +258,8 @@ namespace UltraRT
                 Color32 c = sr.color;
                 if (sr.sprite != e.Sprite || !c.Equals(e.SpriteColor) || sr.flipX != e.SpriteFlipX || sr.flipY != e.SpriteFlipY) BuildSprite(e, c);
                 // An AnimatedTexture swaps the texture through the property block.
-                sr.GetPropertyBlock(_mpb);
-                var tex = _mpb.GetTexture(MainTexId);
+                Texture tex = null;
+                if (sr.HasPropertyBlock()) { sr.GetPropertyBlock(_mpb); tex = _mpb.GetTexture(MainTexId); }
                 e.Mat.SetTexture(MainTexId, tex != null ? tex : e.Sprite.texture);
                 e.Go.transform.SetPositionAndRotation(t.position, t.rotation);
                 e.Go.transform.localScale = t.lossyScale;
@@ -297,9 +303,15 @@ namespace UltraRT
             e.SpriteFlipX = sr.flipX;
             e.SpriteFlipY = sr.flipY;
             _verts.Clear(); _uvs.Clear(); _colors.Clear(); _tris.Clear();
-            var v = sp.vertices;
-            var uv = sp.uv;
-            var tri = sp.triangles;
+            if (!_spriteCache.TryGetValue(sp, out var g))
+            {
+                if (_spriteCache.Count > 2048) _spriteCache.Clear();
+                g = new SpriteGeom { Verts = sp.vertices, Uvs = sp.uv, Tris = sp.triangles };
+                _spriteCache[sp] = g;
+            }
+            var v = g.Verts;
+            var uv = g.Uvs;
+            var tri = g.Tris;
             float fx = sr.flipX ? -1f : 1f, fy = sr.flipY ? -1f : 1f;
             for (int i = 0; i < v.Length; i++)
             {

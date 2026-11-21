@@ -114,7 +114,7 @@ Shader "Hidden/UltraRT/BloodWet"
                 float2 uv = i.uvw.xy / i.uvw.z;
                 float a = _SplatterAtlas.SampleLevel(my_point_repeat_sampler, uv * float2(0.2, 1.0) + float2(i.uvw.w, 0.0), 0).a;
                 if (a != 1.0) discard;
-                int2 px = (int2)i.pos.xy;
+                int2 px = (int2)(i.pos.xy * _BloodScreen.zw);
                 float z = _BloodDepth.Load(int3(px, 0)).r;
                 float2 ndc = float2(i.pos.x * _BloodScreen.x * 2.0 - 1.0, 1.0 - i.pos.y * _BloodScreen.y * 2.0);
                 float4 wh = mul(_BloodInvVP, float4(ndc, z, 1.0));

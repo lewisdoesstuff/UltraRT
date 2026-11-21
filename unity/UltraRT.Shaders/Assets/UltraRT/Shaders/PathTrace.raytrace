@@ -577,6 +577,8 @@ void RayGenPT() { g_PortalImages = false; RayCountsBegin(); RayGenBody(true); Ra
 void RayGenImg() { RayCountsBegin(); RayGenBody(false); RayCountsWrite(); }
 [shader("raygeneration")]
 void RayGenPTImg() { RayCountsBegin(); RayGenBody(true); RayCountsWrite(); }
+[shader("raygeneration")]
+void RayGenRef() { g_RefLights = true; RayCountsBegin(); RayGenBody(false); RayCountsWrite(); }
 #else
 // Frames without scene lights imaged through portals (UltraRTLights.hlsl, g_PortalImages): that code compiled out.
 [shader("raygeneration")]
@@ -591,6 +593,10 @@ void RayGenPT() { g_PortalImages = false; RayGenBody(true); }
 void RayGenImg() { RayGenBody(false); }
 [shader("raygeneration")]
 void RayGenPTImg() { RayGenBody(true); }
+
+// Reference light sampling (all lights + emissive ref samples): split out so DXC strips the dead reference loops from production raygens.
+[shader("raygeneration")]
+void RayGenRef() { g_RefLights = true; RayGenBody(false); }
 #endif
 
 [shader("miss")]

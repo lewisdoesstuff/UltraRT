@@ -134,7 +134,7 @@ namespace UltraRT
                     var sw = Stopwatch.StartNew();
                     _litParticles.Prune();
                     _litParticles.Scan();
-                    if (_proxies != null) _litParticles.KeepOrbGlows(_proxies.OrbFixtures, _proxies.OrbVersion);
+                    if (_proxies != null) _litParticles.KeepOrbGlows(_proxies.OrbFixtures, _proxies.OrbVersion, _proxies.GlowMeshCandidates);
                     _particleScanMs = sw.Elapsed.TotalMilliseconds;
                 }
                 if (want) _litParticles.Activate();

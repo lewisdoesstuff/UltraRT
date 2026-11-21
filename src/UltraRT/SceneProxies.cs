@@ -460,10 +460,24 @@ namespace UltraRT
             foreach (var l in _lightScratch) AddLight(l);
             _lightScratch.Clear();
             HierarchiesAdded++;
+            HierarchyVersion++;
             ProxiesFromHierarchies += _deferred.Count - before;
         }
 
         public int HierarchiesAdded, ProxiesFromHierarchies;
+        /// <summary>Bumped whenever new hierarchies are registered (used by Plugin.LightOverrides to skip redundant scans).</summary>
+        public int HierarchyVersion { get; private set; }
+        /// <summary>MeshRenderers whose material looks like an additive soft glow (candidate list for LitParticles.KeepOrbGlows).</summary>
+        public readonly List<MeshRenderer> GlowMeshCandidates = new List<MeshRenderer>();
+
+        private static bool IsGlowMeshCandidate(Material m)
+        {
+            if (m == null || m.shader == null) return false;
+            string s = m.shader.name;
+            if (s == "UltraRT/Particles/Lit") return m.HasProperty("_PLDstBlend") && Mathf.RoundToInt(m.GetFloat("_PLDstBlend")) == 1;
+            if (s == "ULTRAKILL/Master") return m.renderQueue >= 3000 && !m.IsKeywordEnabled("_ZWRITE_ON") && m.HasProperty("_BlendMode") && Mathf.RoundToInt(m.GetFloat("_BlendMode")) == 3;
+            return false;
+        }
 
         // ---------------------------------------------------------------- lights and sky (tracked, so the plugin never scans the scene per frame)
 
@@ -545,6 +559,7 @@ namespace UltraRT
         private void ProcessMeshRenderer(MeshRenderer r, Dictionary<Mesh, List<MeshRenderer>> batches, ScanStats stats)
         {
             if (IsProxyClone(r)) return; // our own proxies (and copies of them)
+            if (IsGlowMeshCandidate(r.sharedMaterial)) GlowMeshCandidates.Add(r);
             if (NoteOrbShell(r)) return; // a white orb's glow shell: drawn by the game, not traced (SceneProxies.OrbShells.cs)
             NoteSky(r);
             bool player = IsPlayerModel(r); // V1's third-person model (SceneProxies.Player.cs), on layer 30
@@ -900,9 +915,12 @@ namespace UltraRT
         /// turns it off.
         /// </summary>
         public static bool NewInstanceReAdd = true;
+        /// <summary>Bench A/B: only re-add rigid instances whose mesh is newly entering the RTAS (skips already-warmed meshes like repeated gibs/projectiles).</summary>
+        public static bool ReAddNewMeshesOnly = true;
         public const int NewInstanceReAddDelay = 2;
         private readonly Queue<(DynamicProxy d, int frame)> _reAddQueue = new Queue<(DynamicProxy, int)>();
         private readonly HashSet<Mesh> _meshesInRtas = new HashSet<Mesh>();
+        private readonly Dictionary<Mesh, int> _meshFirstFrame = new Dictionary<Mesh, int>();
         /// <summary>Cumulative per scene: new rigid instances re-added, and how many of them brought a mesh no earlier instance used.</summary>
         public int NewInstancesReAdded, NewMeshInstancesReAdded;
 
@@ -911,7 +929,11 @@ namespace UltraRT
             if (!NewInstanceReAdd || d.EverAdded || d.SkinnedProxy != null) { d.EverAdded = true; return; }
             d.EverAdded = true;
             var mesh = d.Proxy.GetComponent<MeshFilter>()?.sharedMesh;
-            d.NewMesh = mesh != null && _meshesInRtas.Add(mesh);
+            bool isNew = mesh != null && _meshesInRtas.Add(mesh);
+            d.NewMesh = isNew;
+            if (mesh != null && isNew) _meshFirstFrame[mesh] = Time.frameCount;
+            if (ReAddNewMeshesOnly && mesh != null && !isNew && _meshFirstFrame.TryGetValue(mesh, out int first) && Time.frameCount - first >= NewInstanceReAddDelay)
+                return;
             _reAddQueue.Enqueue((d, Time.frameCount + NewInstanceReAddDelay));
         }
 
@@ -1528,6 +1550,10 @@ namespace UltraRT
             _active.Clear();
             _dirty.Clear();
             _deferred.Clear();
+            GlowMeshCandidates.Clear();
+            _meshesInRtas.Clear();
+            _meshFirstFrame.Clear();
+            _reAddQueue.Clear();
             DisposeStatic();
             foreach (var m in _materialCache.Values) if (m != null) Object.Destroy(m);
             _materialCache.Clear();

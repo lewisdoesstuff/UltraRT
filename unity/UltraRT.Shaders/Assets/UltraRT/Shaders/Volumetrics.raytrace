@@ -30,6 +30,7 @@ float4   _VolFalloff;              // x relight falloff blend, y light exposure 
 // The plugin's light list (UltraRTLights.hlsl layout, 4 x float4 per light). Directional lights are skipped here: the
 // sun comes in through _VolSun*, fill lights are fakes.
 StructuredBuffer<float4> _Lights;
+float _UltraRTLinearLights; // 1: _Lights[i*4+1].rgb is already linearised on CPU (pow 2.2)
 // One bit per light: lights the medium skips (the player's own light and anything else attached to the player or the
 // camera: every view ray starts inside them, which lit the air in front of the eyes over the whole screen).
 StructuredBuffer<uint>   _VolSkip;
@@ -172,7 +173,18 @@ float3 LocalLight(uint i, float3 x, out float3 L, out float dist)
         phys = lerp(game, phys, saturate(_VolFalloff.x));
         atten = lerp(min(phys, game), phys, 1.0 - 0.25 * floor(l1.w * 0.5)) * spot;
     }
-    return ToLightV(l1.rgb * _VolFalloff.y) * atten * HazeWeight(r) * ScatterWeight(i);
+    float3 lc;
+    if (_VolFalloff.z > 0.5 && _UltraRTLinearLights > 0.5)
+    {
+        float sLin = 1.0;
+        if (_VolFalloff.y != 1.0) sLin = pow(max(_VolFalloff.y, 0.0), 2.2);
+        lc = l1.rgb * sLin;
+    }
+    else
+    {
+        lc = ToLightV(l1.rgb * _VolFalloff.y);
+    }
+    return lc * atten * HazeWeight(r) * ScatterWeight(i);
 }
 
 // A spot light's cone (half angle: cos l3.x, apex at the light, axis l2.xyz) clips the ray segment [tA, tB] to the part
@@ -513,23 +525,42 @@ void VolumeRayGen()
         float uT0 = BlueOffset(id.yx, frame + 17u);
         if (count <= 128)
         {
-            float total = 0.0;
-            for (int i = 0; i < count; i++) total += LightTarget(i, o, dir, tEnd);
-            if (total > 0.0)
+            // Single-pass weighted reservoir sampling: evaluates LightTarget once per light instead of twice.
+            if (nL == 1)
             {
-                float u0 = BlueOffset(id, frame + 29u);
-                float run = 0.0;
-                int k = 0;
-                for (int j = 0; j < count && k < nL; j++)
+                float total = 0.0;
+                uint pick = 0xFFFFFFFFu;
+                float pickT = 0.0;
+                for (int i = 0; i < count; i++)
                 {
-                    float tj = LightTarget(j, o, dir, tEnd);
-                    if (!(tj > 0.0)) continue;
-                    run += tj;
-                    while (k < nL && ((float)k + u0) * total < run * (float)nL)
+                    float ti = LightTarget(i, o, dir, tEnd);
+                    if (!(ti > 0.0)) continue;
+                    total += ti;
+                    if (Rand(rng) * total < ti) { pick = (uint)i; pickT = ti; }
+                }
+                if (pick != 0xFFFFFFFFu)
+                    local += LightSample(pick, total / pickT, uT0, o, dir, tEnd, sigmaS, sigmaT);
+            }
+            else
+            {
+                float total = 0.0;
+                uint picks[8];
+                float pickTs[8];
+                [unroll] for (int m = 0; m < 8; m++) { picks[m] = 0xFFFFFFFFu; pickTs[m] = 0.0; }
+                for (int i = 0; i < count; i++)
+                {
+                    float ti = LightTarget(i, o, dir, tEnd);
+                    if (!(ti > 0.0)) continue;
+                    total += ti;
+                    for (int k = 0; k < nL; k++)
                     {
-                        local += LightSample(j, total / tj, frac(uT0 + 0.618034 * k), o, dir, tEnd, sigmaS, sigmaT);
-                        k++;
+                        if (Rand(rng) * total < ti) { picks[k] = (uint)i; pickTs[k] = ti; }
                     }
+                }
+                for (int k = 0; k < nL; k++)
+                {
+                    if (picks[k] != 0xFFFFFFFFu)
+                        local += LightSample(picks[k], total / pickTs[k], frac(uT0 + 0.618034 * k), o, dir, tEnd, sigmaS, sigmaT);
                 }
             }
         }

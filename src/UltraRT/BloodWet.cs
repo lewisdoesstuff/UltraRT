@@ -120,7 +120,7 @@ namespace UltraRT
         /// Draws the wetness mask for this frame into <paramref name="cmd"/> and puts the camera's targets back. Returns
         /// false (nothing recorded, no mask) when no stain is wet or the game's stain buffers aren't there.
         /// </summary>
-        public bool Render(CommandBuffer cmd, Camera cam, WetSettings s)
+        public bool Render(CommandBuffer cmd, Camera cam, WetSettings s, int traceW = 0, int traceH = 0)
         {
             FreshStains = 0;
             var pp = MonoSingleton<PostProcessV2_Handler>.Instance;
@@ -153,10 +153,12 @@ namespace UltraRT
                 _dirtyMin = int.MaxValue;
                 _dirtyMax = -1;
             }
-            if (_mask == null || _mask.width != main.width || _mask.height != main.height || !_mask.IsCreated())
+            int mw = !s.bloodFullRes && traceW > 0 ? Mathf.Clamp(traceW, 64, main.width) : main.width;
+            int mh = !s.bloodFullRes && traceH > 0 ? Mathf.Clamp(traceH, 64, main.height) : main.height;
+            if (_mask == null || _mask.width != mw || _mask.height != mh || !_mask.IsCreated())
             {
                 if (_mask != null) { _mask.Release(); Object.Destroy(_mask); }
-                _mask = new RenderTexture(main.width, main.height, 0, RenderTextureFormat.R8, RenderTextureReadWrite.Linear)
+                _mask = new RenderTexture(mw, mh, 0, RenderTextureFormat.R8, RenderTextureReadWrite.Linear)
                     { name = "UltraRT Blood Wetness", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
                 _mask.Create();
             }
@@ -180,7 +182,7 @@ namespace UltraRT
             m.SetMatrix(IdInvVP, vp.inverse);
             m.SetVector(IdParams, new Vector4(first, cap, now, 0f));
             m.SetVector(IdParams2, new Vector4(Mathf.Max(0f, s.bloodWetTime), dry, Shader.GetGlobalFloat("_StainWarping"), Shader.GetGlobalFloat("_TextureWarping")));
-            m.SetVector(IdScreen, new Vector4(1f / main.width, 1f / main.height, 0, 0));
+            m.SetVector(IdScreen, new Vector4(1f / mw, 1f / mh, (float)main.width / mw, (float)main.height / mh));
             cmd.SetGlobalTexture(IdDepth, depth, RenderTextureSubElement.Depth);
             cmd.SetGlobalTexture(IdNormal, pp.viewNormal);
             cmd.SetRenderTarget(_mask);

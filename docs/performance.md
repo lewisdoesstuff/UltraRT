@@ -578,9 +578,56 @@ point of its cycle in each run. The foreground matches.
   pipeline warm-up ([path-tracing.md](path-tracing.md), "Warm-up") or the first static activation. Not looked into:
   it needs an ETW trace of that window. They are what keeps the 1% low at 13 fps and the worst frame near 300 ms.
 - **The orb-glow pass's first run** in a level with orb fixtures: 35 ms in 8-3 (one `FindObjectsOfType<MeshRenderer>`
-  over the level). It runs once per level and again when an orb fixture is added.
+  over the level). It runs once per level and again when an orb fixture is added. *(Fixed in Wave 1 below via
+  `SceneProxies.GlowMeshCandidates`.)*
 - Relight is at 18.4 ms against pathtrace's 15.6: main thread render ~1 ms more (TAAU, "Render thread" above), and
   the GPU.
+
+## 2026-11-21 performance audit — Wave 1 (branch `t3/perf-waves`)
+
+Quick wins and bug fixes from [perf-audit-2026-11-21.md](perf-audit-2026-11-21.md), phase A:
+
+1. **Mini `VeilRtas`** (`SceneProxies.Veils.cs`, `Plugin.Veils.cs`, `VeilTrace.raytrace`, timer slot 23 `veils`, A/B
+   `plugin._veilMiniRtas=0`): veils now trace against a tiny dedicated RTAS containing only active veil proxies plus
+   active portal quads (4–42 instances instead of 2,500+ scene instances), using `_VeilGameDepth` and `_VeilNormalDepth`
+   / `_VeilInstanceId` 3×3 portal lookup; scenes with no portals (`0-3`) skip the portal loop completely. Cuts veil
+   render-thread cost in 8-x from ~1.2 ms to `0.10 ms` (`0.12–0.20 ms` GPU).
+2. **Removed periodic full-scene scans & redundant work**:
+   - `Plugin.Noise.cs` (`BakedLightMask`): scan `StaticSceneOptimizer` once per `_proxies` instead of every 5 s.
+   - `LitParticles.cs` (`KeepOrbGlows`): iterate `SceneProxies.GlowMeshCandidates` instead of
+     `FindObjectsOfType<MeshRenderer>(true)` (exact same orb glow counts: 8-3 20, 1-4 4, 1-3 29).
+   - `Plugin.LightOverrides.cs` (`ResolveAddBinds`): gated on `SceneProxies.HierarchyVersion` + max 2 retries (10 s
+     backoff) instead of scanning all `Renderer`s every 2 s forever.
+   - `SceneProxies.Portals.cs`: dirty-gated `BindPortalBuffer()`.
+   - `SceneProxies.cs` (`QueueReAdd`, `ReAddNewMeshesOnly=true`): skip re-adding rigid instances whose mesh is already
+     warm in the RTAS after `NewInstanceReAddDelay`.
+3. **`EffectGeometry.cs`**: `maxSpriteDistance = 35 m`, cached `SpriteGeom` (eliminates per-frame `sp.vertices`/`uv`/
+   `triangles` allocations), hoisted `OneEnabled`, `HasPropertyBlock()` guard, `Mesh.MarkDynamic()`.
+4. **Trace-resolution blood wetness mask** (`BloodWet.cs`, `BloodWet.shader`, A/B `wet.bloodFullRes=1`): renders at
+   trace resolution by default instead of full screen resolution.
+5. **CPU light pre-linearization & shader ALU** (`Plugin.cs`, `UltraRTLights.hlsl`, `Volumetrics.raytrace`, A/B
+   `plugin._preLinearLights=0`): pre-linearize `_lightDataGpu` (`pow 2.2`) on CPU when linear transport is active;
+   add range/spot early-outs and skip redundant `pow` calls in `LightEvalRaw`; single-pass WRS in `Volumetrics.raytrace`
+   for `count <= 128` (halves `LightTarget` calls).
+6. **Split `RayGenRef` entry point** (`PathTrace.raytrace`, `UltraRTLights.hlsl`, `Plugin.cs`): `static bool g_RefLights`
+   strips reference-mode `TraceRay` loops from production `RayGen` / `RayGenPT` (`RayGen`: 33 → 22 `TraceRay` sites,
+   `RayGenPT`: 37 → 27).
+
+### Wave 1 Result
+
+Exclusive `-Perf`, main slot, 2560×1440, trace scale 0.5, RTX 5070 Ti (`bench/results/20261121-172343_perf-{core,combat,1440p}` vs Wave 0 baseline `96dda9c` in [perf-audit-2026-11-21.md](perf-audit-2026-11-21.md)):
+
+| Scenario | Mode | Wave 0 ms (fps) | Wave 1 ms (fps) | Delta | 1% low | GPU total | RT-CPU (`frame`) |
+|---|---|---|---|---|---|---|---|
+| 0-1 metal (`perf-core`) | pathtrace | 8.02 (125) | **7.99 (125)** | -0.03 ms | 81 → **93** | 6.74 → 6.75 | 6.31 → **5.73** |
+| 0-3 ghosts (`perf-1440p`) | pathtrace | 8.42 (119) | **7.49 (134)** | **-0.93 ms (+12.6%)** | 83 → **118** | 7.07 → **6.33** | 7.56 → **6.67** |
+| 0-2 run combat (`perf-core`) | pathtrace | 11.00 (91) | **10.20 (98)** | **-0.80 ms (+7.7%)** | 30 → **38** | 7.44 → 7.53 | 9.16 → **8.33** |
+| 8-2 portal side 1 (`perf-1440p`) | pathtrace | 14.49 (69) | **14.07 (71)** | **-0.42 ms (+2.9%)** | 57 → **67** | 6.78 → **6.42** | 12.83 → **12.43** |
+| 8-3 b (`perf-1440p`) | pathtrace | 17.97 (56) | **16.96 (59)** | **-1.01 ms (+5.4%)** | 27 → **55** | 6.20 → **5.85** | 16.14 → **15.16** |
+| 8-3 combat (`perf-combat`) | pathtrace | 16.64 (60) | **15.14 (66)** | **-1.50 ms (+10.0%)** | 12 → **14** | 6.77 → **6.41** | 14.39 → **13.00** |
+| 8-3 combat (`perf-combat`) | relight | 18.52 (54) | **17.58 (57)** | **-0.94 ms (+5.6%)** | 14 → **16** | 6.89 → **6.52** | 15.83 → **14.41** |
+
+In `8-3 combat` pathtrace, frames > 16.7 ms dropped from **779 → 248** (-68%), p99 `37.04 → 34.07 ms`, worst `336.9 → 300.1 ms` (relight worst `→ 193.6 ms`). Visual verification on `alt` (`20261121-171919_0-3-beams_alt`, `20261121-171919_combat-visual_alt`): `0-3` light beams, `8-3` portals/veils/wet blood, `1-4` lamps, and `1-3` statue orb glow all match baseline with zero regressions.
 
 ## How these were measured (and traps)
 
