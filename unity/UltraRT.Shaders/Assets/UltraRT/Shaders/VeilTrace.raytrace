@@ -8,6 +8,8 @@
 // the game renders that side's view with it); _VeilPortalFog has it per side. Output: rgb what is added (display units, as the
 // game blends), a what is left of the image: out = image x a + rgb (VeilComposite.shader, drawn after the fog pass).
 // Pixels not seen through a portal are left alone: there the game draws the layers itself, over the traced image.
+// Except for light cones with a cone cover (_VeilParams.w > 0, the level's "coneCover"; 2026-11-21): there the image behind
+// an additive cone is darkened by its light, and the game's own cone adds on top (Plugin.Veils.cs, ConeCover).
 #pragma max_recursion_depth 1
 
 #include "UltraRTCommon.hlsl"
@@ -19,7 +21,7 @@ RWTexture2D<float4> _VeilOutput;
 
 float4x4 _VeilInvViewProj; // the screen's view-projection (no jitter, no guard band), inverted
 float4   _VeilCamPos;
-float4   _VeilParams;      // x colour gain, y cover gain, z 1 = also on pixels not seen through a portal (debug)
+float4   _VeilParams;      // x colour gain, y cover gain, z 1 = also on pixels not seen through a portal (debug), w cone cover (0 = off)
 float4   _VeilFog;         // the level's fog: x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
 float4   _VeilFogColor;    // rgb the level's fog colour, w strength of the fog behind portals (0 = none)
 float4   _VeilCamFwd;      // xyz the camera's forward axis (fog goes by view depth, as the game's), w 1 = the fog pass ran
@@ -72,7 +74,8 @@ void RayGen()
         float k = v0 > 1e-3 ? saturate(v1 / v0) : 1.0;
         o = float4(max(colour * (1.0 - v1) - _VeilFogColor.rgb * ((1.0 - v0) * k), 0.0), k);
     }
-    if (path.hops > 0u || _VeilParams.z > 0.5)
+    bool portalPixel = path.hops > 0u || _VeilParams.z > 0.5;
+    if (portalPixel || _VeilParams.w > 0.0)
     {
         RayDesc r;
         r.Origin = ray.Origin;
@@ -83,17 +86,22 @@ void RayGen()
         v.alpha = 1.0;
         v.flags = ULTRART_PAYLOAD_VEILS;
         TraceRay(_Scene, RAY_FLAG_CULL_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ULTRART_MASK_TRANSPARENT, 0, 1, 0, r, v);
+        float3 add = float3(v.normal.y, v.normal.z, asfloat(v.motion));
+        if (!all(add == add)) add = 0.0;
+        add = max(add, 0.0);
+        // Cone cover: the image behind the additive cones is kept x (1 - K x their brightest added channel).
+        if (_VeilParams.w > 0.0) o.a *= 1.0 - saturate(_VeilParams.w * max(add.r, max(add.g, add.b)));
         float sum = v.normal.x;
-        if (sum > 1e-4)
+        if (portalPixel && sum > 1e-4)
         {
             // Cover of all layers; colour = their alpha-weighted mean.
             float cover = saturate((1.0 - saturate(v.alpha)) * _VeilParams.y);
             // The layers are drawn after the fogged surface and have no fog of their own (_FOG_OFF).
             o = float4(o.rgb * (1.0 - cover) + max(v.albedo, 0.0) / sum * (cover * _VeilParams.x), o.a * (1.0 - cover));
         }
-        // Additive layers (the game's light cones, VeilProxy.shader): their light on top, nothing covered.
-        float3 add = float3(v.normal.y, v.normal.z, asfloat(v.motion));
-        if (all(add == add)) o.rgb += max(add, 0.0) * _VeilParams.x;
+        // Additive layers (the game's light cones, VeilProxy.shader): their light on top behind a portal (elsewhere the game
+        // draws them).
+        if (portalPixel) o.rgb += add * _VeilParams.x;
     }
     _VeilOutput[id] = o;
 }

@@ -192,6 +192,17 @@ namespace UltraRT
         /// </summary>
         public static float PlayerWeaponGlow = 1f;
 
+        /// <summary>
+        /// V1's camera eye (the yellow lens on its head, painted into the body texture of the fullbright <c>V1</c> material)
+        /// glows x this in RT (0 = lit like the rest of the body, as before 2026-11-21). The body is lit by the room with a
+        /// 20 % unlit share (<see cref="PlayerModelUnlit"/>), so in a dark room's mirror the lens read as dull ochre beside
+        /// the glowing wings (user, playtest of 2026-11-21: "should the camera on v1's head glow?"). The lens texels are
+        /// found once per material by colour (<see cref="BuildEyeMask"/>) and become the proxy's emission texture.
+        /// Plugin's _v1EyeGlow, bench plugin._v1EyeGlow=F, -ultrart-v1-eye-glow F. docs/reflections.md, "V1's glow".
+        /// </summary>
+        public static float PlayerEyeGlow = 2.5f;
+        private readonly Dictionary<Material, Texture2D> _eyeMasks = new Dictionary<Material, Texture2D>();
+
         private static readonly int IdEmissiveTexG = Shader.PropertyToID("_EmissiveTex");
         private static readonly int IdEmissiveMaskG = Shader.PropertyToID("_EmissiveMask");
         private static readonly int IdAlbedoEmissiveG = Shader.PropertyToID("_UseAlbedoAsEmissive");
@@ -249,6 +260,7 @@ namespace UltraRT
             _playerBody.Source.GetSharedMaterials(_glowMats);
             foreach (var src in _glowMats)
             {
+                if (src != null && !src.IsKeywordEnabled("EMISSIVE")) ApplyEyeGlow(src);
                 if (src == null || !src.IsKeywordEnabled("EMISSIVE") || !src.HasProperty(IdEmIntensityG)) continue;
                 if (!_playerMaterialCache.TryGetValue(src, out var pm) || pm == null) continue;
                 float want = Mathf.Max(src.GetFloat(IdEmIntensityG), 0.0001f) * gain;
@@ -256,6 +268,92 @@ namespace UltraRT
             }
             if (gain != _glowAppliedGain && _glowAppliedGain >= 0f) _log.LogInfo($"V1 glow: body emission x{gain:F2}");
             _glowAppliedGain = gain;
+        }
+
+        /// <summary>The body's lens texels (<see cref="BuildEyeMask"/>) glow x <see cref="PlayerEyeGlow"/> on its lit copy.</summary>
+        private void ApplyEyeGlow(Material src)
+        {
+            if (!_playerMaterialCache.TryGetValue(src, out var pm) || pm == null || !pm.HasProperty(IdEmIntensityG)) return;
+            if (!_eyeMasks.TryGetValue(src, out var mask))
+                _eyeMasks[src] = mask = BuildEyeMask(src);
+            if (mask == null) return;
+            float want = Mathf.Max(0f, PlayerEyeGlow);
+            if (pm.GetFloat(IdEmIntensityG) == want && ReferenceEquals(pm.GetTexture(IdEmissiveTexG), mask)) return;
+            pm.SetTexture(IdEmissiveTexG, mask);
+            pm.SetColor(IdEmColorG, Color.white);
+            pm.SetFloat(IdAlbedoEmissiveG, 0f);
+            pm.SetFloat(IdEmissiveMaskG, 0f);
+            pm.SetFloat(IdEmIntensityG, want);
+        }
+
+        /// <summary>
+        /// The texels of a V1 body material's main texture that show the camera lens: saturated yellow (min(r, g) - b over
+        /// 0.25-0.4 and the brighter of r, g over 0.35-0.5; the body is blue and grey, the wings are their own material),
+        /// as an emission texture (the texel's own colour where it keys, black elsewhere; point filtered like the game's
+        /// textures). Null when nothing keys, or when more than 4 % of the texture does (then it is not just a lens).
+        /// </summary>
+        private Texture2D BuildEyeMask(Material src)
+        {
+            var tex = Tex2D(src, "_MainTex");
+            if (tex == null) return null;
+            int w = tex.width, h = tex.height;
+            if (w <= 0 || h <= 0 || w > 4096 || h > 4096) return null;
+            var rt = RenderTexture.GetTemporary(w, h, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            var prev = RenderTexture.active;
+            Texture2D read = null, mask = null;
+            try
+            {
+                Graphics.Blit(tex, rt);
+                RenderTexture.active = rt;
+                read = new Texture2D(w, h, TextureFormat.RGBA32, false, false);
+                read.ReadPixels(new Rect(0, 0, w, h), 0, 0, false);
+                var px = read.GetPixels32();
+                var outPx = new Color32[px.Length];
+                int keyed = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
+                double sr = 0, sg = 0, sb = 0;
+                for (int i = 0; i < px.Length; i++)
+                {
+                    float r = px[i].r / 255f, g = px[i].g / 255f, b = px[i].b / 255f;
+                    float k = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.25f, 0.4f, Mathf.Min(r, g) - b))
+                              * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.35f, 0.5f, Mathf.Max(r, g)));
+                    outPx[i] = new Color32((byte)(px[i].r * k), (byte)(px[i].g * k), (byte)(px[i].b * k), 255);
+                    if (k < 0.5f) continue;
+                    keyed++;
+                    int x = i % w, y = i / w;
+                    x0 = Mathf.Min(x0, x); x1 = Mathf.Max(x1, x); y0 = Mathf.Min(y0, y); y1 = Mathf.Max(y1, y);
+                    sr += r; sg += g; sb += b;
+                }
+                float share = keyed / (float)px.Length;
+                string where = keyed > 0 ? $"uv ({x0 / (float)w:F3}, {y0 / (float)h:F3})..({(x1 + 1) / (float)w:F3}, {(y1 + 1) / (float)h:F3}), mean colour ({sr / keyed:F2}, {sg / keyed:F2}, {sb / keyed:F2})" : "";
+                if (keyed == 0 || share > 0.04f)
+                {
+                    _log.LogInfo($"V1 eye glow: '{src.name}' texture '{tex.name}' {w}x{h}: {keyed} lens texels ({share * 100f:F2} %) {where}: {(keyed == 0 ? "none" : "too many for a lens")}, not glowing");
+                    return null;
+                }
+                mask = new Texture2D(w, h, TextureFormat.RGBA32, false, false) { name = src.name + " eye [UltraRT]", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Repeat, hideFlags = HideFlags.HideAndDontSave };
+                mask.SetPixels32(outPx);
+                mask.Apply(false, true);
+                _log.LogInfo($"V1 eye glow: '{src.name}' texture '{tex.name}' {w}x{h}: {keyed} lens texels ({share * 100f:F2} %) {where}, x{PlayerEyeGlow:F2}");
+                return mask;
+            }
+            catch (System.Exception e)
+            {
+                _log.LogWarning($"V1 eye glow: '{src.name}': {e.Message}");
+                if (mask != null) Object.Destroy(mask);
+                return null;
+            }
+            finally
+            {
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(rt);
+                if (read != null) Object.Destroy(read);
+            }
+        }
+
+        private void DisposeEyeMasks()
+        {
+            foreach (var m in _eyeMasks.Values) if (m != null) Object.Destroy(m);
+            _eyeMasks.Clear();
         }
 
         private void BuildWeaponGlow(GameObject weapon)

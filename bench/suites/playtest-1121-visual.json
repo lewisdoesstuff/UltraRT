@@ -1,0 +1,24 @@
+{
+  "Name": "playtest-1121-visual",
+  "Note": "Playtest of 2026-11-21, t3/playtest-visual-fixes: 0-3 pillars over emissive strips (coneCover; K 0 = before), 1-1 torch shadows (fx.flameOwnLight=0 = before), 3-1 teeth doorway (vertex blending + lifted flesh; before needs -Extra -ultrart-novertexblend), 5-1 cave through the glass and under water (before = the old fog via variants), V1's camera eye in 1-1's terminal glass (plugin._v1EyeGlow=0 = before). docs/lighting-overrides.md 'Light cones over bright emitters', docs/emissive-lights.md 'Flames with their own light', docs/scene-proxies.md '3-1's mouth doors', docs/vfx.md 'Underwater', docs/reflections.md 'V1's camera eye'.",
+  "Scenarios": [
+    { "Name": "0-3 pose 1", "Scene": "Level 0-3",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-0-3-1.json", "Position": [-9.34, -1.91, 328.16], "Yaw": -200.0, "Pitch": 23.28, "Duration": 4 },
+      "Modes": ["off", "pathtrace+plugin._coneCoverOverride=0", "pathtrace", "relight"], "Screenshots": [2], "ShotSettle": 0.5 },
+    { "Name": "1-1 pose 1", "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-1-1-1.json", "Position": [82.18, -3.5, 327.1], "Yaw": 145.96, "Pitch": 0.16, "Duration": 4 },
+      "Modes": ["off", "pathtrace+fx.flameOwnLight=0", "pathtrace", "relight"], "Screenshots": [2] },
+    { "Name": "3-1 pose 1", "Scene": "Level 3-1",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-3-1-1.json", "Position": [0.67, -18.5, 328.63], "Yaw": -0.68, "Pitch": 2.48, "Duration": 4 },
+      "Modes": ["off", "relight", "pathtrace"], "Screenshots": [2, 2.7] },
+    { "Name": "5-1 glass", "Scene": "Level 5-1",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-5-1-1.json", "Position": [85.83, -121.73, 234.58], "Yaw": 629.22, "Pitch": 1.16, "Duration": 4, "Load": "checkpoint" },
+      "Modes": ["off", "relight", "pathtrace"], "Screenshots": [2] },
+    { "Name": "5-1 underwater", "Scene": "Level 5-1",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-5-1-2.json", "Position": [79.07, -122.46, 234.5], "Yaw": 629.22, "Pitch": 1.16, "Duration": 4, "Load": "checkpoint" },
+      "Modes": ["off", "pathtrace+vfx.waterFog=0.025+vfx.waterDarken=0.12+vfx.waterFogLight=0.14+vfx.waterDeepFloor=0.143", "pathtrace", "relight"], "Screenshots": [2] },
+    { "Name": "1-1 terminal", "Scene": "Level 1-1",
+      "Path": { "Type": "static", "Position": [6.8, -0.5, 261.0], "Yaw": 0, "Pitch": -4, "Approach": "../recordings/1-1-terminal-glancing.json", "Duration": 4 },
+      "Modes": ["off", "pathtrace+plugin._v1EyeGlow=0", "pathtrace", "relight"], "Screenshots": [3] }
+  ]
+}

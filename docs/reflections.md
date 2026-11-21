@@ -846,6 +846,25 @@ average, within the run-to-run spread of that column). Sheets: `bench/results/re
 `1-1_terminal_V1_wings.jpg`. Not verified: HDR (the display was not in HDR mode during the run), other weapons' glows
 (the revolver's charge, the nailgun's heat) beyond the link log.
 
+**V1's camera eye** (2026-11-21, `t3/playtest-visual-fixes`; user, playtest of 2026-11-21: "should the camera on v1's
+head glow?"). The lens on V1's head is painted into the body texture (`v1colour_tex`, 256x256) of the fullbright `V1`
+material, which RT lights like the room with a 20 % unlit share (`PlayerModelUnlit`), so in a dark room's reflection it
+read as a dull ochre dot beside the glowing wings. `SceneProxies.Player.cs` (`BuildEyeMask`, `ApplyEyeGlow`): once per
+body material, the main texture is read back (Blit + ReadPixels) and its saturated yellow texels (min(r, g) - b over
+0.25-0.4, max(r, g) over 0.35-0.5) become an emission texture (the texel's own colour, black elsewhere, point filtered)
+on the lit copy, x `PlayerEyeGlow` = **2.5**, the wings' gain. 346 texels (0.53 % of the texture, mean colour (0.97,
+0.94, 0.00)): the lens and the two yellow slits on the chest (both yellow lights in the game's own fullbright V1); a
+texture with nothing to key, or more than 4 %, glows nowhere (logged). Plugin `_v1EyeGlow`, `-ultrart-v1-eye-glow F`,
+bench `plugin._v1EyeGlow=F` (0 = before). Log: `V1 eye glow: 'V1' texture 'v1colour_tex' 256x256: 346 lens texels ...`.
+
+Measured (alt install, SDR, trace scale 0.5, run `20261121-154810_tmp-pvf-eye`, before/after in one launch): in 1-1's
+terminal glass from 6 m (`1-1-terminal-glancing.json` at (6.8, -0.5, 261)) the lens is a small yellow dot above the
+crosshair in `pathtrace` and `relight`; with `plugin._v1EyeGlow=0` it is not visible. Brightest pixel of the head patch
+(38, 26, 16) -> (51, 44, 17) `pathtrace`, (64, 58, 21) `relight`: a glint in the CRT glass (it reflects about a quarter),
+not a hot spot. The game's own 8-x portal mirrors draw V1 fullbright (8-3's secret mirror: the lens at (235, 231, 4) in
+both, unchanged). Sheet: `bench/results/review/playtest-visual-fixes/1-1_terminal_V1_eye.png` (the game, before, after `pathtrace`,
+after `relight`). Cost: one readback per body material at the scene build; nothing per frame beyond a property check.
+
 **Water tint and P-2's puddle** (2026-11-17). The trailer's yellow-green patch on P-2's street is the game's `Puddle`
 object, which is traced as water (`Water 6 Still`: colour (0.22, 0, 0), alpha 0.5, texture `Fixed Water Texture`).
 In pathtrace a path that passes through water is tinted by `lerp(1, albedo, 0.48)` whatever the game's alpha is

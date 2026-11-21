@@ -243,7 +243,7 @@ namespace UltraRT
             foreach (var s in sources) NoteStaticTransparent(s, late: false);
             foreach (var (r, kinds) in liftedSources) NoteStaticTransparent(r, kinds, late: false); // once per renderer
             if (_lifted.Count > 0 || _liftedFailed > 0)
-                _log.LogInfo($"Static displaced transparents: {_lifted.Count} slots lifted out of the static groups, {_liftedProxies} dynamic proxies, {_liftedFailed} failed");
+                _log.LogInfo($"Static displaced slots: {_lifted.Count} lifted out of the static groups ({_lifted.Values.Count(l => l.Opaque)} opaque), {_liftedProxies} dynamic proxies ({_liftedOpaque} opaque), {_liftedFailed} failed");
 
             long cpuBytes = all.Sum(c => c.CpuBytes);
             int flagsMode = all.Count(c => c.FlagsMode);

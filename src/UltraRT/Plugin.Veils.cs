@@ -22,6 +22,23 @@ namespace UltraRT
         private int _veilLogs;
         private ComputeBuffer _veilFogBuffer;
         private static readonly int VeilTexId = Shader.PropertyToID("_VeilTex");
+        /// <summary>Bench: plugin._coneCoverOverride K (>= 0) replaces the level's coneCover (-1: the level's).</summary>
+        private float _coneCoverOverride = -1f;
+
+        /// <summary>
+        /// Light cones over the traced image (2026-11-21; the level's "exposure": { "coneCover": K }, docs/lighting-overrides.md
+        /// "Light cones"). The game adds its LightPillar cones over the traced room, which is brighter than the game's: 0-3's
+        /// emissive wall strips behind the yellow pillars stayed near white and showed through them as pale lines (user,
+        /// pose 1). An additive cone only adds, and the camera target is 8-bit, so making the cone's own blend cover the
+        /// image clipped its colour (tried: the pillars went pale). Instead the veil pass, which already collects the cones
+        /// as additive layers (VeilTrace.raytrace), darkens the traced image behind them before the game draws them:
+        /// x (1 - saturate(K x the brightest channel of the cones' added light)). The game's cone then adds as always.
+        /// </summary>
+        private float ConeCover()
+        {
+            if (_coneCoverOverride >= 0f) return _coneCoverOverride;
+            return _lightOverrides && _lightOv != null ? _lightOv.LevelConeCover : 0f;
+        }
 
         private void LoadVeilShaders(AssetBundle bundle)
         {
@@ -56,7 +73,9 @@ namespace UltraRT
             // Nothing is seen through a portal without a portal side in the RTAS, and the pass only writes such pixels.
             // (Since light cones count as veils, levels without any portal have veil proxies: 6-2 has 20, and the
             // pass ran there for nothing, +0.4 ms GPU and a DispatchRays on the render thread; merge-regress 2026-11-18.)
-            if (_proxies.PortalSidesInRtas == 0) return;
+            // Light cones covering the traced image (ConeCover): every pixel, so not tied to a portal.
+            float coneCover = _proxies.VeilsVisible > 0 && s.beams ? Mathf.Max(0f, ConeCover()) : 0f;
+            if (_proxies.PortalSidesInRtas == 0 && coneCover <= 0f) return;
             if (_proxies.VeilsVisible == 0 && !fogAlone) return;
             float scale = Mathf.Clamp(s.scale, 0.25f, 1f);
             int w = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelWidth * scale)), h = Mathf.Max(1, Mathf.RoundToInt(_camera.pixelHeight * scale));
@@ -68,7 +87,7 @@ namespace UltraRT
             _cmd.SetRayTracingTextureParam(_veilShader, "_VeilOutput", _veilTex);
             _cmd.SetRayTracingMatrixParam(_veilShader, "_VeilInvViewProj", invViewProj);
             _cmd.SetRayTracingVectorParam(_veilShader, "_VeilCamPos", _camera.transform.position);
-            _cmd.SetRayTracingVectorParam(_veilShader, "_VeilParams", new Vector4(Mathf.Max(0f, s.gain), Mathf.Max(0f, s.cover), s.everywhere, 0f));
+            _cmd.SetRayTracingVectorParam(_veilShader, "_VeilParams", new Vector4(Mathf.Max(0f, s.gain), Mathf.Max(0f, s.cover), s.everywhere, coneCover));
             var fc = RenderSettings.fogColor;
             _cmd.SetRayTracingVectorParam(_veilShader, "_VeilFog", new Vector4(fogMode, RenderSettings.fogStartDistance, RenderSettings.fogEndDistance, RenderSettings.fogDensity));
             _cmd.SetRayTracingVectorParam(_veilShader, "_VeilFogColor", new Vector4(fc.r, fc.g, fc.b, fog ? Mathf.Clamp01(s.fog) : 0f));
@@ -84,11 +103,11 @@ namespace UltraRT
             _cmd.DispatchRays(_veilShader, "RayGen", (uint)w, (uint)h, 1);
             _cmd.SetGlobalTexture(VeilTexId, _veilTex);
             _cmd.DrawProcedural(Matrix4x4.identity, _veilCompositeMat, 0, MeshTopology.Triangles, 3);
-            string state = $"{_proxies.VeilsVisible > 0}/{fog}/{portalFog}";
+            string state = $"{_proxies.VeilsVisible > 0}/{fog}/{portalFog}/{coneCover}";
             if (state != _veilLogged && _veilLogs++ < 12)
             {
                 _veilLogged = state;
-                Logger.LogInfo($"Veil pass: {_proxies.VeilsVisible} veil proxies in the RTAS, {_proxies.PortalSidesInRtas} portal sides, {w}x{h}, gain {s.gain} cover {s.cover}, fog behind portals {(fog ? $"x{s.fog} (level fog mode {fogMode}, {RenderSettings.fogStartDistance:F0}-{RenderSettings.fogEndDistance:F0} m{(portalFog ? ", a portal with its own fog" : "")})" : "off")}");
+                Logger.LogInfo($"Veil pass: {_proxies.VeilsVisible} veil proxies in the RTAS, {_proxies.PortalSidesInRtas} portal sides, {w}x{h}, gain {s.gain} cover {s.cover}, cone cover {coneCover:F2}, fog behind portals {(fog ? $"x{s.fog} (level fog mode {fogMode}, {RenderSettings.fogStartDistance:F0}-{RenderSettings.fogEndDistance:F0} m{(portalFog ? ", a portal with its own fog" : "")})" : "off")}");
             }
         }
     }

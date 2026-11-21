@@ -121,6 +121,10 @@ namespace UltraRT
         /// <summary>Strength of the game's light cones (LightPillar* materials, additive) while frames are traced
         /// (Plugin.Beams.cs): the cone is drawn by the game over the traced room, which is often brighter than the game's.</summary>
         [JsonProperty("coneGain", NullValueHandling = NullValueHandling.Ignore)] public float? ConeGain;
+        /// <summary>How much the light cones hide the traced image behind them (Plugin.Veils.cs, ConeCover): the image is kept
+        /// x (1 - saturate(K x the cones' brightest added channel)); 0 = only added, as the game draws them. 0-3's pillars
+        /// over emissive strips, 2026-11-21.</summary>
+        [JsonProperty("coneCover", NullValueHandling = NullValueHandling.Ignore)] public float? ConeCover;
         /// <summary>Factor on the traced water's ripples in this level (TransparentSettings.waves; 0 = a flat mirror). For
         /// still water the user wants calm (8-2's pool, 2026-11-18).</summary>
         [JsonProperty("waterWaves", NullValueHandling = NullValueHandling.Ignore)] public float? WaterWaves;
@@ -175,6 +179,7 @@ namespace UltraRT
         public float LevelFollowGameUp => Mathf.Clamp01((_userExposure?.FollowGameUp ?? _shippedExposure?.FollowGameUp) ?? 0f);
         public float LevelWaterWaves => Mathf.Clamp((_userExposure?.WaterWaves ?? _shippedExposure?.WaterWaves) ?? 1f, 0f, 2f);
         public float LevelConeGain => Mathf.Clamp((_userExposure?.ConeGain ?? _shippedExposure?.ConeGain) ?? 1f, 0f, 4f);
+        public float LevelConeCover => Mathf.Clamp((_userExposure?.ConeCover ?? _shippedExposure?.ConeCover) ?? 0f, 0f, 8f);
 
         /// <summary>Classes and rules (lights\_rules.json plus this level's own).</summary>
         public readonly LightClasses Classes;

@@ -107,14 +107,37 @@ the front crosses ripple; a front behind a wall does nothing. Up to 8 at once.
 ### Underwater
 While `UnderwaterController.inWater` (the camera is in a `Water` volume; the surface is the top of its collider):
 - **Wobble**: a slow screen-space wave (`waterWobble` 0.0012 of the screen), point sampled, less on near surfaces.
-- **Fog that darkens with depth**: distance fades into the water's own colour (`Water.clr`), dark, and darker the
-  deeper the camera is (`waterFog` 0.025 /m, `waterDarken` 0.12 /m).
+- **Fog that darkens with depth**: distance fades into the water's own colour (`Water.clr`) x `waterFogLight` 0.6,
+  darkening with the camera's depth (`waterDarken` 0.03 /m) to `waterDeepFloor` 0.5 of that; `waterFog` 0.012 /m.
+  Until 2026-11-21: 0.025 /m into the water colour x 0.02-0.14, darkening at 0.12 /m ("5-1's deep cave" below).
 - **Light shafts from the surface**: a sparse caustic pattern on the surface plane, extruded along the direction to
   the level's sun (straight up without one), marched through the water in front of the surface (6 dithered steps up to
   24 m).
 - **Caustics** on what is under water, fading with depth; less on surfaces that are already bright.
 
 The game's own underwater tint (`_UnderwaterOverlay`) still applies.
+
+**5-1's deep cave (2026-11-21, `t3/playtest-visual-fixes`).** User, playtest of 2026-11-21, 5-1 after `Checkpoint (1)`:
+seen through the glass window (`bench/recordings/u1121-5-1-1.json`) the flooded cave is a clear, bright cyan; one step
+into the water (`u1121-5-1-2.json`, (79.07, -122.46, 234.5)) its walls and ceiling went heavily dark. The camera is 87 m
+below the surface (`Underwaters`, top at -35.5, colour (0, 0.5, 1)), so the fog colour had darkened to its floor, the water
+colour x 0.02: near black, and at 0.025 /m everything 30-50 m away was 50-70 % fog. The game's own underwater view
+(`off`, the game's tint and fog) is clear cyan, as is the traced cave with our pass off (`vfx.underwater=0`). Now the fog
+is thinner and goes into the water's colour at a lit level (above). Measured (alt install, SDR, trace scale 0.5, run
+`20261121-153104_tmp-pvf-after`, in one launch; mean colour of the far cave / the ceiling, 0-255):
+
+| | far cave | ceiling | frame mean |
+|---|---|---|---|
+| the game (`off`) | (13, 95, 146) | (35, 111, 144) | 75.6 |
+| before (`waterFog` 0.025, `waterDarken` 0.12, fog colour x 0.02-0.14) | (4, 48, 87) | (14, 61, 95) | 64.6 |
+| now, `pathtrace` | (6, 76, 138) | (30, 102, 149) | 82.7 |
+| now, `relight` | (6, 77, 139) | (24, 96, 147) | 82.2 |
+| `waterFogLight` 0.8 | (6, 84, 154) | (28, 106, 162) | 85.9 |
+
+The cave reads as clear blue-green with the far end still fading, close to the game's and to the view through the glass
+(the glass view was 95-97 in both modes). Sheet: `bench/results/review/playtest-visual-fixes/5-1_underwater.png` (the
+game, before, `pathtrace`, `relight`, fog light 0.8). The before row is reproduced with variants (`waterFogLight` 0.14,
+`waterDeepFloor` 0.143 give 0.02 + 0.12 x dark).
 
 ### Glow sprites (2026-11-19, `t3/lamp-halo-blockiness-fix`)
 User report: a pixellated halo round 1-4's street lamps, "square blocks of glow" round the head and blocky bands
@@ -425,8 +448,8 @@ move between captures, which is most of its difference; the mean is 2% up.
 - Heat boxes are the lava renderers' bounds: an L-shaped or tilted lava mesh shimmers over its whole box. Opaque lava
   (`Lava Opaque`) is not a source.
 - One shared debris age; enviro gibs (broken props) do not glow.
-- Underwater was tuned on 7-1's pool from a teleport pose (unloaded surroundings, white water colour); 5-1 needs a
-  recorded approach to check. The surface height is the collider's top: sloped or moving water is approximated.
+- Underwater was tuned on 7-1's pool from a teleport pose (unloaded surroundings, white water colour); the fog was
+  retuned on 5-1's deep cave on 2026-11-21 (recorded pose); 7-1's pool was not rechecked. The surface height is the collider's top: sloped or moving water is approximated.
 - Wet blood: primary hits only (a mirror does not show stains glossy); not on displaced surfaces ("Wet blood on moving
   surfaces"); stains loaded from a checkpoint are dry, but stains a level stamps as it loads (3-1's gore zones: 74 at
   Uphill Battle's checkpoint) count as fresh for 40 s; the

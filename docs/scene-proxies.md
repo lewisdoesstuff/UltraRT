@@ -101,10 +101,38 @@ The code is in `src/UltraRT/SceneProxies.Displaced.cs` and `Displace.compute`.
   (`UltraRTDisplace.hlsl`, shared with `Displace.compute`): at the rest pose it failed the depth test against the
   game's displaced water and 6-2's blood pools flickered (docs/reflections.md, "Displaced water and the temporal filter").
 - **Not covered:**
-  - Static-batched renderers keep the rest pose, because the static groups merge them into shared meshes. Counts: 3-1 21, 8-3 about 50, 5-S 23, 8-1 10. They are logged as `keeps the rest pose`. Exception since 2026-11-20: static-batched water, blood and glass with the keyword are lifted out of the groups into displaced dynamic proxies (`StaticGroups.Lifted.cs`; 2-1's channel; docs/reflections.md, "Static-batched displaced water"). The game does displace batched surfaces (its vertex shader works in world space), so the remaining opaque ones (3-1's and 8-3's flesh) are still off by up to the amplitude.
+  - Static-batched renderers kept the rest pose, because the static groups merge them into shared meshes. Counts: 3-1 21, 8-3 about 50, 5-S 23, 8-1 10. They are logged as `keeps the rest pose`. Since 2026-11-20 static-batched water, blood and glass with the keyword are lifted out of the groups into displaced dynamic proxies (`StaticGroups.Lifted.cs`; 2-1's channel; docs/reflections.md, "Static-batched displaced water"), and since 2026-11-21 opaque slots too ("3-1's mouth doors" below): 3-1 lifts 25 slots, 8-3 47, and both log `0 static-batched ... keep the rest pose`. `-ultrart-nostaticlift-opaque` (scene build) keeps the opaque ones in their groups at the rest pose, as before.
   - Skinned renderers keep the rest pose too. The only one is the `Puppet` prefab.
   - The emitter table (emissive lights, lava) keeps the rest-pose triangles.
   - Material keyword changes at run time are not followed.
+
+### 3-1's mouth doors (2026-11-21, `t3/playtest-visual-fixes`)
+
+User, playtest of 2026-11-21, 3-1 pose 1 (`bench/recordings/u1121-3-1-1.json`, the teeth doorway): with RT on, beige
+triangles of the teeth quad poked out to the left, right and top of the teeth, where the game shows flesh.
+
+Two causes, both fixed:
+- **The quad's own texture** (the one that made the triangles). The teeth quad's material, `MouthBlend`, has
+  `VERTEX_BLENDING`: the game draws its `_BlendTex` (red flesh streaks) where the vertex colour's red falls, so the quad
+  fades from teeth to flesh towards its corners. The proxy sampled `_MainTex` only (vertex blending chose only the
+  material class), so the corners showed teeth. Now non-atlas Master materials with the keyword and a `_BlendTex` blend
+  their albedo as lerp(`_BlendTex` x `_BlendColor`, `_MainTex`, vertex colour r) x `_Color` (`Proxy.shader` `_VertexBlend`;
+  the atlas path already blended the same way; docs/materials.md section 19). 3-1 has 26 such proxy materials, 3-2 12.
+  `-ultrart-novertexblend` (scene build): `_MainTex` only, as before.
+- **The flesh around it.** The door's frame (`DoorMouth*/Frame/Cube(Clone)*`, `MouthBlend`; `DoorMouth*/ExtraFrame (1)`,
+  `Flesh3NoFogMouthSettings`) is static-batched and kept the rest pose while the game swells it (amplitude 1-2). The
+  lifting of displaced static slots (above, `StaticGroups.Lifted.cs`) now takes opaque slots as well: each becomes a
+  dynamic proxy of its source with the slot's proxy material, displaced like any other copy (`Static displaced opaque:
+  ... lifted, N verts, displaced`; summary `Static displaced slots: N lifted ... (N opaque)`).
+
+Measured (alt install, SDR, trace scale 0.5; `20261121-154810_tmp-pvf-vb` against the same suite with
+`-Extra -ultrart-novertexblend`, `-154948`; both with the lift): at 2.0 s and 2.7 s the area above and beside the teeth
+is flesh in `pathtrace` and `relight`, as in the game; without the blend the beige patches are back (a wedge at the top and
+both sides). The lift alone (run `20261121-153104_tmp-pvf-after` against `-150850`) made the patches smaller but did not
+remove them. 3-1's noisy room and 3-2's moving walls look the same with and without the blend. Sheet:
+`bench/results/review/playtest-visual-fixes/3-1_pose_1_teeth.png` (rows 2.0 s / 2.7 s: the game, without the blend, with it `pathtrace`,
+with it `relight`). Cost: the 25 lifted 3-1 slots are 16-308 vertices each and freeze beyond 40 m like every displaced
+copy; not measured separately.
 
 ### Rain on displaced surfaces (2026-11-20, `t3/3-1-flesh-glossy-layer`)
 
@@ -649,6 +677,9 @@ traced image replaces the game's portal view, so there the veil was missing. Now
   one more DispatchRays on the render thread). The pass now needs a portal side in the RTAS. Measured after the fix
   (`bench/suites/veil-gate-perf.json`, `-Perf`, everything of the branch off against on, one launch): 6-2 start
   pathtrace 5.82 / 5.83 ms, relight 6.16 / 6.15; 0-3 ghosts pathtrace 6.11 / 6.13, relight 6.41 / 6.39.
+- **Cone cover** (2026-11-21): in a level whose light file sets `"coneCover"` (0-3), the pass runs on every pixel,
+  portal or not, and darkens the traced image behind the additive cones before the game draws them
+  (docs/lighting-overrides.md, "Light cones over bright emitters").
 - **When it runs**: relight, pt-dn, pathtrace (not the debug views), and only with a veil proxy in the RTAS,
   or with a portal side in the RTAS and fog that can matter: a portal with its own fog, exponential fog, or linear fog
   ending within `veil.fogOnlyWithin` (20 km). No portal and no veil: no dispatch.

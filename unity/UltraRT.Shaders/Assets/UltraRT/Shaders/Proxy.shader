@@ -25,6 +25,10 @@ Shader "UltraRT/Proxy"
         _Cutoff ("Alpha cutoff", Float) = 0
         _AtlasMode ("Atlas mode (StaticSceneOptimizer)", Float) = 0
         _BlendTex ("Blend atlas", 2D) = "white" {}
+        // ULTRAKILL/Master VERTEX_BLENDING (not atlas): albedo = lerp(_BlendTex x _BlendColor, _MainTex, vertex colour r) x
+        // _Color (SceneProxies.cs, 2026-11-21: 3-1's mouth doors, MouthBlend).
+        _VertexBlend ("Vertex blending (Master)", Float) = 0
+        _BlendColor ("Blend colour", Color) = (1,1,1,1)
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
         _Transmit ("Stained glass: shadow rays pass, tinted by the colour x this (0 = opaque)", Float) = 0
@@ -162,6 +166,8 @@ Shader "UltraRT/Proxy"
             float _EmissiveThreshold;
             float _Cutoff;
             float _AtlasMode;
+            float _VertexBlend;
+            float4 _BlendColor;
             float _SkyWall;
             float _AlphaTest;
             float _CameraSkip;
@@ -607,7 +613,19 @@ Shader "UltraRT/Proxy"
                 {
                     texUV = uv * _MainTex_ST.xy + _MainTex_ST.zw;
                     if (_Scrolling * _UltraRTTexScroll > 0.5) texUV += _ScrollOffset.xy + _ScrollSpeed.xy * _UltraRTRainTime;
-                    albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_MainTex, lodUv, cap)) * _Color;
+                    albedo = _MainTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_MainTex, lodUv, cap));
+                    // ULTRAKILL VERTEX_BLENDING: the secondary texture where vertex colour r falls (3-1's mouth doors: the
+                    // teeth quad fades to flesh at its corners; with _MainTex alone its corners showed teeth). Missing
+                    // colours read as white (all main).
+                    [branch] if (_VertexBlend > 0.5)
+                    {
+                        float vr = saturate(UnityRayTracingFetchVertexAttribute4(tri.x, kVertexAttributeColor).r * b.x
+                                          + UnityRayTracingFetchVertexAttribute4(tri.y, kVertexAttributeColor).r * b.y
+                                          + UnityRayTracingFetchVertexAttribute4(tri.z, kVertexAttributeColor).r * b.z);
+                        float4 sec = _BlendTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_BlendTex, lodUv, cap)) * _BlendColor;
+                        albedo = lerp(sec, albedo, vr);
+                    }
+                    albedo *= _Color;
                     [branch] if (_CustomColors > 0.5)
                     {
                         float4 id = _IDTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_IDTex, lodUv, cap));
