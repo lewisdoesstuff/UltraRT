@@ -351,6 +351,8 @@ namespace UltraRT
                     case "-ultrart-v1-unlit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.PlayerModelUnlit); break;
                     case "-ultrart-player-rays": int.TryParse(Next(), out _playerRays); break;
                     case "-ultrart-v1-glow": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _v1Glow); break; // V1's wings in reflections (SceneProxies.Player.cs)
+                    case "-ultrart-v1-noheld": _v1HeldItem = false; break; // the held item in V1's third-person hand (SceneProxies.HeldItem.cs)
+                    case "-ultrart-v1-held-size": if (float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float hsz)) _v1HeldSize = Mathf.Max(0f, hsz); break;
                     case "-ultrart-v1-eye-glow": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _v1EyeGlow); break; // V1's camera lens in reflections
                     case "-ultrart-v1-weapon-glow": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _v1WeaponGlow); break; // the held gun's glow in reflections
                     case "-ultrart-handover-tint": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _handoverTint); break; // fullbright handover parts take their lights' colour (Plugin.Handover.cs)
@@ -392,6 +394,7 @@ namespace UltraRT
                     case "-ultrart-glow-smooth": _smoothGlow = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
                     case "-ultrart-nomatsync": SceneProxies.MaterialSync = false; break;
                     case "-ultrart-albedo-emission-glow": SceneProxies.LitAlbedoEmission = false; break;
+                    case "-ultrart-baked-remap": SceneProxies.BakedOwnLayers = false; break; // trace baked layers 6/7 as 24/8 (before 2026-11-21; SceneProxies.OriginalLayer)
                     case "-ultrart-novertexblend": SceneProxies.VertexBlendTextures = false; break; // Master VERTEX_BLENDING: _MainTex only (SceneProxies.cs)
                     case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
                     case "-ultrart-guard":
@@ -630,7 +633,7 @@ namespace UltraRT
                 SceneProxies.WarmHitShaders.Add(_effectProxyShader);
                 SceneProxies.WarmHitShaders.Add(SceneProxies.LavaShader);
                 SceneProxies.WarmHitShaders.Add(SceneProxies.PortalShader);
-                _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy) { EmitterGlowOf = EmitterGlow, AtlasPartWanted = AtlasPartWanted };
+                _proxies = new SceneProxies(Logger, _proxyShader, cam != null ? cam.cullingMask : ~0, _motionCopy) { EmitterGlowOf = EmitterGlow, AtlasPartWanted = AtlasPartWanted, CubeToLatLong = CubeLatLong, EmitterGlowAt = EmitterGlowAt };
                 _proxies.SetDisplaceShader(_displaceCs);
                 _proxies.Build();
                 _emissive.Build(_proxies);
@@ -775,6 +778,7 @@ namespace UltraRT
                 _lightBuffer.SetData(_lightData, 0, 0, uploadLights * 4);
                 Shader.SetGlobalFloat(UltraRTLinearLightsId, 0f);
             }
+            BakedLayerBits(uploadLights); // masks for the baked layers 6/7 (Plugin.Noise.cs)
             _lightMaskBuffer.SetData(_lightMasks, 0, 0, uploadLights);
             GlMark(9, ref gt);
         }
@@ -1045,6 +1049,11 @@ namespace UltraRT
         // V1's camera lens (the yellow eye on its head) glows x _v1EyeGlow in RT (SceneProxies.PlayerEyeGlow; 0 = lit as before
         // 2026-11-21). Bench plugin._v1EyeGlow=F.
         private float _v1EyeGlow = 2.5f;
+        // The item V1 holds (a skull, a torch) shown in its third-person left hand (SceneProxies.HeldItem.cs; false = not shown,
+        // as before 2026-11-21). Bench plugin._v1HeldItem=0, -ultrart-v1-noheld.
+        private bool _v1HeldItem = true;
+        // Its largest side in metres (0 = the item's size on the ground). Bench plugin._v1HeldSize=X, -ultrart-v1-held-size X.
+        private float _v1HeldSize = 0.35f;
         private static readonly int PlayerRaysId = Shader.PropertyToID("_UltraRTPlayerRays");
         private static readonly int PlayerBoxMinId = Shader.PropertyToID("_UltraRTPlayerBoxMin"), PlayerBoxMaxId = Shader.PropertyToID("_UltraRTPlayerBoxMax");
         private static readonly int PlayerEyeId = Shader.PropertyToID("_UltraRTPlayerEye");
@@ -1279,6 +1288,25 @@ namespace UltraRT
             Graphics.Blit(null, rt, _skyConvertMat);
             _skyLatLong[cube] = rt;
             Logger.LogInfo($"RT sky: converted cubemap '{cube.name}' ({cube.width}px) to lat-long");
+            return rt;
+        }
+
+        /// <summary>A cubemap surface's colour as a lat-long texture (8-3's sun: SceneProxies.ApplyCubeSun). Kept for the
+        /// session (not with the sky's targets, which are released when a fifth sky cubemap comes): a proxy material holds it.</summary>
+        private readonly Dictionary<Texture, RenderTexture> _cubeLatLong = new Dictionary<Texture, RenderTexture>();
+
+        private Texture CubeLatLong(Texture cube)
+        {
+            if (cube == null || _skyConvertShader == null || !_skyConvertShader.isSupported) return null;
+            if (_cubeLatLong.TryGetValue(cube, out var rt) && rt != null && rt.IsCreated()) return rt;
+            if (_cubeLatLong.Count >= 8) return null;
+            if (_skyConvertMat == null) _skyConvertMat = new Material(_skyConvertShader) { name = "UltraRT SkyConvert" };
+            rt = new RenderTexture(1024, 512, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear)
+                { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Repeat, name = "UltraRT CubeLatLong " + cube.name };
+            rt.Create();
+            _skyConvertMat.SetTexture("_Cube", cube);
+            Graphics.Blit(null, rt, _skyConvertMat);
+            _cubeLatLong[cube] = rt;
             return rt;
         }
 
@@ -1524,6 +1552,9 @@ namespace UltraRT
             SceneProxies.PlayerWeaponGlow = _v1WeaponGlow;
             SceneProxies.PlayerEyeGlow = _v1EyeGlow;
             _proxies.UpdatePlayerGlow(); // the wings' gain, the held gun's glow mirrored from the viewmodel
+            SceneProxies.PlayerHeldItem = _v1HeldItem;
+            SceneProxies.PlayerHeldSize = _v1HeldSize;
+            _proxies.UpdateHeldItem(); // the held skull / torch in V1's third-person hand (reflections)
             var eye = _camera.transform.position; // the player's own spot lights end their shadow rays here (UltraRTLights.hlsl)
             Shader.SetGlobalVector(PlayerEyeId, new Vector4(eye.x, eye.y, eye.z, _playerLightEyeClip ? 1f : 0f));
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))

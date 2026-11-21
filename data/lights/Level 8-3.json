@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "scene": "Level 8-3",
+  "rules": [
+    {
+      "name": "supermarket lamps",
+      "path": "SupermarketLamp[^/]*(/[^/]*){0,2}$",
+      "signals": [
+        "!scripted"
+      ],
+      "class": "fixture:lamp",
+      "handover": {
+        "part": "^(Metal Light 2[A-Z]( NoFog)?|Ceiling_Light)$",
+        "gain": 2
+      },
+      "note": "User playtest 2026-11-21 (8-3 pose 148, 10B's supermarket): 'the shelves, floor and aisles look dim'. The global 'ceiling panels' rule hands each SupermarketLamp's point light (warm white, intensity 3, range 20) to its tube panel at gain 1: the near pixels came out 0.56 EV under the game (log2 -2.17 vs -1.61). Handover off: +1.21 EV over it (-0.40); gain 2: -1.46, 0.15 EV over the game. docs/lighting-overrides.md, 'Playtest of 2026-11-21: 8-3'."
+    }
+  ],
+  "lights": [],
+  "added": [],
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply."
+}

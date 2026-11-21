@@ -892,6 +892,34 @@ trap). The switch stays off.
 
 Not verified: running, sliding and dodging poses. The benchmark takes the player over (kinematic rigidbody, zero velocity), so every bench shot shows the idle pose with wings spread and the head and gun arm following the camera (which they do: the mirror image looks where the camera looks). A recording replays the camera path the same way. Checking locomotion needs real play in front of a mirror.
 
+### The held item (2026-11-21, `t3/level-8-3-visual-polish`)
+
+User, playtest of 2026-11-21: in 8-3's mirrors V1 held nothing while the player held a skull. A held item
+(`FistControl.heldObject`, an `ItemIdentifier`) is moved under the first-person `Punch` holder on layer 13
+(`FistControl.ResetHeldItemPosition`), so it leaves the RTAS like the rest of the viewmodel (`HideHeldItems`), and the
+third-person model has nothing to show it with: `PlayerAnimations` has no item attachment. **The game itself never shows
+a held item on V1**, in its portal mirrors either (decompiled `FistControl` and `PlayerAnimations`, 2026-11-21;
+and the game's own mirror in `off`: V1 with empty hands, `bench/results/20261121-222502_tmp-83p-diag6`, `8-3 mirror held`).
+
+`SceneProxies.HeldItem.cs` adds a copy: at the scene build it finds V1's left hand (`PlayerAnimations.leftArm`, then
+its first descendant named like a hand: `hand.L`, scale 2.1). While an item is held, every traced `MeshRenderer` of the
+item gets a copy under the hand (forceRenderingOff, never drawn by the game), registered as a dynamic proxy with the
+player mask 0x80, so it shows wherever V1 does (reflections, portal views, shadows) and never to camera rays. The copies
+follow the item: each part's active state (a skull has a mesh per season, one active), its shared materials and its
+property block (a skull's glow), and the item's rotation; the copy is centred on the hand. When the item is put down,
+thrown or dropped the copy is turned off; a copy is built once per item. Size: the item's own scale is for the first-
+person view and the ground (a skull is 0.91 m across on the ground), far too big for V1's hand (the user: "far
+too big"), so the copy is scaled uniformly to `PlayerHeldSize` across its largest side, 0.35 m by default
+(`-ultrart-v1-held-size X`, bench `plugin._v1HeldSize=X`, 0 = the ground size). `-ultrart-v1-noheld` / bench
+`plugin._v1HeldItem=0`: no copy, as before.
+
+Measured at 8-3's secret mirror (`8-3 mirror held` in `bench/suites/playtest-8-3.json`, `pathtrace+plugin._rtMirrors=1`,
+the bench's `holditem` effect holding a blue skull; run `20261121-222502_tmp-83p-diag6`): the copy logs `size 0.537 local
+= 0.91 m on the ground, 0.35 m in V1's hand` and shows as a blue skull a little larger than V1's fist in the left hand,
+in `_raw` and the final image; 0.25 m reads as small; with `_v1HeldItem=0` the hand is empty. The first version used the
+ground size, 0.91 m (the user's "far too big"). Cost: the item's active parts as player-mask dynamic proxies; not
+measured.
+
 ### Fake mirrors
 
 Survey (UnityPy over `materials.bundle` and every scene and prefab bundle, renderers by material):

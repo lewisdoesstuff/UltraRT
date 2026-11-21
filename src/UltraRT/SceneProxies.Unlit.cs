@@ -157,6 +157,7 @@ namespace UltraRT
             if (src == null || !Unlit.fullbright) return 1f;
             if (!string.IsNullOrEmpty(Unlit.extra) && Unlit.Extra(MaterialClassifier.CleanName(src)) is float x) { byRule = true; return x; }
             if (Unlit.rules && _classifier.LitOf(src) is float r) { byRule = true; return r; }
+            if (IsCubeSun(src) && CubeToLatLong != null) return 0f; // 8-3's sun: unlit in the game (SceneProxies.ApplyCubeSun)
             if (src.shader == null || src.shader.name != "ULTRAKILL/Master" || src.IsKeywordEnabled("VERTEX_LIGHTING")) return 1f;
             if (!src.IsKeywordEnabled("ENEMY")) return 0f;
             _enemyTypeOf.TryGetValue(src, out var type);
