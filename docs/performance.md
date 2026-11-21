@@ -732,6 +732,25 @@ Highlights:
 - **`8-2 portal side 1` pathtrace** jumped **69 → 82 fps (+18.8%)**, **0 frames > 16.7 ms** (worst `15.8 ms`), `total` RT-CPU **`2.93 ms`**.
 - **Visual verification on `alt`** (`20261121-184837_combat-visual_alt`, `20261121-185643_perf-visual_alt`, `20261121-185643_portal-pair_alt`): `0-1`, `6-2`, `1-4`, `8-2` portals (both `pathtrace` and clean `off` restore), `8-3 b`, and `8-3 combat` verified clean with zero D3D12 errors and 3,955+ native `VolumetricsRQ` and `ParticleLightRQ` dispatches.
 
+### The RayQuery bridge hid the composite (fixed 2026-11-21, branch `t3/portal-raster-skip-and-hitches`)
+
+With item 1 on (the default), every replace mode showed the game's own frame: the RT composite, the volumetric and veil
+composites and anything else drawn after a bridge event in the main camera's command buffer went nowhere. The bridge's
+events are configured with `kUnityD3D12EventConfigFlag_ModifiesCommandBuffersState` (RayQuery.cpp: they change the
+descriptor heaps, root signature and PSO on Unity's list), and with that flag Unity also forgets its render-target
+bindings. `GpuTimer.cpp` had the same trap (ef923a88). The `_raw` captures were fine, so the bench's own RT image looked
+right while the screen did not; the Wave 3 visual check above compared those.
+
+A/B on alt (8-2 hallway portal, 0-1 metal, 0-3 back wall, pathtrace and relight): `pl.rayQuery=0` alone brought the
+composite back, `vol.rayQuery=0` alone did not (the particle-light event runs later, after the volumetrics one).
+
+Fix (`RayQueryBridge.RestoreTargets`, set to `Plugin.RestoreCameraTargets`): after each dispatch event, bind the camera's
+targets again, as the beam pass does (`PostProcessV2_Handler`'s `mainTex`, `reusableBufferA` (outlines), `viewNormal` and
+`depthBuffer`; the camera target when those are missing). With the fix, the final frame matches `_raw` with both bridges
+on, as it does with both off (`bench/results/20261121-201221_tmp-prs-diag_alt`: mean final-raw difference 12.94 with
+the bridges vs 12.93 without, the same scene). The Wave 3 frame times above were measured without the composite draw;
+later tables use the fixed build.
+
 ## How these were measured (and traps)
 
 - Suites: `perf-1440p` (seven poses, relight + pathtrace interleaved, 8-2/8-3 with `off`), `perf-1440p-short`,
