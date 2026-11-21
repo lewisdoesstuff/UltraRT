@@ -304,9 +304,12 @@
       ],
       "class": "fixture:lamp",
       "handover": {
-        "part": "^(Basic Color - White NoFog|LightPillar 1 NoCull)$"
+        "part": "^(Basic Color - White NoFog|LightPillar 1 NoCull)$",
+        "keep": 0.35,
+        "keepMedium": 0.4,
+        "gain": 0.65
       },
-      "note": "5-3, 8-1, 8-2, 8-3, 8-4: where the dome is not baked into the level."
+      "note": "5-3, 8-1, 8-2, 8-3, 8-4. Since 2026-11-21 baked domes too (the disc is an atlas slot: SceneProxies.AtlasVariant), and a hybrid: the disc faces down, so with the whole light on it the ceiling around each dome went black and 8-1's hallway read under the game (pose 1 luma 38, game 44); 0.35 of the light stays and the disc carries 0.65 (the same total), the disc glowing. docs/lighting-overrides.md, 'Baked fixture parts'."
     },
     {
       "name": "glowing mushrooms",

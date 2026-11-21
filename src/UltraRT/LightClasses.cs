@@ -279,6 +279,18 @@ namespace UltraRT
         /// <summary>A rule in force hands lights over to their fixtures' glowing parts.</summary>
         public bool HasHandovers { get; private set; }
 
+        /// <summary>Some active rule's handover part is this material (by its clean name).</summary>
+        public bool IsHandoverPart(string material)
+        {
+            if (!HasHandovers || string.IsNullOrEmpty(material)) return false;
+            foreach (var r in _active)
+            {
+                try { if (r.Handover != null && r.Handover.PartMatches(material)) return true; }
+                catch (ArgumentException) { }
+            }
+            return false;
+        }
+
         /// <summary>The scale on the light a surface gives (first matching emitter rule), 1 without one.</summary>
         public float EmitterScale(string material, string texture, string path, out string rule)
         {

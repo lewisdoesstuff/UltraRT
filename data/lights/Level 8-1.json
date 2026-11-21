@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "scene": "Level 8-1",
+  "lights": [],
+  "added": [],
+  "emitters": [
+    {
+      "name": "dome lamp discs",
+      "material": "^Basic Color - White NoFog$",
+      "glow": 4,
+      "note": "User playtest 2026-11-20 (8-1 pose 1): the ceiling domes did not glow. Their white disc is baked into the level atlas; since 2026-11-21 such a fixture part gets an atlas variant of its own (SceneProxies.AtlasVariant), so the 'dome lamps' handover gives it the dome light's output and this glow makes it read as the light to the camera (docs/lighting-overrides.md, 'Baked fixture parts')."
+    }
+  ],
+  "note": "Punch policy (docs/lighting-overrides.md, 'Punch on every level', 2026-11-18): the class policies of _rules.json apply."
+}

@@ -59,6 +59,8 @@ namespace UltraRT
                     case "-ultrart-flesh-sss": s.fleshSss = Mathf.Max(0f, F(s.fleshSss)); break;
                     case "-ultrart-flesh-wrap": s.fleshWrap = Mathf.Clamp(F(s.fleshWrap), 0.01f, 1f); break;
                     case "-ultrart-flesh-rim": s.fleshRim = Mathf.Max(0f, F(s.fleshRim)); break;
+                    case "-ultrart-translucency": s.translucency = Mathf.Max(0f, F(s.translucency)); break;
+                    case "-ultrart-translucent-shadow": s.translucentShadow = Mathf.Max(0f, F(s.translucentShadow)); break;
                     case "-ultrart-lit-unlit": u.fullbright = false; break; // relight unlit materials (the old look)
                     case "-ultrart-enemy-lit": u.enemy = F(u.enemy); break;
                     case "-ultrart-enemy-types": u.enemyTypes = Next(); break;
@@ -111,6 +113,9 @@ namespace UltraRT
             Shader.SetGlobalVector(MaterialMaps.Lod2Id, new Vector4(s.lod ? s.toksvig : 0f, s.lodDiffuse, 0f, 0f));
             // Flesh subsurface (UltraRTLights.hlsl, FleshSssBegin): x strength (0 = off), y wrap, z rim.
             Shader.SetGlobalVector(MaterialMaps.FleshSssId, new Vector4(Mathf.Max(s.fleshSss, 0f), Mathf.Clamp(s.fleshWrap, 0.01f, 1f), Mathf.Max(s.fleshRim, 0f), 0f));
+            // Thin translucent sheets (UltraRTLights.hlsl, TranslucentBegin): x the share of the back light that comes through;
+            // y their transmit factor in shadow rays (Proxy.shader any-hit).
+            Shader.SetGlobalVector(MaterialMaps.TranslucencyId, new Vector4(Mathf.Max(s.translucency, 0f), Mathf.Max(s.translucentShadow, 0f), 0f, 0f));
             SceneProxies.SetGlassGlobals(_proxies != null && _proxies.HasGlass); // stained glass: shadow rays pass, tinted (SceneProxies.Glass.cs)
         }
     }

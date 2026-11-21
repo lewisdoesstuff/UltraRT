@@ -514,3 +514,36 @@ first version cost 1.2 ms there: per light x side it compared Unity objects to n
 travel matrix; the sides are now cached once per frame, with an exit-to-view cull and scalar first tests. Outside
 layer 8 nothing runs (no portal sides). The 10-14 ms "lights" spikes in the table's worst frames occur with images
 off as well (periodic, older).
+
+## 16. 8-1's lobby and long hallway: distant light under path tracing (2026-11-21, `t3/8-1-lampshades-banners-fixtures`)
+
+The user's 8-1 playtest of 2026-11-20: pose 3 "distant lighting through portals is still noticeably lower quality", pose
+5 "this hallway in 8-1 is probably the worst case scenario for path tracing quality" (the long red-carpet corridor with
+its row of wall sconces and the lion statue far down it). Measured, alt slot, 2560x1440, SDR, DLSS RR at 1/3
+(`bench/results/20261121-015644_tmp-81_alt`, `-020543_tmp-81_alt`); what was found, and what was not changed:
+
+- **Which portal.** At pose 3 the portals the level has switched on (the 2B hotel hallway's exit at x = 0, the Drop
+  Hallway's, the Fountain Loop's) are behind the camera or off to the side: the lobby ahead, to the arch and the flower
+  statue 60-70 m away, is real geometry. The user's own route crossed the 2B portal just before the pose. So what the
+  user sees there is distance, not a portal.
+- **Held-pose noise is low and no sampling budget changes it.** 48-frame bursts, masked sigma / block sigma (0-255):
+  pose 3 pathtrace 0.66 / 0.36, pose 5 0.67 / 0.27 (relight 0.66 / 0.30 and 0.64 / 0.23). `ptx.directSamplesRR=2`,
+  `ptx.candidatesRR=32` and `ptx.paths=2` all land within 0.01-0.02 of that, the far region of the frame (the hallway's
+  vanishing end) included (region sigma 1.02-1.11 in every variant). The light sampling and the path budget are not
+  what limits these views at rest.
+- **What does differ is the far end itself**: at RR's 1/3 resolution (853x480 traced) the corridor beyond the lion is a
+  few traced pixels per sconce and reads soft and murky where the game's vertex lighting keeps every sconce's pool; and
+  pathtrace's frame is about 20 % darker in linear light than relight's at pose 5 (0.099 against 0.120), the sconce pools
+  dimmer. Both are general to RR and to the handed-over sconces (`hotel wall lights`), not to 8-1; a motion measurement
+  (walking down the hallway) was not possible from the saved route, which ends with the user standing still.
+- **The emissive triangle table is full in 8-1** (`Emissive lights: 65,535 triangles ... 50,375 over the cap`): 8-1's
+  city backdrop (`FraudCity_*`, about 53,000 triangles and 1.3e8 m2 of dim emission, luminance 0.06-0.1) fills it, and
+  every emitter registered after it is not sampled. `lc.emit.FraudCity=0` takes the city out (14,522 triangles, nothing
+  over the cap) and changed nothing visible at poses 3 and 5 (frame mean 0.107 / 0.099 either way): every handed-over
+  part was in the table (a light is only switched off once its part is), so the lamps that light these rooms were sampled. Not shipped: the city may be what lights 8-1's outdoor end, which was not checked. A
+  table that ranks emitters (bright and small before vast and dim) when it overflows would be the general fix.
+- **What did change at these poses**: the dome lamps (docs/lighting-overrides.md, "Baked fixture parts") and the far
+  standing lamp's shade (docs/materials.md section 16; it glows in pose 3's distance as in the game). Frame mean linear
+  lighting at poses 3 and 5 is unchanged (0.134 -> 0.135, 0.120 -> 0.120). Review sheets
+  `bench/results/review/8-1-fixes/8-1_pose_3_lobby_portal.jpg`, `8-1_pose_5_hallway.jpg` (local).
+

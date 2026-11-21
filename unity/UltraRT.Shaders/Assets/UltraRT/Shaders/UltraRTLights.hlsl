@@ -156,8 +156,22 @@ float3 FleshScatter(float3 n, float3 L, float nl)
     return min(FleshSssTint() * s, 1.0 - lambert);
 }
 
-// The lowest cosine a light may have and still light the surface: 0 (Lambert), or -wrap on flesh.
-float SssNdlMin() { return -g_SssWrap; }
+// ---------------------------------------------------------------- thin translucent surfaces (docs/materials.md, "Translucent shades")
+
+// A thin translucent sheet (the game's TRANSMISSION keyword: 8-1's fabric lamp shades) passes part of the light that
+// reaches its back side through to its front: a light behind the sheet lights it with g_Trans x |n.L| (diffuse
+// transmission; the albedo the lighting is multiplied by tints it). Its shadow ray starts on the back side (VisibleRaw), so
+// a lamp inside a shade lights the shade's outside and goes dark with the lamp. Only the primary hit's direct light
+// (TranslucentBegin / TranslucentEnd around it, like the flesh scatter); unshadowed fill lights keep Lambert (they would
+// reach through walls).
+// Global (Plugin.Materials.cs): x the share of the back light that comes through (0 = off), yzw unused.
+float4 _UltraRTTranslucency;
+static float g_Trans = 0.0; // > 0: the surface being lit is translucent
+
+// The lowest cosine a light may have and still light the surface: 0 (Lambert), -wrap on flesh, any on a translucent sheet.
+float SssNdlMin() { return g_Trans > 0.0 ? -1.0 : -g_SssWrap; }
+// The cosine term: Lambert in front, the transmitted share behind (translucent sheets only; elsewhere nl > 0 here).
+float TransNdl(float nl) { return nl > 0.0 ? nl : g_Trans * -nl; }
 
 #ifdef ULTRART_MATERIAL_INCLUDED
 // cls: the hit's class (payload flags); v: towards the eye.
@@ -172,6 +186,9 @@ void FleshSssBegin(uint cls, float3 v)
 }
 void FleshSssEnd() { g_SssWrap = 0.0; }
 #endif
+// flags: the hit's payload flags.
+void TranslucentBegin(uint flags) { g_Trans = (flags & ULTRART_FLAG_TRANSLUCENT) != 0u ? max(_UltraRTTranslucency.x, 0.0) : 0.0; }
+void TranslucentEnd() { g_Trans = 0.0; }
 
 // Extra instance mask for every shadow ray: ULTRART_MASK_PLAYER where V1's third-person model casts shadows (PathTrace sets
 // it from _UltraRTPlayerRays; the radiance cache keeps 0, so its world-space cells never hold the moving player's shadow).
@@ -198,7 +215,8 @@ static float3 g_ShadowTint;
 bool VisibleRaw(float3 p, float3 n, float3 dir, float dist, uint mask)
 {
     RayDesc r;
-    r.Origin = p + n * 0.02;
+    // A light behind a translucent sheet (TranslucentBegin): the ray starts on the sheet's back side.
+    r.Origin = p + n * (g_Trans > 0.0 && dot(dir, n) < 0.0 ? -0.02 : 0.02);
     r.Direction = dir;
     r.TMin = 0.0;
     r.TMax = max(0.0, dist - 0.05);
@@ -536,7 +554,7 @@ bool LightEvalRaw(float4 l0, float4 l1, float4 l2, float4 l3, float3 p, float3 n
     // Flesh (FleshSssBegin): lights a little behind the terminator still scatter in, but only lights with a shadow ray
     // (an unshadowed fill light there would reach through the wall it sits behind).
     if (nl <= (l3.z > 0.5 ? 0.0 : SssNdlMin())) return false;
-    float ndl = max(nl, 0.0) * emit;
+    float ndl = TransNdl(nl) * emit; // max(nl, 0) except behind a translucent sheet
 #endif
 
     float atten = 1.0;
@@ -698,8 +716,8 @@ bool EmissiveEval(uint tri, uint bary, float3 p, float3 n, out float3 L, out flo
     float cosS = 1.0;
 #else
     float nlS = dot(n, L);
-    if (nlS <= (g_SssWrap > 0.0 ? -g_SssWrap : 1e-4)) return false; // flesh: a little past the terminator (FleshScatter)
-    float3 cosS = max(nlS, 0.0);
+    if (nlS <= (g_Trans > 0.0 ? -1.0 : g_SssWrap > 0.0 ? -g_SssWrap : 1e-4)) return false; // flesh: a little past the terminator (FleshScatter); translucent: behind too
+    float3 cosS = TransNdl(nlS);
     [branch] if (g_SssWrap > 0.0) cosS += FleshScatter(n, L, nlS);
 #endif
     float cosL = -dot(nl, L);

@@ -358,11 +358,16 @@ namespace UltraRT
             float lit = AtlasLitOf(original);
             bool noFog = NoFog(original); // 1-4's stained glass windows are atlas slots
             float transmit = Glass.enabled ? _classifier.TransmitOf(original) : 0f;
-            if (!DumpMaterialClasses && !alphaTest && lit < 0f && !noFog && transmit <= 0f && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
+            // A fixture part baked into the atlas (8-1's dome lamp discs, docs/lighting-overrides.md "Baked fixture parts"):
+            // the slot gets a variant of its own named after the original, so a handover can find its triangles and an
+            // emitter rule's "glow" can light it, as for a plain proxy material.
+            string part = AtlasPartOf(original);
+            if (!DumpMaterialClasses && !alphaTest && lit < 0f && !noFog && transmit <= 0f && part == null && !p.HasReflection && !(secondary?.HasReflection ?? false)) return atlasProxy;
 
             var key = (atlasProxy, p, secondary, alphaTest, Mathf.RoundToInt(lit * 255f), noFog, Mathf.RoundToInt(transmit * 100f));
-            if (_atlasVariants.TryGetValue(key, out var v)) return v;
-            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}{(lit >= 0f ? $" / lit {lit:0.##}" : "")}{(noFog ? " / no fog" : "")}" };
+            Material v;
+            if (part != null ? _atlasPartVariants.TryGetValue((key, part), out v) : _atlasVariants.TryGetValue(key, out v)) return v;
+            v = new Material(atlasProxy) { name = $"{atlasProxy.name} / {p}{(alphaTest ? " / cutout" : "")}{(lit >= 0f ? $" / lit {lit:0.##}" : "")}{(noFog ? " / no fog" : "")}{(part != null ? $" / part {part}" : "")}" };
             MaterialParams.Apply(v, p, secondary);
             if (noFog) v.SetFloat(IdNoFog, 1f);
             if (transmit > 0f) { v.SetFloat(IdTransmit, transmit); v.name += $" / transmit {transmit:0.##}"; GlassAtlasSlots++; }
@@ -378,9 +383,39 @@ namespace UltraRT
             if (IsSkyWall(atlasProxy)) _skyWallProxies.Add(v);
             Maps.AddAtlasMaterial(atlasProxy.GetTexture("_MainTex"), v);
             RegisterRainVariant(atlasProxy, v);
-            _atlasVariants[key] = v;
+            if (part != null)
+            {
+                _atlasPartVariants[(key, part)] = v;
+                _atlasPartNames[v] = part;
+                _atlasPartOriginals[v] = original;
+                ApplyEmitterGlow(original, v);
+            }
+            else _atlasVariants[key] = v;
             return v;
         }
+
+        /// <summary>Atlas variants made for one original material (a fixture part): variant -> the original's name / the
+        /// original material.</summary>
+        private readonly Dictionary<((Material, MaterialParams, MaterialParams?, bool, int, bool, int), string), Material> _atlasPartVariants =
+            new Dictionary<((Material, MaterialParams, MaterialParams?, bool, int, bool, int), string), Material>();
+        private readonly Dictionary<Material, string> _atlasPartNames = new Dictionary<Material, string>();
+        private readonly Dictionary<Material, Material> _atlasPartOriginals = new Dictionary<Material, Material>();
+        /// <summary>Original material -> true when a slot of it needs its own atlas variant: a handover part name, or an
+        /// emitter rule with "glow". Set by the plugin.</summary>
+        public Func<Material, bool> AtlasPartWanted;
+
+        /// <summary>The original's clean name when its atlas slots get a variant of their own, else null.</summary>
+        private string AtlasPartOf(Material original)
+        {
+            if (original == null || AtlasPartWanted == null) return null;
+            bool want;
+            try { want = AtlasPartWanted(original); } catch { want = false; }
+            if (!want) return null;
+            return MaterialClassifier.CleanName(original);
+        }
+
+        /// <summary>The original material's name of an atlas variant made for a fixture part (AtlasVariant), else null.</summary>
+        public string AtlasPartName(Material proxy) => proxy != null && _atlasPartNames.TryGetValue(proxy, out var n) ? n : null;
 
         private bool IsAtlasProxy(Material proxy) => proxy != null && _atlasProxies.Contains(proxy);
 
@@ -1478,6 +1513,7 @@ namespace UltraRT
             foreach (var m in _playerMaterialCache.Values) if (m != null) Object.Destroy(m);
             _playerMaterialCache.Clear();
             foreach (var m in _atlasVariants.Values) if (m != null) Object.Destroy(m);
+            foreach (var m in _atlasPartVariants.Values) if (m != null) Object.Destroy(m);
             _atlasVariants.Clear();
             _atlasProxies.Clear();
             Maps.Dispose();

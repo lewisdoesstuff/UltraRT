@@ -28,6 +28,7 @@ Shader "UltraRT/Proxy"
         _SkyWall ("Sky wall (LIMBO_WALLS): report a miss", Float) = 0
         _AlphaTest ("Alpha test in any-hit", Float) = 0
         _Transmit ("Stained glass: shadow rays pass, tinted by the colour x this (0 = opaque)", Float) = 0
+        _Translucent ("Thin translucent surface (TRANSMISSION): lit from behind too", Float) = 0
         // ULTRAKILL/Master SCROLLING: uv * _MainTex_ST + _ScrollOffset + _ScrollSpeed * _Time.y (5-2's sea current, conveyor
         // belts, opaque lava). _ScrollOffset is ScrollingTexture's per-renderer property block value (SceneProxies.Sync.cs).
         _Scrolling ("Texture scrolls (SCROLLING)", Float) = 0
@@ -167,6 +168,8 @@ Shader "UltraRT/Proxy"
             float _Transparent;
             float _TransOpacity;
             float _Transmit;
+            float _Translucent;
+            float4 _UltraRTTranslucency; // global (Plugin.Materials.cs): y scales a translucent sheet's _Transmit in shadow rays
             float4 _UltraRTGlass; // global (SceneProxies.Glass): x transmission gain (0 = stained glass blocks light, the old look), y 1 = the scene has stained glass
             float _UltraRTTransAlpha; // global: 1 = water's path tint follows the game's blend alpha
             float _Unlit;
@@ -703,7 +706,7 @@ Shader "UltraRT/Proxy"
                     if (glass)
                     {
                         float opacity = _Transparent > 0.5 ? saturate(c.a * _TransOpacity) : 1.0;
-                        p.albedo *= lerp(1.0, saturate(pow(max(c.rgb, 0.0), 2.2) * (_Transmit * _UltraRTGlass.x)), opacity);
+                        p.albedo *= lerp(1.0, saturate(pow(max(c.rgb, 0.0), 2.2) * (_Transmit * _UltraRTGlass.x * (_Translucent > 0.5 ? _UltraRTTranslucency.y : 1.0))), opacity);
                         if (transparentOnly || max(p.albedo.r, max(p.albedo.g, p.albedo.b)) > 1e-3) IgnoreHit();
                         return;
                     }
@@ -748,7 +751,24 @@ Shader "UltraRT/Proxy"
 
                 float3 n = normalize(mul(nObj, (float3x3)WorldToObject3x4()));
                 float3 nGame = n; // the game's (unflipped) vertex normal: rain projection and ceiling test
-                if (dot(n, WorldRayDirection()) > 0.0) n = -n; // treat everything as two-sided for now
+                // Which side of the surface the ray hit comes from the triangle itself, not from the interpolated normal: on
+                // curved low-poly meshes with smoothed normals (8-1's hanging banners, docs/materials.md "Shading normals at
+                // grazing angles") a front-facing triangle's vertex normal can point slightly away from the eye. Flipping by
+                // the interpolated normal mirrored those pixels to the far side (lit by the lights behind, shadow rays starting
+                // behind the cloth): dark blotches that moved with the camera. Now the face picks the side and the shading
+                // normal is only bent until it faces the eye (p.normal keeps facing the ray, as every consumer expects).
+                {
+                    float3 V = -WorldRayDirection();
+                    float3 ng = mul(cross(p1 - p0, p2 - p0), (float3x3)WorldToObject3x4());
+                    if (dot(ng, ng) > 1e-24)
+                    {
+                        if (dot(ng, n) < 0.0) ng = -ng; // the face normal on the vertex normal's side (either winding)
+                        if (dot(ng, V) < 0.0) n = -n;   // the ray comes from behind the face: two-sided back face
+                        float vn = dot(n, V);
+                        if (vn < 0.01) n = normalize(n + V * (0.01 - vn));
+                    }
+                    else if (dot(n, V) < 0.0) n = -n; // degenerate triangle: the old rule
+                }
 
                 float2 u0 = UnityRayTracingFetchVertexAttribute2(tri.x, kVertexAttributeTexCoord0);
                 float2 u1 = UnityRayTracingFetchVertexAttribute2(tri.y, kVertexAttributeTexCoord0);
@@ -923,7 +943,8 @@ Shader "UltraRT/Proxy"
                 p.material = PackMaterialWord(rough, metal, f0, specWeight);
                 // InstanceID() is the custom id we pass to AddInstance: the source object's original layer | motion slot << 8.
                 p.flags = flags | ((InstanceID() & 0xFFu) << 8) | PackMaterialFlags(mode, _ReflStrength * mask, cls)
-                        | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT) | (_NoFog > 0.5 ? ULTRART_FLAG_NOFOG : 0u);
+                        | (((uint)_Transparent & 3u) << ULTRART_FLAG_TRANSPARENT_SHIFT) | (_NoFog > 0.5 ? ULTRART_FLAG_NOFOG : 0u)
+                        | (_Translucent > 0.5 ? ULTRART_FLAG_TRANSLUCENT : 0u);
                 if (causticApart)
                 {
                     // UltraRTCommon.hlsl, ULTRART_FLAG_CAUSTIC: rgb in uvHalf and emissionHalf.y's high half, the volume in
@@ -963,6 +984,8 @@ Shader "UltraRT/Proxy"
             float _Transparent;
             float _TransOpacity;
             float _Transmit;
+            float _Translucent;
+            float4 _UltraRTTranslucency;
             float4 _UltraRTGlass;
 
             [shader("anyhit")]
@@ -1000,7 +1023,7 @@ Shader "UltraRT/Proxy"
                     if (glass)
                     {
                         float opacity = _Transparent > 0.5 ? saturate(c.a * _TransOpacity) : 1.0;
-                        p.albedo *= lerp(1.0, saturate(pow(max(c.rgb, 0.0), 2.2) * (_Transmit * _UltraRTGlass.x)), opacity);
+                        p.albedo *= lerp(1.0, saturate(pow(max(c.rgb, 0.0), 2.2) * (_Transmit * _UltraRTGlass.x * (_Translucent > 0.5 ? _UltraRTTranslucency.y : 1.0))), opacity);
                         if (transparentOnly || max(p.albedo.r, max(p.albedo.g, p.albedo.b)) > 1e-3) IgnoreHit();
                         return;
                     }
