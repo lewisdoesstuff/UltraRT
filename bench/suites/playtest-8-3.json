@@ -1,0 +1,22 @@
+{
+  "Name": "playtest-8-3",
+  "Note": "User playtest of 2026-11-21, 8-3 (docs/lighting-overrides.md, 'Playtest of 2026-11-21: 8-3'): the Shifting Hallway's dome discs, 10B's supermarket lamps (pose 148), Space's sun, walls and fake end (pose 149), and the held skull in the secret mirror (docs/reflections.md, 'The held item'). Compare _raw and the final image with off.",
+  "Scenarios": [
+    { "Name": "8-3 dome hall", "Scene": "Level 8-3",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-8-3-hall.json", "LookAt": "*CeilingSegment/FerryLamp (2)/Dome", "LookDistance": 6, "Pitch": 55, "Duration": 3 },
+      "Modes": ["off", "pathtrace", "pathtrace+lc.glow.White NoFog=0"], "Screenshots": [2], "ShotSettle": 0.8 },
+    { "Name": "8-3 market user", "Scene": "Level 8-3",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-8-3-market.json", "Load": "checkpoint", "Position": [323.17, 75.0, 356.45], "Yaw": 170.87, "Pitch": -12.2, "Duration": 4 },
+      "Modes": ["off", "pathtrace", "relight"], "Screenshots": [2], "ShotSettle": 0.8 },
+    { "Name": "8-3 space user", "Scene": "Level 8-3",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-8-3-space.json", "Load": "checkpoint", "Duration": 5 },
+      "Modes": ["off", "pathtrace", "relight"], "Screenshots": [2], "ShotSettle": 0.8 },
+    { "Name": "8-3 fake end above", "Scene": "Level 8-3",
+      "Path": { "Type": "static", "Approach": "../recordings/u1121-8-3-space.json", "Load": "checkpoint", "LookAt": "*/11 Stuff(Clone)/Cube (12)", "LookDistance": 30, "Pitch": -70, "Duration": 3 },
+      "Modes": ["off", "pathtrace"], "Screenshots": [2], "ShotSettle": 0.8 },
+    { "Name": "8-3 mirror held", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" },
+      "Path": { "Type": "static", "Position": [-44.0, -38.0, 447.25], "Yaw": 270, "Pitch": -5, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 5 },
+      "Effects": { "Kinds": ["holditem"], "Every": 0, "Distance": 3, "ShotDelay": 0.3 },
+      "Modes": ["off", "pathtrace+plugin._rtMirrors=1", "pathtrace+plugin._rtMirrors=1+plugin._v1HeldItem=0"], "Screenshots": [2.5], "ShotSettle": 0.5 }
+  ]
+}

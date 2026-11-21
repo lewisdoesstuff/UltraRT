@@ -1035,3 +1035,20 @@ The formula is the atlas path's, not decompiled for this variant; it matched the
 the case that showed it: docs/scene-proxies.md, "3-1's mouth doors"), and 3-1's noisy room and 3-2's moving walls look
 the same as before. 3-1: 26 proxy materials blend, 3-2: 12 (`vertex-blended N` in the scene build's summary line).
 `-ultrart-novertexblend`: as before. The per-texel detail maps follow `_MainTex` also where the blend texture shows.
+
+## 20. 8-3's sun: a cubemap on a sphere (2026-11-21, `t3/level-8-3-visual-polish`)
+
+User, playtest of 2026-11-21, 8-3 pose 149 (Space, `bench/recordings/u1121-8-3-space.json`): the sun is "a dark
+charcoal-grey sphere" in RT and golden in the game. The sun (`Space/Skybox/Spheres/Sun/PlanetSphere`) uses the shader
+`ULTRAKILL/Sun`: opaque and unlit, its colour is a cubemap (`_Cubemap`, also named `Sun`, swirled by `_FlowCube`); it has
+no `_MainTex` and its `_Color` is black. The proxy material was therefore a black ball, lit like any surface. Around it the
+game draws a halo, `Sun 2` (`ULTRAKILL/Sun_Transparent`, opacity 0.1), which is not traced and is drawn by the game over
+the traced image as before.
+
+Fix (`SceneProxies.ApplyCubeSun`, `Plugin.CubeLatLong`): a material with the `ULTRAKILL/Sun` shader and a cubemap gets a
+lat-long copy of the cubemap as its `_MainTex` (1024x512 ARGBHalf, linear, made once per cubemap with the sky converter,
+`SkyConvert`; at most 8 per session), scale 1, offset 0, `_Color` white, `_EmissiveIntensity` 0, and lit weight 0
+(`LitWeightOf`: fullbright, as the game draws it). The sphere's uv0 is a lat-long map, as on the other `PlanetSphere`
+planets. The `_FlowCube` swirl is not reproduced: the traced sun is still. Logged as `Cubemap sun 'Sun' (ULTRAKILL/Sun):
+cubemap 'Sun' as a lat-long albedo, fullbright`. Pose 149, `pathtrace` and `relight`: golden like the game's, in the
+final image and in `_raw` (`bench/results/20261121-220051_tmp-83p-diag3`, `8-3 space user`; local).

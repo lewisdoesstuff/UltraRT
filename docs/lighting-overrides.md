@@ -1528,7 +1528,7 @@ payload untouched):
 | `[2].xyz` | forward | emission normal |
 | `[2].w` | soft-shadow radius | half-size x (sphere / disc radius) |
 | `[3].x` | cos(spot / 2), -1 for points | `-2 - half-size y` (<= -2 marks an area light) |
-| `[3].y` | spot sharpness | shape (0 line, 1 sphere, 2 rect, 3 disc) \| octahedral tangent (2 x 10 bits) << 2, an exact integer |
+| `[3].y` | spot sharpness | shape (0 line, 1 sphere, 2 rect, 3 disc) / octahedral tangent (2 x 10 bits) << 2, an exact integer |
 
 Every spot test in the code (`l3.x > -0.5`, the cone `saturate((cos - l3.x) * l3.y)`) reads "no cone" for these values, so
 consumers that don't know area lights (volumetrics' scattering; the hybrid ratio until 2026-11-19) treat them as point lights at the
@@ -1823,3 +1823,71 @@ the pillars keep their yellow edges and white core. The frame mean does not chan
 more DispatchRays at half resolution in 0-3 (the veil pass, measured at +0.2-0.3 ms GPU in "Blended veils"); not measured
 under the perf lock here (the visual run's frame times moved by more than that between modes doing the same work). HDR:
 not checked (the pass blends on the SDR image; docs/hdr.md "Effects over bright surfaces" covers the pillars' gain).
+
+## Playtest of 2026-11-21: 8-3 (2026-11-21, `t3/level-8-3-visual-polish`)
+
+The user's 8-3 playtest of 2026-11-21. Recordings `bench/recordings/u1121-8-3-start.json`, `-hall.json` (the Shifting
+Hallway), `-market.json` (pose 148, 10B's supermarket, checkpoint "Pre-Space/Rooms/Blue Path (Dimensional)/Checkpoint
+(5)") and `-space.json` (pose 149, checkpoint "SpaceCheckpoints/Checkpoint"); suite `bench/suites/playtest-8-3.json`.
+Numbers are the bench's game match (log2 of the linear lighting over the near pixels, game against RT) at 2560x1440,
+SDR, alt install, `pathtrace`. Portal items of the same playtest went to other branches.
+
+**Dome lamps: the disc did not glow.** 8-3 has the same `FerryLamp*/Dome` fixtures as 8-1 ("Baked fixture parts"
+above), but the glow was 8-1's rule only, because `Basic Color - White NoFog` is not always a lamp. A survey of every
+level and prefab bundle (UnityPy, materials by renderer path) found it on the discs (`FerryLamp*/Dome/Inner` in 5-3,
+8-1, 8-2, 8-3, 8-4), on 0-3's `EnergyBeamHuge` cylinder, on a submesh of a cube in 0-E and on 8-3's white arch in B7
+(`Arch (1)`). An emitter rule with a `glow` and a `path` now reaches only the surfaces whose renderer path matches
+(before, a rule with a path gave no glow): an atlas slot gets a part variant of its own (`SceneProxies.AtlasVariant`,
+`... / glow 4`), and a plain proxy gets a copy of its proxy material with the proxy's name, so handover parts still
+match (`SceneProxies.PathGlowVariants`, logged as `Emitter glow by path`). Both follow rule changes
+(`SyncEmitterGlow`). `_rules.json` ships it for every level:
+
+```json
+"emitters": [ { "name": "dome lamp discs", "material": "^Basic Color - White NoFog$", "path": "(^|/)Dome/Inner$", "glow": 4 } ]
+```
+
+`Level 8-1.json` keeps its material-only rule (it matches first there). 8-3 Shifting Hallway, a dome seen from below
+(`FerryLamp (2)`): the disc is (240, 229, 211) in the final image and (222, 209, 196) in `_raw`, against (210, 196, 155)
+and (199, 186, 172) with `lc.glow.White NoFog=0`, and the game's (222, 209, 167); the frame does not change (-3.49 with
+and without, game -3.12), since the handover already carried the light. The arch stays white, not glowing. 8-1 pose 1:
+-2.20 (game -2.43), as before. Not checked in a screenshot: 5-3, 8-2's and 8-4's domes, 0-1.
+
+**Supermarket lamps were dim.** The `SupermarketLamp*` tubes (`Metal Light 2*` panels, point light warm white,
+intensity 3, range 20) are handed over by the global 'ceiling panels' rule at gain 1. At pose 148 the near pixels came
+out 0.56 EV under the game (RT -2.17, game -1.61); handover off was 1.2 EV over (-0.40). `Level 8-3.json` (new) adds a
+'supermarket lamps' rule with the same parts at `gain` 2: -1.44 (0.17 EV over the game; `relight` -1.44). The RT image
+is still warmer than the game's (the game's colour match asks for about x1.9 more blue); not changed.
+
+**Space: the floor and walls lit by the level's suns.** At pose 149 the floating rooms' green floor and walls were
+bright in RT (RT -0.22, game -3.43; `lc.solo=none` -0.23, `_skyGI=0` -0.09, so not a fixture or the sky). The cause was
+the baked-light rule above (`Plugin.BakedLightMask`): the lights in the StaticSceneOptimizer's `globalLights` (8-3's
+Space has its suns there) get the bits of the baked layers, and the baked layers 6/7 were traced as 24/8
+(`SceneProxies.OriginalLayer`), so those bits lit every live layer-8 and layer-24 object as well: the floating rooms are
+live layer-8 geometry, and the game does not light them with those suns. The baked layers are now traced as their own
+(`SceneProxies.BakedOwnLayers`); 6 and 7 take the bits of 24 and 8 from every light's mask (`Plugin.BakedLayerBits`), and
+the globalLights' extra bits are 6/7. `-ultrart-baked-remap`: as before. Measured (game / RT, log2):
+
+| Pose | before | now |
+|---|---|---|
+| 8-3 Space, pose 149 | -3.43 / -0.22 (`20261121-220051_tmp-83p-diag3`) | -3.71 / -1.45 (`-221341_tmp-83p-diag5_alt`), -3.35 / -2.25 (`-222502_tmp-83p-diag6`) |
+| 8-3 supermarket, pose 148 | -1.61 / -1.44 (`-222617_tmp-83p-diag7_alt`, `-ultrart-baked-remap`) | -1.61 / -1.44 (diag5) |
+| 8-1 pose 1 | -2.43 / -2.20 (diag7) | -2.43 / -2.20 (diag5) |
+| 8-2 start | -2.16 / -2.33 (diag7) | -2.17 / -2.33 (diag5) |
+
+The Space pose is not the same view from one launch to the next (the floating rooms drift, and the recording's last
+frame lands at a different place), so its rows compare launches, not pixels; the same-launch check is the picture: the
+green wall at the right of the view is near black in the game, pale green before (and in diag7's launch with
+`-ultrart-baked-remap`) and dark green now. Of what is left, the player's eye light is 0.15 EV (`lc.class.player=0`:
+-2.40 against -2.25, diag6). The other three poses do not change, so nothing else in them depended on the old layers.
+
+**Space: the fake door and carpet vanish from above (not fixed).** The 'Fake End' room (`Space/11 - Fake End/11
+Stuff(Clone)`: striped walls, the green carpet, the red and gold `FinalDoor`) is a room clone made at the checkpoint (the
+original is moved 10000 m away and disabled), and its pieces move: the build logs `Static-dynamic split-out (moved)` for
+`Cube (8)`, `Cube (12)`, `Cube (13)` and the back wall, which are then live dynamic proxies. In the bench's views from 30
+m above and below (`LookAt '*/11 Stuff(Clone)/Cube (12)'`, pitch -70 / 70) the walls, carpet and door are there in RT
+as in the game (view probe: every part `known=True proxy[visible=True mask=0x1]`; above, RT -2.17 against the game's
+-2.50, -0.44 before the baked-layer fix). The user's view could not be reproduced: the room had moved by the time the
+bench reached the recording's end, and the recording does not float above it. The proxies are one-sided
+(`twoSided=False`, from the materials' `_CullMode`), so a face seen from behind is culled, as in the game. Open; next
+step: a recording that floats above the room at the moment the user saw it, with `-ultrart-viewprobe`, and whether the
+view was through one of Space's portals (then it is portal work).
