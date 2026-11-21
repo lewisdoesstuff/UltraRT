@@ -15,9 +15,10 @@ namespace UltraRT
     /// sg.tilt=35. Flag -ultrart-stained-glass F (off = 0); menu Advanced > Effects, config [Effects] StainedGlassProjection.</summary>
     internal sealed class StainedGlassSettings
     {
-        /// <summary>Brightness of the projected mosaic: the pane's (gamma) colour x this is the light it gives a surface
-        /// facing the beam (x relight exposure, x cos). 0 = off (no buffer, no shader work).</summary>
-        public float strength = 3f;
+        /// <summary>Brightness of the projected mosaic under a full day sky: the pane's (gamma) colour x this is the light
+        /// it gives a surface facing the beam (x relight exposure, x cos, x the daylight factor). 0 = off (no buffer, no
+        /// shader work). 3 until 2026-11-21 (with saturation 1.3 and no blur: "reads as a projector").</summary>
+        public float strength = 2f;
         /// <summary>Degrees below the horizon the beam of an upright window falls (along its inward normal). 6-2's game
         /// beams fall 27 deg (docs/lighting-overrides.md, "Window beams in 6-2"); 40 lands the high windows of 1-4, 6-2
         /// and P-2 on the floor of their halls.</summary>
@@ -26,8 +27,20 @@ namespace UltraRT
         public float reach = 80f;
         /// <summary>Gamma colour below this passes no light (the dark leading); above it the colour is stretched back to 1.</summary>
         public float leadFloor = 0.12f;
-        /// <summary>Saturation of the projected colour (1 = the pane's own).</summary>
-        public float saturation = 1.3f;
+        /// <summary>Saturation of the projected colour (1 = the pane's own; 1.3 until 2026-11-21).</summary>
+        public float saturation = 1f;
+        /// <summary>Softness: blur radius on the pane (m) per metre the light travelled from it. Light through a window
+        /// comes from the whole bright sky behind it, not a point, so the mosaic softens with distance (0.03 ~ a 1.7 deg
+        /// source); 0 = the sharp slide-projector look of before 2026-11-21.</summary>
+        public float softness = 0.03f;
+        /// <summary>The softness blur's largest radius on the pane (m).</summary>
+        public float maxSoftness = 1.5f;
+        /// <summary>Daylight: the light through the panes follows the level's sky (the RT sky's mean upper-hemisphere
+        /// display luma, read back once per sky). At dayLuma or brighter: full strength; darker skies scale the light
+        /// down (linear in the sky's luma), to nightFloor at most dimmed. No sky texture: noSky.</summary>
+        public float dayLuma = 0.45f, nightFloor = 0.12f, noSky = 0.6f;
+        /// <summary>Bench / diagnostic: a fixed daylight factor (linear light, 0-1); below 0 = from the sky.</summary>
+        public float day = -1f;
         /// <summary>Windows bound per frame (the nearest beams to the camera and the portal views).</summary>
         public int maxWindows = 16;
         /// <summary>Texels per side of each window's slice.</summary>
@@ -60,6 +73,7 @@ namespace UltraRT
 
         public override string ToString() =>
             $"strength {strength:0.##}, tilt {tilt:0.#} deg, reach {reach:0} m, leading floor {leadFloor:0.##}, saturation {saturation:0.##}, " +
+            $"softness {softness:0.###} m/m (max {maxSoftness:0.#} m), daylight {(day >= 0f ? $"fixed {day:0.##}" : $"from the sky (full at luma {dayLuma:0.##}, night floor {nightFloor:0.##}, no sky {noSky:0.##})")}, " +
             $"max windows {maxWindows}, {resolution} px, materials '{materials}'{(noShadow ? ", no shadow (debug)" : "")}, " +
             (water ? $"under water: blur {waterBlur:0.###} m/m, shift x{waterShift:0.##}, absorption x{waterAbsorbScale:0.##}" : "under water: as dry");
 
@@ -194,8 +208,97 @@ namespace UltraRT
             _cmd.SetRayTracingVectorParam(shader, "_UltraRTStainedGlassWater",
                 new Vector4(Mathf.Max(t.waterAbsorb, 0f) * Mathf.Max(s.waterAbsorbScale, 0f), Mathf.Clamp01(t.waterAbsorbFloor), Mathf.Max(t.waterAbsorbMaxPath, 0.1f), on && s.water ? 1f : 0f));
             _cmd.SetRayTracingVectorParam(shader, "_UltraRTStainedGlassWater2", new Vector4(Mathf.Max(s.waterBlur, 0f), Mathf.Max(s.waterShift, 0f), 0f, 0f));
+            // Daylight and softness: x the daylight factor (linear light), y blur radius on the pane per metre from it, z
+            // its cap (m).
+            float day = on ? SgDayFactor() : 0f;
+            _cmd.SetRayTracingVectorParam(shader, "_UltraRTStainedGlassParams2", new Vector4(day, Mathf.Max(s.softness, 0f), Mathf.Max(s.maxSoftness, 0f), 0f));
             if (count != _sgBound) Logger.LogInfo($"Stained-glass projection: {count} windows bound (was {_sgBound})");
             _sgBound = count;
+        }
+
+        // ---------------------------------------------------------------- daylight (docs/materials.md, section 14, "Daylight")
+
+        private Texture _sgSkyTex, _sgSkyLumTex;
+        private Color _sgSkyTint, _sgSkyLumTint;
+        private float _sgSkyLuma = -1f, _sgDayLogged = -1f;
+        private RenderTexture _sgSkyRT;
+        private bool _sgSkyPending;
+        private int _sgSkyReq;
+
+        /// <summary>BindSky (Plugin.cs): the RT sky of this frame (null: no sky texture) and its tint (game units).</summary>
+        private void SgNoteSky(Texture tex, Color tint) { _sgSkyTex = tex; _sgSkyTint = tint; }
+
+        /// <summary>
+        /// How much light comes through the panes, 0-1 (linear light): the level's sky as the windows see it, the mean
+        /// display luma of the RT sky's upper hemisphere (cosine-weighted by latitude, x its tint), against dayLuma. 1-4's
+        /// night sky gives the least, a day sky full strength. Measured once per sky texture and tint (a 32 x 16 mip read
+        /// back asynchronously); until the first result, and with no sky texture, noSky.
+        /// </summary>
+        private float SgDayFactor()
+        {
+            var s = _sgSettings;
+            if (s.day >= 0f) return Mathf.Clamp01(s.day);
+            float f;
+            if (_sgSkyTex == null) f = s.noSky;
+            else
+            {
+                if ((!ReferenceEquals(_sgSkyTex, _sgSkyLumTex) || _sgSkyTint != _sgSkyLumTint) && !_sgSkyPending) SgMeasureSky(_sgSkyTex, _sgSkyTint);
+                f = _sgSkyLuma < 0f ? s.noSky : Mathf.Clamp(_sgSkyLuma / Mathf.Max(s.dayLuma, 1e-3f), Mathf.Clamp01(s.nightFloor), 1f);
+            }
+            f = Mathf.Clamp01(f);
+            if (Mathf.Abs(f - _sgDayLogged) > 0.02f && s.log)
+            {
+                _sgDayLogged = f;
+                Logger.LogInfo($"Stained-glass daylight: x{f:0.###} (sky '{(_sgSkyTex != null ? _sgSkyTex.name : "none")}', upper-hemisphere luma " +
+                               $"{(_sgSkyLuma >= 0f && _sgSkyTex != null ? _sgSkyLuma.ToString("0.###", CultureInfo.InvariantCulture) : "-")}, full at {s.dayLuma:0.##})");
+            }
+            return f;
+        }
+
+        private void SgMeasureSky(Texture tex, Color tint)
+        {
+            try
+            {
+                if (_sgSkyRT == null)
+                {
+                    _sgSkyRT = new RenderTexture(256, 128, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear)
+                        { useMipMap = true, autoGenerateMips = false, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Repeat, name = "UltraRT Stained Glass Sky" };
+                    _sgSkyRT.Create();
+                }
+                _sgSkyLumTex = tex;
+                _sgSkyLumTint = tint;
+                _sgSkyLuma = -1f;
+                _sgSkyPending = true;
+                int id = ++_sgSkyReq;
+                Graphics.Blit(tex, _sgSkyRT);
+                _sgSkyRT.GenerateMips();
+                AsyncGPUReadback.Request(_sgSkyRT, 3, TextureFormat.RGBAFloat, r =>
+                {
+                    if (id != _sgSkyReq) return;
+                    _sgSkyPending = false;
+                    if (r.hasError || r.width != 32 || r.height != 16) { _sgSkyLuma = -1f; Logger.LogWarning($"Stained-glass daylight: sky readback failed ({r.width}x{r.height})"); return; }
+                    var px = r.GetData<Vector4>();
+                    double sum = 0, wsum = 0;
+                    for (int y = 8; y < 16; y++) // row 0 is straight down (SkyUV): rows 8-15 are the upper hemisphere
+                    {
+                        double w = Math.Cos(((y + 0.5) / 16.0 - 0.5) * Math.PI);
+                        for (int x = 0; x < 32; x++)
+                        {
+                            var c = px[y * 32 + x];
+                            double l = 0.2126 * Math.Max(0f, c.x * tint.r) + 0.7152 * Math.Max(0f, c.y * tint.g) + 0.0722 * Math.Max(0f, c.z * tint.b);
+                            if (double.IsNaN(l) || double.IsInfinity(l)) continue;
+                            sum += l * w; wsum += w;
+                        }
+                    }
+                    _sgSkyLuma = wsum > 0 ? (float)(sum / wsum) : -1f;
+                });
+            }
+            catch (Exception e)
+            {
+                _sgSkyPending = false;
+                _sgSkyLuma = -1f;
+                Logger.LogWarning($"Stained-glass daylight: {e.Message}");
+            }
         }
 
         /// <summary>Builds the windows once per RT scene (and again when a window renderer is destroyed: checkpoint

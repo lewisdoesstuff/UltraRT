@@ -266,6 +266,31 @@ Candidates are scored by strength x size / (1 + d²/25), with a 1.5x bonus for l
 
 **Hybrid** (removed 2026-11-19; `_Lights[i*4+3].w` is 0 again, `hybridWeight` and `-ultrart-effect-hybrid` are gone). `_Lights[i*4+3].w`, unused before, was the hybrid weight: 0 for game lights and `hybridWeight` (1) for virtual ones. When ReSTIR's chosen visible sample is a weighted light, `g_DirectAdditive` gets its shadowed contribution x weight. PathTrace mode 3 adds that to the bounce channel exactly like `g_DirectEmissive`: the game draws no light for these effects, so hybrid adds it on top of the game's image. Like emitters, virtual lights also count in the shadow ratio.
 
+### Player-made fire (2026-11-21, `t3/stained-glass-and-combat-polish`)
+
+User (playtest 2026-11-20, 4-4's dark corridor): "i made a fire and it didn't light up anything around it?". The
+Firestarter's gasoline burns as `BurningVoxel`s: each takes a **`FireSimple`** from `FireObjectPool`
+(`GetFire(isSimple: true)`: a `FireSprite` with `FireMaterial` and **no Light**), parents it under the stain's
+`VoxelProxy` and scales it x4. Its flames were collected as emitters, but their sprite bounds are 15-17 m (x4 under the
+voxel's own scale), and `Measure` dropped anything over 12 m (2 x `MaxRadius`, meant for sky-sized sprites): no candidate
+at all. Now:
+
+- **Flames** (`IsFlame`: fire / flame / torch / burn in the name) up to 40 m of bounds extent (`MaxFlameExtent`) keep
+  their light; an oversized one is placed low in the flame (1.5 m over its bounds' bottom at most), where it burns on
+  the floor, not at the billboard's middle. Radius stays capped at 6 m, so range 12 m.
+- **`flameVirtualGain`** (6): a flame *sprite* with no light of its own gets x6 the virtual light of other glows. The
+  FireSimple sprite averages ~0.06 (intensity ~1); the same flame's lit variant (`Fire`) carries a light of 5. At 4
+  pathtrace barely lit the corridor (luma +0.4, `bench/results/20261121-011415_tmp-sgc-i_alt`), at 8 the corridor went
+  near white (36 -> 88); relight at 4 was already warm on the walls (38 -> 50 at 5.5 s). 6 (x2.4 the light of 4) is
+  between; not measured on its own.
+- Cost: nothing without fire; with a big fire, at most `maxVirtual` (16) lights as before (3-4 were picked in the test).
+- Bench kinds `gasoline` (24 of the game's `GasolineProjectile`s dropped on the floor ahead) and `gasignite`
+  (`StainVoxelManager.IgniteAll`), bench/README.md. The 5 s effect-light log line now also counts why candidates near
+  the camera were not picked (`candidates measured N (covered, own light, weak, kind)`, `near but nothing drawn N: <paths>`)
+  and names the covering light's path, intensity, range and distance.
+
+Sheet `4-4_gasoline_fire.jpg` in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`.
+
 ## 3. Flame flicker
 
 When a game light sits on a flame sprite or particle system (a torch FireSprite on its Fire light, or a pooled Fire), the flame drives that light. Its packed intensity is multiplied by (the flame's brightness x radius²) / its running mean over about 1 s, clamped to 0.65 to 1.35. At most 16 such flames near the camera are measured, every frame.
@@ -445,6 +470,9 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | `-ultrart-beam-lights x` | `beamLights` | 1 | combat beam lights, a strength (0 = off); "Combat lights" below |
 | `-ultrart-parry-light x` | `parryLight` | 1 | the parry burst (0 = off) |
 | `-ultrart-lightning-flash x` | `lightningFlash` | 1 | the lightning flash (0 = off) |
+| | `gunFlash`, `gunFlashHold`, `gunFlashFade` | on, 0.02, 0.06 | gunshot lights' crisp envelope ("Gunshot flashes") |
+| | `lightningInsideScenes`, `lightningInsideGain` | `Level P-2`, 3 | bolts inside the play space: unshadowed, x gain ("Lightning flash") |
+| | `flameVirtualGain` | 6 | flame sprites without a light ("Player-made fire") |
 
 Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5. Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
 
@@ -496,7 +524,8 @@ once its `Start` has run (`cc` set): before that its line still holds the prefab
 Each frame each live beam segment gets a chain of point lights: the segment is clipped to `cullDistance` (45 m) around
 the camera, a shot from the gun skips its first 1.5 m (the game's own beam light is there), and the rest gets 3 to 6
 lights (`beamSpacing` 5 m; 2 under 3 m, 1 under 1 m), evenly spaced, range max(`beamRange` 6, 1.2 x the spacing),
-soft-shadow radius 0.12 m (crisp shadows of pillars and enemies). Colour: the line's start/end colour average x the
+soft-shadow radius 0.12 m (crisp shadows of pillars and enemies). (`beamFade` is **0.1** since 2026-11-21, see "Gunshot
+flashes"; the 0.15 s below is the first default.) Colour: the line's start/end colour average x the
 material's `_TintColor` / `_Color`, normalised, with 15% white (the revolver: (1, 0.92, 0.58)). Intensity `beamIntensity`
 (2) x `beamLights` x a type gain (railcannon x2.5 and range x1.5, Malicious Face x2, enemy x1.2, Mindflayer x1.2,
 charged shots x1.4) x the envelope: (1 - age / `beamFade`)^2 (0.15 s of game time) x the line's own width ratio. A
@@ -504,6 +533,39 @@ paused game freezes the envelope; a real-time cap (0.6 s) ends it anyway. Contin
 no age limit. At most `beamMaxLights` (24) per frame, newest beams first; all combat lights go after every scene and
 effect light and keep 8 slots free for the enemy glow and portal images appended after them, so they never take an
 explosion's or a muzzle flash's slot. Volumetric weight `beamMedium` 0.5.
+
+### Gunshot flashes (2026-11-21, `t3/stained-glass-and-combat-polish`)
+
+User (playtest 2026-11-20): "the light from gunshots lasts far too long to be believable". A revolver shot lit the
+frame through three lights: the game's `RevolverBeam` light at the gun (20, range 5, fading linearly at 100 per second:
+0.2 s), the beam chain above (0.15 s), and nothing else that mattered (`fx.virtualLights=0` changed nothing beyond the
+run-to-run spread). The light model raises a light's gamma colour x intensity to ^2.2, and 20 is four times a torch: the
+game's linear fade stayed torch-bright at the gun for ~0.18 s. Now:
+
+- **Gun lights** (`EffectLights`): a tracked light on a `RevolverBeam` or in a `MuzzleFlash` hierarchy (or named
+  "muzzle") gets its own envelope on game time: full for `gunFlashHold` (0.02 s), then exp to 5 % over `gunFlashFade`
+  (0.06 s), so it is gone by ~0.08 s (light ~0.05^2.2). Such lights are never left to GatherLights' 4 Hz scan (which
+  would pack them with the game's fade): `EffectLights.OwnsLight`. A newly tracked light is checked the next frame (it
+  waited up to 4 frames before, as an off light).
+- **Beam chain**: `beamFade` 0.15 -> 0.1 (the light is 17 % at 33 ms, 5 % at 50 ms).
+- `fx.gunFlash=0` and `fx.beamFade=0.15` give the old behaviour.
+
+Measured, 4-1 corridor, revolver (`Weapon` 1), pathtrace, mean luma of the frame `ShotDelay` after the shot (baseline
+without a shot 31.5; `bench/results/20261121-002710_tmp-sgc-b`, `20261121-003639_tmp-sgc-c_alt`):
+
+| After | 0.03 s | 0.05 s | 0.08 s | 0.15 s | 0.3 s |
+|---|---|---|---|---|---|
+| before | 168 (white) | 143 | 74 | 59 | 39 |
+| after | 72 | 55 | 30-47 | 27 (baseline) | baseline |
+
+The peak is lower too (the old first frames clipped the whole corridor white). Bench timing jitters by a frame or two
+around a spawn, so single values move by ~15. Sheet `4-1_revolver_flash_timing_pathtrace.jpg` in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`.
+
+**Relight still lingers** (not fixed): in relight the frame 0.15 s after a shot measured 76-85 against 23 (old envelope
+131), lit evenly down the corridor, with auto exposure at x1.00 and held. The denoiser's own anti-lag, forced on
+(2 standard errors, histories cut to 2 frames) for 0.3 s around each flash, changed it by under the run-to-run spread
+(85 -> 76 at 0.15 s, 102 -> 107 at 0.08 s) and was not kept. The tail comes from another of relight's temporal stages
+(radiance cache, upsampler or stabilizer: not isolated). Pathtrace with DLSS RR follows the envelope.
 
 ## 2. Parry burst (`fx.parryLight`)
 
@@ -525,6 +587,24 @@ so the light the player sees does not depend on how far the bolt is. Envelope on
 at ~0.06 and ~0.13 s (x0.75, x0.45), each exp(-t / (`lightningFade` / 3)), `lightningFade` 0.18 s; a paused game holds
 it, and a real-time cap of 1 s ends it. Volumetric weight `lightningMedium` 0.25. Cleared with every other combat light
 when the active scene changes.
+
+**P-2's tunnel of blood** (2026-11-21, `t3/stained-glass-and-combat-polish`; user, P-2 pose 2: "occasional lightning
+flashes in p-2's tunnel of blood ... we should give them the same treatment as 5-2"). They are the same
+`LightningStrikeDecorative_Animated` bolts (8 in P-2: `Main Section/Inside/6 - Soul Tunnel/6 Nonstuff*/Lightning/
+LightningStrike*`, 2 more on the `Shortcut`; the log lists a level's bolts at load, `Combat lights: decorative bolts in
+the scene`), and the hook already gave them bolt lights. But the bolts stand in the tunnel behind its walls of blood,
+53 m ahead at the user's pose: the shadowed bolt lights reached the walkway at +1.8 luma, and the game's flash (25 /
+range 1000) lit nothing there either (it sits in GatherLights' 4 Hz scan only after it is already fading; the walkway
+read the same before and during a strike). Scenes in `lightningInsideScenes` (`Level P-2`; the game's scene name,
+`SceneHelper.CurrentScene`) get their bolt lights **unshadowed** (`l3.z` 0.75) and x **`lightningInsideGain`** (3). At the
+pose, 0.38 s after `FlashStart` (the strike is 0.3 s in): pathtrace mean luma 24.3 -> 42.5, relight -> 50.3; the
+walkway and the tunnel walls flash warm. At x16 (`fx.lightningIntensity=200`) the frame went white (92). A level rule
+making the game's own flash unshadowed (tried first, `"set": { "shadows": false }`) changed nothing at the strike and
+was dropped. `bench/results/20261121-011038_tmp-sgc-h_alt`, sheet `P-2_pose_2_lightning.jpg` in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`.
+
+**Plain decorative bolts** (`LightningStrikeDecorative`, no build-up: the strike and its flash at once, a 1.5 s linear
+fade) were not hooked; `FlashStart` now gets the same bolt light, in the flash's hue when it is coloured. No level checked
+so far uses them (P-2 and 5-2: 0); bench `lightning` / `boltlight` fall back to them.
 
 ## Auto exposure
 

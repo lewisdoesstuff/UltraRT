@@ -513,7 +513,7 @@ Shipped rules and decisions (2026-11-18; runs `bench/results/20261118-21*_unlit-
 
 | Material | Weight | Evidence |
 |---|---|---|
-| `Gibs` | 0.6 | 0-2 4B hallway: fullbright gibs glow red in the dark; 0.5-0.75 sit in the room's light and stay readable |
+| `Gibs` | 0.6 (**1 since 2026-11-21**) | 0-2 4B hallway: fullbright gibs glow red in the dark; 0.5-0.75 sit in the room's light and stay readable. The user's playtest of 2026-11-20 still read 0.6 as "glowing gibs by default": 1 (lit by the room, as `GibsLit`, the Flesh-tagged lit variant, always was). `bench/results/20261121-010611_tmp-sgc-g` (`0-2 gibs`, `unlit.extra=Gibs:0.6` against the default) |
 | `LionStatue*`, `StatueBaseUnlit*`, `Statue3` | 0.7 | **not checked in a screenshot**: the 1-1 statue was switched off (or its skinned bounds 74 m wide) at every pose tried |
 | `BoneWallRedUnlit` | 0.5 | **not checked**: the 6-1 soul tubes and P-2 arches were switched off at the poses tried |
 | portraits `Hakita`, `Dawg`, `Imp`, `Francis`, `Jericho`, `CabalCrow`, `Florp`, `Presentation` | 0.6 | **not checked**: none came into frame (6-2, 8-2, 8-4) |
@@ -689,7 +689,8 @@ and pathtrace both get it at primary hits). Suites `bench/suites/stained-glass.j
 
 **Switches**: `-ultrart-stained-glass F` (0 or off = off), `-ultrart-stained-glass-tilt F`, config
 `[Effects] StainedGlassProjection` (Advanced > Effects), bench `sg.strength=0`, `sg.tilt`, `sg.reach`, `sg.leadFloor`,
-`sg.saturation`, `sg.maxWindows`, `sg.minChroma`, `sg.water`, `sg.waterBlur`, `sg.waterShift`, `sg.waterAbsorbScale`
+`sg.saturation`, `sg.softness`, `sg.maxSoftness`, `sg.dayLuma`, `sg.nightFloor`, `sg.noSky`, `sg.day` ("Daylight and
+softness" below), `sg.maxWindows`, `sg.minChroma`, `sg.water`, `sg.waterBlur`, `sg.waterShift`, `sg.waterAbsorbScale`
 ("Under water" below) (the build-time fields `tilt`, `reach`, `resolution`, `materials`
 rebuild the windows when changed; `minChroma` applies at the next build). Diagnostics: `sg.debug=1` no shadow ray,
 `2` white wherever a beam reaches, `3` bright magenta there (no cosine, no texture), `4`-`6` staged tests of the
@@ -756,7 +757,51 @@ Cost (same-session `-Perf` on alt with main idle, `bench/results/20261120-182801
 -> 4.675 / 1.736; pose 4 relight 4.181 / 2.201 -> 4.180 / 2.205, pathtrace 4.433 / 1.567 -> 4.444 / 1.575. Within
 noise (+0.01 ms at most); no ray added.
 
-**Not done**: 1-1 to 1-3 use the same `StainedGlassBig/Blue/Red` materials and should work unchanged (not checked). No
+**Daylight and softness (2026-11-21, `t3/stained-glass-and-combat-polish`).** The user's playtest of 2026-11-20: 1-4
+pose 1 "far far too strong. 1-4 is at night, and it looks like the windows are projectors"; 1-3 pose 1 "still far too
+bright ... reads more as a projection than stained glass". Three changes, in `Plugin.StainedGlass.cs` and
+`UltraRTStainedGlass.hlsl`:
+
+- **Weaker and truer colour**: `strength` 3 -> **2**, `saturation` 1.3 -> **1** (the pane's own colours). The strength is
+  a gamma value (light = (colour x strength)^2.2), so 2 is about 0.4 of the old light before the factors below.
+- **Softness**: the light through a window comes from the whole sky behind it, not a point, so the mosaic blurs with the
+  distance it travelled: radius on the pane `sg.softness` (0.03 m per metre, about a 1.7 deg source) x the distance from
+  the pane, at most `sg.maxSoftness` (1.5 m). The 8-tap rotated Vogel disc the water path already had now serves both
+  (dry: softness; under water: softness plus the water's blur). Under half a texel it stays one point sample. The colour
+  pools keep their shapes; the leading lines melt into them a few metres from the window.
+- **Daylight** follows the level's sky: when the RT sky (texture x tint) changes, a 256 x 128 copy is mipped and its
+  32 x 16 mip read back once (`AsyncGPUReadback`); the mean display luma of its upper hemisphere (cosine-weighted by
+  latitude) against `sg.dayLuma` (0.45) gives a linear light factor, at least `sg.nightFloor` (0.12), 1 at or above
+  dayLuma. No sky texture: `sg.noSky` (0.6). Measured: 1-3 (`sunset_against_light_clouds...`) luma **0.523 -> x1**; 1-4
+  (`nightsky 1`) **0.012 -> x0.12** (the floor). The log says `Stained-glass daylight: xF (sky '...', upper-hemisphere luma
+  L, full at 0.45)`; `sg.day=F` fixes the factor (bench). Under water the same factor scales the light (it multiplies
+  the whole term).
+
+The menu entry and config key stay `[Effects] StainedGlassProjection` (now "strength in daylight", default 2). The old
+default 3 had been written into both installs' `ooo.lew.ultrart.cfg`; with the user's go-ahead it was set to 2 there
+(2026-11-21), so the new default reaches the user.
+
+Measured (main and alt, 2560 x 1440, SDR, suite `bench/suites/playtest-1121.json`; runs
+`bench/results/20261121-002710_tmp-sgc-a` and `20261121-010611_tmp-sgc-g`; "before" = `sg.strength=3+sg.saturation=1.3
++sg.softness=0+sg.day=1`), pathtrace, mean luma (0-255) change inside the beams' footprint (`sg.debug=3` mask) against
+`sg.strength=0`:
+
+| Pose | Before | After |
+|---|---|---|
+| 1-4 pose 1 (night, 7 % of the frame in a beam) | +44.4 | +7.4 (a faint rose / violet tint on the floor) |
+| 1-3 pose 1 (day, 14 % in a beam) | +24.0 | +15.4 (soft colour on the floor and the tombs) |
+
+1-4's pool under the west window (the under-water path): before, a bright crisp mosaic on the water; after, a faint soft
+wash. Review sheets (local, game-derived) in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`: `1-4_pose_1_stained_glass.jpg`,
+`1-3_pose_1_stained_glass.jpg`, `1-3_pose_1_floor_crop.jpg`, `1-4_arena_west_pool.jpg`. The "Look" numbers above (strength
+3) are the old default.
+
+**6-2 pose 1** of the same playtest ("a light beam on one window but not another", the Corner Room at (8.4, 11.5,
+427.7)): vanilla. The game frame has the same lit wedge from the far window and none from the near one: it is the level's
+own beam mesh (`Corner Room/Cube (13)`, part of a combined mesh; docs/lighting-overrides.md, "Window beams in 6-2"), made
+for one window only. The windows are `GothicWindow` (grey, not projected). Sheet `6-2_pose_1_window_beam_vanilla.jpg`.
+
+**Not done**: 1-1 and 1-2 use the same `StainedGlassBig/Blue/Red` materials and should work unchanged (not checked). No
 volumetric beam (the haze stays the game's) and no bounce light from the coloured pools (primary hits only).
 
 ## 15. Flesh subsurface (2026-11-20, `t3/flesh-subsurface`)

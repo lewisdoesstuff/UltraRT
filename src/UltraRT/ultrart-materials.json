@@ -81,7 +81,7 @@
     { "material": "RedArmLit*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
     { "material": "GreenArm*", "class": "MetalThin", "roughness": 0.5, "specWeight": 0.4 },
 
-    { "material": "Gibs", "lit": 0.6, "note": "unlit gore (0-2 has 953, every kill spawns more): fullbright gibs glowed red in dark halls; 0.6 keeps them readable and in the room's light (bench/suites/unlit-a.json, 2026-11-18)" },
+    { "material": "Gibs", "lit": 1, "note": "unlit gore (0-2 has 953, every kill spawns more): fullbright gibs glowed red in dark halls. 0.6 (2026-11-18, bench/suites/unlit-a.json) still glowed for the user (playtest 2026-11-20: not a fan of glowing gibs); 1 since 2026-11-21: lit by the room like GibsLit" },
     { "material": "LionStatue*", "lit": 0.7, "note": "1-1 statues, unlit in the game: stone in sunlight. Weight not yet checked in a screenshot (the statue is switched off at the route poses)" },
     { "material": "StatueBaseUnlit*", "lit": 0.7 },
     { "material": "Statue3", "lit": 0.7, "note": "8-3; as the 1-1 statues" },
