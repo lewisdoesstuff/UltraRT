@@ -14,6 +14,16 @@ Prints luminance statistics and writes two PNGs:
   <name>.peak.png   the whole frame scaled so the display peak is white (linear light, sRGB encoded): what is brighter
                     than what on the HDR display, with hue, e.g. an effect against the wall behind it (--peak, nits,
                     default the frame's brightest channel)
+
+Also prints, per channel (Rec.709), the share of pixels at the peak (99 % and 99.9 % of --peak or the brightest
+channel): where the display transform has cut the gradation flat.
+
+  --sheet <out.png> <file2> [...]   a review sheet: one column per capture (the first file, then the others), rows
+                    peak-scaled (as .peak.png) and paper-white exposed (everything above paper white clips, as .sdr.png
+                    but in linear light, sRGB encoded); --crop y0,y1,x0,x1 and --scale shrink it
+  --scene           the capture is a -ultrart-hdr-tone log frame (docs/hdr.md, "Clipping"): decodes the scene values
+                    (display linear, 1 = paper white) and prints their range instead (--scene-peak: the run's
+                    -ultrart-hdr-peak, default 10000)
 """
 import argparse
 import os
@@ -47,7 +57,16 @@ def main():
     ap.add_argument('--out')
     ap.add_argument('--sdr', help="the game's screenshot of the same frame")
     ap.add_argument('--peak', type=float, help="display peak for <name>.peak.png, nits (default: the frame's brightest channel)")
+    ap.add_argument('--sheet', nargs='+', metavar=('OUT', 'FILE'), help='review sheet: output png, then more captures')
+    ap.add_argument('--crop', help='sheet crop y0,y1,x0,x1 (pixels)')
+    ap.add_argument('--scale', type=float, default=1.0, help='sheet scale')
+    ap.add_argument('--scene', action='store_true', help='decode a -ultrart-hdr-tone log capture')
+    ap.add_argument('--scene-peak', type=float, default=10000.0, help='the -ultrart-hdr-peak of the log capture, nits')
     a = ap.parse_args()
+    if a.sheet:
+        return sheet(a, [a.file] + a.sheet[1:], a.sheet[0])
+    if a.scene:
+        return scene(a)
     nits, code = read(a.file)
     h, w, _ = nits.shape
     lum = nits @ np.array([0.2627, 0.6780, 0.0593], dtype=np.float32)
@@ -58,6 +77,12 @@ def main():
     for k in (1.05, 1.5, 2.0, 3.0, 4.0):
         print(f'  above {k:.2f}x paper white ({a.paper * k:.0f} nits): {100.0 * np.count_nonzero(lum > a.paper * k) / n:.3f}% of pixels')
 
+    rgb = np.maximum(nits @ TO_709.T, 0.0)
+    pk_n = a.peak or float(rgb.max())
+    for q in (0.99, 0.999):
+        at = rgb >= q * pk_n
+        print(f'  at {100 * q:g}% of the peak ({pk_n:.0f} nits) or more: R {100 * at[..., 0].mean():.3f}%, G {100 * at[..., 1].mean():.3f}%, '
+              f'B {100 * at[..., 2].mean():.3f}%, any channel {100 * at.any(-1).mean():.3f}% of pixels')
     out = a.out or os.path.dirname(os.path.abspath(a.file))
     os.makedirs(out, exist_ok=True)
     base = os.path.join(out, os.path.basename(a.file).replace('.png.hdr10.bin', '').replace('.hdr10.bin', ''))
@@ -89,6 +114,44 @@ def main():
             below = (lum <= a.paper * 1.02)
             print(f'  against {os.path.basename(a.sdr)}: mean abs difference {d.mean() * 255:.2f} / 255 over the frame, '
                   f'{d[below].mean() * 255:.2f} where the HDR frame is at or below paper white')
+
+
+def linear709(path):
+    return np.maximum(read(path)[0] @ TO_709.T, 0.0)
+
+
+def encode(x):
+    x = np.clip(x, 0.0, 1.0)
+    return (np.where(x <= 0.0031308, x * 12.92, 1.055 * x ** (1.0 / 2.4) - 0.055) * 255.0 + 0.5).astype(np.uint8)
+
+
+def sheet(a, files, out):
+    cols = []
+    for f in files:
+        rgb = linear709(f)
+        if a.crop:
+            y0, y1, x0, x1 = (int(v) for v in a.crop.split(','))
+            rgb = rgb[y0:y1, x0:x1]
+        peak = a.peak or float(rgb.max())
+        cols.append(np.concatenate([encode(rgb / peak), encode(rgb / a.paper)], 0))
+        print(f'  column {len(cols)}: {os.path.basename(f)}')
+    im = Image.fromarray(np.concatenate(cols, 1))
+    if a.scale != 1.0:
+        im = im.resize((int(im.width * a.scale), int(im.height * a.scale)), Image.LANCZOS)
+    im.save(out)
+    print(f'  wrote {out}: rows peak-scaled ({a.peak or "each frame's brightest channel"} nits = white) and paper white ({a.paper:.0f} nits) exposed')
+
+
+def scene(a):
+    # -ultrart-hdr-tone log: y = peak x log2(1 + x) / log2(9411) per channel in linear light (UltraRTHdrDisplay mode 4)
+    t = a.scene_peak / a.paper
+    x = np.exp2(np.clip(linear709(a.file) / a.paper / t, 0.0, 1.0) * np.log2(9411.0)) - 1.0
+    m = x.max(-1)
+    print(f'{os.path.basename(a.file)}: scene values (linear light, 1 = paper white), brightest channel: '
+          f'p50 {np.percentile(m, 50):.2f}, p90 {np.percentile(m, 90):.2f}, p99 {np.percentile(m, 99):.1f}, p99.9 {np.percentile(m, 99.9):.1f}, max {m.max():.0f}')
+    for k in (1.0, 3.0, 11.2, 26.0, 100.0):
+        print(f'  brightest channel above {k:g}: {100 * np.mean(m > k):.3f}% of pixels')
+    return x
 
 
 if __name__ == '__main__':

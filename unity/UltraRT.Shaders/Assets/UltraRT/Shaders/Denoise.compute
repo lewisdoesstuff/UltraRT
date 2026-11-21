@@ -818,7 +818,7 @@ void Composite(uint3 id : SV_DispatchThreadID)
 Texture2D<float4>   _HdrSceneSrc;
 RWTexture2D<float4> _HdrSceneOut;
 float4 _HdrSceneDim;  // x, y size
-float4 _HdrSceneTone; // UltraRTHdrDisplay: x knee, y display peak, z scene value that reaches it (display units), w mode
+float4 _HdrSceneTone; // UltraRTHdrDisplay: x knee, y display peak, z scene value that reaches it (display units; modes 0-2) or the tail exponent (mode 3, film), w mode
 
 [numthreads(8, 8, 1)]
 void HdrScene(uint3 id : SV_DispatchThreadID)

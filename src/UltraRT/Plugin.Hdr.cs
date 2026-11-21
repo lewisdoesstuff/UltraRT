@@ -98,7 +98,8 @@ namespace UltraRT
         private bool _hdrNative = true;
         private float _hdrNativeTolLo = 0.025f, _hdrNativeTolHi = 0.08f;
         private bool _hdrNativeNow;                            // this frame's composite writes scene values into the float target (HdrPrepare)
-        private float _hdrToneMode = 1f;                       // display transform (UltraRTHdrDisplay): 0 = brightest channel, 1 = per channel (default), 2 = luminance (-ultrart-hdr-tone max|channel|lum, bench plugin._hdrToneMode)
+        private float _hdrToneMode = 3f;                       // display transform (UltraRTHdrDisplay): 0 = brightest channel, 1 = per channel cut at the white point (the default until 2026-11-21), 2 = luminance, 3 = film: per channel, asymptotic (default), 4 = log (debug: the scene, log-encoded) (-ultrart-hdr-tone max|channel|lum|film|log, bench plugin._hdrToneMode)
+        private float _hdrToneTail = 1.5f;                     // film's tail exponent n (UltraRTHdrRolloff; -ultrart-hdr-tail N, bench plugin._hdrToneTail)
         private float _hdrToneWhite, _hdrToneKnee;             // this frame's tone curve white point and knee (BindExposure)
         private Vector4 _hdrSceneTone;                         // the display transform's parameters this frame (HdrPrepare)
         private int _hdrNativeFrame = -1;                      // ... and in which frame
@@ -188,7 +189,8 @@ namespace UltraRT
                     }
                     case "-ultrart-hdr-capture": _hdrCaptureMode = (Next() ?? "").ToLowerInvariant() == "raw" ? 2 : 1; break;
                     case "-ultrart-hdr-native": { var v = (Next() ?? "on").ToLowerInvariant(); _hdrNative = v != "off" && v != "0" && v != "false"; break; }
-                    case "-ultrart-hdr-tone": { var v = (Next() ?? "channel").ToLowerInvariant(); _hdrToneMode = v.StartsWith("max") ? 0f : v.StartsWith("lum") ? 2f : 1f; break; }
+                    case "-ultrart-hdr-tone": { var v = (Next() ?? "film").ToLowerInvariant(); _hdrToneMode = v.StartsWith("max") ? 0f : v.StartsWith("lum") ? 2f : v.StartsWith("chan") ? 1f : v.StartsWith("log") ? 4f : 3f; break; }
+                    case "-ultrart-hdr-tail": if (F(out var tail)) _hdrToneTail = Mathf.Clamp(tail, 0.25f, 8f); break;
                 }
             }
             if (_hdrPaperWhite > 0f) _hdrPaperWhite = Mathf.Clamp(_hdrPaperWhite, 40f, 1000f);
@@ -334,7 +336,7 @@ namespace UltraRT
                 // Display transform: identical below the SDR curve's knee; the scene value that reaches the peak is the SDR
                 // curve's white point (what reaches paper white in SDR reaches the peak here), or -ultrart-hdr-white.
                 float white = _hdrWhite > 0f ? _hdrWhite : _hdrToneWhite > 0f ? _hdrToneWhite : topN;
-                _hdrSceneTone = new Vector4(_hdrToneKnee > 0f ? _hdrToneKnee : 0.75f, topN, Mathf.Max(white, topN), _hdrToneMode);
+                _hdrSceneTone = new Vector4(_hdrToneKnee > 0f ? _hdrToneKnee : 0.75f, topN, _hdrToneMode > 2.5f && _hdrToneMode < 3.5f ? _hdrToneTail : Mathf.Max(white, topN), _hdrToneMode);
                 if (rr)
                 {
                     _rr.HdrNative = true; _rr.HdrParams = pn; _rr.HdrEmissive = en;
