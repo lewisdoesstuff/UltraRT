@@ -1024,6 +1024,14 @@ namespace UltraRT
         private bool _displaceMotion = true; // bench variant plugin._displaceMotion=0: displaced proxies without per-vertex motion vectors
         private bool _portals = true; // -ultrart-noportals (bench variant: plugin._portals=0): rays ignore portals (docs/portals.md)
         private int _portalHops = 3;  // -ultrart-portal-hops N (bench variant: plugin._portalHops=N): teleports per ray
+        private bool _portalRules = true; // bench plugin._portalRules=0: one global hop limit instead of the game's per-portal rules
+        private bool _portalNoSelf = true; // bench plugin._portalNoSelf=0: rays ignore canSeeItself
+        private bool _portalFeedback = true; // bench plugin._portalFeedback=0: the end of an infinite portal loop stays black
+        private int _portalCheapHops = 4;    // bench plugin._portalCheapHops=N: past N hops one light sample, no reflection ray (0 = never)
+        private Texture _fbTex;              // last frame's image for the portal loop feedback (PathTrace, path.capped)
+        private Matrix4x4 _fbViewProj = Matrix4x4.identity;
+        private int _fbMode = -1, _fbFrame = -10;
+        private int _portalInfHops = 12;  // bench plugin._portalInfHops=N: teleports through supportInfiniteRecursion loops
         private bool _rtMirrors;      // -ultrart-rtmirrors (bench: plugin._rtMirrors=1): camera rays reflect off portal mirrors instead of keeping the game's mirror view
         /// <summary>Trim redundant deep PortalRenderV2 raster recursions on non-mirror portals while RT replaces opaque portal views. Bench plugin._portalRasterTrim=0.</summary>
         private bool _portalRasterTrim = true;
@@ -1288,31 +1296,49 @@ namespace UltraRT
             _skyLatLong.Clear();
         }
 
+        /// <summary>A sky material's lat-long texture, tint (game units, colour-space double included) and rotation (degrees).</summary>
+        private void SkyParamsOf(Material m, out Texture tex, out Color tint, out float rot)
+        {
+            tex = null;
+            tint = Color.white;
+            rot = 0f;
+            if (!IsSkyMaterial(m)) return;
+            if (m.shader.name == "ULTRAKILL/Skybox/Skybox")
+            {
+                // Cubemap times _SkyColor (game units, no colour-space double).
+                tex = SkyLatLong(m.GetTexture("_Cubemap"));
+                tint = m.HasProperty("_SkyColor") ? m.GetColor("_SkyColor") : Color.white;
+            }
+            else
+            {
+                tex = m.mainTexture;
+                var t = m.HasProperty("_Tint") ? m.GetColor("_Tint") : Color.gray;
+                float exposure = m.HasProperty("_Exposure") ? m.GetFloat("_Exposure") : 1f;
+                rot = m.HasProperty("_Rotation") ? m.GetFloat("_Rotation") : 0f;
+                // Skybox/Panoramic: tex * _Tint * unity_ColorSpaceDouble (2 in gamma space) * _Exposure.
+                float k = (QualitySettings.activeColorSpace == ColorSpace.Gamma ? 2f : 4.59479f) * exposure;
+                tint = new Color(t.r * k, t.g * k, t.b * k);
+            }
+        }
+
+        private static readonly int PortalSkyTexId = Shader.PropertyToID("_PortalSkyTex"), PortalSkyId = Shader.PropertyToID("_PortalSky");
+
+        /// <summary>The sky a portal side overrides (SceneProxies.PortalSkyMaterials, slot 1; docs/portals.md, "Per-portal skies").</summary>
+        private void BindPortalSkies(RayTracingShader shader)
+        {
+            var mats = _proxies != null ? _proxies.PortalSkyMaterials : null;
+            Texture tex = null;
+            Color tint = Color.black;
+            float rot = 0f;
+            if (mats != null && mats.Count > 0) SkyParamsOf(mats[0], out tex, out tint, out rot);
+            _cmd.SetRayTracingTextureParam(shader, PortalSkyTexId, tex != null ? tex : Texture2D.blackTexture);
+            _cmd.SetRayTracingVectorParam(shader, PortalSkyId, new Vector4(tint.r, tint.g, tint.b, tex != null ? rot * Mathf.Deg2Rad : -1000f));
+        }
+
         private void BindSky(RayTracingShader shader)
         {
-            var m = _skyMaterial;
-            Texture tex = null;
-            Color tint = Color.white;
-            float rot = 0f;
-            if (IsSkyMaterial(m))
-            {
-                if (m.shader.name == "ULTRAKILL/Skybox/Skybox")
-                {
-                    // Cubemap times _SkyColor (game units, no colour-space double).
-                    tex = SkyLatLong(m.GetTexture("_Cubemap"));
-                    tint = m.HasProperty("_SkyColor") ? m.GetColor("_SkyColor") : Color.white;
-                }
-                else
-                {
-                    tex = m.mainTexture;
-                    var t = m.HasProperty("_Tint") ? m.GetColor("_Tint") : Color.gray;
-                    float exposure = m.HasProperty("_Exposure") ? m.GetFloat("_Exposure") : 1f;
-                    rot = m.HasProperty("_Rotation") ? m.GetFloat("_Rotation") : 0f;
-                    // Skybox/Panoramic: tex * _Tint * unity_ColorSpaceDouble (2 in gamma space) * _Exposure.
-                    float k = (QualitySettings.activeColorSpace == ColorSpace.Gamma ? 2f : 4.59479f) * exposure;
-                    tint = new Color(t.r * k, t.g * k, t.b * k);
-                }
-            }
+            BindPortalSkies(shader);
+            SkyParamsOf(_skyMaterial, out var tex, out var tint, out float rot);
             SgNoteSky(tex, tint); // stained glass follows the sky's brightness (Plugin.StainedGlass.cs, SgDayFactor)
             _lastSkyTex = tex;
             _lastSkyTint = tex == null ? Vector4.one : new Vector4(tint.r, tint.g, tint.b, 1f);
@@ -1334,7 +1360,11 @@ namespace UltraRT
             var sky = RenderSettings.skybox;
             var rtSky = _proxies != null ? FindSkyMaterial(_proxies.SkyRenderers, _camera != null ? _camera.transform.position : (Vector3?)null) : null;
             Logger.LogInfo($"RT sky: {(rtSky != null ? $"{rtSky.name} tex {rtSky.mainTexture?.name} {rtSky.mainTexture?.dimension}" : "none (flat ambient colour)")}");
-            Logger.LogInfo($"Lighting env: ambientMode={RenderSettings.ambientMode} ambient={RenderSettings.ambientLight} sky={(sky ? sky.shader.name : "none")} skyTex={(sky && sky.HasProperty("_MainTex") && sky.mainTexture ? sky.mainTexture.name : "-")} fog={RenderSettings.fog} fogColor={RenderSettings.fogColor}");
+            Logger.LogInfo($"Lighting env: ambientMode={RenderSettings.ambientMode} ambient={RenderSettings.ambientLight} sky={(sky ? sky.name + "/" + sky.shader.name : "none")} skyTex={(sky && sky.HasProperty("_MainTex") && sky.mainTexture ? sky.mainTexture.name : "-")} fog={RenderSettings.fog} fogColor={RenderSettings.fogColor}");
+            foreach (var ls in FindObjectsByType<LimboSkybox>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                Logger.LogInfo($"  limbo skybox '{Bench.GameControl.PathOf(ls.transform)}' active={ls.isActiveAndEnabled} fakeCamStart={(ls.fakeCamStart ? ls.fakeCamStart.position.ToString() : "-")} playerStart={(ls.playerStart ? ls.playerStart.position.ToString() : "-")}");
+            foreach (var ss in FindObjectsByType<SpaceSkybox>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+                Logger.LogInfo($"  space skybox '{Bench.GameControl.PathOf(ss.transform)}' active={ss.isActiveAndEnabled} at {ss.transform.position}");
             foreach (var l in FindObjectsOfType<Light>().Where(l => l.type == LightType.Directional))
                 Logger.LogInfo($"  directional '{l.name}' enabled={l.isActiveAndEnabled} color={l.color} intensity={l.intensity:F2} mask=0x{l.cullingMask:X8} rot={l.transform.eulerAngles}");
         }
@@ -1505,6 +1535,9 @@ namespace UltraRT
             _proxies.UpdateVeils(); // the same for the veil proxies (SceneProxies.Veils.cs)
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;
+            SceneProxies.PortalRules = _portalRules;
+            SceneProxies.PortalNoSelf = _portalNoSelf;
+            SceneProxies.PortalInfiniteHops = _portalInfHops;
             // The game's mirror views are skipped with the other portal views: camera rays reflect off the mirrors instead.
             SceneProxies.TraceMirrors = _rtMirrors || PortalRasterSkip.Active;
             SceneProxies.MovingPortalMotion = _portalMotion;
@@ -1615,6 +1648,15 @@ namespace UltraRT
             _cmd.SetRayTracingTextureParam(shader, "_Output", _output);
             _cmd.SetRayTracingMatrixParam(shader, "_InvViewProj", invViewProj);
             _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
+            // Infinite portal loops (docs/portals.md, "Recursion rules"): last frame's image at the loop's end. Not the
+            // texture this dispatch writes (_output in the modes without a denoiser), and not across a mode change.
+            bool fb = _portalFeedback && _fbTex != null && _fbTex != _output && _fbMode == _mode && _fbFrame == Time.frameCount - 1;
+            _cmd.SetRayTracingTextureParam(shader, "_UltraRTPrevImage", fb ? _fbTex : Texture2D.blackTexture);
+            _cmd.SetRayTracingMatrixParam(shader, "_UltraRTPrevViewProj", _fbViewProj);
+            _cmd.SetRayTracingFloatParam(shader, "_UltraRTPortalFeedback", fb ? 1f : 0f);
+            _cmd.SetRayTracingIntParam(shader, "_UltraRTPortalCheapHops", Mathf.Max(0, _portalCheapHops));
+            _fbMode = _mode;
+            _fbFrame = Time.frameCount;
             _cmd.SetRayTracingIntParam(shader, "_Mode", resolve || mode >= CacheDebugModeBase ? 0 : mode);
             _cmd.SetRayTracingFloatParam(shader, "_LightRadius", _lightRadius);
             _relightActive = RelightLook(Modes[_mode].name) || _relightForce;
@@ -1637,6 +1679,8 @@ namespace UltraRT
                 PathTraceLightsBegin(full, rr); // RR may want another light sampling mode (restored below)
                 _lightSampling.ViewPoints.Clear();
                 _lightSampling.ViewPoints.AddRange(_portalViews); // portal-aware importance
+                _lightSampling.ViewForwards.Clear();
+                _lightSampling.ViewForwards.AddRange(_portalViewFwd); // where each image looks: the portal light grids (LightSampling.Bind)
                 _lightSampling.Bind(_cmd, shader, _camera.transform.position, _packedLights, _lightData, _surfLightCount, _lightBuffer);
                 Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSampling.ActiveMode);
@@ -1781,7 +1825,8 @@ namespace UltraRT
             _cmd.SetGlobalVector(SoftParticlesId, _depthCopy != null && pt && !_noDepthMatch && _particleSettings.soft
                 ? new Vector4(1f / Mathf.Max(0.02f, _particleSettings.softDistance), 1f, 0f, 0f) : Vector4.zero);
             bool upsampled = false;
-            if (rr && _depthCopy != null && RunRayReconstruction(w, h, viewProj, new Vector2Int(gxPx, gyPx))) upsampled = true;
+            Texture upsampledTex = null; // the screen-layout image the composite takes (portal loop feedback, next frame)
+            if (rr && _depthCopy != null && RunRayReconstruction(w, h, viewProj, new Vector2Int(gxPx, gyPx))) { upsampled = true; upsampledTex = _rr.Final; }
             else if (taau && _displayed == _denoised && _depthCopy != null)
             {
                 _gpu?.Begin(_cmd, SlotUpsample);
@@ -1789,13 +1834,14 @@ namespace UltraRT
                 bool reset = _denoiser.Generation != _upsamplerGen || _upsampledFrame != _frameIndex - 1;
                 _upsamplerGen = _denoiser.Generation;
                 _upsampledFrame = _frameIndex;
-                if (remod) _cmd.SetGlobalTexture(UltraRTUpsampledId, RemodUpsample(new Vector2Int(gxPx, gyPx), reset));
+                if (remod) { upsampledTex = RemodUpsample(new Vector2Int(gxPx, gyPx), reset); _cmd.SetGlobalTexture(UltraRTUpsampledId, upsampledTex); }
                 else
                 {
                     _upsampler.Unclamped = _hdrNativeNow; // native float HDR: the image goes above 1 (Plugin.Hdr.cs)
                     _upsampler.Execute(_cmd, _camera, _denoised, _gNormalDepth, _gInstanceId, _depthCopy,
                         new Vector2Int(gxPx, gyPx), _guardScale, _jitter, reset);
                     _cmd.SetGlobalTexture(UltraRTUpsampledId, _upsampler.Output);
+                    upsampledTex = _upsampler.Output;
                 }
                 _gpu?.End(_cmd, SlotUpsample);
                 upsampled = true;
@@ -1814,6 +1860,11 @@ namespace UltraRT
             _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);
+            // The end of an infinite portal loop shows this frame's image next frame (PathTrace.raytrace, path.capped):
+            // the image the composite took, and the matrix that puts a world point into its uv (screen layout after an
+            // upsampler or RR, else the trace's, with its guard band and jitter).
+            _fbTex = upsampledTex != null ? upsampledTex : _displayed != _output ? _displayed : null;
+            _fbViewProj = upsampledTex != null ? _camera.projectionMatrix * _camera.worldToCameraMatrix : viewProj;
             long tv = Perf.Now;
             TraceVolumetrics(kind, upsampled); // sun shafts, light halos, the game's fog on RT pixels (Plugin.Volumetrics.cs)
             TraceVeils(kind, mode); // behind portals: the rest of the game's fog, blended veils (Plugin.Veils.cs)

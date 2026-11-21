@@ -51,6 +51,7 @@ uint     _LightIsoMask;
 
 int      _LightSampling;     // 0 reference, 1 RIS
 int      _RisCandidates;     // candidates per pixel at the primary hit
+int      _RisCandidatesFar;  // the same for a point outside every light grid (0 = unbound: _RisCandidates); docs/light-sampling.md
 int      _BounceCandidates;  // candidates at the bounce hit
 int      _RisLightCount;     // entries in _LightAlias (every shadowed light, once)
 // Alias table over the shadowed lights (Vose). Entry: x asuint(threshold), y light | aliasLight << 16,
@@ -59,10 +60,30 @@ StructuredBuffer<uint4>  _LightAlias;
 int      _FillCount;
 StructuredBuffer<uint>   _FillLights;   // indices of unshadowed fill lights
 // World-space light grid (ReGIR-lite, Wave 3): 32x16x32 camera-centered 4 m cells, 8 x uint16 light indices per uint4.
+// Since 2026-11-21 up to 3 more grids of the same size around the camera's images through portals (LightSampling.cs,
+// "Portal light grids"), stored after the camera's (grid k at k x 16384).
 StructuredBuffer<uint4>  _LightGrid;
 StructuredBuffer<float>  _LightGlobalPdf;
 float4   _LightGridOrigin; // xyz world origin, w cellSize (4 m)
+float4   _LightGridOrigin1, _LightGridOrigin2, _LightGridOrigin3; // portal viewpoint grids (w <= 0: none)
 float    _LightGridOn;     // 1 = active
+
+// The grid cell holding p (index into _LightGrid), or -1: the first grid that contains it.
+int LightGridCellIn(float4 o, float3 p, uint gridBase)
+{
+    if (o.w <= 0.0) return -1;
+    int3 gc = (int3)floor((p - o.xyz) / o.w);
+    if (gc.x < 0 || gc.x >= 32 || gc.y < 0 || gc.y >= 16 || gc.z < 0 || gc.z >= 32) return -1;
+    return (int)(gridBase + (uint)gc.x + (uint)gc.y * 32u + (uint)gc.z * 512u);
+}
+int LightGridCell(float3 p)
+{
+    int c = LightGridCellIn(_LightGridOrigin, p, 0u);
+    if (c < 0) c = LightGridCellIn(_LightGridOrigin1, p, 16384u);
+    if (c < 0) c = LightGridCellIn(_LightGridOrigin2, p, 32768u);
+    if (c < 0) c = LightGridCellIn(_LightGridOrigin3, p, 49152u);
+    return c;
+}
 
 // Moving occluders (docs/denoiser.md, "Moving shadows"): world AABBs of dynamic objects that moved in the last frames (the
 // player's third-person model first, then the nearest moving enemies and props), each the union of this frame's and the
@@ -907,7 +928,8 @@ void SampleLightTable(float u, out uint light, out float pdf)
 // sample with probability _EmissiveParams.x (alias table over the emissive triangles, then a uniform point on the
 // triangle: pdf in area measure), otherwise a light from the light alias table (pdf over light indices). The domain is
 // the disjoint union of both, so mixing measures is fine as long as each sample uses its own pdf.
-Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rng)
+// farCount: the candidates when p is in no light grid (the grid's local half is missing there).
+Reservoir RisCandidatesFar(float3 p, float3 n, uint layer, int count, int farCount, inout uint rng)
 {
     Reservoir r = ReservoirEmpty();
     float share = _EmissiveCount > 0 ? _EmissiveParams.x : 0.0;
@@ -919,10 +941,10 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
     uint cCount = 0u;
     [branch] if (_LightGridOn > 0.5 && _RisLightCount > 0)
     {
-        int3 gc = (int3)floor((p - _LightGridOrigin.xyz) / _LightGridOrigin.w);
-        if (gc.x >= 0 && gc.x < 32 && gc.y >= 0 && gc.y < 16 && gc.z >= 0 && gc.z < 32)
+        int cell = LightGridCell(p);
+        if (cell >= 0)
         {
-            uint4 packed = _LightGrid[(uint)gc.x + (uint)gc.y * 32u + (uint)gc.z * 512u];
+            uint4 packed = _LightGrid[(uint)cell];
             cIdx[0] = packed.x & 0xFFFFu; cIdx[1] = packed.x >> 16;
             cIdx[2] = packed.y & 0xFFFFu; cIdx[3] = packed.y >> 16;
             cIdx[4] = packed.z & 0xFFFFu; cIdx[5] = packed.z >> 16;
@@ -931,6 +953,7 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
         }
     }
     float invCell = cCount > 0u ? (1.0 / (float)cCount) : 0.0;
+    if (cCount == 0u && farCount > 0) count = farCount;
 
     for (int k = 0; k < count; k++)
     {
@@ -988,6 +1011,11 @@ Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rn
     return r;
 }
 
+Reservoir RisCandidates(float3 p, float3 n, uint layer, int count, inout uint rng)
+{
+    return RisCandidatesFar(p, n, layer, count, count, rng);
+}
+
 bool SampleVisible(Reservoir r, float3 p, float3 n)
 {
     // Not ?: (HLSL 2018 evaluates both sides: that traced an emitter ray and a light ray for every sample), and one
@@ -1019,7 +1047,7 @@ float3 DirectLighting(float3 pos, float3 n, uint layer, inout uint rng)
     }
 
     float3 sum = FillLighting(pos, n, layer);
-    Reservoir r = RisCandidates(pos, n, layer, _RisCandidates, rng);
+    Reservoir r = RisCandidatesFar(pos, n, layer, _RisCandidates, _RisCandidatesFar > 0 ? _RisCandidatesFar : _RisCandidates, rng);
     float W = ReservoirW(r);
 #ifdef ULTRART_MOVERS
     if (W > 0.0 && _UltraRTMoverCount > 0 && MoverCrosses(pos, r.L, r.dist)) g_MoverShadow = true;

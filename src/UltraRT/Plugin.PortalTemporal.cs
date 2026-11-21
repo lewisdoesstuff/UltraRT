@@ -28,6 +28,7 @@ namespace UltraRT
         private bool _portalDistances = true; // bench plugin._portalDistances=0: cull distances and scores by the camera alone (PortalView)
         private bool _cachePortalViews = true; // bench plugin._cachePortalViews=0: cache cells sized by the camera's distance alone
         private readonly System.Collections.Generic.List<Vector3> _portalViews = new System.Collections.Generic.List<Vector3>();
+        private readonly System.Collections.Generic.List<Vector3> _portalViewFwd = new System.Collections.Generic.List<Vector3>(); // each image's view axis
         private readonly Vector4[] _portalViewRows = new Vector4[16];
         private static readonly int CacheViewsId = Shader.PropertyToID("_UltraRTCacheViews"), CacheViewCountId = Shader.PropertyToID("_UltraRTCacheViewCount");
 
@@ -38,7 +39,8 @@ namespace UltraRT
         private void PortalViews()
         {
             _portalViews.Clear();
-            if (_portals) _proxies.PortalViewpoints(_camera.transform.position, _portalViews);
+            _portalViewFwd.Clear();
+            if (_portals) _proxies.PortalViewpoints(_camera.transform.position, _portalViews, camFwd: _camera.transform.forward, fwdOutput: _portalViewFwd);
             PortalView.Enabled = _portalDistances;
             PortalView.Points.Clear();
             PortalView.Points.AddRange(_portalViews);

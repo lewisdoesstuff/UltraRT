@@ -99,6 +99,17 @@ namespace UltraRT
         public static bool TraceMirrors;
         /// <summary>Teleports per ray before portals are ignored (the game's views go 3 to 4 deep).</summary>
         public static int PortalHops = 3;
+        /// <summary>
+        /// The game's per-portal recursion rules for rays (docs/portals.md, "Recursion rules"): maxRecursions of the portal
+        /// crossed last, canSeeItself, and deeper loops through supportInfiniteRecursion portals (up to
+        /// <see cref="PortalInfiniteHops"/>). Off: one global limit of <see cref="PortalHops"/> (bench plugin._portalRules=0).
+        /// </summary>
+        public static bool PortalRules = true;
+        /// <summary>canSeeItself for rays (bench plugin._portalNoSelf=0|1).</summary>
+        public static bool PortalNoSelf = true;
+        /// <summary>Teleports through supportInfiniteRecursion portals (8-3's infinite drop); bench plugin._portalInfHops=N.</summary>
+        public static int PortalInfiniteHops = 12;
+        private static readonly int IdPortalRules = Shader.PropertyToID("_UltraRTPortalRules"), IdPortalInfHops = Shader.PropertyToID("_UltraRTPortalInfHops");
         private int _portalLogs;
         private bool _portalLayerChecked;
         private int _portalSidesInRtas;
@@ -133,6 +144,49 @@ namespace UltraRT
             if (portal == null) return false;
             if (_savedPortalRec.TryGetValue(portal, out var orig)) return orig.appears;
             return portal.appearsInRecursions;
+        }
+
+        /// <summary>
+        /// Sky materials that portal sides show behind them (Portal.overrideSkyboxEnter / Exit: the game's portal camera
+        /// renders that side's view with it), slot k + 1 = entry k. Only slot 1 is traced (one texture; no portal of 8-2
+        /// or 8-3 overrides its sky at all); a second override is logged and its sides keep the level's sky. A side's slot goes
+        /// to its hit shader (_PortalSky), and a camera ray that misses after crossing it gets that sky (UltraRTSky.hlsl,
+        /// PortalSkyRadiance; docs/portals.md, "Per-portal skies").
+        /// </summary>
+        public readonly List<Material> PortalSkyMaterials = new List<Material>();
+        public const int MaxPortalSkies = 1;
+
+        private int PortalSkySlot(Material m)
+        {
+            if (m == null || !Plugin.IsSkyMaterial(m)) return 0;
+            int i = PortalSkyMaterials.IndexOf(m);
+            if (i < 0)
+            {
+                if (PortalSkyMaterials.Count >= MaxPortalSkies)
+                {
+                    _log.LogWarning($"Portal sky: {SkyName(m)} not traced (only {MaxPortalSkies} override sky per level)");
+                    return 0;
+                }
+                PortalSkyMaterials.Add(m);
+                i = PortalSkyMaterials.Count - 1;
+                _log.LogInfo($"Portal sky {i + 1}: {SkyName(m)}");
+            }
+            return i + 1;
+        }
+
+        private int OriginalMaxRecursions(Portal portal)
+        {
+            if (portal == null) return 0;
+            if (_savedPortalRec.TryGetValue(portal, out var orig)) return orig.maxRec;
+            return portal.maxRecursions;
+        }
+
+        private static string SkyName(Material m)
+        {
+            if (m == null) return "-";
+            var tex = m.HasProperty("_MainTex") ? m.mainTexture : null;
+            var cube = m.HasProperty("_Cubemap") ? m.GetTexture("_Cubemap") : null;
+            return $"'{m.name}'/{(m.shader != null ? m.shader.name : "?")} tex {(tex != null ? tex.name : "-")} cube {(cube != null ? cube.name : "-")} kw [{string.Join(" ", m.shaderKeywords)}]";
         }
 
         /// <summary>Applies or restores PortalRenderV2 recursion trimming on non-mirror portals.</summary>
@@ -281,13 +335,18 @@ namespace UltraRT
                 s.Material.SetFloat("_PortalNoRecursion", OriginalAppearsInRecursions(portal) ? 0f : 1f);
                 s.Material.SetFloat("_PortalSeesLayer", portal.canSeePortalLayer ? 1f : 0f);
                 s.Material.SetFloat("_PortalMirror", portal.mirror ? 1f : 0f);
+                s.Material.SetFloat("_PortalNoSelf", portal.canSeeItself ? 0f : 1f);
+                s.Material.SetFloat("_PortalInfinite", portal.supportInfiniteRecursion ? 1f : 0f);
+                s.Material.SetFloat("_PortalMaxRec", Mathf.Clamp(OriginalMaxRecursions(portal), 0, 255));
+                s.Material.SetFloat("_PortalSky", PortalSkySlot(exitSide ? portal.overrideSkyboxExit : portal.overrideSkyboxEnter));
                 s.Proxy = CreateMeshProxy($"{portal.name} {(exitSide ? "exit" : "enter")} [UltraRT]", null, _portalQuad, new[] { s.Material });
                 _portalSides[key] = s;
                 _portalSideList.Add(s);
                 if (s.Index < 64)
                     _log.LogInfo($"Portal side {s.Index}: '{Bench.GameControl.PathOf(portal.transform)}' {(portal.mirror ? "mirror" : exitSide ? "exit" : "enter")} " +
                                  $"{shape.width:F2}x{shape.height:F2} at {side.GetColumn(3)} fwd {side.GetColumn(2)}, render {portal.renderSettings}, " +
-                                 $"recursions {portal.maxRecursions}, disableRange {portal.disableRange}, appearsInRecursions {portal.appearsInRecursions}, " +
+                                 $"recursions {OriginalMaxRecursions(portal)}, disableRange {portal.disableRange}, appearsInRecursions {OriginalAppearsInRecursions(portal)}, " +
+                                 $"infinite {portal.supportInfiniteRecursion}, sky {SkyName(exitSide ? portal.overrideSkyboxExit : portal.overrideSkyboxEnter)}, limboSky {portal.updateLimboSkybox}, " +
                                  $"canSeeItself {portal.canSeeItself}, canSeePortalLayer {portal.canSeePortalLayer}, clipping {portal.clippingMethod}" +
                                  (portal.enableOverrideFog ? FormattableString.Invariant($", fog override {(exitSide ? (portal.useFogExit ? "on" : "off") : (portal.useFogEnter ? "on" : "off"))} colour {(exitSide ? portal.overrideFogColorExit : portal.overrideFogColorEnter)} {(exitSide ? portal.overrideFogStartExit : portal.overrideFogStartEnter):F0}-{(exitSide ? portal.overrideFogEndExit : portal.overrideFogEndEnter):F0} m") : ""));
                 s.Pose = Matrix4x4.zero;
@@ -334,11 +393,15 @@ namespace UltraRT
         /// <paramref name="hops"/> portals deep; the <paramref name="max"/> nearest. Light importance uses them (LightSampling.ViewPoints), so
         /// lights around what the camera sees through a portal are sampled like lights near the camera.
         /// </summary>
-        public void PortalViewpoints(Vector3 camPos, List<Vector3> output, float maxDistance = 120f, int max = 16, int hops = 3)
+        public void PortalViewpoints(Vector3 camPos, List<Vector3> output, float maxDistance = 120f, int max = 16, int hops = 3,
+            Vector3 camFwd = default, List<Vector3> fwdOutput = null)
         {
             output.Clear();
+            fwdOutput?.Clear();
             _viewWork.Clear();
+            _viewFwd.Clear();
             _viewWork.Add((camPos, 0f, 0));
+            _viewFwd.Add(camFwd);
             // Breadth first: the images of hop k are the sources of hop k + 1 (8-3's Shifting Hallway shows three
             // doorways in a row; with one hop, what is behind the second was far from every viewpoint again).
             int from = 0;
@@ -360,15 +423,20 @@ namespace UltraRT
                         if ((v - src).sqrMagnitude <= 1f) continue;
                         bool known = false;
                         foreach (var w in _viewWork) if ((w.p - v).sqrMagnitude <= 1f) { known = true; break; } // back through the pair
-                        if (!known && _viewWork.Count < 256) _viewWork.Add((v, length + d, hop));
+                        if (!known && _viewWork.Count < 256) { _viewWork.Add((v, length + d, hop)); _viewFwd.Add(s.Travel.MultiplyVector(_viewFwd[k])); }
                     }
                 }
                 from = to;
             }
             // The nearest first (by the way to the last portal crossed): they are what fills the screen.
-            _viewWork.RemoveAt(0);
-            _viewWork.Sort((a, b) => a.length.CompareTo(b.length));
-            for (int k = 0; k < _viewWork.Count && k < max; k++) output.Add(_viewWork[k].p);
+            _viewOrder.Clear();
+            for (int k = 1; k < _viewWork.Count; k++) _viewOrder.Add(k);
+            _viewOrder.Sort((a, b) => _viewWork[a].length.CompareTo(_viewWork[b].length));
+            for (int k = 0; k < _viewOrder.Count && k < max; k++)
+            {
+                output.Add(_viewWork[_viewOrder[k]].p);
+                fwdOutput?.Add(_viewFwd[_viewOrder[k]]);
+            }
         }
 
         /// <summary>
@@ -506,6 +574,8 @@ namespace UltraRT
                 ? $"{_portalSideList[index].Portal.name} {(_portalSideList[index].Exit ? "exit" : "enter")} ({index})" : $"side {index}";
 
         private readonly List<(Vector3 p, float length, int hop)> _viewWork = new List<(Vector3 p, float length, int hop)>();
+        private readonly List<Vector3> _viewFwd = new List<Vector3>(); // the camera's forward axis as each image sees it
+        private readonly List<int> _viewOrder = new List<int>();
 
         private Vector4[] _portalFogRows = new Vector4[2];
 
@@ -650,6 +720,8 @@ namespace UltraRT
             Shader.SetGlobalBuffer(IdPortalImageQuads, _portalImageQuadBuffer);
             Shader.SetGlobalInt(IdPortalEdge, MovingPortalMotion && MovingPortalEdges ? 1 : 0);
             Shader.SetGlobalInt(IdPortalHops, Mathf.Clamp(PortalHops, 0, 8));
+            Shader.SetGlobalInt(IdPortalRules, (PortalRules ? 1 : 0) | (PortalNoSelf ? 2 : 0));
+            Shader.SetGlobalInt(IdPortalInfHops, Mathf.Clamp(PortalInfiniteHops, 1, 32));
             Shader.SetGlobalInt(IdMirrors, TraceMirrors ? 1 : 0);
         }
 
