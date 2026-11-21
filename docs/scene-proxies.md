@@ -710,7 +710,10 @@ Fix (`SceneProxies.Orbs.cs`, `SceneProxies.IsLightFixture` / `IsGlowing`):
 Note 2 (1-3: the orbs dark in the middle) was the **soft particle fade** (docs/vfx.md): the `ExplosionSphere` glow is swapped
 unlit for the fade, and in front of the ball the glow is within 0.6 m of the opaque scene, so it faded out there and the
 ball showed as a hollow rim. Glow renderers whose bounds hold an orb fixture's centre now get a property block
-`_PLNoSoft = 1` (`LitParticles.KeepOrbGlows`; log `N glow spheres around orb fixtures keep their hard edge`).
+`_PLNoSoft = 1` (`LitParticles.KeepOrbGlows`; log `N glow spheres around orb fixtures keep their hard edge`). The pass
+walks every mesh renderer of the level, so it runs only when the orb list or the set of "master glow" materials changes.
+Until 2026-11-21 it ran whenever the lit-particle material count grew, which a fight does at every scan (adopted
+material instances): a 20-30 ms frame every 5 s in 8-3 ([performance.md](performance.md), "Combat hitches").
 
 Measured on the user's poses (`bench/suites/shade-1115g.json`; mean luma in a box on the statue / the orb, 0-255):
 

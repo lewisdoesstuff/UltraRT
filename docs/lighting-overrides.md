@@ -1279,6 +1279,15 @@ share the lamps' `Light`). The tint is restored when the handover is rebuilt. `-
 of P-2's decorative lightning flashes and is not used). Seen on the way, not changed: the area colour match gives P-2's
 street a gain of about (1.0, 1.5, 0.65) at this pose, so the lamp poles read greenish against the game's black.
 
+**When it is rebuilt (2026-11-21, `t3/combat-perf-hitches`).** The handover state is built again when the level, the
+override files, a review switch (`lc.*`), the overrides toggle or a handover variant changes, or when **a light whose rule
+has a handover appears** (a room the level clones or switches in). Other new lights (combat's explosions, beams and
+projectiles) are resolved once to check their rule and change nothing. A destroyed handed light (a lamp shot in a fight)
+doesn't rebuild either: its part's triangles already carry their output in the emissive table (`ApplyPower` runs when a
+part is extracted), so a rebuild changed nothing on screen. Before, the build followed the length of the light list: 8-3
+rebuilt it 20 times in 30 s of combat, about 100-120 ms each ([performance.md](performance.md), "Combat hitches"). The
+periodic `RT scene sync` log line counts `N handover builds`.
+
 **Air share (2026-11-19).** The part keeps the handed light's `medium` in the air: before, its glass scattered the
 full x2.5 output in the fog (the street lamps' "sprite" halo; docs/volumetrics.md, "Handed-over lamps in the air").
 

@@ -1414,7 +1414,7 @@ namespace UltraRT
                                $"{_proxies.HierarchiesAdded} hierarchies ({Patches.SpawnCount} instantiated), {_proxies.Lights.Count} lights tracked ({_activeLights.Count} on); " +
                                $"emissive: {_emissive.AliasBuilds} alias rebuilds ({_emissive.AliasTicks * 1000.0 / Stopwatch.Frequency:F1} ms), {_emissive.ActiveUpdates} active-set updates, " +
                                $"new {_emissive.PendingTicks * 1000.0 / Stopwatch.Frequency:F1} ms, visibility {_emissive.VisibilityTicks * 1000.0 / Stopwatch.Frequency:F1} ms, transforms {_emissive.TransformTicks * 1000.0 / Stopwatch.Frequency:F1} ms; " +
-                               $"{_emissive.EmitterCount} emitters, {_emissive.OwnerCount} owners; dynamic: {_proxies.DirtyEvaluations} dirty evaluations " +
+                               $"{_emissive.EmitterCount} emitters, {_emissive.OwnerCount} owners, {_handBuilds} handover builds; dynamic: {_proxies.DirtyEvaluations} dirty evaluations " +
                                $"({_proxies.DirtyTicks * Perf.TickMs:F1} ms), active loop {_proxies.ActiveTicks * Perf.TickMs:F1} ms over {_proxies.ActiveDynamicCount}, poll {_proxies.PollTicks * Perf.TickMs:F1} ms");
                 Logger.LogInfo($"Material sync ({Patches.PortalClones} portal clones registered so far): {_proxies.SyncSwaps} swaps, {_proxies.SyncStaticSwaps} static slot swaps, {_proxies.SyncBlockUpdates} property-block updates " +
                                $"({_proxies.SyncHot} proxies followed), {_proxies.SyncPropertyUpdates} material property re-copies; {_proxies.SyncTicks * Perf.TickMs / _cpuFrames:F4} ms/frame " +
@@ -1431,6 +1431,7 @@ namespace UltraRT
                 _proxies.DisplaceDispatches = 0; _proxies.DisplaceVertices = 0; _proxies.DisplaceFrozen = 0; _proxies.DisplaceSwitches = 0; _proxies.DisplaceTicks = 0;
                 _proxies.DirtyEvaluations = 0; _proxies.DirtyTicks = _proxies.ActiveTicks = _proxies.PollTicks = 0;
                 _emissive.AliasBuilds = 0; _emissive.AliasTicks = 0; _emissive.ActiveUpdates = 0; _emissive.PendingTicks = _emissive.VisibilityTicks = _emissive.TransformTicks = 0;
+                _handBuilds = 0;
                 _proxies.DeferredMade = 0; _proxies.DeferredMs = 0; _proxies.DeferredMaxQueue = 0; _proxies.HierarchiesAdded = 0; Patches.SpawnCount = 0;
                 mv.Ticks = 0; mv.RigidUpdates = 0; _proxies.SkinnedTransformUpdateCount = 0;
                 _cpuMs = 0; _cpuFrames = 0;

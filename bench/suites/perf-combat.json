@@ -1,0 +1,98 @@
+{
+  "Name": "perf-combat",
+  "Note": "Combat hitches (docs/performance.md, 'Combat hitches', 2026-11-21): the user's 8-3 fight (recording 8-3-combat-user.json, Level_8-3_20261121-150148: from the Escher entrance into its arena), enemies active, gunfire and an explosion every 0.6 s, one mode per pass (a mode switch swaps the lit-particle materials, which play never does). Run with -Perf under an exclusive lock, usually as -Suite perf-core,perf-combat; tools/perf/hitches.py on the folder.",
+  "Scenarios": [
+    {
+      "Name": "warm-up",
+      "Scene": "Level 0-1",
+      "Path": {
+        "Type": "spawn",
+        "Duration": 6
+      },
+      "Modes": [
+        "relight",
+        "pathtrace"
+      ],
+      "Screenshots": [],
+      "Segment": 1.5
+    },
+    {
+      "Name": "8-3 combat off",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/8-3-combat-user.json"
+      },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Weapon": 1,
+      "Effects": {
+        "Kinds": [
+          "revolver"
+        ],
+        "PeriodicKinds": [
+          "revolver",
+          "explosion"
+        ],
+        "Every": 0.6,
+        "Distance": 8
+      },
+      "Modes": [
+        "off"
+      ],
+      "Screenshots": []
+    },
+    {
+      "Name": "8-3 combat pathtrace",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/8-3-combat-user.json"
+      },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Weapon": 1,
+      "Effects": {
+        "Kinds": [
+          "revolver"
+        ],
+        "PeriodicKinds": [
+          "revolver",
+          "explosion"
+        ],
+        "Every": 0.6,
+        "Distance": 8
+      },
+      "Modes": [
+        "pathtrace"
+      ],
+      "Screenshots": []
+    },
+    {
+      "Name": "8-3 combat relight",
+      "Scene": "Level 8-3",
+      "Path": {
+        "Type": "recording",
+        "File": "../recordings/8-3-combat-user.json"
+      },
+      "Enemies": "active",
+      "ReplayArenas": true,
+      "Weapon": 1,
+      "Effects": {
+        "Kinds": [
+          "revolver"
+        ],
+        "PeriodicKinds": [
+          "revolver",
+          "explosion"
+        ],
+        "Every": 0.6,
+        "Distance": 8
+      },
+      "Modes": [
+        "relight"
+      ],
+      "Screenshots": []
+    }
+  ]
+}
