@@ -329,6 +329,15 @@ pose in uv7, docs/scene-proxies.md "Rain on displaced surfaces") with `ULTRART_F
 else keeps wet blood. Bench `wet.bloodOnDisplaced=1` puts it back (A/B in one launch). Cost: one vertex-declaration read
 per closest hit; nothing measurable.
 
+Measured 2026-11-21 (`bench/results/20261121-000038_flesh-gloss_alt`, alt slot, 2560x1440, pathtrace with RR at 1/3,
+76 fresh stains from the gore zones; sheets in `bench/results/review/flesh-glossy-layer/`): in the temporal means of 3-1's
+held shots the old behaviour (`wet.bloodOnDisplaced=1`) leaves sharp, dark patches in the floor shots, the fix is as
+smooth as `wet.blood=0` and the game (`10_after_3-1_temporal-mean_*`). 3-2's moving-walls poses have no stains in view
+and do not change (`11_*`). 0-1's metal floor (not displaced) keeps its dark, glossy fresh stains (`14_control_*`). The
+diagnosis sheets (`01`-`05`) are from the runs before the fix (`20261120-2222*` to `-2244*`). Single takes run at
+different instants, so a stain stamped or a drop landing during one take (shot 2 of `pt`, `13_*`) is a game event, not a
+difference between the variants.
+
 ## Settings
 
 Settings menu: section "Screen effects" (and the wet entries after it). Config sections `[ScreenEffects]`, `[Wet]`.
