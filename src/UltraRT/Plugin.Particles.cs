@@ -211,7 +211,10 @@ namespace UltraRT
             {
                 _particleNextLog = Time.realtimeSinceStartup + 10f;
                 Logger.LogInfo($"Lit particles: {(_litParticles?.Active == true ? "active" : "inactive")}, {_litParticles?.Count ?? 0} materials, " +
-                               $"last scan {_particleScanMs:F2} ms, mode {name}, strength {strength}");
+                               $"last scan {_particleScanMs:F2} ms (list {_litParticles?.LastFindMs:F2} ms for {_litParticles?.LastMaterials}, " +
+                               $"classify {_litParticles?.LastClassifyMs:F2} ms for {_litParticles?.LastNew} new, atmosphere {_litParticles?.LastAtmosMs:F2} ms, " +
+                               $"orb glows {_litParticles?.OrbPasses} passes, last {_litParticles?.LastOrbMs:F2} ms), mode {name}, strength {strength}");
+                if (_litParticles != null) _litParticles.OrbPasses = 0;
             }
         }
     }

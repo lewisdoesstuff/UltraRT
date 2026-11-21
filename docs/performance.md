@@ -354,7 +354,8 @@ helps every dispatch at once.
   (C2, C3) worth more than estimated.
 - New candidates: the per-frame vertex buffer creation (0.2 ms render thread), RR's 0.64 ms render-thread cost (what
   in it is ours: the feature inputs or the evaluate call), the UI canvas rebuild the game does more of with RT on.
-- Hitches are mostly not ours; the `lights` frame is.
+- Hitches are mostly not ours; the `lights` frame is. (In the 0-2 run. In fights with handover fixtures and lit
+  particles, ours were the largest until 2026-11-21: "Combat hitches" below.)
 
 ## Ray counts (2026-11-19, `t3/perf-dispatch-2`, plan 5.1 step 5)
 
@@ -492,6 +493,95 @@ doubled triangle table is real (the swords' meshes are in it), but emitters whos
 of sampling (`EmissiveLights.Update`, `TracedSubmesh.Visible`) and the table's size costs no render time; all emitters
 off saves 0.13 ms of GPU dispatch in 6-2 (1.925 -> 1.790).
 
+## Combat hitches (2026-11-21, branch `t3/combat-perf-hitches`)
+
+The user's playtest: below 60 fps in ordinary fights and in the 20s with large hitches in 8-3. Their log had three
+clues: `Handover (Level 8-3)` logged 20+ times in 30 s of combat, `RT scene sync CPU avg 5.139 ms/frame` with `emissive:
+... new 2279.4 ms` per 600 frames, and `Lit particles: ... last scan 32.96 ms`. All three were ours, and all three came
+from combat changing counts that some code used as "the scene changed" signals.
+
+**Suite `bench/suites/perf-combat.json`**: the user's 8-3 fight (`bench/recordings/8-3-combat-user.json`, their F10
+recording `Level_8-3_20261121-150148`: from the Escher entrance into its arena, 38.6 s) with enemies active, arenas
+replayed, gunfire and an explosion every 0.6 s. There is one mode per pass (`off`, `pathtrace`, `relight`), because a
+mode switch swaps the lit-particle materials, which play never does. Run it as `-Suite perf-core,perf-combat -Perf`
+under an exclusive lock, and run `tools/perf/hitches.py` on the folders. `bench/suites/combat-visual.json` is the look
+check that goes with it.
+
+### Causes and fixes
+
+1. **The handover was rebuilt for every light combat spawned** (`Plugin.Handover.cs`, `EnsureHandover`). Its cache
+   key included `_proxies.Lights.Count`, and every explosion, revolver beam and projectile adds a light. Each rebuild
+   resolves all ~1,285 lights of 8-3, walks every fixture's renderers, and restores and re-plans the part tints: about
+   100-120 ms. It ran from inside `EmissiveLights.Update`'s "new" time, because `IsEmissive` asks `HandoverIsPart` for
+   every new material. That came to 3.8 ms/frame on average, in 100-270 ms frames. Now a version changes only when a
+   light **with a handover rule** appears; new lights are resolved once to check their rule (`HandoverLightsChanged`).
+   A destroyed handed light (lamps get shot) no longer rebuilds either: its part's triangles already carry their power
+   in the emissive table, so the rebuild changed nothing on screen (docs/lighting-overrides.md, "When it is rebuilt").
+   The key check is field by field now (it built a string on every call). Handover builds per 8-3 combat pass went
+   from ~90 to 1. The sync log line counts them (`N handover builds`).
+2. **The lit-particle scan re-ran its orb-glow pass at every scan in a fight** (`LitParticles.KeepOrbGlows`). The pass
+   walks every mesh renderer of the level and reads each material's name. It was keyed on `_lit.Count`, which grows in
+   every fight: `renderer.material` instances of swapped materials are adopted into `_lit`. That made a 20-35 ms frame
+   every 5 s. Now it is keyed on the number of "master glow" materials classified, and on the orb list. It also tests
+   bounds before reading the material. The scan's log line now splits the time into list / classify / atmosphere /
+   orb glows. Combat scans take 1.6-2.3 ms (list 0.7, classify 0.7-1.0 for 120-160 new materials, atmosphere 0.4-0.5).
+3. **`SyncEmitterScales` joined every emitter rule into a key string on every frame** (a few KB in 8-3). Now it first
+   compares the key's inputs and builds the string only when one of them changed. This is part of the allocation drop
+   below.
+
+### Result
+
+`-Perf`, exclusive lock, main slot, 2560x1440, trace scale 0.5, RTX 5070 Ti. Baseline a98de29 twice (before and after
+the fix, `bench/results/20261121-151907_*` and `-153742_*`), the fix `-153321_*`. Same shader bundle (identical hash);
+only `UltraRT.dll` differs:
+
+| Scenario | Mode | avg ms (fps) | 1% low fps | p99 ms | worst ms | plugin ms avg / worst | `emissive` section avg / worst | alloc KB/frame (GCs) |
+|---|---|---|---|---|---|---|---|---|
+| 8-3 combat | pathtrace | 27.80, 22.54 (36, 44) → **15.58 (64)** | 4, 5 → **13** | 189.2, 162.5 → **35.4** | 333.7, 318.1 → 301.0 | 11.49 / 271.6, 8.95 / 250.9 → **2.66 / 22.5** | 8.84 / 266.7, 6.63 / 133.3 → **0.48 / 4.2** | 134, 114 (11, 11) → **31 (4)** |
+| 8-3 combat | relight | 28.83, 25.73 (35, 39) → **18.42 (54)** | 5, 6 → **13** | 178.9, 161.5 → **36.8** | 300.0, 294.4 → 239.0 | 11.15 / 188.4, 9.98 / 136.1 → **2.68 / 32.0** | 8.60 / 183.3, 7.70 / 132.6 → **0.48 / 2.5** | 118, 112 (10, 10) → **27 (3)** |
+| 8-3 combat | off | 6.92, 6.38 → 6.59 | 35, 37 → 34 | 24.7, 23.4 → 24.0 | 52.9, 45.7 → 82.9 | | | |
+| 0-2 run combat | relight | 10.49, 9.84 (95, 102) → **9.40 (106)** | 21, 24 → **43** | 42.8, 40.0 → **22.5** | 52.2, 48.2 → **24.9** | 1.86 / 28.7, 1.69 / 23.7 → **1.29 / 11.3** | 0.70 / 25.7, 0.63 / 20.9 → **0.24 / 0.76** | 21, 16 → **9.5** |
+| 0-2 run combat | pathtrace | 10.37, 9.72 (96, 103) → **9.26 (108)** | 22, 23 → **43** | 41.6, 41.3 → **21.2** | 59.3, 50.2 → **27.8** | 1.90 / 35.3, 1.76 / 28.9 → **1.35 / 9.6** | 0.63 / 33.3, 0.60 / 26.5 → **0.25 / 0.80** | 22, 19 → **9.8** |
+| 0-2 run combat | off | 3.46, 3.02 → 2.92 | | 7.2, 5.6 → 6.2 | | | | |
+| 0-3 ghosts | relight | 7.85, 7.45 → 7.52 | 51, 41 → **94** | 10.4, 9.9 → 10.3 | 46.2, 48.4 → **11.2** | 1.16 / 41.3, 1.16 / 44.2 → 1.00 / 2.0 | 0.28 / 40.1, 0.36 / 43.2 → 0.17 / 0.34 | 13, 14 → 8.3 |
+| 0-3 ghosts | pathtrace | 7.43, 7.35 → 7.25 | 87, 38 → **99** | 9.8, 9.6 → 9.1 | 13.1, 49.3 → 13.2 | | | |
+| 0-1 metal | relight | 6.54, 6.44 → 6.49 | | | | | | 11.5, 9.6 → 6.3 |
+| 0-1 metal | pathtrace | 7.11, 6.95 → 7.07 | | | | | | |
+
+Per-section CPU in the 8-3 pathtrace pass (ms avg / worst, baseline runs → fix): `emissive` as above, `lights`
+0.67 / 121.3, 0.57 / 123.1 → 0.44 / 12.9; main thread scripts / render 8.28 / 19.22, 6.03 / 16.25 → 5.65 / 9.73.
+Periodic log lines: `RT scene sync CPU avg` 3.4-8.5 ms/frame → 0.8-1.6 (`new` 1575-4200 ms per 600 frames → 7-99);
+lit-particle scans 21.7-23.8 ms → 2.0-2.2.
+
+`tools/perf/hitches.py`, 8-3 pathtrace: `emissive` frames over 12 ms went from 184 with a mean excess of 57.8 ms to 158
+with 0.7 ms. 0-2 run, either mode: 16-18 `emissive` hitches of ~19 ms → none. What is left over 12 ms in 0-2 is the
+game's explosion spawn (`scripts`, as in "Hitches" above). Two baseline runs differ by up to 5 ms in 8-3: the fight
+plays out differently each time. The fix is outside that spread on every combat row.
+
+**Look**: unchanged. The same handover results per level (`Handover (Level 8-3): 299 lights to 121 parts and 198 baked
+parts`, 1-4 27 lights to 46 parts, 1-3 23 to 23), the same orb-glow counts (8-3 20, 1-4 4, 1-3 29) and the same
+emitter-table sizes in the logs. `combat-visual` screenshots (1-4 lamps, 1-3 statue orb, 8-3 b, the 8-3 fight) match
+the baseline within run-to-run noise. The final build and the baseline in one slot
+(`bench/results/20261121-154248_combat-visual` against `-154533_`), raw RT images, mean luma 0-255:
+
+| Pose | fix vs baseline | baseline vs baseline (`-151252_..._alt` against `-154533_`) |
+|---|---|---|
+| 1-4 lamps relight / pathtrace | 29.68 → 29.77 / 31.13 → 31.21 | 29.76 → 29.68 / 31.12 → 31.13 |
+| 1-3 statue orb relight / pathtrace | 124.25 → 125.36 / 124.30 → 125.40 | 123.13 → 124.25 / 123.39 → 124.30 |
+
+8-3 b differs more than that between any two runs: the room seen through the opening (8-3's moving hall) is at another
+point of its cycle in each run. The foreground matches.
+
+### What is left in 8-3 combat
+- **Render-thread frames of 200-330 ms in the first 2-6 s after the level loads**, in both builds at the same times
+  (`render` in `hitches.py`; `off` has none). They come before the fight, while the RT scene is new. That fits the
+  pipeline warm-up ([path-tracing.md](path-tracing.md), "Warm-up") or the first static activation. Not looked into:
+  it needs an ETW trace of that window. They are what keeps the 1% low at 13 fps and the worst frame near 300 ms.
+- **The orb-glow pass's first run** in a level with orb fixtures: 35 ms in 8-3 (one `FindObjectsOfType<MeshRenderer>`
+  over the level). It runs once per level and again when an orb fixture is added.
+- Relight is at 18.4 ms against pathtrace's 15.6: main thread render ~1 ms more (TAAU, "Render thread" above), and
+  the GPU.
+
 ## How these were measured (and traps)
 
 - Suites: `perf-1440p` (seven poses, relight + pathtrace interleaved, 8-2/8-3 with `off`), `perf-1440p-short`,
@@ -520,6 +610,9 @@ off saves 0.13 ms of GPU dispatch in 6-2 (1.925 -> 1.790).
    every mode; the hybrid-only code went on 2026-11-19), fewer `TraceScene` sites (bounce, reflection and transparent rays each inline the portal
    loop).
 3. **Allocations in 8-3**: ~47 KB/frame more than `off` (GC pauses every few seconds there). Needs a sampling approach
-   (heap growth per section over many frames) since the per-thread counter is not available.
+   (heap growth per section over many frames) since the per-thread counter is not available. In combat this was
+   much more: 112-134 KB/frame and 10-11 GCs per 39 s pass in the 8-3 fight. The handover rebuilds and the
+   per-frame emitter key were most of it, and the fix brought it to 27-31 KB/frame and 3-4 GCs (2026-11-21, "Combat
+   hitches").
 4. **Denoiser + TAAU** (0.8 ms relight): the a-trous passes at trace resolution; fold the TAAU resolve into the composite.
 5. A one-off ~5-6 ms `lights` frame at the start of every level (also without an override file).

@@ -68,6 +68,7 @@ namespace UltraRT
         private readonly List<KeyValuePair<string, float>> _variantEmitters = new List<KeyValuePair<string, float>>();
         private readonly List<KeyValuePair<string, Vector2>> _variantGlow = new List<KeyValuePair<string, Vector2>>();
         private string _emitterKey = "";
+        private (bool, object, bool, object, bool, float, float, int, int, int) _emitterQuick;
 
         private static string CleanMaterialName(string n) => (n ?? "").Replace(" (Instance)", "").Replace(" [UltraRT]", "").Trim();
 
@@ -102,7 +103,13 @@ namespace UltraRT
         /// <summary>EnsureLightOverrides: the emissive triangle table is built with the emitter scales; rebuild it when they change.</summary>
         private void SyncEmitterScales()
         {
-            string key = !_lightOverrides ? "off" : _lightOv.Classes.EmitterKey + (_lightOv.Classes.HasHandovers ? "@" + _lightOv.Scene + HandoverVariantKey : "") + "#" + string.Join(";", _variantEmitters.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)))
+            // Runs every frame. The key below joins every emitter rule (a few KB of string in 8-3): build it only when one of
+            // its inputs changed (the variant lists only change with _toggleVersion; EmitterKey is a new string per reload).
+            var quick = (_lightOverrides, (object)_lightOv.Classes.EmitterKey, _lightOv.Classes.HasHandovers, (object)_lightOv.Scene,
+                         _handoverOn, _handoverGain, _handoverTint, _toggleVersion, _variantEmitters.Count, _variantGlow.Count);
+            if (_emitterKey != "" && quick.Equals(_emitterQuick)) return;
+            _emitterQuick = quick;
+            string key =!_lightOverrides ? "off" : _lightOv.Classes.EmitterKey + (_lightOv.Classes.HasHandovers ? "@" + _lightOv.Scene + HandoverVariantKey : "") + "#" + string.Join(";", _variantEmitters.Select(kv => kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture)))
                 + "#" + string.Join(";", _variantGlow.Select(kv => kv.Key + "=" + kv.Value.x.ToString(CultureInfo.InvariantCulture) + "," + kv.Value.y.ToString(CultureInfo.InvariantCulture)));
             if (key == _emitterKey) return;
             bool first = _emitterKey == "";

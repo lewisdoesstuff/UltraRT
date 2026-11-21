@@ -39,9 +39,25 @@ namespace UltraRT
         private readonly Dictionary<string, List<KeyValuePair<Bounds, Vector4>>> _handBaked = new Dictionary<string, List<KeyValuePair<Bounds, Vector4>>>(StringComparer.OrdinalIgnoreCase);
         /// <summary>Material names of every handed-over part (EmissiveLights.IsPowerPart).</summary>
         private readonly HashSet<string> _handParts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        private string _handKey;
         private SceneProxies _handScene;
         private bool _handBuilding;
+        /// <summary>What the handover was last built for (EnsureHandover). Compared field by field: the check runs for every
+        /// emissive material test and every handed light's resolve, so it must not allocate.</summary>
+        private string _handKeyScene;
+        private int _handKeyOvVersion = -1, _handKeyToggle = -1, _handKeyLights = -1;
+        private bool _handKeyOverrides, _handKeyOn;
+        private float _handKeyGain = float.NaN, _handKeyTint = float.NaN;
+        /// <summary>
+        /// The light list as the handover sees it: <see cref="_handLightsVersion"/> changes only when a light whose rule has a
+        /// handover appears (HandoverLightsChanged). It used to be the list's length, and combat changes that all the time (every explosion,
+        /// beam and projectile brings a light): 8-3 rebuilt the whole handover 20 times in 30 s of fighting, ~100 ms each,
+        /// inside EmissiveLights' "new" time (2026-11-21, docs/performance.md "Combat hitches").
+        /// </summary>
+        private int _handLightsVersion, _handLightsCount = -1;
+        private readonly HashSet<Light> _handSeen = new HashSet<Light>();
+        private readonly HashSet<Light> _handRuled = new HashSet<Light>();
+        /// <summary>Full handover builds since the last periodic log (Plugin.cs's scene sync line).</summary>
+        private int _handBuilds;
         /// <summary>Bench variants lc.handover=0 (the lights stay, no part is scaled) and lc.hgain=F (on every gain).</summary>
         private bool _handoverOn = true;
         private float _handoverGain = 1f;
@@ -73,10 +89,10 @@ namespace UltraRT
         private Dictionary<Material, int> _handMatUsers;
         private SceneProxies _handMatUsersScene;
 
+        private string HandoverVariantKey => (_handoverOn ? "on" : "off") + _handoverGain.ToString(CultureInfo.InvariantCulture) + "t" + _handoverTint.ToString(CultureInfo.InvariantCulture);
+
         private const float HandoverK = 0.003205f; // relight's physical curve (UltraRTLights.hlsl, _RelightLinearK's default)
         private const float HandoverMaxGamma = 3f; // colour x intensity above this only widens the white patch around the game's light: an emitter would flood the room with it
-
-        private string HandoverVariantKey => (_handoverOn ? "on" : "off") + _handoverGain.ToString(CultureInfo.InvariantCulture) + "t" + _handoverTint.ToString(CultureInfo.InvariantCulture);
 
         /// <summary>The fixture of a light for a handover: renderers under the nearest ancestors (three levels up at most;
         /// more than 24 renderers is a room) whose material the rule names. One entry per renderer and material.</summary>
@@ -129,17 +145,34 @@ namespace UltraRT
         private void EnsureHandover()
         {
             if (_handBuilding || _lightOv == null) return;
-            int lights = _proxies != null ? _proxies.Lights.Count : 0;
-            string key = _lightOv.Scene + "|" + _lightOv.Version + "|" + _toggleVersion + "|" + lights + "|" + (_lightOverrides ? 1 : 0) + HandoverVariantKey;
-            if (key == _handKey && ReferenceEquals(_handScene, _proxies)) return;
-            _handKey = key;
+            bool newScene = !ReferenceEquals(_handScene, _proxies); // rebuilt below, which fills the light sets
+            int count = _proxies != null ? _proxies.Lights.Count : 0;
+            if (count != _handLightsCount)
+            {
+                _handLightsCount = count;
+                if (!newScene && HandoverLightsChanged()) _handLightsVersion++;
+            }
+            if (ReferenceEquals(_handScene, _proxies) && _handKeyScene == _lightOv.Scene && _handKeyOvVersion == _lightOv.Version &&
+                _handKeyToggle == _toggleVersion && _handKeyLights == _handLightsVersion && _handKeyOverrides == _lightOverrides &&
+                _handKeyOn == _handoverOn && _handKeyGain == _handoverGain && _handKeyTint == _handoverTint) return;
+            _handKeyScene = _lightOv.Scene;
+            _handKeyOvVersion = _lightOv.Version;
+            _handKeyToggle = _toggleVersion;
+            _handKeyLights = _handLightsVersion;
+            _handKeyOverrides = _lightOverrides;
+            _handKeyOn = _handoverOn;
+            _handKeyGain = _handoverGain;
+            _handKeyTint = _handoverTint;
             _handScene = _proxies;
+            _handBuilds++;
             _handed.Clear();
             _handPower.Clear();
             _handAir.Clear();
             _handBaked.Clear();
             _handParts.Clear();
             RestoreHandoverTints();
+            _handSeen.Clear();
+            _handRuled.Clear();
             if (_proxies == null || !_lightOverrides || !_handoverOn || !_lightOv.Classes.HasHandovers) return;
             _handBuilding = true;
             try
@@ -148,11 +181,14 @@ namespace UltraRT
                 var perRule = new Dictionary<string, int[]>(); // rule -> lights handed, hybrid, without a part
                 foreach (var l in _proxies.Lights)
                 {
-                    if (l == null || (l.type != LightType.Point && l.type != LightType.Spot)) continue;
+                    if (l == null) continue;
+                    _handSeen.Add(l);
+                    if (l.type != LightType.Point && l.type != LightType.Spot) continue;
                     var rb = BuildResolved(l, false);
                     var rule = rb.RuleObject;
                     var h = rule?.Handover;
                     if (h == null) continue;
+                    _handRuled.Add(l);
                     string rn = rule.Name ?? "(unnamed)";
                     if (!perRule.TryGetValue(rn, out var cnt)) perRule[rn] = cnt = new int[3];
                     if (rb.Disabled || rb.Intensity <= 0f) continue; // off by policy: nothing to hand over
@@ -209,6 +245,29 @@ namespace UltraRT
             }
             catch (Exception e) { Logger.LogWarning($"Handover: failed, the lights stay: {e.Message}"); _handed.Clear(); _handPower.Clear(); _handAir.Clear(); _handBaked.Clear(); _handParts.Clear(); _handTintPending.Clear(); }
             finally { _handBuilding = false; _handTintParts.Clear(); }
+        }
+
+        /// <summary>The light list changed length: true when a light with a handover rule is new (a fixture light of a room
+        /// the level clones or switches in), false for everything else (combat's explosions, beams, projectiles). Only the
+        /// lights not seen before are resolved.
+        /// A handed light that is destroyed (a lamp shot in a fight: 8-3 lost two in the 39 s combat run) is no reason to
+        /// rebuild either. Its part's triangles already carry their output in the emissive table (EmissiveLights.ApplyPower
+        /// runs once per extract), so a rebuild changed nothing on screen and cost ~120 ms.</summary>
+        private bool HandoverLightsChanged()
+        {
+            if (_proxies == null || !_lightOverrides || !_handoverOn || !_lightOv.Classes.HasHandovers) return false;
+            bool changed = false;
+            _handRuled.RemoveWhere(l => l == null);
+            _handSeen.RemoveWhere(l => l == null);
+            foreach (var l in _proxies.Lights)
+            {
+                if (l == null || !_handSeen.Add(l)) continue;
+                if (l.type != LightType.Point && l.type != LightType.Spot) continue;
+                if (BuildResolved(l, false).RuleObject?.Handover == null) continue;
+                _handRuled.Add(l);
+                changed = true;
+            }
+            return changed;
         }
 
         private void NoteTintPart(Renderer r, string name, Vector3 chroma, float weight)

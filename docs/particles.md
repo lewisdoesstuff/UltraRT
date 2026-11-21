@@ -165,7 +165,10 @@ each screenshot.
 The volume costs 0.09-0.13 ms GPU at 1440p in every scene (it does not depend on how many effects are on screen: one
 sample per froxel). The swapped materials draw at about the game's own cost (one 3D read per vertex). Frame times move
 within run-to-run noise (+-0.3 ms; 1-1 start is faster with it). CPU: a material scan every 5 s while a lit mode is on,
-0.3-0.6 ms (2.4 ms the first time in a level); nothing per frame beyond a few globals. The `merge-regress` run on the
+0.3-0.6 ms (2.4 ms the first time in a level); nothing per frame beyond a few globals. (In 8-3 combat the scan took
+20-34 ms until 2026-11-21. The orb-glow pass after it re-ran at every scan in a fight. Now it is 1.6-2.3 ms, and the
+`Lit particles:` log line splits it into list / classify / atmosphere / orb glows: [performance.md](performance.md),
+"Combat hitches".) The `merge-regress` run on the
 same build (`bench/results/20261114-161957_merge-regress`) completed every scenario with the slot at 0.10-0.13 ms.
 
 Look (5-way strips, game / relight without / relight with / hybrid without / hybrid with, in the result folder's

@@ -182,14 +182,21 @@ namespace UltraRT
         public void Scan()
         {
             if (_shader == null) return;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int added = 0;
-            foreach (var m in Resources.FindObjectsOfTypeAll<Material>())
+            var all = Resources.FindObjectsOfTypeAll<Material>();
+            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+            LastMaterials = all.Length;
+            LastNew = 0;
+            foreach (var m in all)
             {
                 if (m == null || !_decided.Add(m.GetInstanceID())) continue;
+                LastNew++;
                 if (m.shader == _shader) { Adopt(m); continue; }
                 var c = Classify(m);
                 if (c == null) continue;
                 var v = c.Value;
+                if (v.kind == "master glow") _glowSources++;
                 var saved = new Saved { Shader = m.shader, Queue = m.renderQueue, Keywords = m.shaderKeywords, Kind = v.kind };
                 _lit[m] = saved;
                 if (!_byName.ContainsKey(m.name)) _byName[m.name] = saved;
@@ -210,14 +217,30 @@ namespace UltraRT
             }
             if (added > 0) _log.LogInfo($"Lit particles: {added} new materials ({_lit.Count} in all): " +
                                         string.Join(", ", _lit.Take(40).Select(kv => $"{kv.Key.name} ({kv.Value.Shader.name}, {kv.Value.Kind})")));
+            long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
             ScanAtmosphere();
+            long t3 = System.Diagnostics.Stopwatch.GetTimestamp();
+            double ms = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            LastFindMs = (t1 - t0) * ms;
+            LastClassifyMs = (t2 - t1) * ms;
+            LastAtmosMs = (t3 - t2) * ms;
         }
+
+        /// <summary>The last Scan's parts (Plugin.Particles.cs logs them): every loaded material listed (ms, count), the new
+        /// ones classified (ms, count), the atmosphere check (ms); and KeepOrbGlows' last renderer pass (ms) and how many
+        /// passes ran since the last log line.</summary>
+        public double LastFindMs, LastClassifyMs, LastAtmosMs, LastOrbMs;
+        public int LastMaterials, LastNew, OrbPasses;
 
         // ------------------------------------------------------------------ orb glows (docs/vfx.md, "Soft particles")
 
         private static readonly int NoSoftId = Shader.PropertyToID("_PLNoSoft");
         private readonly MaterialPropertyBlock _noSoftBlock = new MaterialPropertyBlock();
-        private (int version, int lit) _orbScanned = (-1, -1);
+        private (int version, int glows) _orbScanned = (-1, -1);
+        /// <summary>Materials classified as "master glow" (the kind KeepOrbGlows looks for). Counted when classified, so
+        /// the instances combat makes of them (renderer.material copies, adopted into _lit) don't count: KeepOrbGlows
+        /// matches those by name already.</summary>
+        private int _glowSources;
         public int OrbGlows { get; private set; }
 
         /// <summary>
@@ -228,17 +251,27 @@ namespace UltraRT
         /// </summary>
         public void KeepOrbGlows(IReadOnlyDictionary<Renderer, Bounds> orbs, int version)
         {
-            if (orbs == null || (version, _lit.Count) == _orbScanned) return;
-            _orbScanned = (version, _lit.Count);
+            // Keyed on the glow materials, not on _lit.Count: that grows in every fight (adopted instances), and each pass
+            // walks every mesh renderer of the level (8-3: a 20-30 ms frame every 5 s of combat, 2026-11-21).
+            if (orbs == null || (version, _glowSources) == _orbScanned) return;
+            _orbScanned = (version, _glowSources);
             if (orbs.Count == 0) return;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            OrbPasses++;
             int n = 0;
             foreach (var r in UnityEngine.Object.FindObjectsOfType<MeshRenderer>(true))
             {
-                var m = r != null ? r.sharedMaterial : null;
+                if (r == null) continue;
+                // Geometry first: few renderers hold an orb, and the material test reads (and allocates) the name.
+                var b = r.bounds;
+                bool holds = false;
+                foreach (var o in orbs.Values)
+                    if (b.Contains(o.center) && b.size.magnitude >= 0.8f * o.size.magnitude) { holds = true; break; }
+                if (!holds) continue;
+                var m = r.sharedMaterial;
                 if (m == null) continue;
                 if (!_lit.TryGetValue(m, out var saved) && !_byName.TryGetValue(m.name.Replace(" (Instance)", ""), out saved)) continue;
                 if (saved.Kind != "master glow") continue;
-                var b = r.bounds;
                 foreach (var o in orbs.Values)
                 {
                     if (!b.Contains(o.center) || b.size.magnitude < 0.8f * o.size.magnitude) continue;
@@ -251,6 +284,7 @@ namespace UltraRT
             }
             if (n != OrbGlows) _log.LogInfo($"Lit particles: {n} glow spheres around orb fixtures keep their hard edge (no soft fade)");
             OrbGlows = n;
+            LastOrbMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
         }
 
         // ------------------------------------------------------------------ atmosphere (docs/particles.md, "Atmosphere")
@@ -415,6 +449,8 @@ namespace UltraRT
             _lit.Clear();
             _decided.Clear();
             _byName.Clear();
+            _glowSources = 0;
+            _orbScanned = (-1, -1);
             Scan();
             if (was) Activate();
         }
