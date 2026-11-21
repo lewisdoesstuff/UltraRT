@@ -38,7 +38,7 @@ The travel matrix maps the world near one side to the world near the other, rota
 
 **Recursion rules** (`BurstRenderData`, `GetOnscreenPortalsBurst`): a view renders the sides whose plane has the camera behind it, within `maxDistance` (the fog end when fog is on), on screen and above `minPortalPixelArea`, never the side it came out of (`ignoreIndex`), and at depth > 0 only sides with `appearsInRecursions`. Each view's culling mask is the main camera's plus layer 30 when the portal it looks through has `canSeePortalLayer`, minus layer 30 otherwise.
 
-**Layer 30 ("Portal")**: the main camera never draws it; portal views with `canSeePortalLayer` do. Level geometry that should only exist "through" a portal lives there: in 8-3, 29 to 33 renderers, 3 of them active at the poses tested, among them the theatre chandeliers seen through the Shifting Arena's strip portals.
+**Layer 30 ("Portal")**: the main camera never draws it; portal views with `canSeePortalLayer` do. Level geometry that should only exist "through" a portal lives there: in 8-3, 29 to 33 renderers, 3 of them active at the poses tested, among them the theatre chandeliers seen through the Shifting Arena's strip portals. *2026-11-21: not so in the current game. The log now lists the layer-30 renderers: in 8-3 they are the secret arena's Ferryman parts and V1's model; the theatre chandeliers (`3 Stuff/Breakables/ChandelierFerry`) are ordinary renderers (section 18).*
 
 **Other portal-aware systems**: `PortalAwareRenderer` clones renderers that straddle a portal (`PortalAwareRendererClone`), enemies get "(PortalOffset)" transforms, particles, audio (`VirtualAudioListener`), navigation links and the player's traversal (`PortalTraversalV2`, `CheckPlayerTraversals`) all use the same `NativePortalScene`.
 
@@ -77,7 +77,7 @@ Where it is used:
 - **Bounce rays** (PathTrace, CacheUpdate): bounce light comes through doorways from the right room.
 - **Reflection rays**: a mirror sees through portals; the reported hit distance is the full path length.
 - **Water and glass** (the transparent pass at the end of RayGen): along the camera ray up to the opaque hit or the first portal, whichever is nearer; water seen through a portal gets no RT reflection overlay (the overlay is drawn by the main camera only). Since 2026-11-20 the camera ray also collects the water and glass on every segment past a portal and lays them over the hit (section 13).
-- **Layer 30**: renderers on the "Portal" layer are traced with instance mask `SceneProxies.PortalLayerMask` = 0x40. `TraceScene` drops 0x40 from the first segment and adds it back after a hop through a side whose `canSeePortalLayer` is set (the hit reports it in `p.material` bit 0), which is the game's per-view culling mask. This is what puts the chandeliers into 8-3's Shifting Arena. Static-batched layer-30 renderers are not traced (none seen). `-ultrart-noportallayer` turns it off (at scene build).
+- **Layer 30**: renderers on the "Portal" layer are traced with instance mask `SceneProxies.PortalLayerMask` = 0x40. `TraceScene` drops 0x40 from the first segment and adds it back after a hop through a side whose `canSeePortalLayer` is set (the hit reports it in `p.material` bit 0), which is the game's per-view culling mask. (The chandeliers in 8-3's Shifting Arena turned out not to be layer 30: section 18.) Static-batched layer-30 renderers are not traced (none seen). `-ultrart-noportallayer` turns it off (at scene build).
 - **Not shadow rays**: light sampling is in world space, so a surface is lit by the lights of the room it really is in. Lights shining through a portal into another space are their images (section 15, since 2026-11-20): an image's shadow ray runs in two segments, one per side.
 
 **The G-buffer stays in camera space.** Because the travel matrices are rigid, the far side seen through a portal is a rigid copy of it in front of the camera (the "virtual" scene). Primary hits write the virtual view: `_NormalDepth` = (rotation^-1 * normal, full path length), the motion in `_InstanceId.y` rotated the same way. The denoiser, the reflection filter and ReSTIR rebuild positions as `camPos + dir * t`, so they reproject surfaces behind a portal like any other: static portals need no special case. ReSTIR's reuse (`UltraRTLights.hlsl`, `g_PrimaryVirtual*`) reprojects and stores the reservoir plane with the virtual point and normal and evaluates lights at the real one.
@@ -105,6 +105,7 @@ Where it is used:
 | `SceneProxies.MaxPortalSides` | 1024 |
 | `-ultrart-portal-lights on\|off`, bench `plugin._portalLights=0\|1`, settings menu Advanced > Lighting "Lights shine through portals" (`[Lighting] PortalLights`) | scene lights imaged through portals (section 15; on) |
 | bench `plugin._portalLightMax=N`, `plugin._portalLightLoopSpan=M`, `plugin._portalLightGuards=0` | images per frame (16), the loop guard's span (100 m), all guards off (diagnostic) |
+| `-ultrart-stain-portals on\|off`, bench `wet.stainPortals=0` | blood stains on surfaces seen through a portal (section 18; on) |
 | `-ultrart-portal-raster-skip on\|off`, bench `plugin._portalRasterSkip=0` | skip the game's raster portal views while RT replaces them (section 17; on) |
 | bench `plugin._portalRasterTrim=0` | disable deep `PortalRenderV2` raster recursion trimming (on by default since 2026-11-21: while RT replaces opaque portal views, non-mirror portals are capped to `maxRecursions = 0, appearsInRecursions = false` so depth-0 raster views, depth, skyboxes, particles and all mirrors stay intact while skipping redundant depth 1..3 raster renders; RT still reads the saved original `appearsInRecursions` for full 3-hop ray-traced portals, and originals are restored immediately when RT turns off or unloads) |
 
@@ -157,7 +158,8 @@ The far side is now as calm as the near side. "Side 2" has a flickering lamp in 
 - **Per-portal overrides** the game applies to a portal view are not applied to rays: `overrideSkyboxEnter/Exit`, `canSeeItself`, per-portal `maxRecursions` (one global limit of 3 instead), the fog-end distance cull, and `supportInfiniteRecursion`'s fake textures. `appearsInRecursions` and `canSeePortalLayer` are honoured. Fog overrides (and the level's fog behind a portal) are applied by the veil pass since 2026-11-18, for the first portal on a camera ray (docs/scene-proxies.md, "Blended veils").
 - **Moving portals and crossing a portal** had no temporal handling until 2026-11-18: see section 8.
 - **The game's own cubemap reflection** (`GameCubeTerm`; for pattern cubes since hybrid went on 2026-11-19) uses the portal exit point as the eye instead of the virtual camera. The error is small (the direction to each vertex differs slightly).
-- **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere. Water and glass are the exception since 2026-11-20 (section 13), without their reflection.
+- **Particles, blood and transparent objects** the game draws in portal views are not traced, as everywhere. Blood stains are
+  the exception since 2026-11-21 (section 18). Water and glass are the exception since 2026-11-20 (section 13), without their reflection.
 - **Portal clones**: `PortalAwareRenderer` copies objects whose bounds cross a portal (V1 jumping into 8-2's pool, enemies in doorways) with `new GameObject` + `AddComponent`, which the Instantiate hooks never saw (only the 120 s rescan did). A Harmony postfix on its private `CreateClone` now registers the copy's hierarchy like a spawn (`Patches.PortalClonePostfix`; logged as `Portal clone hook installed` and counted in the `Material sync` line). Copies of V1 keep layer 30, so rays see them only after a portal hop, as the game's views do.
 - **8-2's starting pool** is a floor portal (15 x 60 m, `Opening Hallway/1 Nonstuff/Portal`) into a copy of the street 300 m away, not a mirror. The game shows V1 in it only while V1's bounds cross the pool plane (the clones above); standing at the edge or above it, the game's own view (RT off) shows no V1 either (`bench/suites/materials-pm.json`, "8-2 pool"). The clone path is not verified in game (a bench pose can't put V1 through the plane).
 
@@ -609,3 +611,83 @@ Earlier screenshots that seemed to show black portals and dark mirrors with the 
 | 8-3 combat | pathtrace | 13.33 (75), 164 frames > 16.7 ms | **11.46 (87)**, 122 frames > 16.7 ms | 10.92 -> 9.20 | 5.88 |
 
 8-3 b pathtrace now runs at vanilla's frame time. The settings row is in section 5.
+
+## 18. The 8-3 playtest: hallway slab, strip portals, Providence, Deathcatcher door, blood (2026-11-21, `t3/portal-visibility-motion-blood`)
+
+The user's 8-3 playtest on 2026-11-21 reported five problems seen through portals. The checks are in
+`bench/suites/portal-vis-1121.json` (frozen poses). The runs below were on alt, SDR, 2560x1440, trace scale 0.5, at
+`bench/results/20261121-2*_tmp-*` (since deleted suites, same scenarios).
+
+**1. Shifting Hallway: a bright grey slab and green dots at the exits. This is not a regression.** A build of 316e0ca,
+before the 2026-11-21 perf wave, shows the same slab, dotted columns and blocky patches (`20261121-215012_tmp-hall_alt`).
+Toggling `_portalRasterSkip`, `_portalRasterTrim` or `_portalEdges` doesn't change them.
+- The slab is `Pre-Space/Rooms/2 - Shifting Hallway/2 Nonstuff/Segment 2/2 -> 1/Sprite (11)` and `(12)`: a ProBuilder
+  box with the `Charcoal` material (ULTRAKILL/Master, `VERTEX_LIGHTING`, `_USEALBEDOASEMISSIVE_ON` but no `EMISSIVE`,
+  so it is a lit surface, not an emitter), with no vertex colours. It moves with the 1 -> 2 exit and lies less than 0.3 m
+  past the exit plane. With `plugin._portalStart=0.3` or `1` the slab is gone and the sky shows behind it
+  (`20261121-221047`).
+- The game never shows it, because its portal camera clips at the opening (near plane at the opening's nearest corner,
+  plus the per-material `PORTAL_CLIP_PLANE`). The rays start at the portal plane and hit it.
+- It is bright because RT lights it per pixel from the `SupermarketLamp`s, while the game's vertex lighting leaves this
+  box dark. That is a difference in lighting model, not a portal bug.
+- The default stays `_portalStart=0`; a larger offset was only a diagnostic and was not checked on other portals. Not
+  fixed.
+- The green dotted columns along the moving exit's frame pieces show only while the exit moves: frozen shots are clean.
+  `_portalMotion=0` makes them a smear instead. They are a temporal or motion-vector problem on the moving exit that is
+  still **open**. The rotating portals in 8-3 b (FreezeAtPose stops them) showed no such artefact.
+
+**2. Chandeliers, chairs and coins through the Shifting Arena strips.** The chandeliers and chairs are traced through
+the strips in every state tested: fresh load, checkpoint-cloned and after combat effects (`20261121-220406`).
+Earlier sections said the chandeliers were layer 30, which is wrong in the current game. The plugin's
+layer-30 log (now listing up to 24 renderers) shows only the secret arena's Ferryman parts and V1's model in 8-3.
+A coin tossed through the hallway doorway portal (`cointoss` with `ThroughPortals`, `20261121-221443`) is traced: the
+view probe shows `Coin(Clone)/Model` at (-80.3, 2.35, 434.2), traced, mask 0x1, visible. In that shot the coin was
+behind the slab from item 1, so it was not visually confirmed.
+
+**3. Providence as a flat white hexagon.** Providence's `Back_Glow` is a 7-vertex hexagon on Unity's `Standard` shader
+(white). It was traced as an opaque surface. The rest of the enemy is transparent and drawn by the game: wings, eye,
+rainbow, charge sphere and the `GlowStrong` plane. `Traceable()` now skips `Standard` materials named `*Glow*`
+(docs/scene-proxies.md, "Glow cards on Unity's Standard shader"). The hexagon is gone in the direct view
+(`20261121-222627`, `8-3 providence direct`). Seen through a portal, Providence's transparent parts are still missing,
+as all game transparents are (section 7).
+
+**4. Deathcatcher doorway: a blue-grey void (pose 147). Not reproduced.** The portal there is
+`Blue Path (Dimensional)/B7 - Dimensional Deathcatcher/B7 Nonstuff/B7-1/PortalSpinner/Portal`: 80 x 120 m, rotating,
+with fog overrides. The bench poses (checkpoint and `approach-fast`, `20261121-213730`, `-214203`) land in another room
+state, because the dimensional rooms switch on portal-travel events that a replay doesn't run. The void's colour equals
+the level's fog colour (0.282, 0.549, 0.898), which is what the game's `DepthPrepass` clears `mainTex` to. That fits a
+camera ray that missed the portal quad without a hop: the composite leaves sky pixels to the game, and with the raster
+skip no game portal view is drawn there. Next step: a pose saved in that room state, then the view probe on the void.
+
+**5. Blood stains through portals: now traced.** Before, the stain grid only held stains near the camera, so surfaces
+seen through a portal had none.
+- `StainGrid.compute` now also keeps stains within `wet.stainDistance` of each portal view (up to 8, `_StainViews`).
+- `PathTrace.raytrace` tints the primary hit behind a portal (`path.hops > 0`) with `StainTintAt`, which fades by the
+  ray's total length instead of the distance from the camera.
+- Settings: `wet.stainPortals` / `-ultrart-stain-portals on|off` (default on). Path tracing only: relight's portal hits
+  are unchanged.
+- Bench: `bloodstainahead` with `"ThroughPortals": true` places stains through the doorway (bench/README.md).
+
+Checked on the 8-2 hallway portal, frozen (`20261121-222828_tmp-portal-vis_alt`): `off` and `pathtrace` both show the
+stains; `pathtrace+wet.stainPortals=0` shows none. Stains on vs off changes 17,695 final pixels and 18,506 `_raw` pixels
+by more than 30. The mean |final - off| is 13.5 with the fix and 13.4 without, so the image moves no further from the
+game. `wet.stainDebug=1` shows the stains in green through the portal.
+
+**Measured cost** (exclusive `-Perf`, main, 2560x1440, trace scale 0.5, RTX 5070 Ti, `20261121-223144_tmp-portal-perf`):
+
+| Scenario | Mode | stains off: avg ms / GPU total / dispatch | stains on: avg ms / GPU total / dispatch |
+|---|---|---|---|
+| 8-2 hallway portal (stains placed) | pathtrace | 8.86 / 6.07 / 2.55 | 8.87 / 6.11 / 2.59 |
+| 8-2 hallway portal | relight | 9.27 / 5.99 / 3.76 | 9.35 / 6.02 / 3.80 |
+| 8-3 b (no stains) | pathtrace | 8.63 / 5.74 / 2.58 | 8.69 / 5.77 / 2.61 |
+
+About +0.03 ms GPU dispatch, within run-to-run noise. Relight doesn't tint hits behind portals, so its +0.04 ms is noise
+too.
+
+**Bench and diagnostics added:** `ThroughPortals` effects (`PortalPhysicsV2.Raycast`), effect kinds `bloodstainahead`
+and `cointoss`, `-ultrart-merge-static-dynamic on|off` (docs/performance.md, C4), mean vertex colour in the view
+probe's mesh field, and the layer-30 renderer list in the log.
+
+**Tried and dropped:** re-aiming the game's `AlwaysLookAtCamera` billboards at each portal view before the dynamic sync
+(the game does this for its own portal cameras in `PortalManagerV2.OnPreRenderCallback`). It made no visible
+difference to Providence or the 8-3 sprites, so it was removed.

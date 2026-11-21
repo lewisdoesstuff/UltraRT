@@ -25,6 +25,10 @@ RWStructuredBuffer<StainRecord> _StainRecordsOut;
 float4 _StainBuild;   // x capacity (slots), y max distance from the camera (m), z _StainWarping, w now (s)
 float4 _StainBuild2;  // x seconds fully wet, y seconds until dry, z 1 = birth times bound, w mesh half extent (stain units)
 float4 _StainCam;     // xyz camera position, w the sign of the stain mesh's normal z (the side a clipped stain shows on)
+// The camera's images through the portals it looks into (SceneProxies.PortalViewpoints): a stain within reach of one is
+// kept too, for camera rays that hit it behind a portal (docs/portals.md, "Blood stains through portals").
+float4 _StainViews[8];
+int _StainViewCount;
 
 [numthreads(64, 1, 1)]
 void Clear(uint3 id : SV_DispatchThreadID)
@@ -70,7 +74,15 @@ void Insert(uint3 id : SV_DispatchThreadID)
     float3 my = float3(dot(r0.xyz, Y), dot(r1.xyz, Y), dot(r2.xyz, Y));
     float3 mz = float3(dot(r0.xyz, Z), dot(r1.xyz, Z), dot(r2.xyz, Z));
     float3 c = float3(dot(r0, p1), dot(r1, p1), dot(r2, p1));
-    if (distance(c, _StainCam.xyz) > _StainBuild.y) return;
+    float reach2 = _StainBuild.y * _StainBuild.y;
+    float3 dc = c - _StainCam.xyz;
+    bool near = dot(dc, dc) <= reach2;
+    [loop] for (int v = 0; v < _StainViewCount && !near; v++)
+    {
+        float3 dv = c - _StainViews[v].xyz;
+        near = dot(dv, dv) <= reach2;
+    }
+    if (!near) return;
 
     float wet = 0.0;
     if (_StainBuild2.z > 0.5)

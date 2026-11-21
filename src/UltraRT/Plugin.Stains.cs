@@ -20,6 +20,7 @@ namespace UltraRT
         private int _kStainClear = -1, _kStainInsert = -1;
         private ComputeBuffer _stainGrid, _stainRecords, _stainDummyGrid, _stainDummyRecords, _stainDummyBirth;
         private float _stainNextLog;
+        private readonly Vector4[] _stainViews = new Vector4[8]; // as StainGrid.compute's _StainViews
 
         private void LoadStainShader(AssetBundle bundle)
         {
@@ -35,7 +36,9 @@ namespace UltraRT
             var s = _wetSettings;
             bool on = false;
             BloodsplatterManager bsm = null;
-            if (wanted && s.stainReflections && _stainShader != null)
+            // Behind a portal (camera hits): only while the camera looks into one (its images, Plugin.PortalViews).
+            bool portals = s.stainPortals && _portals && _portalViews.Count > 0;
+            if (wanted && (s.stainReflections || portals) && _stainShader != null)
             {
                 try
                 {
@@ -68,6 +71,7 @@ namespace UltraRT
             Vector2 fog = StainFade();
             _cmd.SetRayTracingVectorParam(shader, "_StainParams", new Vector4(on ? (s.stainDebug ? 2f : 1f) : 0f, s.blood ? Mathf.Clamp01(s.bloodDarken) : 0f, fog.x, fog.y));
             _cmd.SetRayTracingVectorParam(shader, "_StainCamPos", _camera.transform.position);
+            _cmd.SetRayTracingVectorParam(shader, "_StainModes", new Vector4(s.stainReflections ? 1f : 0f, portals ? 1f : 0f, 0f, 0f));
         }
 
         /// <summary>The distances over which the game's stains fade (its composite: the fog's start and end).</summary>
@@ -100,13 +104,18 @@ namespace UltraRT
             _cmd.SetComputeVectorParam(cs, "_StainBuild2", new Vector4(Mathf.Max(0f, s.bloodWetTime), Mathf.Max(0.1f, s.bloodDryTime), haveBirth ? 1f : 0f, half));
             var cp = _camera.transform.position;
             _cmd.SetComputeVectorParam(cs, "_StainCam", new Vector4(cp.x, cp.y, cp.z, StainMeshSide(bsm.optimizedBloodMesh)));
+            // The camera's images through portals (nearest first): stains near them are seen behind the portal.
+            int views = s.stainPortals && _portals ? Mathf.Min(_portalViews.Count, _stainViews.Length) : 0;
+            for (int i = 0; i < _stainViews.Length; i++) _stainViews[i] = i < views ? (Vector4)_portalViews[i] : Vector4.zero;
+            _cmd.SetComputeVectorArrayParam(cs, "_StainViews", _stainViews);
+            _cmd.SetComputeIntParam(cs, "_StainViewCount", views);
             _cmd.DispatchCompute(cs, k, (cap + 63) / 64, 1, 1);
             if (s.stainDebug && Time.realtimeSinceStartup >= _stainNextProbe) { _stainNextProbe = Time.realtimeSinceStartup + 2f; ProbeStains(bsm); }
             if (Time.realtimeSinceStartup >= _stainNextLog)
             {
                 _stainNextLog = Time.realtimeSinceStartup + 30f;
                 var fog = StainFade();
-                Logger.LogInfo($"Blood stains in reflections: {cap} slots, mesh bounds {bsm.optimizedBloodMesh.bounds}, fade {fog.x:F0}-{fog.y:F0} m, wet {(haveBirth ? "on" : "off")}");
+                Logger.LogInfo($"Blood stains in reflections: {cap} slots, mesh bounds {bsm.optimizedBloodMesh.bounds}, fade {fog.x:F0}-{fog.y:F0} m, wet {(haveBirth ? "on" : "off")}, portal views {views}");
             }
         }
 

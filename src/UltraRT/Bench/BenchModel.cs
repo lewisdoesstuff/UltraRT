@@ -281,6 +281,9 @@ namespace UltraRT.Bench
         /// <summary>Distance in front of the camera (m), shortened to stay in front of walls.</summary>
         public float Distance = 5f;
         public float ShotDelay = 0.08f;
+        /// <summary>Place effects through the game's portals (PortalPhysicsV2): what stands "Distance ahead" is where the
+        /// camera sees it through a doorway, not the world space behind the doorway's wall. For portal tests (docs/portals.md).</summary>
+        public bool ThroughPortals;
     }
 
     public sealed class PathSpec

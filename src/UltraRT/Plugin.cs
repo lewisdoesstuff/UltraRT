@@ -346,6 +346,7 @@ namespace UltraRT
                     case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
                     case "-ultrart-rtmirrors": _rtMirrors = true; break;
                     case "-ultrart-portal-raster-skip": { var v = (Next() ?? "").ToLowerInvariant(); _portalRasterSkip = v != "off" && v != "0" && v != "false"; break; } // PortalRasterSkip.cs
+                    case "-ultrart-merge-static-dynamic": { var v = (Next() ?? "").ToLowerInvariant(); _mergeStaticDynamic = v != "off" && v != "0" && v != "false"; break; } // SceneProxies.StaticDynamic.cs (C4)
                     case "-ultrart-portal-lights": { var v = (Next() ?? "").ToLowerInvariant(); _portalLights = v != "off" && v != "0" && v != "false"; break; } // Plugin.PortalLights.cs
                     case "-ultrart-noplayer": SceneProxies.TracePlayerModel = false; break;
                     case "-ultrart-v1-unlit": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out SceneProxies.PlayerModelUnlit); break;

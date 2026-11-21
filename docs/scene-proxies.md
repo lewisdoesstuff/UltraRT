@@ -258,6 +258,16 @@ The motion vectors of skinned hits were wrong too, because the hit shader's `Obj
 
 `-ultrart-skinned-noupdate` turns the update off, to reproduce the bug. The 600-frame scene-sync log line reports `skinned transform updates/frame`: up to about 17 per frame in the 0-2 run, at well under a microsecond each. Measured cost is within run-to-run noise: 0-2 run pt-dn GPU total 1.949 ms without the update against 1.971 and 1.987 ms with it, dispatch 1.262 against 1.277 and 1.289 ms. The short suite is unchanged.
 
+### Glow cards on Unity's Standard shader (2026-11-21, `t3/portal-visibility-motion-blood`)
+
+Providence (8-3) carries `Back_Glow`, a 7-vertex skinned fan (a hexagon) with `M_Providence_BackGlow` on Unity's `Standard`
+shader, behind its additive wings, eye, rainbow and glow sprites (all queue 3000, drawn by the game, never traced). Its
+proxy was the only traced part of the enemy: an opaque, flat white hexagon. In the main view the game's transparents covered
+it; through a portal, where the game's own view is skipped (docs/portals.md section 17), it was all that showed (user
+playtest 2026-11-21). `Traceable` now leaves out `Standard` materials whose name contains "Glow"; the enemy survey of 8-3
+lists no other such material. Checked in `bench/suites/portal-vis-1121.json` (`8-3 providence direct`: the hexagon is
+gone from `_raw`; the game's Providence is drawn over the trace as before).
+
 ### Mirrored skinned meshes (2026-11-15)
 
 The cerberus statues (`Statue*/CerberusStatic`: `Cerberus_Fused` and `Cerb_Apple`, in 8-1's lobby, 1-3's water hall, 0-1's gun
