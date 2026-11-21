@@ -341,9 +341,63 @@ Measured with `scripts/bench.ps1 -Suite perf-8-3`, the base build and this one r
 
 The remaining worst frame on the route is the game's own clone. RT off shows the same frame, at 143 to 149 ms. Run-to-run noise is about 5 % on averages; compare the RT-off rows. Where the rest of the RT cost goes: 0.7 ms of plugin CPU and about 0.5 ms of Unity's own main-thread work for our command buffer (RTAS build, ray dispatch), all of it main-thread bound. The GPU needs about 2 ms of the 7 ms frame.
 
+## Cameras with a far plane at infinity (2026-11-21, `t3/7-4-earthmover-rt`)
+
+User report: "what's wrong with 7-4? the level looks almost identical with rt on or off". The brightness tours had
+seen it as well (docs/lighting-overrides.md: 7-4's frames equal the game's, all ratios x1.00).
+
+**What was wrong.** Nothing in the RT scene. In 7-4 every camera ray was NaN, so every ray missed and every mode kept
+the game's pixel (the composite leaves misses to the game). Only the viewmodel, which has its own rays, was traced.
+- 7-4's player camera has **near 0.1 m, far 5,000,000 m** (the level's backdrops are hundreds of kilometres wide). The
+  other levels checked use 1,000-16,000 m (0-1, 1-4, 4-S 4,000; 7-3 4,500; 8-2 16,000).
+- Every ray generation unprojected the pixel on the far plane, `farPt = _InvViewProj * (ndc, 1, 1)`, and took
+  `normalize(farPt.xyz / farPt.w - camPos)`. At a far / near ratio of 5e7, `(f + n) / (f - n)` rounds to exactly 1 in
+  float, so the far plane maps to infinity: `w` = 0, `xyz / w` is inf and the direction NaN.
+- How it was found (`bench/results/20261121-012149_diag-7-4`): the `depth`, `instance`, `albedo` and `normals` views were
+  empty (sky colour) at the spawn, with the first room's walls in front of the camera. The RT scene was complete and in
+  place: 68 instances, the dynamic proxies at their renderers' positions (the `rtas probe` lines of `-ultrart-viewprobe`
+  list every dynamic instance with a non-finite transform or bounds, and the largest ones: none bad). Leaving the static
+  batches out (`-ultrart-nostatic`) or the displaced meshes (`-ultrart-nodisplace`) changed nothing. The camera's
+  near / far, now in the `RT attached to camera ...` log line, gave it away.
+
+**Fix.** One helper, `UltraRTCameraRay(invViewProj, ndc, camPos)` (`UltraRTCamera.hlsl`, included by
+`UltraRTCommon.hlsl`), keeps the far point homogeneous: the direction is `xyz - camPos * w`. That is the same
+direction as before for any finite far plane (`w` = 1 / far > 0) and the right limit at `w` = 0. Every camera-ray site
+uses it: `PathTrace` (and its pixel-cone ray), `DebugView`, `CacheUpdate`, `CutoutTrace`, `VeilTrace`, `ParticleLight`
+(compute and raytrace), `Volumetrics` (compute, raytrace and the composite), `Denoise`, `Reflections`,
+`RayReconstruction`. `Upsample`'s world reconstruction takes the same homogeneous form, and so does the CPU `PixelAngle`
+of the denoiser and the reflection filter. The forward matrices (reprojection) and the depth linearisation never divide
+by the far plane's `w` and are unchanged. The log line warns when far / near is over 1e7
+(`far plane past float precision`).
+
+**Measured** (`rev-7-4`, alt slot, SDR; before = 61b4cf6 `20261121-014002_rev-7-4_alt`, after
+`20261121-014408_rev-7-4_alt`; sheets in `bench/results/review/7-4-earthmover/` of the main checkout, `index.md`):
+- 7-4, mean absolute luma difference between pathtrace and the game's frame over the spawn and 12 tour views (stops
+  First Room, Back, Brain, Front, Interior, Leg): before 4.8-22.7 (the traced gun, exposure and post effects on an
+  untraced image), after 7.8-37.8; the depth and instance views now show the scene. What changes: the brain chamber's
+  blue light casts shadows through its shafts, the flesh interior gets dark crevices, the streets (Back, Front) get
+  shading and bounce, the first room's tunnel gets bounce light the game leaves black (stop 0 view 0: luma 29.5 in the
+  game, 46.5 traced). 7-4 has no directional light (`sun none`, flat ambient 0.05, red panoramic sky): it is lit by its
+  point lights, emitters and the sky.
+- Other levels: 0-1, 1-4, 8-2 (portal) and 7-3 (flashlight) before / after differ by what two runs of the same build
+  differ by (pathtrace mean |a-b| 2.9-4.4 luma; 0-1 relight 9.1 was enemies spawning in one run only).
+- Cost, 7-4 (`perf-7-4`, exclusive perf lock, 2560x1440; before `20261121-015349`, after `20261121-015442`): pathtrace
+  3.5-4.2 -> 6.2 ms/frame (GPU 2.4 -> 5.1-5.3 ms), relight 2.9-3.2 -> 6.3-6.6 ms, at the spawn held and turning. The
+  "before" was cheap because no ray hit anything; the after is in line with other levels (0-1 pathtrace 6.8 ms in the
+  visual run above).
+
+**4-S is a different case.** Its tour frames also equal the game's, but its camera's far plane is 4,000 m. 4-S is the
+third-person level: what is on screen comes from the level's own follow camera, not `Player/Main Camera`, which the
+trace attaches to. Not changed here.
+
 ## Logs
 
 - `Static activation groups: level L (...), G groups, I part instances, R records (budget B; by level a/b/c/d/e), W watchers (mode), T toggle targets, S sources, F tiny groups folded, ...`, followed by the 8 largest groups.
+- `RT attached to camera <path> at <event> (..., near N far F)`: the camera the trace follows, with its clip planes
+  (`far plane past float precision` when far / near > 1e7, as in 7-4).
+- `-ultrart-viewprobe`, at each bench screenshot: `view probe:` lines (the renderers in front of the camera and their
+  proxies) and, outside tours, `rtas probe:` lines (dynamic RTAS instances with a non-finite transform or bounds, and
+  the 12 largest).
 - `Shader-table hit records (enabled submeshes): N (static x of y in i/j group instances, dynamic ...)`.
 - Every 600 frames, if anything happened: `Static activation (level L): instances and records in the RTAS; watcher flips, source flips, add/remove, partial builds (ms), cached partials, deferred, late sources`.
 - The first 12 partial builds individually: `Partial group mesh ...`.

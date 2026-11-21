@@ -137,8 +137,7 @@ float3 SanitizeRadiance(float3 c)
 float3 PrimaryDir(int2 p)
 {
     float2 ndc = ((float2)p + 0.5) * _Dim.zw * 2.0 - 1.0;
-    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
-    return normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+    return UltraRTCameraRay(_InvViewProj, ndc, _CamPos.xyz);
 }
 
 // History-aware pre-blur of the noisy input (the "pre-pass" of ReBLUR): a Gaussian of radius R restricted to the same

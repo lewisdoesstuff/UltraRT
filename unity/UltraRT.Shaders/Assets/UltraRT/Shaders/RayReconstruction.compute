@@ -75,8 +75,7 @@ RWTexture2D<float4> _RROutput;    // RR's output (screen res): touched here, rea
 float3 Dir(int2 s)
 {
     float2 ndc = ((float2)s + 0.5) * _Dim.zw * 2.0 - 1.0;
-    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
-    return normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+    return UltraRTCameraRay(_InvViewProj, ndc, _CamPos.xyz);
 }
 
 bool Linearize() { return _UltraRTLinear > 0.5 && _RRParams.x > 0.5; }

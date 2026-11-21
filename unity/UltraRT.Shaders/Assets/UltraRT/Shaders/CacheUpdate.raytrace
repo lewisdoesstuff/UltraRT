@@ -63,10 +63,8 @@ float3 CacheDirect(float3 p, float3 n, uint layer, inout uint rng)
 bool TracePrimary(float2 pixel, float2 dim, out RayDesc ray, out RayPayload p)
 {
     float2 ndc = pixel / dim * 2.0 - 1.0;
-    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
-    farPt.xyz /= farPt.w;
     ray.Origin = _CamPos.xyz;
-    ray.Direction = normalize(farPt.xyz - _CamPos.xyz);
+    ray.Direction = UltraRTCameraRay(_InvViewProj, ndc, _CamPos.xyz);
     ray.TMin = 0.0;
     ray.TMax = 1.0e5;
     float travelled;

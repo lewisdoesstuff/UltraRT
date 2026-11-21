@@ -72,7 +72,8 @@ frames (the lead's merge-regress on master 9fd12e3, '0-1 metal'). Three separate
 The ray generation is relight's with two parts swapped (`RayGenBody(full)`; `full` is a compile-time constant, so
 `RayGen` compiles to what it was).
 
-1. **Primary hit**: as relight. Portals teleport the ray, portal mirrors keep the game's view, the per-texel detail
+1. **Primary hit**: as relight (the camera ray comes from `UltraRTCameraRay`, which stays finite with the far plane at
+   infinity: docs/scene-proxies.md, "Cameras with a far plane at infinity"). Portals teleport the ray, portal mirrors keep the game's view, the per-texel detail
    normal applies, lava ends the ray, V1's model is invisible to camera rays.
 2. **Direct light at the primary hit**: `DirectLighting` (fill lights, then lights and emissive triangles through RIS,
    one shadow ray; V1's shadow split and the moving-occluder flag as in relight) and one sky sample.

@@ -2,6 +2,7 @@
 // (ParticleLight.raytrace), blended with the history reprojected through the previous frame's grid. The result is
 // what LitParticle.shader samples (trilinear) at each effect pixel.
 #pragma kernel Temporal
+#include "UltraRTCamera.hlsl"
 
 Texture3D<float4>   _PLRaw;
 Texture3D<float4>   _PLHistory;
@@ -21,9 +22,7 @@ float4   _PLTemporal;        // x alpha (weight of the new frame), y 1 = history
 float3 FroxelToWorld(float3 g)
 {
     float2 ndc = g.xy / _PLGrid.xy * 2.0 - 1.0;
-    float4 farPt = mul(_PLInvViewProj, float4(ndc, 1.0, 1.0));
-    farPt.xyz /= farPt.w;
-    float3 dir = normalize(farPt.xyz - _PLCamPos.xyz);
+    float3 dir = UltraRTCameraRay(_PLInvViewProj, ndc, _PLCamPos.xyz);
     float depth = _PLDepth.x * exp2(g.z / _PLGrid.z * _PLDepth.y);
     return _PLCamPos.xyz + dir * (depth / max(dot(dir, _PLCamFwd.xyz), 1e-3));
 }

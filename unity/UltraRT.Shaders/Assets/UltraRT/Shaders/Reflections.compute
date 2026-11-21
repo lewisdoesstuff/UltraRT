@@ -31,8 +31,7 @@ float Luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 float3 PrimaryDir(uint2 id)
 {
     float2 ndc = ((float2)id + 0.5) * _Dim.zw * 2.0 - 1.0;
-    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
-    return normalize(farPt.xyz / farPt.w - _CamPos.xyz);
+    return UltraRTCameraRay(_InvViewProj, ndc, _CamPos.xyz);
 }
 
 // Packed geometry, as in Denoise.compute: xyz = asint(world position), w = bit 31 valid | instance & 0x7F << 24 |

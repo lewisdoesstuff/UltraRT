@@ -1,6 +1,8 @@
 #ifndef ULTRART_COMMON_INCLUDED
 #define ULTRART_COMMON_INCLUDED
 
+#include "UltraRTCamera.hlsl" // UltraRTCameraRay: camera rays from an inverse view-projection
+
 // Ray counters (docs/performance.md, "Ray counts"). Only PathTraceCount.raytrace defines ULTRART_RAY_COUNTS: there every
 // TraceRay adds one to its kind's per-thread count, written over _Output / _Radiance at the end of the ray generation
 // (the main shader has no free UAV). Everywhere else the macros are empty.

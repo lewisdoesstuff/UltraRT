@@ -302,20 +302,17 @@ void RayGenBody(bool full)
     // Jitter within the pixel only while accumulating, so a single frame stays stable.
     float2 jitter = _AccumFrames > 0 ? float2(Rand(rng), Rand(rng)) : float2(0.5, 0.5);
     float2 ndc = ((float2)id + jitter) / (float2)dim * 2.0 - 1.0;
-    float4 farPt = mul(_InvViewProj, float4(ndc, 1.0, 1.0));
-    farPt.xyz /= farPt.w;
 
     RayDesc ray;
     ray.Origin = _CamPos.xyz;
-    ray.Direction = normalize(farPt.xyz - _CamPos.xyz);
+    ray.Direction = UltraRTCameraRay(_InvViewProj, ndc, _CamPos.xyz);
     ray.TMin = 0.0;
     ray.TMax = 1.0e5;
 
     RayPayload p;
     // One trace pixel's angle (from the neighbouring pixel's ray): the camera ray's cone for the hit's texture LOD
     // (docs/materials.md, "Texture LOD"), and the reflection's cache footprint test.
-    float4 farN = mul(_InvViewProj, float4(ndc + float2(2.0 / (float)dim.x, 0.0), 1.0, 1.0));
-    float pixelAngle = length(normalize(farN.xyz / farN.w - _CamPos.xyz) - ray.Direction);
+    float pixelAngle = length(UltraRTCameraRay(_InvViewProj, ndc + float2(2.0 / (float)dim.x, 0.0), _CamPos.xyz) - ray.Direction);
     g_Cone = float2(0.0, pixelAngle);
     // The hit returns its motion in p.motion; per-texel detail at the cone's mip.
     uint inFlags = ULTRART_PAYLOAD_WANT_MOTION | ULTRART_FLAG_DETAIL | ULTRART_PAYLOAD_CONE;

@@ -987,6 +987,7 @@ namespace UltraRT
                                 // After the mode's effects spawned (and their proxies were made): what is in front of the camera.
                                 probed = true;
                                 foreach (var line in _proxies.DescribeView(GameControl.Cam != null ? GameControl.Cam.cam : null)) Logger.LogInfo("  view probe: " + line);
+                                foreach (var line in _proxies.DescribeRtasExtremes()) Logger.LogInfo("  rtas probe: " + line);
                             }
                             if (m != "off" && _vmCam != null && sc.Effects != null) LogViewmodelLights(_vmCam); // the lights on the gun at the capture
                             yield return new WaitForEndOfFrame();
