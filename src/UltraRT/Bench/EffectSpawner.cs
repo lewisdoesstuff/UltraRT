@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using BepInEx.Logging;
 using UnityEngine;
 
@@ -117,10 +119,38 @@ namespace UltraRT.Bench
             return cam.position + dir * distance;
         }
 
+        /// <summary>"call:&lt;object path&gt;:&lt;Method&gt;": SendMessage(Method) to the active object at that hierarchy path, for
+        /// level events a route can't replay with RT on (8-3's exit door: "call:Pre-Space/Rooms/5 -> 6:Lock", then
+        /// ":Unlock"; docs/portals.md section 22). The method must take no arguments.</summary>
+        private static void CallMethod(string spec)
+        {
+            int i = spec.LastIndexOf(':');
+            if (i <= 0) throw new ArgumentException($"call: needs <path>:<Method>, got '{spec}'");
+            string path = spec.Substring(0, i), method = spec.Substring(i + 1);
+            // Effect kinds arrive lower-cased: match the path and the method ignoring case.
+            GameObject go = null;
+            foreach (var t in UnityEngine.Object.FindObjectsOfType<Transform>())
+                if (string.Equals(GameControl.PathOf(t), path, StringComparison.OrdinalIgnoreCase)) { go = t.gameObject; break; }
+            if (go == null) throw new InvalidOperationException($"call: no active object '{path}'");
+            int called = 0;
+            foreach (var mb in go.GetComponents<MonoBehaviour>())
+            {
+                if (mb == null) continue;
+                var m = mb.GetType().GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public)
+                    .FirstOrDefault(x => string.Equals(x.Name, method, StringComparison.OrdinalIgnoreCase) && x.GetParameters().All(pi => pi.IsOptional));
+                if (m == null) continue;
+                m.Invoke(mb, m.GetParameters().Select(pi => pi.DefaultValue).ToArray());
+                called++;
+                Log?.LogInfo($"EffectSpawner: called {mb.GetType().Name}.{m.Name} on '{GameControl.PathOf(go.transform)}'");
+            }
+            if (called == 0) throw new InvalidOperationException($"call: no public method '{method}' without required arguments on '{path}'");
+        }
+
         private static void SpawnOne(string kind, Transform cam, float distance)
         {
             var refs = MonoSingleton<DefaultReferenceManager>.Instance;
             if (kind.StartsWith("enemy:", StringComparison.OrdinalIgnoreCase)) { SpawnEnemy(kind.Substring(6), cam, distance); return; }
+            if (kind.StartsWith("call:", StringComparison.OrdinalIgnoreCase)) { CallMethod(kind.Substring(5)); return; }
             switch (kind)
             {
                 case "revolver":
@@ -264,6 +294,47 @@ namespace UltraRT.Bench
                         made++;
                     }
                     if (made == 0) throw new InvalidOperationException($"no stain made ({hits} surfaces hit, gore zone {(any != null ? any.name : "none")})");
+                    break;
+                }
+                case "bloodstainglow":
+                {
+                    // Stains on glowing surfaces (EMISSIVE materials) that the camera sees through a portal: a 48 x 27 grid of
+                    // rays over the view through the game's portals, then up to 12 stains on the hits that crossed a portal
+                    // and landed on a glowing renderer, spread over the hits (docs/portals.md section 22: blood on 8-3's
+                    // glowing ceiling panels behind a portal).
+                    var c = Camera.main;
+                    if (c == null) throw new InvalidOperationException("no main camera");
+                    GoreZone zone = null;
+                    foreach (var g in UnityEngine.Object.FindObjectsOfType<GoreZone>()) if (g != null && g.stains != null) { zone = g; break; }
+                    if (zone == null)
+                    {
+                        zone = new GameObject("UltraRT bench gore zone").AddComponent<GoreZone>();
+                        if (zone.stains == null) zone.stains = zone.gameObject.AddComponent<BloodstainParent>();
+                    }
+                    var found = new List<(Vector3 p, Vector3 n, Collider col)>();
+                    int mask = ~((1 << 2) | (1 << 12) | (1 << 13));
+                    for (int gy = 0; gy < 27; gy++)
+                        for (int gx = 0; gx < 48; gx++)
+                        {
+                            var ray = c.ViewportPointToRay(new Vector3((gx + 0.5f) / 48f, (gy + 0.5f) / 27f, 0f));
+                            if (!PortalPhysicsV2.Raycast(ray.origin, ray.direction, 80f, mask, out var ph, out var trav, out _, QueryTriggerInteraction.Ignore)) continue;
+                            if (trav == null || trav.Length == 0 || ph.collider == null) continue;
+                            var r = ph.collider.GetComponent<Renderer>();
+                            bool glows = false;
+                            if (r != null) foreach (var m in r.sharedMaterials) if (m != null && m.IsKeywordEnabled("EMISSIVE")) glows = true;
+                            if (!glows) continue;
+                            found.Add((ph.point, ph.normal, ph.collider));
+                        }
+                    if (found.Count == 0) throw new InvalidOperationException("no glowing surface seen through a portal");
+                    int want = Mathf.Min(12, found.Count);
+                    for (int k = 0; k < want; k++)
+                    {
+                        var f = found[k * found.Count / want];
+                        var gz = f.col.GetComponentInParent<GoreZone>();
+                        if (gz == null || gz.stains == null) gz = zone;
+                        gz.stains.CreateChild(f.p, f.n, true, false);
+                    }
+                    Log?.LogInfo($"EffectSpawner: bloodstainglow: {found.Count} glowing hits through portals, {want} stains (first on '{GameControl.PathOf(found[0].col.transform)}')");
                     break;
                 }
                 case "dust":

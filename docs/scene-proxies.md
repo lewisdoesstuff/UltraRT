@@ -319,6 +319,10 @@ total)`, M being the ones whose mesh no earlier dynamic instance used (the chair
 `-ultrart-trace-proxies <text>` logs every add and remove of the matching proxies. The cost is one extra remove and add per
 new proxy, spread over the frames the proxies are made in.
 
+Portal sides get the same treatment since 2026-11-22 (`SceneProxies.PortalReAdd`, docs/portals.md section 22): every add of a
+side, not only the first, is followed by a remove and add 2 frames later, and the game keeps drawing its own view of that side
+until then. 8-3's exit door switches its portal off and on as it shuts and opens, so its side is added again in play.
+
 ### Scale changes in place (2026-11-18, `t3/ghosting`)
 
 A skinned instance's transform is updated only when its root bone's position or rotation changes

@@ -1,0 +1,174 @@
+{
+ "Name": "portal-door-1122",
+ "Note": "2026-11-22 8-3 playtest checks (docs/portals.md section 22), user poses 150-152: blood on glowing ceiling panels behind a portal (bloodstainglow; wet.stainEmission=0 = the old albedo-only tint) and the exit door into the Hallway (5 -> 6): locked, unlocked and opened with RT on (call: effects), and the same with the door portal left out of the RTAS (plugin._portalUnhitTest=1, the user's black doorway). Keep 'unlock unhit' after the plain door scenarios: a side it adds stays out of the RTAS until the door shuts again. The camera's yaw in room 5 depends on the player's rotation after the route (the upside-down room): check the door is in view.",
+ "Scenarios": [
+  {
+   "Name": "8-3 blood glow",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-blood-light-1122.json",
+    "Duration": 2.5,
+    "FreezeAtPose": true
+   },
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+wet.stainEmission=0",
+    "pathtrace+wet.stainDebug=1"
+   ],
+   "Effects": {
+    "Kinds": [
+     "bloodstainglow"
+    ],
+    "Every": 0,
+    "Distance": 30,
+    "ThroughPortals": true,
+    "ShotDelay": 0.3
+   },
+   "Screenshots": [
+    1.2
+   ]
+  },
+  {
+   "Name": "8-3 door locked",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-exit-door-a-1122.json",
+    "Position": [
+     -398.47,
+     2.5,
+     473.38
+    ],
+    "Yaw": -39.4,
+    "Pitch": 0.25,
+    "Duration": 3
+   },
+   "Modes": [
+    "pathtrace",
+    "off"
+   ],
+   "Effects": {
+    "Kinds": [
+     "call:Pre-Space/Rooms/5 -> 6:Lock"
+    ],
+    "Every": 0,
+    "ShotDelay": 1.0
+   },
+   "Screenshots": [
+    1.5
+   ]
+  },
+  {
+   "Name": "8-3 door unlock",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-exit-door-a-1122.json",
+    "Position": [
+     -398.47,
+     2.5,
+     473.38
+    ],
+    "Yaw": -39.4,
+    "Pitch": 0.25,
+    "Duration": 3
+   },
+   "Modes": [
+    "pathtrace",
+    "off"
+   ],
+   "Effects": {
+    "Kinds": [
+     "call:Pre-Space/Rooms/5 -> 6:Unlock",
+     "call:Pre-Space/Rooms/5 -> 6:Open"
+    ],
+    "Every": 0,
+    "ShotDelay": 0.15
+   },
+   "Screenshots": [
+    0.6,
+    1.2,
+    2.4
+   ]
+  },
+  {
+   "Name": "8-3 door relock",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-exit-door-a-1122.json",
+    "Position": [
+     -398.47,
+     2.5,
+     473.38
+    ],
+    "Yaw": -39.4,
+    "Pitch": 0.25,
+    "Duration": 3
+   },
+   "Modes": [
+    "pathtrace"
+   ],
+   "Effects": {
+    "Kinds": [
+     "call:Pre-Space/Rooms/5 -> 6:Lock"
+    ],
+    "Every": 0,
+    "ShotDelay": 1.0
+   },
+   "Screenshots": [
+    1.5
+   ]
+  },
+  {
+   "Name": "8-3 door unlock unhit",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-exit-door-a-1122.json",
+    "Position": [
+     -398.47,
+     2.5,
+     473.38
+    ],
+    "Yaw": -39.4,
+    "Pitch": 0.25,
+    "Duration": 3
+   },
+   "Modes": [
+    "pathtrace+plugin._portalUnhitTest=1"
+   ],
+   "Effects": {
+    "Kinds": [
+     "call:Pre-Space/Rooms/5 -> 6:Unlock",
+     "call:Pre-Space/Rooms/5 -> 6:Open"
+    ],
+    "Every": 0,
+    "ShotDelay": 0.15
+   },
+   "Screenshots": [
+    0.6,
+    1.2,
+    2.4
+   ]
+  },
+  {
+   "Name": "8-3 exit door b",
+   "Scene": "Level 8-3",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/8-3-exit-door-b-1122.json",
+    "Duration": 3
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    1.0
+   ]
+  }
+ ]
+}
