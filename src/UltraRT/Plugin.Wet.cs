@@ -60,6 +60,10 @@ namespace UltraRT
         /// through portals"): the game's decals only reach the main view's depth, which is the portal's plane there.
         /// Bench wet.stainPortals=0, flag -ultrart-stain-portals on|off.</summary>
         public bool stainPortals = true;
+        /// <summary>The stain tint also goes on the emission of the surface it covers, as the game's composite multiplies the
+        /// finished pixel (a stain on a glowing panel is deep red, not pale pink; docs/portals.md section 22). Bench A/B
+        /// wet.stainEmission=0 (albedo only, as before 2026-11-22).</summary>
+        public bool stainEmission = true;
         /// <summary>Stains further than this from the camera (or its portal images) (m) are left out of the lookup.</summary>
         public float stainDistance = 80f;
         /// <summary>Debug (bench wet.stainDebug=1): stains found at reflection hits show bright green.</summary>

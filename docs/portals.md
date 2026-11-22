@@ -106,11 +106,14 @@ Where it is used:
 | `-ultrart-noportallayer` | don't trace layer-30 renderers |
 | `-ultrart-rtmirrors`, bench `plugin._rtMirrors=1` | camera rays reflect off portal mirrors instead of keeping the game's mirror view (settings menu: "Ray-traced mirrors", [settings.md](settings.md)) |
 | `SceneProxies.PortalAddDelay` | 2 frames before a new portal quad goes into the RTAS |
+| `-ultrart-noportal-readd`, bench `plugin._portalReAdd=0` | add a portal side to the RTAS once, instead of removing and adding it again `PortalAddDelay` frames later (section 22; re-add on) |
+| bench `plugin._portalUnhitTest=1` | diagnostic: sides added from then on count as traced but stay out of the RTAS, which is what a never-hit portal quad looks like (section 22) |
 | bench `trans.portalGlass=0`, `trans.portalGlassStrength`, `trans.portalGlassHits` | water and glass behind portals (section 13): off / blend alpha x (1) / surfaces per segment (2, max 2) |
 | `SceneProxies.MaxPortalSides` | 1024 |
 | `-ultrart-portal-lights on\|off`, bench `plugin._portalLights=0\|1`, settings menu Advanced > Lighting "Lights shine through portals" (`[Lighting] PortalLights`) | scene lights imaged through portals (section 15; on) |
 | bench `plugin._portalLightMax=N`, `plugin._portalLightLoopSpan=M`, `plugin._portalLightGuards=0` | images per frame (16), the loop guard's span (100 m), all guards off (diagnostic) |
 | `-ultrart-stain-portals on\|off`, bench `wet.stainPortals=0` | blood stains on surfaces seen through a portal (section 18; on) |
+| bench `wet.stainEmission=0` | the stain tint goes on the albedo only, as before 2026-11-22, so glowing surfaces stay pale under a stain (section 22; on: the emission takes it too) |
 | `-ultrart-portal-raster-skip on\|off`, bench `plugin._portalRasterSkip=0` | skip the game's raster portal views while RT replaces them (section 17; on) |
 | `-ultrart-portal-effects on\|off`, bench `fxg.portalEffects=0` | glowing effects and glowing enemy meshes behind portals (section 20; on) |
 | bench `fxg.enemyMeshes=0` | glowing enemy transparents (Providence) as effect geometry, behind portals and in reflections (section 20; on) |
@@ -121,7 +124,8 @@ Where it is used:
 mode's ratio composite and went with it on 2026-11-19, as did `portals-align.json` and `perf-8-3-portals.json` (whose
 scenarios were hybrid-only). The measurements below that used them stay as history.
 
-Logs: `Portal side N: '<path>' enter|exit|mirror WxH at <pos> fwd <dir>, render <flags>, recursions R, disableRange D` the first time each side appears (first 64), and `Portals: N portal sides in the RTAS (M known)` when the set changes (first 40).
+Logs: `Portal side N: '<path>' enter|exit|mirror WxH at <pos> fwd <dir>, render <flags>, recursions R, disableRange D` the first time each side appears (first 64), and `Portals: N portal sides in the RTAS (M known)` when the set changes (first 40). Since 2026-11-22 also `Portals: side N
+'<path>' enter|exit added at frame F` for every add (first 40 per scene), so a side that leaves and comes back shows.
 
 ## 6. Results
 
@@ -1034,3 +1038,117 @@ Runs `bench/results/20261121-235346_tmp-portal-fx-perf` (static) and `20261121-2
 About +0.03 ms of dispatch where effects or Providence are behind a portal, and up to +0.05 ms GPU in combat (the enemy
 glow meshes' instances in the RTAS: rtas 0.21 vs 0.17 ms there). Frame times are within run-to-run noise. Plugin CPU for
 the effect geometry ("emissive" section) was 0.17-0.21 ms per frame either way.
+
+## 22. The 8-3 playtest of 2026-11-22: blood on glowing panels, the black exit door (2026-11-22, `t3/fix-8-3-blood-stains-door`)
+
+Two problems from the user's 8-3 playtest, poses 150-152 in `BepInEx\ultrart\poses.jsonl` (routes copied to
+`bench/recordings/8-3-blood-light-1122.json`, `8-3-exit-door-a-1122.json` and `8-3-exit-door-b-1122.json`). The checks are in
+`bench/suites/portal-door-1122.json`. Runs: alt, 2560 x 1440, trace scale 0.5, `bench/results/20261122-01*`.
+
+### Blood on a glowing ceiling panel behind a portal was pale pink
+
+In room 5 (`5 - Upside-Down Center`) the ceiling is seen through the room's own portals. The user's screenshots show the
+blood on the white ceiling panels deep red in a direct view and pale pink through a portal.
+
+**Cause.** The game draws its stains as screen-space decals multiplied over the finished frame (`CompositeBlood`). The
+multiply covers the whole pixel, glow included, so a stain on a glowing panel is red. Behind a portal the trace applies the
+stain itself (section 18). `PathTrace.raytrace` multiplied the stain tint into the **albedo only**. The panels' `Ceiling_Light`
+material is `EMISSIVE` with `_EMISSIVEREPLACES_ON`: nearly all of its colour is emission, which kept its full white under
+the stain. Reflection hits had the same gap (`PathTrace.raytrace`'s reflection colour and the specular vertices in
+`UltraRTPathTraceFull.hlsl`).
+
+**Fix.** The tint now goes on the emission as well, after the caustic term, in all three places (`StainEmissionTint`,
+`UltraRTStains.hlsl`). `_StainModes.z` carries the switch: bench `wet.stainEmission=0` gives the old albedo-only tint, so the
+two can be compared in one launch. Water, glass and effects in front of the surface are not tinted, because the game draws
+them after its stain composite.
+
+**Bench.** The new effect kind `bloodstainglow` scans the view through the game's portals (48 x 27 rays, `PortalPhysicsV2`)
+and puts up to 12 stains on glowing surfaces that the camera sees behind a portal (bench/README.md). At pose 150 it found
+154 such hits on the ceiling panels.
+
+**Result** (`8-3 blood glow`, run `20261122-010424_tmp-door-stains3_alt`, one launch). Stain pixels are where
+`wet.stainDebug=1` turns `_raw` green: 16,444 px, 12,710 of them on glowing panels.
+
+| Pixels | game (`off`) | final, now | final, `stainEmission=0` | `_raw`, now | `_raw`, `stainEmission=0` |
+|---|---|---|---|---|---|
+| stains on glowing panels (mean RGB) | (237, 122, 111) | (240, 69, 58) | (241, 234, 230) | (253, 46, 37) | (254, 247, 242) |
+| \|x - off\| on glowing panels | | 60.2 | 81.0 | 65.4 | 93.6 |
+| \|x - off\| over all stain pixels | | 52.3 | 78.0 | 56.7 | 89.7 |
+
+The old tint left the stain almost invisible on the panels (near white); now it is red like the game's. The game's mean is
+lighter because its decals cover slightly different pixels. The frame mean |final - off| moves from 28.81 to 28.63. The
+`portal-vis-1121` checks are unchanged (8-2 hallway portal blood: |final - off| 17.0, `_raw` 18.9; its stains are on walls
+that don't glow).
+
+### The exit door into the Hallway: a pitch-black doorway, the door not opening
+
+The user's screenshots show the door at the end of room 5 (under the green exit sign) closed, then open with the doorway
+pitch black and no door leaf in it.
+
+**What the door is.** `Pre-Space/Rooms/5 -> 6` carries a `Door` (the controller), the `Portal` into the Hallway (enter
+5 x 7.5 m at (-403.5, 4.75, 473), exit at (-368, 13.75, 683.5)) and a trigger. `DoorFraud 1/Door` is the leaf: a `BigDoor`
+that rotates 90 degrees about its hinge (`localRotation`, `RotateTowards`; with `playerSpeedMultiplier` its speed grows with
+the player's). `DoorFraud 1/NoPass` holds the red skull-and-cross quads the game shows while the door is locked
+(`Door.Lock` / `Unlock`). **The game switches the portal's entry and exit off whenever the door is shut, and on as it
+opens.** The door portal is the only portal in 8-3 that comes and goes in play. The bench diagnostics showed its side leaving
+the RTAS when the door closed and being added again when it opened.
+
+**Ruled out:**
+- The static-dynamic merge (C4, docs/performance.md). The leaf is not merged: its `Door` ancestor and its own `BigDoor`
+  exclude it. The view probe shows it as a live dynamic proxy (`static=False`, `rt=DynamicTransform`) whose RTAS instance
+  follows the rotation every frame.
+- Travel events: the door portal has no `onEntryTravel` / `onExitTravel` listeners.
+- With the default settings the bench never showed the black doorway. The runs covered the user's routes, a walk through
+  the door and back, the door locking and then unlocking and opening while pathtrace ran (`call:` effects, below), and
+  `plugin._portalRasterSkip=0`. In all of them the trace showed the leaf swinging and the Hallway behind it.
+- **The game itself draws the swinging leaf pitch black** (`off`, run `20261122-011131_tmp-door-aim_alt`, 1.5-5.5 s): a black
+  slab while it moves, brown once it stops. A trace that missed the leaf would leave those black game pixels in the
+  composite, but the trace did not miss it in any run.
+
+**What reproduces it.** A portal side that is in the RTAS but never hit. That is the known fault of "Portal quads added too
+early" (section 3) and of docs/scene-proxies.md, "Instances added too early": an instance added in an unlucky frame can stay
+in the RTAS without ever being hit, until it is removed and added again. It does not happen on every add, which fits a
+problem only the user saw. The diagnostic `plugin._portalUnhitTest=1` leaves new sides out of the RTAS while counting them as
+traced. With it, a door unlocked and opened with pathtrace on gives the user's picture: the camera rays go through the
+doorway into the unlit space behind the room's wall and hit the back of the leaf or nothing at all, and the raster skip
+(section 17) has dropped the game's own view of the Hallway.
+
+**Fix** (`SceneProxies.PortalReAdd`, on). Every add of a portal side is followed by a remove and add `PortalAddDelay` (2)
+frames later. Until that second add `IsPortalSideTraced` is false, so the game still renders its own view of that side.
+`-ultrart-noportal-readd` / bench `plugin._portalReAdd=0` turns it off. The cost is one extra remove and add per side add:
+16 sides when room 5 loads, 2 each time the door opens. Not measured on the perf lock.
+
+The fix is a mitigation for a fault that can't be forced: no run with the default settings showed the black doorway, before
+or after the change.
+
+**Result** (`8-3 door unlock` / `8-3 door unlock unhit`, run `20261122-013101_tmp-door-lock2_alt`). Doorway region of the
+frame: x 700-1150, y 300-1000. The door was unlocked and opened 0.15 s before the first shot.
+
+| Shot | game (`off`) luma | pathtrace final / `_raw` | never-hit side final / `_raw` | pixels under luma 8: pathtrace / never-hit |
+|---|---|---|---|---|
+| 0.6 s (leaf swinging) | 66 | 43 / 36 | 27 / 34 | 0 % / 48 % |
+| 1.2 s (open) | 66 | 89 / 82 | 9 / 9 | 0 % / 85 % |
+| 2.4 s | 66 | 90 / 83 | 9 / 9 | 0 % / 85 % |
+
+|final - off| over the doorway: 21.6 / 22.0 for pathtrace, 58.4 / 58.3 for the never-hit side. The pathtrace doorway is
+brighter than the game's, as the rest of this room is (frame mean |final - off| about 44). In the 0.6 s shot the trace still
+shows a faint copy of the lock sign for a few frames after the game hid it. That is DLSS RR's history over newly uncovered
+pixels, and it is gone by 1.2 s. Pose 152 (`8-3 exit door b`, the Hallway side) matches the game. `portal-vis-1121` is
+unchanged (8-3 hallway frozen |final - off| 17.6 -> 17.9; the Shifting Hallway exits move between shots).
+
+**Bench additions.** The effect kind `call:<path>:<Method>` calls a public method without required arguments on the object
+at that hierarchy path. Path and name are matched ignoring case, because effect kinds arrive lower-cased. The door test uses
+`call:Pre-Space/Rooms/5 -> 6:Lock`, `:Unlock` and `:Open`. **Trap:** in room 5 the camera's yaw depends on the player's
+rotation after the route (the upside-down room's portals turn the player). The same `Yaw` faced the door in one load and the
+room's side wall in another, so check that the door is in the shot.
+
+**Open:** the game draws the leaf black while it swings, so a trace that misses the leaf for any other reason would show
+that black.
+
+### Final run (`bench/suites/portal-door-1122.json`, run `20261122-013814_portal-door-1122_alt`, the committed build)
+
+- Blood glow: 27,367 stain pixels on glowing panels. Mean RGB: game (238, 116, 116); final now (250, 59, 54),
+  `stainEmission=0` (250, 248, 248). |final - off| 70.5 vs 92.3, |`_raw` - off| 72.5 vs 97.7. This load put the stains on
+  other panels than the run above, so the numbers differ but the result is the same.
+- Door unlocked and opened (doorway luma; game 63): pathtrace final 39 / 77 / 78 at 0.6 / 1.2 / 2.4 s (`_raw` 31 / 70 / 70),
+  no pixel under luma 8. Never-hit side: 28 / 10 / 10, with 40 % / 79 % / 79 % of the doorway under luma 8.

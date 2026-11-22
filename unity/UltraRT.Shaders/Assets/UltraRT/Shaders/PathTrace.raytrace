@@ -176,7 +176,9 @@ float3 TraceReflection(float3 pos, float3 n, float3 L, bool glossy, float spread
         float3 hp = r.Origin + r.Direction * h.t;
         float footprint = ht * spread + (t + ht) * pixelAngle;
         float3 hitLight = ReflectionHitLight(hp, h, footprint, rng);
-        c = PayloadEmission(h) * _EmissionScale + h.albedo * StainTint(hp, h.normal) * lerp(1.0, LightToDisplay(hitLight), h.alpha);
+        // The game's stain composite multiplies the whole pixel, emission included.
+        float3 st = StainTint(hp, h.normal);
+        c = PayloadEmission(h) * _EmissionScale * StainEmissionTint(st) + h.albedo * st * lerp(1.0, LightToDisplay(hitLight), h.alpha);
     }
     // Fire, explosions, flashes and beams in front of the hit (the last segment after portals), added as the game blends them.
     c += EffectsAlong(r.Origin, r.Direction, h.t < 0.0 ? 1.0e4 : h.t) * (glossy ? EffectLobeWeight(sqrt(0.5 * spread)) : 1.0);
@@ -665,9 +667,13 @@ void RayGenBody(bool full)
         // screen-space decals over the main view, which put them where the game's depth is, the portal's plane, so behind
         // a portal there are none. Its own portal views (skipped while RT replaces them) drew them in each view. The
         // stain grid (StainGrid.compute) holds the stains near the camera's portal images too: the game's composite
-        // (keep red, take green and blue, faded over the fog distances by the ray's whole length) on the albedo.
+        // (keep red, take green and blue, faded over the fog distances by the ray's whole length). The composite multiplies
+        // the finished pixel, so the tint goes on the albedo and on the emission (below): a stain on a glowing ceiling
+        // panel is deep red in the game, and was a pale pink behind portals while only the albedo took it (2026-11-22).
+        float3 stainTint = 1.0;
         [branch] if (path.hops > 0u && _StainParams.x > 0.5 && _StainParams.x < 1.5 && _StainModes.y > 0.5)
-            albedo *= StainTintAt(pos, n, tTotal);
+            stainTint = StainTintAt(pos, n, tTotal);
+        albedo *= stainTint;
         // Ripple caustics under water planes (fullbright surfaces ignore light, so they get none).
         [branch] if (_UltraRTRipple.y > 0.5 && _UltraRTRipple.x > 0.0 && p.alpha > 0.0) // planes also bound for stained glass alone
         {
@@ -676,6 +682,7 @@ void RayGenBody(bool full)
         }
         emission = PayloadEmission(p) * _EmissionScale;
         if ((p.flags & ULTRART_FLAG_CAUSTIC) != 0u) emission += CausticShadowed(p, pos, nv) * _EmissionScale;
+        emission *= StainEmissionTint(stainTint);
         if (_StainParams.x > 1.5) { float sw; if (StainAt(pos, n, sw) > 0.0) emission += float3(0.0, 2.0, 0.0); } // debug: the lookup at camera hits (green), to line up with the game's decals
         // Water and glass behind portals (docs/portals.md, "Water and glass through portals"): the game's portal view
         // shows them, but this pixel replaces that view and the overlay covers the near side only. TraceScene collected

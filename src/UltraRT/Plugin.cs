@@ -410,6 +410,7 @@ namespace UltraRT
                     case "-ultrart-motion-probe": SceneProxies.MotionProbe = true; break;
                     case "-ultrart-motion-probe-filter": SceneProxies.MotionProbe = true; SceneProxies.MotionProbeFilter = Next(); break;
                     case "-ultrart-nomirrorfix": SceneProxies.MirroredSkinFix = false; break; // mirrored skinned meshes keep the default winding (docs/scene-proxies.md)
+                    case "-ultrart-noportal-readd": _portalReAdd = false; break; // portal sides are added once, not re-added (docs/portals.md section 22)
                     case "-ultrart-noreadd": SceneProxies.NewInstanceReAdd = false; break; // new rigid instances are added once only (docs/scene-proxies.md, "Instances added too early")
                     case "-ultrart-trace-proxies": SceneProxies.TraceFilter = Next(); break;
                     case "-ultrart-trace-skinned": SceneProxies.TraceSkinned = true; break;
@@ -1050,6 +1051,8 @@ namespace UltraRT
         private int _portalHops = 3;  // -ultrart-portal-hops N (bench variant: plugin._portalHops=N): teleports per ray
         private bool _portalRules = true; // bench plugin._portalRules=0: one global hop limit instead of the game's per-portal rules
         private bool _portalNoSelf = true; // bench plugin._portalNoSelf=0: rays ignore canSeeItself
+        private bool _portalReAdd = true;    // -ultrart-noportal-readd, bench plugin._portalReAdd=0: portal sides are added once (SceneProxies.PortalReAdd)
+        private bool _portalUnhitTest;       // bench plugin._portalUnhitTest=1: sides added from now on stay out of the RTAS (diagnostic)
         private bool _portalFeedback = true; // bench plugin._portalFeedback=0: the end of an infinite portal loop stays black
         private int _portalCheapHops = 4;    // bench plugin._portalCheapHops=N: past N hops one light sample, no reflection ray (0 = never)
         private Texture _fbTex;              // last frame's image for the portal loop feedback (PathTrace, path.capped)
@@ -1654,6 +1657,8 @@ namespace UltraRT
             SceneProxies.PortalHops = _portalHops;
             SceneProxies.PortalRules = _portalRules;
             SceneProxies.PortalNoSelf = _portalNoSelf;
+            SceneProxies.PortalReAdd = _portalReAdd;
+            SceneProxies.PortalUnhitTest = _portalUnhitTest;
             SceneProxies.PortalInfiniteHops = _portalInfHops;
             // The game's mirror views are skipped with the other portal views: camera rays reflect off the mirrors instead.
             SceneProxies.TraceMirrors = _rtMirrors || PortalRasterSkip.Active;

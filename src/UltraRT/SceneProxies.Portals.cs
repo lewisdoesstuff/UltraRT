@@ -55,6 +55,8 @@ namespace UltraRT
             public bool Seen;       // active this frame
             public bool FakeMirror; // "Mirror" in the portal's path: a level's mirror built from a portal into a mirrored copy
             public int CreatedFrame; // Time.frameCount when the proxy was made (see PortalAddDelay)
+            public int AddedFrame;   // Time.frameCount of the last AddInstance
+            public bool Settled;     // re-added PortalAddDelay frames after that add (PortalReAdd): rays are sure to hit it
         }
 
         private readonly Dictionary<long, PortalSide> _portalSides = new Dictionary<long, PortalSide>();
@@ -87,6 +89,19 @@ namespace UltraRT
         /// re-added every side (docs/portals.md, "Portal quads added too early").
         /// </summary>
         public static int PortalAddDelay = 2;
+        /// <summary>
+        /// Every AddInstance of a portal side is followed by a remove and add <see cref="PortalAddDelay"/> frames later, and
+        /// the game's own view of that side is kept (<see cref="IsPortalSideTraced"/> false) until then. A side leaves the
+        /// RTAS whenever the game switches its portal off: 8-3's exit door into the Hallway (`5 -> 6`, a `Door` with a
+        /// `BigDoor` leaf) switches its portal off each time the door shuts and on as it opens, the only portal in 8-3 that
+        /// comes and goes in play. An instance added in the wrong frame can stay in the RTAS without ever being hit (the
+        /// fault of "Portal quads added too early" and "Instances added too early"); with the raster skip on, the doorway
+        /// then shows no view at all (docs/portals.md section 22). -ultrart-noportal-readd, bench plugin._portalReAdd=0.
+        /// </summary>
+        public static bool PortalReAdd = true;
+        /// <summary>Diagnostic (bench plugin._portalUnhitTest=1): sides added from now on are marked as traced but left out of
+        /// the RTAS, which is what the "never hit" fault looks like (docs/portals.md section 22).</summary>
+        public static bool PortalUnhitTest;
         private static FieldInfo _portalListField;
         private static readonly int IdPortals = Shader.PropertyToID("_UltraRTPortals");
         private static readonly int IdPortalHops = Shader.PropertyToID("_UltraRTPortalHops");
@@ -137,7 +152,7 @@ namespace UltraRT
 
         /// <summary>The portal side (Portal instance id, exit side) is in the RTAS, so camera rays go through it.</summary>
         public bool IsPortalSideTraced(int portalInstanceId, bool exitSide) =>
-            _portalSides.TryGetValue(((long)portalInstanceId << 1) | (exitSide ? 1L : 0L), out var s) && s.InRtas && s.Seen;
+            _portalSides.TryGetValue(((long)portalInstanceId << 1) | (exitSide ? 1L : 0L), out var s) && s.InRtas && s.Seen && s.Settled;
 
         private bool OriginalAppearsInRecursions(Portal portal)
         {
@@ -277,16 +292,28 @@ namespace UltraRT
             {
                 if (s.Seen && !s.InRtas && Time.frameCount - s.CreatedFrame >= PortalAddDelay && Time.frameCount - _portalQuadFrame >= PortalAddDelay)
                 {
-                    Rtas.AddInstance(s.Proxy, new[] { RayTracingSubMeshFlags.Enabled }, enableTriangleCulling: false,
-                        frontTriangleCounterClockwise: false, mask: PortalMask, id: 0);
+                    if (!PortalUnhitTest) AddPortalSide(s);
                     s.InRtas = true;
+                    s.AddedFrame = Time.frameCount;
+                    s.Settled = !PortalReAdd || PortalUnhitTest;
                     changed = true;
+                    if (_portalAddLogs++ < 40)
+                        _log.LogInfo($"Portals: side {s.Index} '{Bench.GameControl.PathOf(s.Portal.transform)}' {(s.Exit ? "exit" : "enter")} added at frame {Time.frameCount}{(PortalUnhitTest ? " (unhit test: left out of the RTAS)" : "")}");
                 }
                 else if (!s.Seen && s.InRtas)
                 {
                     if (s.Proxy != null && Rtas != null) Rtas.RemoveInstance(s.Proxy);
                     s.InRtas = false;
+                    s.Settled = false;
                     changed = true;
+                }
+                else if (s.InRtas && !s.Settled && Time.frameCount - s.AddedFrame >= PortalAddDelay)
+                {
+                    // The re-add (PortalReAdd): from now on rays hit the side, and the game's view of it can be skipped.
+                    Rtas.RemoveInstance(s.Proxy);
+                    AddPortalSide(s);
+                    s.Settled = true;
+                    PortalReAdds++;
                 }
                 if (s.InRtas) inRtas++;
             }
@@ -295,6 +322,14 @@ namespace UltraRT
                 _log.LogInfo($"Portals: {inRtas} portal sides in the RTAS ({_portalSideList.Count} known)");
             BindPortalBuffer();
         }
+
+        private int _portalAddLogs;
+        /// <summary>Portal sides removed and added again after their add (PortalReAdd), scene total.</summary>
+        public int PortalReAdds;
+
+        private void AddPortalSide(PortalSide s) =>
+            Rtas.AddInstance(s.Proxy, new[] { RayTracingSubMeshFlags.Enabled }, enableTriangleCulling: false,
+                frontTriangleCounterClockwise: false, mask: PortalMask, id: 0);
 
         private static IList<Portal> GetPortalList(PortalManagerV2 mgr)
         {
