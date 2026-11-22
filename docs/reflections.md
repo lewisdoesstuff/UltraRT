@@ -326,6 +326,29 @@ Together about 0.05–0.15 ms. The resolve runs even with reflections off (about
 - **Unlit Master materials get no specular**, by design. Override them to opt in.
 - **Footstep-clone fallback**: `PhysicsSceneStateEnforcer.matchingObject` is read by reflection (private field). If the game renames it, only the fallback is lost.
 
+### 0-5: does the metal reflect the lava? (2026-11-22, playtest pose 153, check only)
+
+User, playtest of 2026-11-22, 0-5 pose 1 (`bench/recordings/u1122-0-5-1.json`, the lava channel, looking down along the
+left wall): "should I expect to see lava reflecting in the metal here?" Yes, and it does, but as an orange sheen, not as
+a mirror image of the lava. Measured on the alt install (run `20261122-004359_tmp-flm-a_alt`, 2560x1440, `pathtrace`):
+
+- **The wall is reflective metal.** `spec-params` shows smoothness 0.8, metalness 1 and weight 1 over the whole wall:
+  class MetalHigh, roughness 0.20, from the game's footstep `SurfaceType` (0-5's `Metal Decoration 1` / `1B` / `4` and
+  their `Orange` variants, textures `floordecoration1`, `1b`, `4`; `-ultrart-matdump`). Its F0 is its own albedo (raised to
+  luma 0.5), so it reflects about half the light it sees, tinted by its own orange-brown.
+- **The reflection rays see the lava.** `refl-raw` shows the lava's scrolling emission (the lava proxy, mask 0x08, docs/lava.md)
+  in the lower band of the wall: (240, 151, 13) there against (21, 15, 7) higher up, where the mirror direction looks into
+  the dim girders and ceiling.
+- **Why it reads as a sheen.** The lava is orange-yellow, the metal tints what it reflects orange, and the wall's own
+  diffuse colour is orange too. The lobe at roughness 0.2 (GGX alpha 0.04) plus the detail maps' per-texel normals spread
+  the image over many texels. With reflections off (`pathtrace+refl=0`) the wall is brighter higher up (it loses the
+  dark girders it reflects) and slightly duller at the bottom: mean |difference| 13.5 of 255 over the wall, mean colour
+  (141, 69, 17) without against (119, 57, 15) with. That is the reflection: real, but it doesn't look like lava.
+- Not changed: a sharper, less tinted reflection would need a lower roughness or a less coloured F0 for these materials
+  (an override in `ultrart-materials.json`). The `Metal Decoration` materials are used in other levels too (section 11
+  lists them for 0-2 and 1-x), so that would be a look change well beyond this wall; this is the case of "Metals in
+  single-colour rooms" above.
+
 ## 11. What to test in game
 
 - **1-1** marble floors: `FloorPanelSmall*` (REFLECTION blend, RS 0.025–0.05, roughness 0.15), `FloorPanelBig` (additive 0.1) and Marble-class `Floor`. Check:
