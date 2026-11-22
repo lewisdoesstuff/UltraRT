@@ -86,8 +86,8 @@ if ($LASTEXITCODE -ne 0) { throw "dxc failed on VolumetricsRQ.hlsl" }
 if ($LASTEXITCODE -ne 0) { throw "dxc failed on ParticleLightRQ.hlsl" }
 
 $cmds = @(
-    "cl $cflags $dlssFlags /I`"$src`" `"$src\GpuTimer.cpp`" `"$src\UnityLocator.cpp`" `"$src\Hdr.cpp`" `"$src\RayQuery.cpp`" $dlssSrc",
-    "link /nologo /DLL /DEBUG /Brepro /PDBALTPATH:UltraRT.Native.pdb /OPT:REF /OPT:ICF /MACHINE:X64 /OUT:`"$dll`" /PDB:`"$OutDir\UltraRT.Native.pdb`" `"$obj\GpuTimer.obj`" `"$obj\UnityLocator.obj`" `"$obj\Hdr.obj`" `"$obj\RayQuery.obj`" $dlssObj kernel32.lib user32.lib dxgi.lib d3d12.lib d3dcompiler.lib"
+    "cl $cflags $dlssFlags /I`"$src`" `"$src\GpuTimer.cpp`" `"$src\UnityLocator.cpp`" `"$src\Hdr.cpp`" `"$src\RayQuery.cpp`" `"$src\BlasPatch.cpp`" $dlssSrc",
+    "link /nologo /DLL /DEBUG /Brepro /PDBALTPATH:UltraRT.Native.pdb /OPT:REF /OPT:ICF /MACHINE:X64 /OUT:`"$dll`" /PDB:`"$OutDir\UltraRT.Native.pdb`" `"$obj\GpuTimer.obj`" `"$obj\UnityLocator.obj`" `"$obj\Hdr.obj`" `"$obj\RayQuery.obj`" `"$obj\BlasPatch.obj`" $dlssObj kernel32.lib user32.lib dxgi.lib d3d12.lib d3dcompiler.lib"
 )
 if ($Test) {
     $exe = Join-Path $obj 'LocatorTest.exe'

@@ -98,6 +98,7 @@ namespace UltraRT
                 }
                 else
                 {
+                    TraceSkin("veil add", d);
                     VeilRtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: TransparentMask, id: d.Id);
                     _veilIn[d.Proxy] = true;
                 }

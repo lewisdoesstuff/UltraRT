@@ -175,18 +175,45 @@ namespace
         OutputDebugStringA("\n");
     }
 
+    // Diagnostics: which threads record acceleration structure builds, and whether two ever overlap.
+    constexpr int kMaxBuildThreads = 8;
+    volatile LONG s_BuildThreadIds[kMaxBuildThreads] = {};
+    volatile LONG64 s_BuildThreadBlas[kMaxBuildThreads] = {};
+    volatile LONG64 s_BuildThreadTlas[kMaxBuildThreads] = {};
+    volatile LONG s_BuildsInFlight = 0;
+    volatile LONG64 s_BuildOverlaps = 0;
+    char s_BuildThreadsOut[512];
+
+    void NoteBuildThread(bool tlas)
+    {
+        LONG tid = (LONG)GetCurrentThreadId();
+        for (int i = 0; i < kMaxBuildThreads; i++)
+        {
+            LONG cur = s_BuildThreadIds[i];
+            if (cur == 0) cur = InterlockedCompareExchange(&s_BuildThreadIds[i], tid, 0) == 0 ? tid : s_BuildThreadIds[i];
+            if (cur == tid)
+            {
+                InterlockedIncrement64(tlas ? &s_BuildThreadTlas[i] : &s_BuildThreadBlas[i]);
+                return;
+            }
+        }
+    }
+
     void STDMETHODCALLTYPE HookedBuildRtas(
         ID3D12GraphicsCommandList4* self,
         const D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC* pDesc,
         UINT numPostbuild,
         const D3D12_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO_DESC* pPostbuild)
     {
+        if (InterlockedIncrement(&s_BuildsInFlight) > 1) InterlockedIncrement64(&s_BuildOverlaps);
+        NoteBuildThread(pDesc && pDesc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL);
         if (s_InRtasBuild && pDesc && pDesc->Inputs.Type == D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL)
         {
             s_SceneTlasVA = pDesc->DestAccelerationStructureData;
             InterlockedIncrement64(&s_TlasCaptures);
         }
         s_OrigBuildRtas(self, pDesc, numPostbuild, pPostbuild);
+        InterlockedDecrement(&s_BuildsInFlight);
     }
 
     void EnsureBuildRtasHook(ID3D12GraphicsCommandList* cl)
@@ -759,6 +786,22 @@ ULTRART_API const char* UltraRT_RQ_GetStatus()
     memcpy(s_StatusOut, s_Status, sizeof s_Status);
     ReleaseSRWLockShared(&s_Lock);
     return s_StatusOut;
+}
+
+// "tid:blas/tlas ..., overlaps N" for the threads that recorded acceleration structure builds (diagnostics).
+ULTRART_API const char* UltraRT_RQ_GetBuildThreads()
+{
+    int n = 0;
+    s_BuildThreadsOut[0] = 0;
+    for (int i = 0; i < kMaxBuildThreads && n < (int)sizeof s_BuildThreadsOut - 64; i++)
+    {
+        LONG tid = s_BuildThreadIds[i];
+        if (tid == 0) break;
+        n += snprintf(s_BuildThreadsOut + n, sizeof s_BuildThreadsOut - n, "%s%ld:%lld/%lld", i ? " " : "", (long)tid,
+                      (long long)s_BuildThreadBlas[i], (long long)s_BuildThreadTlas[i]);
+    }
+    snprintf(s_BuildThreadsOut + n, sizeof s_BuildThreadsOut - n, "%soverlaps %lld", n ? ", " : "", (long long)s_BuildOverlaps);
+    return s_BuildThreadsOut;
 }
 
 ULTRART_API void UltraRT_RQ_SetVolFrame(int slot, const VolRqFrame* f)

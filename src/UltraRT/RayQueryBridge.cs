@@ -127,6 +127,9 @@ namespace UltraRT
         public long VolDispatches => _volCount();
         public long PlDispatches => _plCount();
         public string Status => Marshal.PtrToStringAnsi(_getStatus()) ?? "";
+        private readonly PtrFn _getBuildThreads;
+        /// <summary>Threads that recorded acceleration structure builds ("tid:blas/tlas", overlaps), or "" (older native build).</summary>
+        public string BuildThreads => _getBuildThreads != null ? Marshal.PtrToStringAnsi(_getBuildThreads()) ?? "" : "";
 
         private RayQueryBridge(IntPtr module)
         {
@@ -144,6 +147,8 @@ namespace UltraRT
             _volCount = Get<LongFn>(module, "UltraRT_RQ_GetVolDispatches");
             _plCount = Get<LongFn>(module, "UltraRT_RQ_GetPlDispatches");
             _getStatus = Get<PtrFn>(module, "UltraRT_RQ_GetStatus");
+            IntPtr bt = GetProcAddress(module, "UltraRT_RQ_GetBuildThreads");
+            _getBuildThreads = bt != IntPtr.Zero ? Marshal.GetDelegateForFunctionPointer<PtrFn>(bt) : null;
             _setVol = Get<SetVolFn>(module, "UltraRT_RQ_SetVolFrame");
             _setPl = Get<SetPlFn>(module, "UltraRT_RQ_SetPlFrame");
         }

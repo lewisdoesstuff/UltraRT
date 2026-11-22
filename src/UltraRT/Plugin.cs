@@ -205,6 +205,10 @@ namespace UltraRT
             SceneProxies.MaterialOverrideFolders = new[] { pluginDir, Paths.ConfigPath };
             if (!LoadShaders()) { StayIdle(bundleMissing: true); return; }
 
+            // Before any acceleration structure exists: Unity's BLAS cache must not hand a null scratch buffer to the
+            // render thread (UnityBlasPatch.cs; the 6-1 Small Room crash of 2026-11-22).
+            Logger.LogInfo($"BLAS scratch guard: {UnityBlasPatch.Apply(Path.Combine(pluginDir, GpuTimer.DllName))}");
+
             if (_useGpuTimer)
             {
                 // Opt-in dev tool: the native DLL registers itself with Unity through an internal routine.
@@ -408,6 +412,8 @@ namespace UltraRT
                     case "-ultrart-nomirrorfix": SceneProxies.MirroredSkinFix = false; break; // mirrored skinned meshes keep the default winding (docs/scene-proxies.md)
                     case "-ultrart-noreadd": SceneProxies.NewInstanceReAdd = false; break; // new rigid instances are added once only (docs/scene-proxies.md, "Instances added too early")
                     case "-ultrart-trace-proxies": SceneProxies.TraceFilter = Next(); break;
+                    case "-ultrart-trace-skinned": SceneProxies.TraceSkinned = true; break;
+                    case "-ultrart-noblaspatch": UnityBlasPatch.Enabled = false; break; // UnityBlasPatch.cs: leave Unity's BLAS cache code unpatched
                     case "-ultrart-game-dither": { var v = (Next() ?? "").ToLowerInvariant(); _gameDither = v != "off" && v != "0" && v != "false"; break; } // Plugin.GameDither.cs
                     case "-ultrart-enemy-outlines": { var v = (Next() ?? "").ToLowerInvariant(); _enemyOutlines = _enemyOutlinesDefault = v != "off" && v != "0" && v != "false"; break; } // Plugin.EnemyOutlines.cs
                     case "-ultrart-output-dither": { var v = (Next() ?? "").ToLowerInvariant(); _outputDither = v != "off" && v != "0" && v != "false"; break; } // Plugin.GameDither.cs
