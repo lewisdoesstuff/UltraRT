@@ -259,7 +259,9 @@ it has none yet. The material's texture average (above) is still read synchronou
 
 The light's colour is that product, normalised so its brightest channel is 1.
 
-**Intensity.** `intensityScale` (4) x strength. For comparison, the game's Fire light is 5. Strength = clamp(brightest channel x 4, 0, 1) x fill, where fill = 1 for sprites and 1 - e^(-count/4) for particles. Brightness rises at once and decays over a few frames, because particle counts jump.
+**Intensity.** `intensityScale` (4) x strength. For comparison, the game's Fire light is 5. Strength = clamp(brightest channel x 4, 0, 1) x fill, where fill = 1 for sprites and, for particles, 1 - e^(-count/4) times their coverage (since 2026-11-22, "Sparse particles" below). Brightness rises at once and decays over a few frames, because particle counts jump.
+
+A sprite's colour (since 2026-11-22) is the material's tint x its sprite's rectangle average (or a swapped animation frame's average) x the sprite colour, each once; before, the material's texture average and the sprite colour were applied twice ("Player-made fire, second pass").
 
 **Shape.** Range = 4 x the bounds radius, clamped to 3 to 12 m (the game's Fire: 10 m). The light sits at the bounds centre. Its soft-shadow radius is 0.4 x the bounds radius, clamped to 0.05 to 0.5 m.
 
@@ -284,7 +286,7 @@ at all. Now:
 - **Flames** (`IsFlame`: fire / flame / torch / burn in the name) up to 40 m of bounds extent (`MaxFlameExtent`) keep
   their light; an oversized one is placed low in the flame (1.5 m over its bounds' bottom at most), where it burns on
   the floor, not at the billboard's middle. Radius stays capped at 6 m, so range 12 m.
-- **`flameVirtualGain`** (6): a flame *sprite* with no light of its own gets x6 the virtual light of other glows. The
+- **`flameVirtualGain`** (6; 1.5 since 2026-11-22, after two faults behind these numbers were fixed: "second pass" below): a flame *sprite* with no light of its own gets x6 the virtual light of other glows. The
   FireSimple sprite averages ~0.06 (intensity ~1); the same flame's lit variant (`Fire`) carries a light of 5. At 4
   pathtrace barely lit the corridor (luma +0.4, `bench/results/20261121-011415_tmp-sgc-i_alt`), at 8 the corridor went
   near white (36 -> 88); relight at 4 was already warm on the walls (38 -> 50 at 5.5 s). 6 (x2.4 the light of 4) is
@@ -296,6 +298,63 @@ at all. Now:
   and names the covering light's path, intensity, range and distance.
 
 Sheet `4-4_gasoline_fire.jpg` in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`.
+
+### Player-made fire, second pass (2026-11-22, `t3/fix-lighting-reflection-findings`)
+
+User, playtest of 2026-11-22: a big fire on a ledge in a dark room, "would we not expect this fire to light much more of
+the environment up?" (no pose saved; the flames are the gasoline fire's). Reproduced with 4-4's corridor fire
+(`bench/suites/playtest-1121.json`'s "4-4 pose 1 gasoline fire": gasoline every 2 s, ignited 1 s before the shot). On
+master the virtual lights changed nothing: `pathtrace` against `pathtrace+fx.virtualLights=0`, frame luma 47.2 / 47.7
+at 3.5 s and 47.1 / 49.2 at 5.5 s (run `20261122-004359_tmp-flm-a_alt`); the walls round the fire stayed dark green. Three
+faults, found with the new log lines (`sprite colour ...`, `oversized flame ...`, and the selected lights now with path,
+intensity, hue and size):
+
+1. **The light was 1.7 m under the floor.** An oversized flame (bounds over 12 m) got its light 1.5 m over the bottom
+   of its bounds. The FireSimple billboards are x4 and turn to face the camera, and seen from above their bounds reached
+   down to y -3.18 (top 17.30) in a corridor whose floor is at y 0: the lights sat at y -1.68, and the floor shadowed the
+   room from them. Now (`BigFlamePos`, `fx.flameOnSurface`, default on) the light goes 1 m over the surface the flame
+   burns on: a ray down from 0.75 m over the flame's root object (`FireSimple(Clone)`) against level geometry (layers 0,
+   6, 7, 8, 24), cached for 30 frames; without a hit, the old placement. In the test: surface y 0.00 ('Cube'), light y 1.00.
+2. **The colour was squared.** `Base` (the colour at collection) already held the material's texture average and the
+   sprite's colour; `Measure` multiplied the sprite's rectangle average and the sprite's colour in again. The game tints
+   FireSimple's sprite (1.00, 0.31, 0.00), so the light's hue came out (1.00, 0.05, 0.00), a deep red that lights the green
+   walls of 4-4 (and any non-red wall) almost not at all, at a strength of ~0.05 instead of 1. Now (`fx.spriteColourOnce`,
+   default on) a sprite's colour is the tint x the rectangle average x the sprite colour, each once: (0.42, 0.10, 0.00),
+   hue (1.00, 0.23, 0.00), strength 1. A SpriteRenderer's property block carries no `_MainTex` in these levels (`block
+   texture '-'` in the log); a swapped animation frame, where there is one, stands in for the rectangle.
+3. **`flameVirtualGain` 6 was calibrated against both faults.** With the colour fixed a flame reaches full strength, 4 x
+   6 = 24 per light. Now **1.5**: intensity 6 per flame light, a little over the game's own lit `Fire` (5), since the
+   gasoline flames are four times its size. The 2026-11-21 numbers in "Player-made fire" above (4: barely lit, 8: near
+   white) were measured with faults 1 and 2 and no longer apply.
+
+Measured (alt, 2560x1440, `pathtrace`, one fresh level load per variant, run `20261122-010435_tmp-flm-d`): the game 33.3,
+the light at the old placement 46.7, on the surface **81.2**. The corridor's walls, floor and the gun take a warm orange
+from the fire, brightest next to it, where they stayed dark green before. Variants on run `20261122-005752_tmp-flm-c_alt`
+(old placement, so all dark): old colour and gain 6: 50.6; new colour, gain 1.5: 48.5; gain 3: 45.0. Sheets:
+`bench/results/review/fix-lighting-reflection-findings/` (see the branch report).
+
+Other sprites are affected by fault 2 too: any glowing sprite without a light of its own (most flames with a game light
+are covered or on their own light and get none) now gets its real colour and strength, up to `intensityScale` (4) as
+before. 1-1's torch hall with one FireSimple 3 m ahead (`effects.json`'s "flame without light"; run
+`20261122-005153_tmp-flm-b_alt`, flames from earlier modes still burning, so only roughly): the game 56.9, the old
+colour 117.8, the new colour at gain 2: 129.9; the pooled `Fire` with its own light 5 at 3 m: 123.1.
+
+### Sparse particles (2026-11-22)
+
+4-4's ground-floor hallway has two `Muzzleflash` particle systems of gold-dust glints (`3 - Ground Floor/Hallway/
+Decorations/Particle System (1)` and `(2)`): 60 particles of 0.08 m spread over bounds about 10 m across. Each became a
+full-strength virtual light (60 particles: fill 1), white-yellow (hue 1.00, 0.94, 0.45), intensity 3.3, range 12, at the
+centre of the hallway, the strongest light on the gun 2.8 m away (docs/viewmodel.md, "The eye light"). A particle system's
+strength now also scales with its **coverage**: count x start size² over the bounds' cross-section (pi r²), full at
+`particleCoverage` (0.25). The glints cover 0.15 % of theirs: strength x0.006, no light. Fireballs, flamethrower flames and
+muzzle flashes fill their bounds and keep theirs. The start size is read once per emitter (`ParticleStartSize`: the
+start size range's mean or the curve's multiplier, x the transform's scale unless the system scales by its shape).
+`fx.particleCoverage=0` gives the old strength. Effect on the hallway (run `20261122-005153_tmp-flm-b_alt`): frame luma
+113.6 -> 93.4 (the game 116.7), the gun (81, 56, 26) -> (53, 30, 16).
+
+Limit: sparks and other small-particle effects lose most of their light with this. Short-lived hit sparks have a game
+light of their own or none worth keeping; no measured case lost a light that mattered, but a particle effect that should
+light a room while covering little of its bounds would need `particleCoverage` lowered.
 
 ### Flames with their own light (2026-11-21, `t3/playtest-visual-fixes`)
 
@@ -506,7 +565,10 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | `-ultrart-lightning-flash x` | `lightningFlash` | 1 | the lightning flash (0 = off) |
 | | `gunFlash`, `gunFlashHold`, `gunFlashFade` | on, 0.02, 0.06 | gunshot lights' crisp envelope ("Gunshot flashes") |
 | | `lightningInsideScenes`, `lightningInsideGain` | `Level P-2`, 3 | bolts inside the play space: unshadowed, x gain ("Lightning flash") |
-| | `flameVirtualGain` | 6 | flame sprites without a light ("Player-made fire") |
+| | `flameVirtualGain` | 1.5 | flame sprites without a light ("Player-made fire"; 6 until 2026-11-22, calibrated against two faults: "second pass") |
+| | `spriteColourOnce` | true | a sprite's colour from its tint, sprite average and colour, each once ("second pass") |
+| | `flameOnSurface` | true | an oversized flame's light 1 m over the surface it burns on ("second pass") |
+| | `particleCoverage` | 0.25 | particle strength x their coverage of the bounds, full at this ("Sparse particles"); 0 = off |
 | | `flameOwnLight` | true | no virtual light for an emitter whose own Light (on it or up to 3 parents above) is on ("Flames with their own light") |
 
 Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5. Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
