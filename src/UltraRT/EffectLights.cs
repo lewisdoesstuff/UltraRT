@@ -54,14 +54,30 @@ namespace UltraRT
         /// <summary>The flicker range of a flame-driven light (flickerRange for the others).</summary>
         public float flameFlickerRange = 0.5f;
         /// <summary>A flame sprite with no light of its own (FireObjectPool's FireSimple: the gasoline fire's flames) gets a
-        /// virtual light this many times brighter than other glowing effects: its sprite averages ~0.06, an intensity of
-        /// ~1, while the same flame's lit variant ("Fire") carries a light of 5. 6 since 2026-11-21 (4: pathtrace barely lit
-        /// 4-4's corridor; 8: near white; docs/emissive-lights.md, "Player-made fire").</summary>
-        public float flameVirtualGain = 6f;
+        /// virtual light this many times brighter than other glowing effects: at full strength 4 x 1.5 = 6, a little over
+        /// the game's lit "Fire" (5), as the gasoline flames are x4 its size. 1.5 since 2026-11-22; it was 6 (2026-11-21),
+        /// calibrated while the flame's colour was squared to a deep red at ~0.05 strength and the gasoline flames' light
+        /// sat under the floor (docs/emissive-lights.md, "Player-made fire, second pass").</summary>
+        public float flameVirtualGain = 1.5f;
         /// <summary>A glowing effect with a Light of its own on it or up to 3 parents above it (a torch's FireSprite under
         /// its Fire light) gets no virtual light while that light is on (2026-11-21; false = before: only the distance
         /// cover test, which missed every 1-1 torch). Bench fx.flameOwnLight=0.</summary>
         public bool flameOwnLight = true;
+        /// <summary>A sprite's colour is its material tint x the average of what it draws (its sprite's rectangle, or an
+        /// animation frame swapped in through a property block) x its colour, each once (2026-11-22). False = before: the
+        /// material's texture average, the sprite colour and the sprite's whole sheet (SpriteRenderer puts its own texture
+        /// into the property block) were multiplied in on top, which squared the flame's hue to deep red and cut its
+        /// strength to ~0.05 (docs/emissive-lights.md, "Player-made fire, second pass"). Bench fx.spriteColourOnce=0.</summary>
+        public bool spriteColourOnce = true;
+        /// <summary>An oversized flame's light (the gasoline fire's x4 FireSimple flames) sits 1 m over the surface it burns
+        /// on (a ray down) instead of 1.5 m over its billboard's bounds, which reach below the floor (2026-11-22). Bench
+        /// fx.flameOnSurface=0.</summary>
+        public bool flameOnSurface = true;
+        /// <summary>A particle system's strength also scales with how much of its bounds its particles cover: the summed
+        /// area of its particles (count x start size²) over the bounds' cross-section (pi r²), full at this fraction.
+        /// A cloud of a few small sparkles across a 10 m room (4-4's gold dust) is no lamp; a fireball, a flamethrower's
+        /// flames or a muzzle flash fill their bounds. 0 = off (before 2026-11-22). Bench fx.particleCoverage=0.</summary>
+        public float particleCoverage = 0.25f;
 
         // ---- Combat lights (CombatLights.cs; docs/emissive-lights.md, "Combat lights")
 
@@ -184,6 +200,9 @@ namespace UltraRT
             public Kind Kind;
             public int Id;
             public Color Base;        // visible colour without the sprite / fill (premultiplied, gamma)
+            public Color Tint;        // the material's tint alone (2 x _TintColor x alpha): a sprite draws its own texture, not the material's
+            public float PSize = -1f; // particles: world-space start size (m), -1 = unknown
+            public bool ColourLogged;
             public string Name;
             public bool OnLight;      // its spawned hierarchy has a Light: never a virtual light, only flicker
             public bool OwnLogged;
@@ -204,6 +223,9 @@ namespace UltraRT
             public int DriveFrame = -100000;
             public Color LastSprite = new Color(-1f, 0f, 0f, 0f); // last known sprite / animation-frame average (r < 0: none):
             public Color LastFrame = new Color(-1f, 0f, 0f, 0f);  // used while a new one is still being read back (ReadAverage)
+            public Vector3 Surface = new Vector3(float.NaN, 0f, 0f); // oversized flame: the surface point it burns on (BigFlamePos), every 30 frames
+            public int BaseFrame = -100000;
+            public bool BaseLogged;
         }
 
         private readonly List<Emitter> _emitters = new List<Emitter>(256);
@@ -229,7 +251,7 @@ namespace UltraRT
         /// <summary>Lights driven by a flame in the last frame (flameDriven).</summary>
         public int DrivenLights { get; private set; }
 
-        private struct MatInfo { public bool Glows; public Color Color; }
+        private struct MatInfo { public bool Glows; public Color Color; public Color Tint; }
 
         // Glowing-looking effects that are not light sources: dust and smoke puffs drawn additively, checkpoint holograms,
         // water. Matched against material and texture names (lower case).
@@ -397,7 +419,8 @@ namespace UltraRT
             if (!_emitterIds.Add(id)) return;
             _emitters.Add(new Emitter
             {
-                R = r, PS = ps, SR = r as SpriteRenderer, Go = r.gameObject, T = r.transform, Kind = kind, Id = id, Base = col, Name = m.name,
+                R = r, PS = ps, SR = r as SpriteRenderer, Go = r.gameObject, T = r.transform, Kind = kind, Id = id, Base = col, Tint = info.Tint, Name = m.name,
+                PSize = ps != null ? ParticleStartSize(ps) : -1f,
                 OnLight = onLight, Flame = IsFlame(m.name) || IsFlame(r.name) || (r.transform.parent != null && IsFlame(r.transform.parent.name)),
                 OwnLight = FindOwnLight(r.transform),
             });
@@ -424,7 +447,8 @@ namespace UltraRT
                 {
                     Color tint = LitParticles.EffectTint(m);
                     var t = m.mainTexture != null ? TexAverage(m.mainTexture) : Color.white;
-                    info.Color = new Color(tint.r * tint.a * t.r, tint.g * tint.a * t.g, tint.b * tint.a * t.b, 1f);
+                    info.Tint = new Color(tint.r * tint.a, tint.g * tint.a, tint.b * tint.a, 1f);
+                    info.Color = new Color(info.Tint.r * t.r, info.Tint.g * t.g, info.Tint.b * t.b, 1f);
                     info.Glows = MaxC(info.Color) > 1e-3f;
                 }
             }
@@ -542,6 +566,38 @@ namespace UltraRT
             return avg;
         }
 
+        private int _colourLogged;
+
+        /// <summary>A particle system's start size in world space (m): the mean of its start size range (the curve's
+        /// multiplier for curves), x the transform's scale unless the system scales by its shape only.</summary>
+        private static float ParticleStartSize(ParticleSystem ps)
+        {
+            try
+            {
+                var main = ps.main;
+                var sz = main.startSize;
+                float s;
+                switch (sz.mode)
+                {
+                    case ParticleSystemCurveMode.Constant: s = sz.constant; break;
+                    case ParticleSystemCurveMode.TwoConstants: s = 0.5f * (sz.constantMin + sz.constantMax); break;
+                    default: s = sz.curveMultiplier; break;
+                }
+                if (main.startSize3D)
+                {
+                    float x = main.startSizeXMultiplier, y = main.startSizeYMultiplier;
+                    if (x > 0f && y > 0f) s = Mathf.Sqrt(x * y);
+                }
+                if (main.scalingMode != ParticleSystemScalingMode.Shape)
+                {
+                    var l = ps.transform.lossyScale;
+                    s *= Mathf.Max(Mathf.Abs(l.x), Mathf.Max(Mathf.Abs(l.y), Mathf.Abs(l.z)));
+                }
+                return s > 0f && !float.IsNaN(s) && !float.IsInfinity(s) ? s : -1f;
+            }
+            catch { return -1f; }
+        }
+
         private static float MaxC(Color c) => Mathf.Max(c.r, Mathf.Max(c.g, c.b));
 
         /// <summary>A Light on the renderer's object or on one of its 3 nearest parents (BigTorch/Fire [Light] /
@@ -605,7 +661,7 @@ namespace UltraRT
                 {
                     // A new level. Tracked lights and emitters of the old one are destroyed and drop out by themselves; the
                     // ones spawned while this level loaded (FireObjectPool fills its pool in Awake) must stay.
-                    _matCache.Clear(); _texCache.Clear(); _spriteCache.Clear(); _ownLightLogged = 0;
+                    _matCache.Clear(); _texCache.Clear(); _spriteCache.Clear(); _ownLightLogged = 0; _colourLogged = 0; _baseLogged = 0;
                     _scene = scene;
                     if (Settings.virtualLights || Settings.flicker) CollectSceneEmitters();
                 }
@@ -638,7 +694,7 @@ namespace UltraRT
                              $"texture reads {_logReads} async, {_logSyncReads} sync" +
                              (_logNear > 0 ? $"; candidates measured {_logNear} (covered {_logCovered}, own light {_logOnLight}, weak {_logWeak}, kind {_logKind})" : "") +
                              (_logUnmeasured > 0 && _logs < 40 ? $"; near but nothing drawn {_logUnmeasured}:{_logUnmeasuredSample}" : "") +
-                             (_logs < 40 && _selected.Count > 0 ? $"; selected now: {string.Join(", ", _selected.Take(6).Select(e => $"{e.Kind} '{e.Name}' I {e.Smoothed * Settings.intensityScale:F1}"))}" : "") +
+                             (_logs < 40 && _selected.Count > 0 ? $"; selected now: {string.Join(", ", _selected.Take(6).Select(e => $"{e.Kind} '{(e.Go != null ? PathOf(e.Go.transform) : "destroyed")}'/'{e.Name}' I {e.Smoothed * Settings.intensityScale * (e.Flame && e.Kind == Kind.Sprite ? Mathf.Max(0f, Settings.flameVirtualGain) : 1f):F1} hue ({e.Hue.r:F2}, {e.Hue.g:F2}, {e.Hue.b:F2}) r {e.Radius:F1}{(e.PSize > 0f ? $" size {e.PSize:F2} n {(e.PS != null ? e.PS.particleCount : 0)}" : "")}"))}" : "") +
                              (_logs < 40 && _flickers.Count > 0 ? $"; flicker now: {string.Join(", ", _flickers.Take(8).Select(e => $"{e.Kind} '{(e.Go != null ? PathOf(e.Go.transform) : "destroyed")}'/'{e.Name}' r {e.Radius:F2} -> light '{(e.CoverLight != null ? PathOf(e.CoverLight.transform) : "-")}'{(e.CoverLight != null ? $" I {e.CoverLight.intensity:F1} range {e.CoverLight.range:F1} {(e.CoverLight.transform.position - e.Pos).magnitude:F2} m" : "")}"))}" : ""));
                 _logs++;
                 _cpuMs = 0; _logFrames = 0; _logAppended = 0; _logVirtual = 0; _logMaxVirtual = 0; _logFlicker = 0;
@@ -893,6 +949,14 @@ namespace UltraRT
                     int n = e.PS.particleCount;
                     if (n == 0) { e.Strength = 0f; return false; }
                     fill = 1f - Mathf.Exp(-n * 0.25f);
+                    // Coverage: a few small sparkles spread over a big volume are not a lamp at its centre (4-4's gold dust,
+                    // 60 glints over 10 m, lit the hallway and the gun white; docs/emissive-lights.md, "Sparse particles").
+                    float cov0 = Settings.particleCoverage;
+                    if (cov0 > 0f && e.PSize > 0f)
+                    {
+                        float br = e.R.bounds.extents.magnitude;
+                        if (br > 1e-3f) fill *= Mathf.Clamp01(n * e.PSize * e.PSize / (Mathf.PI * br * br) / cov0);
+                    }
                     break;
                 }
                 case Kind.Line:
@@ -915,19 +979,37 @@ namespace UltraRT
                     else if (e.LastSprite.r >= 0f) a = e.LastSprite;
                     else { e.Strength = 0f; return false; }
                     var c = e.SR.color;
-                    col = new Color(col.r * a.r * c.r * c.a, col.g * a.g * c.g * c.a, col.b * a.b * c.b * c.a, 1f);
-                    // Flames animate with AnimatedTexture, which swaps _MainTex frames through a property block.
+                    bool once = Settings.spriteColourOnce;
+                    // Base already holds the material's texture average and the sprite colour at collection; a sprite
+                    // draws its own texture instead, so with spriteColourOnce only the tint is kept from it.
+                    var baseCol = once ? e.Tint : col;
+                    col = new Color(baseCol.r * a.r * c.r * c.a, baseCol.g * a.g * c.g * c.a, baseCol.b * a.b * c.b * c.a, 1f);
+                    // Flames animate with AnimatedTexture, which swaps _MainTex frames through a property block. A
+                    // SpriteRenderer also puts its own sprite's texture (the whole sheet) there: that is the rectangle
+                    // average above again, not a frame.
                     e.R.GetPropertyBlock(_mpb);
+                    Texture frameTex = null;
                     if (!_mpb.isEmpty)
                     {
                         var frame = _mpb.GetTexture(MainTexId);
-                        if (frame != null)
+                        if (frame != null && !(once && frame == sp.texture))
                         {
+                            frameTex = frame;
                             if (ReadAverage(frame, out var f)) e.LastFrame = f;
                             else if (e.LastFrame.r >= 0f) f = e.LastFrame;
                             else { e.Strength = 0f; return false; }
-                            col = new Color(col.r * f.r, col.g * f.g, col.b * f.b, 1f);
+                            // A swapped frame replaces the sprite's texture: its average stands in for the rectangle's.
+                            if (once) col = new Color(e.Tint.r * f.r * c.r * c.a, e.Tint.g * f.g * c.g * c.a, e.Tint.b * f.b * c.b * c.a, 1f);
+                            else col = new Color(col.r * f.r, col.g * f.g, col.b * f.b, 1f);
                         }
+                    }
+                    if (!e.ColourLogged && _colourLogged < 12)
+                    {
+                        e.ColourLogged = true;
+                        _colourLogged++;
+                        _log.LogInfo($"Effect lights: sprite colour '{PathOf(e.T)}' mat '{e.Name}': tint ({e.Tint.r:F2}, {e.Tint.g:F2}, {e.Tint.b:F2}), " +
+                                     $"sprite '{(sp.texture != null ? sp.texture.name : "-")}' rect average ({a.r:F3}, {a.g:F3}, {a.b:F3}), colour ({c.r:F2}, {c.g:F2}, {c.b:F2}, {c.a:F2}), " +
+                                     $"block texture '{(frameTex != null ? frameTex.name : "-")}', collected base ({e.Base.r:F3}, {e.Base.g:F3}, {e.Base.b:F3}) -> ({col.r:F3}, {col.g:F3}, {col.b:F3}){(once ? "" : " (spriteColourOnce off)")}");
                     }
                     break;
                 }
@@ -941,11 +1023,49 @@ namespace UltraRT
             // flame, where it burns on the floor, not at the middle of the billboard.
             bool big = b.extents.magnitude > MaxRadius * 2f;
             if (m <= 1e-5f || (big && (!e.Flame || b.extents.magnitude > MaxFlameExtent))) { e.Strength = 0f; return false; }
-            if (big) e.Pos = new Vector3(b.center.x, b.min.y + Mathf.Min(b.extents.y * 0.5f, 1.5f), b.center.z);
+            if (big) e.Pos = BigFlamePos(e, b);
             e.Hue = col * (1f / m);
             // A quad whose average (premultiplied) colour reaches 0.25 is a full-strength glow; flames cover about that much.
             e.Strength = Mathf.Clamp01(m * 4f) * fill;
             return true;
+        }
+
+        private int _baseLogged;
+        private const int FlameSurfaceMask = (1 << 0) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 24); // Default, baked, Environment, Outdoors
+
+        /// <summary>
+        /// Where an oversized flame's light goes: 1 m over the surface it burns on. The
+        /// gasoline fire's FireSimple flames (BurningVoxel, x4 under the stain's voxel) are camera-facing billboards whose
+        /// bounds reach well below the floor when seen from above; "1.5 m over the bounds' bottom" (2026-11-21) put their
+        /// lights 0.4 m under 4-4's corridor floor, which shadowed the room from them (2026-11-22, docs/emissive-lights.md,
+        /// "Player-made fire, second pass"). The surface is the first hit of a ray
+        /// down from 0.75 m over the flame's root object against level geometry, cached for 30 frames; without a hit, the old
+        /// placement.
+        /// </summary>
+        private Vector3 BigFlamePos(Emitter e, Bounds b)
+        {
+            float fallback = b.min.y + Mathf.Min(b.extents.y * 0.5f, 1.5f);
+            if (_frame - e.BaseFrame > 30)
+            {
+                e.BaseFrame = _frame;
+                e.Surface = new Vector3(float.NaN, 0f, 0f);
+                // The flame's root ('FireSimple(Clone)', two levels up from the sprite) sits where it burns.
+                var t = e.T;
+                var anchor = t.parent != null && t.parent.parent != null ? t.parent.parent.position : t.position;
+                // From just above the anchor (not from high up: under a low ceiling that would find the ceiling's top).
+                var from = new Vector3(anchor.x, anchor.y + 0.75f, anchor.z);
+                if (Physics.Raycast(from, Vector3.down, out var hit, 3f, FlameSurfaceMask, QueryTriggerInteraction.Ignore))
+                    e.Surface = hit.point;
+                if (!e.BaseLogged && _baseLogged < 6)
+                {
+                    e.BaseLogged = true;
+                    _baseLogged++;
+                    _log.LogInfo($"Effect lights: oversized flame '{PathOf(e.T)}': bounds y {b.min.y:F2}..{b.max.y:F2}, anchor y {anchor.y:F2}, " +
+                                 $"surface {(float.IsNaN(e.Surface.x) ? "none" : $"y {e.Surface.y:F2} ('{hit.collider.name}')")} -> light y {(float.IsNaN(e.Surface.x) ? fallback : e.Surface.y + 1f):F2} (bounds rule: {fallback:F2})");
+                }
+            }
+            if (float.IsNaN(e.Surface.x) || !Settings.flameOnSurface) return new Vector3(b.center.x, fallback, b.center.z);
+            return new Vector3(e.Surface.x, Mathf.Min(e.Surface.y + 1f, b.max.y), e.Surface.z);
         }
 
         /// <summary>The nearest active game light (not virtual) within reach of the emitter, from this frame's packed list.</summary>

@@ -43,6 +43,11 @@ static bool g_RefLights = false;
 #ifndef ULTRART_LIGHT_LAYER_TEST
 #define ULTRART_LIGHT_LAYER_TEST(m, layer) ((((m) >> (layer)) & 1u) != 0u)
 #endif
+// The same test by light index (a shader that needs more than the mask defines it: Viewmodel.raytrace, the player's own
+// lights on the gun).
+#ifndef ULTRART_LIGHT_LAYER_TEST_I
+#define ULTRART_LIGHT_LAYER_TEST_I(i, layer) ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer)
+#endif
 #ifdef ULTRART_LIGHT_ISOTROPIC
 // ParticleLight.raytrace (docs/particles.md): lights are evaluated at points in the air, facing every light (no cosine,
 // no layer); a light counts if its culling mask has any of these layers (the ones effects live on).
@@ -691,7 +696,7 @@ bool LightEval(uint i, float3 p, float3 n, uint layer, out float3 L, out float d
 #ifdef ULTRART_LIGHT_ISOTROPIC
     if ((_LightMasks[i] & _LightIsoMask) == 0u) return false;
 #else
-    if (!ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer)) return false;
+    if (!ULTRART_LIGHT_LAYER_TEST_I(i, layer)) return false;
 #endif
     float4 l0 = _Lights[i * 4], l3 = _Lights[i * 4 + 3];
     bool lit = LightEvalRaw(l0, _Lights[i * 4 + 1], _Lights[i * 4 + 2], l3, p, n, L, dist, c);

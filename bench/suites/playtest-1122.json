@@ -1,0 +1,140 @@
+{
+ "Name": "playtest-1122",
+ "Note": "User playtest 2026-11-22 (poses.jsonl 153-156), t3/fix-lighting-reflection-findings: 0-5 pose 1 (lava and the MetalHigh wall: spec-params, refl-raw, reflections off); 4-4 pose 1 (the gun in the lamp-lit gold hallway: V1's eye light and the gold-dust glints, old behaviour as variants); a gasoline fire in 4-4's corridor (old flame colour, placement and gain as a variant; one level load per variant, since the fire grows); 7-2 poses 1 and 2 (pose 2: the Forgotten Archive, reached through u1122-7-2-2-tp.json, the route without the arena the user started and left by teleporting; the player's light and the sky as variants). docs/reflections.md '0-5: does the metal reflect the lava?', docs/viewmodel.md 'The eye light', docs/emissive-lights.md 'Player-made fire, second pass' and 'Sparse particles', docs/lighting-overrides.md '7-2's Forgotten Archive (open)'.",
+ "Scenarios": [
+  {
+   "Name": "0-5 pose 1",
+   "Scene": "Level 0-5",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1122-0-5-1.json",
+    "Duration": 3
+   },
+   "Weapon": 1,
+   "Modes": [
+    "off",
+    "pathtrace",
+    "spec-params",
+    "refl-raw",
+    "pathtrace+refl=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "4-4 pose 1",
+   "Scene": "Level 4-4",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1122-4-4-1.json",
+    "Duration": 3
+   },
+   "Weapon": 1,
+   "Modes": [
+    "off",
+    "pathtrace",
+    "pathtrace+plugin._vmPlayerLayer13=0+fx.particleCoverage=0",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "4-4 gasoline fire",
+   "Scene": "Level 4-4",
+   "FreshLoad": true,
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1120-4-4-1.json",
+    "Duration": 6
+   },
+   "Effects": {
+    "Kinds": [
+     "gasignite"
+    ],
+    "PeriodicKinds": [
+     "gasoline"
+    ],
+    "Every": 2,
+    "ShotDelay": 1.0,
+    "Distance": 7
+   },
+   "Modes": [
+    "off",
+    "pathtrace"
+   ],
+   "Screenshots": [
+    5.5
+   ]
+  },
+  {
+   "Name": "4-4 gasoline fire before",
+   "Scene": "Level 4-4",
+   "FreshLoad": true,
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1120-4-4-1.json",
+    "Duration": 6
+   },
+   "Effects": {
+    "Kinds": [
+     "gasignite"
+    ],
+    "PeriodicKinds": [
+     "gasoline"
+    ],
+    "Every": 2,
+    "ShotDelay": 1.0,
+    "Distance": 7
+   },
+   "Modes": [
+    "off",
+    "pathtrace+fx.spriteColourOnce=0+fx.flameOnSurface=0+fx.flameVirtualGain=6"
+   ],
+   "Screenshots": [
+    5.5
+   ]
+  },
+  {
+   "Name": "7-2 pose 1",
+   "Scene": "Level 7-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1122-7-2-1.json",
+    "Duration": 3
+   },
+   "Weapon": 1,
+   "Modes": [
+    "off",
+    "pathtrace",
+    "relight"
+   ],
+   "Screenshots": [
+    2
+   ]
+  },
+  {
+   "Name": "7-2 pose 2",
+   "Scene": "Level 7-2",
+   "Path": {
+    "Type": "static",
+    "Approach": "../recordings/u1122-7-2-2-tp.json",
+    "Load": "checkpoint",
+    "Duration": 3
+   },
+   "Weapon": 1,
+   "Modes": [
+    "off",
+    "pathtrace",
+    "relight",
+    "pathtrace+lc.class.player=0",
+    "pathtrace+plugin._skyGI=0"
+   ],
+   "Screenshots": [
+    2
+   ]
+  }
+ ]
+}

@@ -104,6 +104,12 @@ float3 ReflectionDirection(float3 n, float3 dir, float roughness, inout uint rng
 // (so the sun reaches it outdoors; RT shadows keep it out indoors). Plugin.Viewmodel.cs builds the mask.
 #define ULTRART_VM_LAYER 32u // "layer" of viewmodel surfaces; bounce and reflection hits keep their own layer
 #define ULTRART_LIGHT_LAYER_TEST(m, layer) ((layer) >= ULTRART_VM_LAYER ? (((m) & _VMLightMask) != 0u) : ((((m) >> (layer)) & 1u) != 0u))
+// The player's own lights (player-light flag 1) follow the game's own choice for the gun: layer 13 or nothing. The eye light
+// (Player/Point Light, white, 0.5, range 15) leaves layer 13 out, so the game never lights its gun with it; through the
+// ground layer it lit the RT gun white everywhere, the brightest light on it in dim rooms, which turned 4-4's lamp-lit gun
+// grey (docs/viewmodel.md, "The eye light"). _VMPlayerLayer13 0 = before (2026-11-22).
+uint _VMPlayerLayer13;
+#define ULTRART_LIGHT_LAYER_TEST_I(i, layer) ((layer) >= ULTRART_VM_LAYER && _VMPlayerLayer13 != 0u && LightPlayerFlag(_Lights[(i) * 4 + 1].w) > 0.75     ? (((_LightMasks[i] >> 13) & 1u) != 0u) : ULTRART_LIGHT_LAYER_TEST(_LightMasks[i], layer))
 // The player's own lights (flashlight, eye light, muzzle flashes, a held torch: the player-light flag) shade the gun like
 // the game's gamma-space Lambert (docs/viewmodel.md, "Player lights on the gun"). With linear transport the composite
 // shows lighting^(1/2.2), so a plain cosine became cos^0.45 on screen; a light carried behind the view (7-3's flashlight)

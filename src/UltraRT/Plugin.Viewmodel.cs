@@ -44,6 +44,11 @@ namespace UltraRT
         private int _vmAtrous = 3;         // a-trous iterations (0-3: steps 1, 2, 4)
         private float _vmDepthTol = 0.03f; // composite: |game depth - ours| tolerance, fraction of the depth (+ 5 mm)
         private int _vmLightMask;          // 0 = auto (layer 13 | the layer under the player)
+        /// <summary>The player's own lights (eye light, flashlight, muzzle flashes, a held torch) light the gun only when the
+        /// game does: their culling mask includes layer 13. The eye light leaves 13 out; through the ground-layer bit of the
+        /// mask it lit the RT gun white in every room (4-4's lamp-lit gold hall: a grey gun; docs/viewmodel.md, "The eye
+        /// light"). False = before 2026-11-22; bench plugin._vmPlayerLayer13=0.</summary>
+        private bool _vmPlayerLayer13 = true;
         private bool _vmFullScreen;        // dispatch over the whole screen instead of the viewmodel's rectangle
         private bool _vmCheckerboard = true; // trace half the half-res pixels per frame (alternating); the filter fills the rest
         private int _vmRayTest = 0;            // measurement only: 1 = dispatch a single ray-gen thread (fixed cost of the dispatch)
@@ -593,6 +598,7 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(rt, "_VMRect", new Vector4(hx, hy, w, h));
             cmd.SetRayTracingFloatParam(rt, "_VMStamp", stamp);
             cmd.SetRayTracingIntParam(rt, "_VMLightMask", ViewmodelLightMask(hud));
+            cmd.SetRayTracingIntParam(rt, "_VMPlayerLayer13", _vmPlayerLayer13 ? 1 : 0);
             cmd.SetRayTracingIntParam(rt, "_VMDirectSamples", Mathf.Clamp(_vmSamples, 1, 4));
             cmd.SetRayTracingIntParam(rt, "_VMCheckerboard", _vmCheckerboard ? 1 : 0);
             cmd.SetRayTracingIntParam(rt, "_VMStableRefl", _vmStableRefl ? 1 : 0);
@@ -907,6 +913,8 @@ namespace UltraRT
                 uint m = _lightMasks[i];
                 if ((m & (uint)vmMask) == 0u) continue;
                 var l0 = _lightData[i * 4]; var l1 = _lightData[i * 4 + 1]; var l2 = _lightData[i * 4 + 2]; var l3 = _lightData[i * 4 + 3];
+                bool own = l1.w - 2f * Mathf.Floor(l1.w * 0.5f) > 0.75f; // the player-light flag, as LightPlayerFlag
+                if (_vmPlayerLayer13 && own && ((m >> 13) & 1u) == 0u) continue; // as Viewmodel.raytrace: not on the gun
                 float game = 1f, d = 0f, cone = 1f;
                 if (l0.w != 0f)
                 {
@@ -922,7 +930,7 @@ namespace UltraRT
                 var l = _packedLights[i];
                 string name = !ReferenceEquals(l, null) && l != null ? Bench.GameControl.PathOf(l.transform) + $" [{l.type}, angle {(l.type == LightType.Spot ? l.spotAngle : 0f):F0}]" : "(virtual)";
                 rows.Add(new KeyValuePair<float, string>(s, $"{name}: colour x intensity {l1.x:F2},{l1.y:F2},{l1.z:F2} range {l0.w:F1} dist {d:F2} " +
-                    $"game falloff {game:F2} cone {cone:F2} mask 0x{m:X8}{(((m >> 13) & 1u) != 0u ? " (lights layer 13)" : "")} player {(l1.w > 0.5f ? 1 : 0)} fill {l3.z:F2}"));
+                    $"game falloff {game:F2} cone {cone:F2} mask 0x{m:X8}{(((m >> 13) & 1u) != 0u ? " (lights layer 13)" : "")} player {(own ? 1 : 0)} fill {l3.z:F2}"));
             }
             if (rows.Count == 0) return;
             _vmLightLogs++;
