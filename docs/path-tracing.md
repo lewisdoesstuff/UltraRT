@@ -461,6 +461,10 @@ the fog range, darker where the stain is wet (BloodWet.cs's birth times).
   game's decal can't reach (its depth there is the portal's plane). The grid also keeps the stains near the camera's
   portal images (`_StainViews`, up to 8), and the fade goes by the ray's whole path length. `wet.stainPortals`
   (`-ultrart-stain-portals on|off`); the grid is built when either use is on.
+- **Emission takes the tint too** (since 2026-11-22, docs/portals.md section 22). The game's composite multiplies the
+  finished pixel, glow included, so a stain on a glowing ceiling panel is deep red. The tint used to go on the albedo
+  alone, which left glowing surfaces behind a portal or in a reflection pale pink under a stain. Bench A/B
+  `wet.stainEmission=0` (albedo only, the old behaviour).
 - Cost (0-1 metal with stains spawned, `bench/results/20261115-021448_pt2-perf`): relight +0.13 ms GPU, pathtrace
   +0.33 ms, CPU +0.06 ms.
 - `wet.stainReflections` (settings menu "Blood stains in reflections", `-ultrart-stain-reflections on|off`);

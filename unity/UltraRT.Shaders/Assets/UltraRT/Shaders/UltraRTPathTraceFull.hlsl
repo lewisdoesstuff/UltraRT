@@ -133,16 +133,19 @@ float3 PtPath(RayDesc r, bool specular, float3 nPrev, float effectW, float2 cone
         if ((last || wide) && cacheTail) tail = CacheQueryTotal(hp, hn, light); // not && (no short-circuit in HLSL 2018)
         if (tail) last = true;
 
+        // Seen along a specular segment (a reflection): the game's blood stains, which only its camera view draws. Its
+        // composite multiplies the whole pixel, so the emission takes the tint too.
+        float3 stainTint = 1.0;
+        if (specular) stainTint = StainTint(hp, hn); // not ?: (both sides run in HLSL 2018)
+
         // Emitters the light sampling covers must not count again when a cosine bounce hits them.
-        float3 emTerm = ToLight(PayloadEmission(h) * (_EmissionScale * (specular ? 1.0 : _EmissiveBounceWeight)));
+        float3 emTerm = ToLight(PayloadEmission(h) * StainEmissionTint(stainTint) * (_EmissionScale * (specular ? 1.0 : _EmissiveBounceWeight)));
         L += T * emTerm;
 
         // The surface: a diffuse part (albedo x keep) and, on glossy and REFLECTION materials, the specular lobe the
         // composite adds at primary hits. The last vertex is all diffuse: its lobe would need one more segment.
         SurfaceMaterial mat = MaterialFromPayload(h.material, h.flags);
-        // Seen along a specular segment (a reflection): the game's blood stains, which only its camera view draws.
-        float3 albedo = h.albedo;
-        if (specular) albedo *= StainTint(hp, hn); // not ?: (both sides run in HLSL 2018)
+        float3 albedo = h.albedo * stainTint;
         float3 specW = 0;
         float keep = 1.0;
         if (specLobes && !last && mat.mode != ULTRART_REFL_NONE)

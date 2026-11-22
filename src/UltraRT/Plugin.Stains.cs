@@ -71,7 +71,7 @@ namespace UltraRT
             Vector2 fog = StainFade();
             _cmd.SetRayTracingVectorParam(shader, "_StainParams", new Vector4(on ? (s.stainDebug ? 2f : 1f) : 0f, s.blood ? Mathf.Clamp01(s.bloodDarken) : 0f, fog.x, fog.y));
             _cmd.SetRayTracingVectorParam(shader, "_StainCamPos", _camera.transform.position);
-            _cmd.SetRayTracingVectorParam(shader, "_StainModes", new Vector4(s.stainReflections ? 1f : 0f, portals ? 1f : 0f, 0f, 0f));
+            _cmd.SetRayTracingVectorParam(shader, "_StainModes", new Vector4(s.stainReflections ? 1f : 0f, portals ? 1f : 0f, s.stainEmission ? 1f : 0f, 0f));
         }
 
         /// <summary>The distances over which the game's stains fade (its composite: the fog's start and end).</summary>
