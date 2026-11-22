@@ -869,6 +869,7 @@ namespace UltraRT
                         d.RootWorld = w;
                         if (flipped)
                         {
+                            TraceSkin("mirror re-add", d);
                             Rtas.RemoveInstance(d.Proxy);
                             Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
                         }
@@ -939,6 +940,24 @@ namespace UltraRT
 
         /// <summary>-ultrart-trace-proxies &lt;text&gt;: log every RTAS add/remove of dynamic proxies whose path contains it.</summary>
         public static string TraceFilter;
+
+        /// <summary>-ultrart-trace-skinned: log every RTAS add/remove of skinned proxies (renderer, mesh, mode, flags).</summary>
+        public static bool TraceSkinned;
+
+        private void TraceSkin(string what, DynamicProxy d)
+        {
+            if (!TraceSkinned || ReferenceEquals(d.SkinnedProxy, null)) return;
+            try
+            {
+                var p = d.SkinnedProxy;
+                bool alive = p != null;
+                var m = alive ? p.sharedMesh : null;
+                _log.LogInfo($"SkinTrace f{Time.frameCount} {what} r{p.GetInstanceID()} alive {alive} mode {(alive ? p.rayTracingMode.ToString() : "-")} " +
+                             $"mesh {(m != null ? $"{m.GetInstanceID()} '{m.name}' v{m.vertexCount} sub{m.subMeshCount}" : "null")} " +
+                             $"flags [{(d.Flags != null ? string.Join(",", d.Flags) : "-")}] src '{(d.Source != null ? GameControlPath(d.Source.transform) : "null")}'");
+            }
+            catch (Exception e) { _log.LogInfo($"SkinTrace f{Time.frameCount} {what}: {e.Message}"); }
+        }
 
         /// <summary>
         /// New rigid instances are removed and added again <see cref="NewInstanceReAddDelay"/> frames after their first
@@ -1011,6 +1030,7 @@ namespace UltraRT
             }
             if (!d.PoseSettling || Time.frameCount - d.PoseChangedFrame < SettleFrames) return;
             d.PoseSettling = false;
+            TraceSkin("settle re-add", d);
             Rtas.RemoveInstance(d.Proxy);
             Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
             SkinnedSettleReAdds++;
@@ -1066,6 +1086,7 @@ namespace UltraRT
                              $"source visible {d.Source.isVisible}, mesh {(d.Proxy != null && d.Proxy.GetComponent<MeshFilter>() is MeshFilter tmf && tmf.sharedMesh != null ? tmf.sharedMesh.GetInstanceID().ToString() : "-")}");
             if (visible)
             {
+                TraceSkin("add", d);
                 Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
                 QueueReAdd(d); // first add of a rigid instance: add it again in 2 frames (NewInstanceReAdd)
                 d.SourceTransform.hasChanged = false;
@@ -1084,6 +1105,7 @@ namespace UltraRT
             }
             else
             {
+                TraceSkin(d.Proxy != null ? "remove" : "remove (proxy destroyed: not removed)", d);
                 if (d.Proxy != null) Rtas.RemoveInstance(d.Proxy);
                 _active.Remove(d);
                 CountTransparent(d, false);

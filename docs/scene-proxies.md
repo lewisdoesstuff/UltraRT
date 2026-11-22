@@ -472,6 +472,72 @@ by the far plane's `w` and are unchanged. The log line warns when far / near is 
 third-person level: what is on screen comes from the level's own follow camera, not `Player/Main Camera`, which the
 trace attaches to. Not changed here.
 
+## Native crash in the BLAS cache (6-1, 2026-11-22, `t3/fix-6-1-small-room-crash`)
+
+User report: a hard crash walking through the first door of 6-1 into `Interiors/2 - Small Room` (master `d42dd0c`,
+main install, `-force-d3d12 -force-gfx-jobs legacy`, about 35 minutes into a session across several levels, RT toggled
+off and on with F7 shortly before). Player.log stops right after the room's `BoxCollider does not support negative
+scale` warnings, the frame the room switches on (its Swordsmachine and Malicious Face spiders spawn with it).
+
+**What crashed** (`Crashes\Crash_2026-11-22_003743910\crash.dmp`, read with Unity's public symbols for this
+UnityPlayer.dll, `UnityPlayer_Win64_player_mono_x64.pdb` from symbolserver.unity3d.com, and a disassembler):
+- `EXCEPTION_ACCESS_VIOLATION` reading address `0x60` on the render thread (`UnityGfxDeviceWorker`) at
+  `BufferD3D12::AccessBuffer+0x6` (`mov rbx,[rcx+0x60]` with `rcx` = null), called from
+  `GfxDeviceD3D12::AllocBottomLevelRayTracingAccelerationStructure` <- `BuildBottomLevelAccelerationStructures` <-
+  `BuildRayTracingAccelerationStructure` <- `GfxDeviceWorker::RunCommand`. Our code is not on the stack; the main thread
+  was waiting for the next frame.
+- Unity keeps a cache of bottom-level structures (`GfxDeviceD3D12::RayTracingHeap`, a `Hash128` map): a BLAS's result
+  buffer under its geometry key K (hash of the mesh's instance ID, the renderer's ID for `DynamicGeometry`, and the
+  submesh flags), and its scratch buffer under `SpookyHash(K, 1)`. When a dirty mesh geometry (new, or
+  `DynamicGeometry`) or a skinned one is built, the cached path takes the result if K is in the map and big enough,
+  then looks the scratch up. If the scratch is not in the map, it stores a null buffer in the build's scratch slot
+  and passes it on: the crash. Unity's own find-or-create call for the scratch sits right after that branch and is
+  only used by the uncached path. The dump's stack still holds the slot (`{null, derive 1, cached 1}`) and the
+  derived key.
+- How the map got a result without its scratch is not settled. In every path traced through the disassembly the two
+  are created together (`FindOrCreateResource`) and deleted together (`DeleteResource` deletes the scratch with the
+  result), and all of it runs on the one render thread. A diagnostic in the native build hook
+  (`AS build threads` in the `Lit particles` log line: thread IDs and BLAS/TLAS build counts, overlaps) showed every
+  acceleration-structure build on one thread with no overlap in the bench runs below. So the state comes from some
+  sequence of Unity's own that the bench did not hit: two real-time replays of the same route through the room
+  (`unlit-6-1-ghost`, enemies alive, pathtrace) did not crash.
+
+**Fix: close the hole in Unity's code** (`native/UltraRT.Native/BlasPatch.cpp`, `src/UltraRT/UnityBlasPatch.cs`).
+At plugin start, before any acceleration structure exists, the native DLL finds the function's bytes in
+UnityPlayer.dll by signature and changes three branches in memory (RVAs of 2022.3.29f1):
+1. `0x9932CB`: the skinned refit path (taken when the skinned BLAS's key is cached) has the same hole and no fallback;
+   it now always goes to the lookup path, which does the same two lookups plus a size check. The build flags are
+   chosen before this branch, so a skinned BLAS is still refit.
+2. and 3. `0x9935B5`, `0x9935E1`: a scratch key missing from the map goes to Unity's `FindOrCreateResource` call
+   (`0x993602`), which creates the scratch, maps it under its key, and the build goes on as on a first build.
+
+With the bytes as expected, the log says `BLAS scratch guard: patched UnityPlayer+0x9932CB (refit path -> lookup path)
+and +0x9935B5/+0x9935E1 (missing scratch -> FindOrCreateResource)`. Any other UnityPlayer.dll (a game update) gets
+`NOT APPLIED: signature 1 found 0 times ...` and runs unpatched. Before writing, the code checks that each signature
+matches exactly once and that the jumps land on the expected instructions. `-ultrart-noblaspatch` leaves the code
+alone. The patch only changes what happens in the state that used to crash. Normal builds take the same lookups and
+calls as before; the one difference is that a skinned refit now also checks the cached result's size.
+
+**Diagnostics kept:** `-ultrart-trace-skinned` logs every RTAS add, remove and re-add of a skinned proxy (frame,
+renderer and mesh instance IDs, ray tracing mode, submesh flags, source path); the `AS build threads` field is
+described above.
+
+**Verification (2026-11-22, alt, RTX 5070 Ti, 1440p, trace scale 0.5).** Two runs without the patch
+(`bench/results/20261122-010211_*`, `20261122-010933_*`) replayed the walk through the Small Room with enemies alive
+and did not crash, so the bench never reproduced the crash. The fix cannot be shown to stop a crash the bench cannot
+trigger. What the patched run (`20261122-012114_tmp-crash-6-1_alt`, three scenarios) shows is that the patch is
+harmless:
+- The log has the `patched ...` line above. The game log has no errors or exceptions. All builds ran on one thread
+  with no overlaps.
+- The 6-1 walk through the Small Room (pathtrace) took 8.59 ms on average (8.69 ms in the unpatched run 2). The
+  room pose took 2.85 ms off and 7.40 ms in pathtrace. In the 0-2 run with live enemies (pathtrace, the most
+  skinned refits), frames averaged 14.1 ms.
+- The screenshots (`final` and `_raw` against `off`) look as before. Skinned enemies in the 0-2 combat `_raw` are
+  traced and posed correctly, so refits now going through the lookup path still update the BLAS.
+
+The missing-scratch branch (patches 2 and 3) has never run in a test, because nothing so far reproduces the state
+that crashed.
+
 ## Logs
 
 - `Static activation groups: level L (...), G groups, I part instances, R records (budget B; by level a/b/c/d/e), W watchers (mode), T toggle targets, S sources, F tiny groups folded, ...`, followed by the 8 largest groups.
@@ -481,6 +547,7 @@ trace attaches to. Not changed here.
   proxies) and, outside tours, `rtas probe:` lines (dynamic RTAS instances with a non-finite transform or bounds, and
   the 12 largest).
 - `Shader-table hit records (enabled submeshes): N (static x of y in i/j group instances, dynamic ...)`.
+- `BLAS scratch guard: patched ...` (or `NOT APPLIED: <reason>`), once at plugin start ("Native crash in the BLAS cache").
 - Every 600 frames, if anything happened: `Static activation (level L): instances and records in the RTAS; watcher flips, source flips, add/remove, partial builds (ms), cached partials, deferred, late sources`.
 - The first 12 partial builds individually: `Partial group mesh ...`.
 - `Room clone 'X': N behaviours scanned for toggle points in ms, +S late static sources and R renderers queued in ms`.
@@ -494,6 +561,8 @@ trace attaches to. Not changed here.
 - `SceneProxies.StaticRecordBudget` (`-ultrart-static-budget N`): the record budget.
 - `SceneProxies.SkinnedSettleReAdd = true` (`-ultrart-nosettle-readd`): re-add a skinned instance once its pose settles ("Posed mannequins").
 - `SceneProxies.SkinProbeFilter` (`-ultrart-skin-probe <text>`): at bench screenshots, the matching skinned renderers and their game / proxy skinned vertex buffers (current and previous) as boxes.
+- `UnityBlasPatch.Enabled = true` (`-ultrart-noblaspatch`): the BLAS scratch guard in UnityPlayer.dll ("Native crash in the BLAS cache").
+- `SceneProxies.TraceSkinned` (`-ultrart-trace-skinned`): log every RTAS add / remove / re-add of a skinned proxy.
 
 ## Runtime material changes
 
