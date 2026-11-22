@@ -330,8 +330,10 @@ intensity, hue and size):
 Measured (alt, 2560x1440, `pathtrace`, one fresh level load per variant, run `20261122-010435_tmp-flm-d`): the game 33.3,
 the light at the old placement 46.7, on the surface **81.2**. The corridor's walls, floor and the gun take a warm orange
 from the fire, brightest next to it, where they stayed dark green before. Variants on run `20261122-005752_tmp-flm-c_alt`
-(old placement, so all dark): old colour and gain 6: 50.6; new colour, gain 1.5: 48.5; gain 3: 45.0. Sheets:
-`bench/results/review/fix-lighting-reflection-findings/` (see the branch report).
+(old placement, so all dark): old colour and gain 6: 50.6; new colour, gain 1.5: 48.5; gain 3: 45.0. Sheet
+`4-4_gasoline_fire.png` (the game, the old placement, the new one) in
+`C:\Users\death\.t3\projects\ultrart\bench\results\review\fix-lighting-reflection-findings\`; suite
+`bench/suites/playtest-1122.json` ("4-4 gasoline fire" and "... before").
 
 Other sprites are affected by fault 2 too: any glowing sprite without a light of its own (most flames with a game light
 are covered or on their own light and get none) now gets its real colour and strength, up to `intensityScale` (4) as

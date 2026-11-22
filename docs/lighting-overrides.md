@@ -1894,3 +1894,46 @@ bench reached the recording's end, and the recording does not float above it. Th
 (`twoSided=False`, from the materials' `_CullMode`), so a face seen from behind is culled, as in the game. Open; next
 step: a recording that floats above the room at the moment the user saw it, with `-ultrart-viewprobe`, and whether the
 view was through one of Space's portals (then it is portal work).
+
+## 7-2's Forgotten Archive (open; playtest of 2026-11-22, `t3/fix-lighting-reflection-findings`)
+
+User, 7-2 pose 2 (`bench/recordings/u1122-7-2-2.json`, the end room: the "15 - Forgotten Archive" with its towers and
+the red exit door): "the lighting at the end of 7-2 feels strange". In the user's two screenshots the game shows dark
+towers fading into white fog over a dark grey floor; RT shows a bright white floor and an upper-left facade, with the
+towers' bases near black. Pose 1 (the white marble hall, `u1122-7-2-1.json`) looks right to the user and is unchanged by
+everything below (pathtrace 128.4 against 128.3, the game 151).
+
+**Reaching the pose (a trap).** The user teleported into the room (cheat menu), started its arena (`Arena Start`, 246.8 s
+into the route: the towers rise), and at 260.6 s teleported back to `Checkpoint (3)`, which resets the arena. The bench
+replays that second teleport as a camera cut, so every load (`approach-fast`, `approach` in real time, `checkpoint`,
+`areas`) left the arena running and a risen tower right in front of the camera. `u1122-7-2-2-tp.json` is the route
+without 237.9-260.6 s and that arena; with `"Load": "checkpoint"` it reaches the user's corridor view
+(`bench/suites/playtest-1122.json`, "7-2 pose 2").
+
+**What lights the room** (auto exposure stays at x1.0 in these runs, except where noted). The room is dark in the game:
+flat ambient 0.098, black fog, a room-sized white fill (`15 Nonstuff/Point Light`, 1, range 60) and the orange lights of
+the final room 100+ m away; the white haze towards the top is a game-drawn sprite box (`Ceiling/Cube`, `FadeToWhite`,
+Sprites/Default), drawn over the RT image in every mode.
+
+- In the arena state (a risen tower 1-2 m ahead, looking up; run `20261122-011452_tmp-flm-g_alt`), frame luma: the game
+  22.8, pathtrace 64.1, without V1's eye light (`lc.light.Player/Point=0`) 52.4, without the eye light and the sky
+  (`plugin._skyGI=0`) 34.5; the fill class and the archive's own lights change 0.6 and 3.4. Linear radiance on the
+  visible surfaces falls from 1.18 to 0.12 without the eye light: up close in this dark white-marble room V1's own
+  light is nearly all the light. The `FinalFrame` emitter rule (x4.5), the archive's emissive window wall
+  (`Marble_Window_Custom`, 6,400 m²) and leftover enemy-spawn lights change nothing (other views of the same state:
+  69.1 with the rule, 68.9 at x1, 69.2 at x0; 72.8 -> 72.3 without the windows' light, 71.6 without the spawn lights).
+- In the user's state (teleported, `u1122-7-2-2-tp.json`; run `20261122-012621_tmp-flm-i`) the corridor is close to the
+  game in SDR: frame luma 63.8 (game) / 57.8 (pathtrace) / 62.3 (relight); the eye light at x0.3 57.0, no level lights
+  55.8, no sky 48.8 (auto exposure x1.64 there: the sky's share is larger than the 9 points); relight at x1.08. The floor at the bottom centre: game 48, pathtrace 74, relight 82. The user's screenshots measure
+  44 (game) and 149 (RT) on the floor, a much bigger step than the bench's, and the game's own fog differs too (the
+  upper left of the frame: 25 in the user's game shot, 94 in the bench's): the user's room was not in the bench's state.
+- The user plays with HDR output on (`[Display] HDR = true`); bench screenshots are SDR, and the HDR capture
+  (`-ultrart-hdr-capture raw`) found no HDR display on 2026-11-22 (`HDR display: available=False`), so the HDR frame
+  could not be checked.
+
+Not changed: a `player` x0.5 policy for 7-2 (proposal layer) took the arena-state view from 71.7 to 57.8 but left the
+user's corridor view as it was (57.8 -> 58.4), so it is not shipped on this evidence. Next steps: the user's view in HDR
+(a bench run on the HDR display, `docs/hdr.md` "Verifying"), and the room's fog in the user's state (the arena's start
+may switch the game's fog, which the volumetrics and the composite follow). Sheets `7-2_pose_2_teleport_state.png` and
+`7-2_pose_2_arena_state_light_split.png` in
+`C:\Users\death\.t3\projects\ultrart\bench\results\review\fix-lighting-reflection-findings\`.

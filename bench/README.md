@@ -365,3 +365,8 @@ Collected from the look-and-perf handoff of 2026-11-18 (`docs/archive/handoff-20
   `HDR display: available=False active=False` when the slot's display is not in HDR; check that line before reading
   anything into an "HDR" run.
 - **Unity's log**: `Debug.Log` from the plugin does not reach `game.log`; use the BepInEx logger.
+- **Teleports in a route**: a cheat-menu teleport the user made is replayed as a camera cut, not as the game's teleport,
+  so what that teleport resets (an arena it left, its risen walls) stays as the route left it, with every load method.
+  Cut the stretch out of a copy of the route and load with `"Load": "checkpoint"` (7-2 pose 2 of 2026-11-22:
+  `recordings/u1122-7-2-2-tp.json`, docs/lighting-overrides.md "7-2's Forgotten Archive"). Look for jumps of hundreds of
+  metres between two samples.
