@@ -59,7 +59,7 @@ A command buffer on the HUD camera at **AfterForwardOpaque**: after the game dre
      - for skinned renderers (`Revolver_Body`, `RightArm`, `Feedbacker`, ...) also the bone animation: the vertex shader reads last frame's skinned position of the same vertex (`SV_VertexID` + the submesh's base vertex) from `_VMPrevVerts`, a copy of the renderer's skinned vertex buffer that a small kernel (`ViewmodelFilter.compute`, `CopyVerts`) makes right after the G-buffer draws. `SkinnedMeshRenderer.vertexBufferTarget` gets `Raw` so the buffer can be read. A renderer that was not drawn last frame (weapon switch) falls back to rigid motion for one frame. `plugin._vmSkinnedMotion=0` / `-ultrart-vm-skinned off` turns it off.
    - **Materials:** emission as in `SceneProxies.Proxy`, sampled at the main texture's uv (`uv0 × _MainTex_ST`, as the game's Master shader does; it used `_EmissiveTex_ST` on top until 2026-11-15). `ULTRAKILL/Master` without `VERTEX_LIGHTING` is fullbright (lit weight 0). Reflection parameters come from `MaterialClassifier` and go into a small buffer (`_VMMaterials`, 2 float4 per material).
 2. **Rays (half resolution, `Viewmodel.raytrace`).** Each half-res pixel takes the first covered pixel of its 2×2 block and lights the world point where the gun really is: camera position + the stored offset. Lighting is computed like a PathTrace primary hit:
-   - **Lights.** The lights that light the viewmodel are those whose culling mask includes layer 13 or the layer under the player. That layer comes from a 6 m physics raycast down; baked 6/7 map to 24/8. So the sun reaches the gun outdoors, and the RT shadow keeps it out indoors. `-ultrart-vm-lightmask HEX` overrides this.
+   - **Lights.** The lights that light the viewmodel are those whose culling mask includes layer 13 or the layer under the player. That layer comes from a 6 m physics raycast down; baked 6/7 map to 24/8. So the sun reaches the gun outdoors, and the RT shadow keeps it out indoors. `-ultrart-vm-lightmask HEX` overrides this. The player's own lights (player-light flag: the eye light, the flashlight, muzzle flashes, a held torch) are the exception since 2026-11-22: they light the gun only when their own mask includes layer 13, as in the game ("The eye light" in section 6).
    - **Direct light:** fill lights plus `_VMDirectSamples` (1) RIS samples over the light and emissive tables (`RisCandidates`), each with one shadow ray. The unshadowed sum (`_VMDirectOut`) feeds the filter's luma moments (it was also hybrid's ratio until 2026-11-19).
    - **Bounce:** one cosine ray, its hit lit from the radiance cache. A sky miss counts the full sky (`ULTRART_SKY_NO_NEE`: no separate sky sample).
    - **Reflection:** one ray on materials whose specular weight is worth it, using the same `SpecularTerms` and threshold as the world. By default it goes along the mirror direction (`_vmStableRefl`), with no GGX sample: stable, and the filter's blur stands in for roughness. The hit is shaded like PathTrace's reflections (cache by footprint, emission, sky).
@@ -103,6 +103,7 @@ A command buffer on the HUD camera at **AfterForwardOpaque**: after the game dre
 | `_vmDepthTol` | 0.03 | composite depth-match tolerance (fraction of depth + 5 mm) |
 | `_vmFullScreen` | false | dispatch over the whole screen (`-ultrart-vm-fullscreen`) |
 | `_vmLightMask` | 0 | 0 = automatic (13 + ground layer); `-ultrart-vm-lightmask HEX` |
+| `_vmPlayerLayer13` | true | the player's own lights reach the gun only through layer 13, as in the game (section 6, "The eye light"); false = before 2026-11-22 |
 | `_vmRayTest` | 0 | measurement only: 1 = a single ray-gen thread |
 
 Log lines: `Viewmodel RT attached to ...` (HUD camera settings), `Viewmodel renderers under Main Camera: ...` (every renderer and material with its class), `Viewmodel draws: ...` (whenever the drawn set changes, flagged `custom colours`), `Viewmodel skinned motion: ...` (once per skinned renderer: vertex count, bytes per vertex, position offset), every 20 s `Viewmodel RT: N draws ..., rect ..., light mask ...`, and every 2 s (10 at most, plus at every bench screenshot with effects) `Viewmodel lights at the camera`: the strongest lights reaching the gun, with distance, range, the game's falloff, spot cone, culling mask (whether the game lights its own gun with it: layer 13) and the player-light flag.
@@ -266,6 +267,48 @@ Mean / 90th percentile luma over the gun (game / pass off, i.e. the game's own g
 The red-room pose stays about 28 % above the game. That is RT bounce from the red walls and the flashlit floor, plus the
 hallway light (a level light, at relight's +0.49 EV local-light reference), which the game's ambient-free vertex lighting
 doesn't have.
+
+### The eye light (2026-11-22, `t3/fix-lighting-reflection-findings`)
+
+User, playtest of 2026-11-22, 4-4 pose 1 (`bench/recordings/u1122-4-4-1.json`, the gold hallway on the ground floor):
+"would we expect the gun to be better lit here? the sunlight is so strong". The game's gun there is gold-olive; the RT
+gun was a neutral grey with a pale blue arm (the user's alternate colours). It is not sunlight: the hallway is indoors,
+lit by an orange point light 4.3 m away (`3 - Ground Floor/Hallway/Decorations/Point Light`, 10, range 15) and the
+Sand Hall's spot; the 4-4 suns are off there (`enabled=False`).
+
+**Cause.** `Viewmodel lights at the camera` listed three lights on the gun: a white-ish virtual light from the hallway's
+gold-dust sparkles (1.29), the orange lamp (0.69) and **`Player/Point Light`**, V1's white eye light (0.5, distance 0,
+game falloff 1). The eye light's culling mask is `0x0FFFDFF7`: everything but layers 3, 13 and 28-31. The game leaves the
+gun (layer 13) out of it on purpose, but the RT mask is layer 13 *or the layer under the player* (here 8), so the eye light
+reached the gun through layer 8, at full strength, in every room of every level. In dim rooms it was the brightest light on
+the gun, and being white it greyed every coloured room light on it. The sparkle light was a separate fault (docs/emissive-lights.md,
+"Sparse particles"): it lit the hallway and the gun white as well.
+
+**Fix** (`Viewmodel.raytrace`, `ULTRART_LIGHT_LAYER_TEST_I` in `UltraRTLights.hlsl`, the light test by index; other shaders
+compile as before): a light with the player-light flag lights the gun only if its own mask has layer 13. The flashlight
+(7-3) includes 13 and is unchanged; a muzzle flash or held torch lights the gun if its game light does; the eye light is gone from the gun, as in the game. Level lights and
+the sun still use layer 13 or the ground layer. The log lists only the lights that reach the gun. `plugin._vmPlayerLayer13=0`
+(bench) gives the old test.
+
+Measured (alt install, 2560x1440, `pathtrace`, runs `20261122-005153_tmp-flm-b_alt` and `20261122-005752_tmp-flm-c_alt`):
+mean colour of the gun (rows 900-1300, columns 1350-1700) and of the arm (rows 1150-1400, columns 1600-1900):
+
+| Pose | game | before (both faults) | sparkles fixed, eye light not | both fixed |
+|---|---|---|---|---|
+| 4-4 pose 1, gun | (60, 36, 1) | (81, 56, 26) | (53, 30, 15) | **(50, 26, 3)** |
+| 4-4 pose 1, arm | (78, 62, 0) | (106, 96, 74) | (72, 55, 52) | **(66, 46, 6)** |
+
+The gun and arm now take the lamp's orange; the blue that came from the two white lights is gone (arm 74 -> 6, the
+game 0). Both are 10-15 % darker than the game's, which lights them at full strength with no falloff from its vertex
+lighting. Spot checks, luma over the gun's region (rows 900-1440, columns 1350-1900; game / before / after):
+
+| Pose | game | before | after |
+|---|---|---|---|
+| 1-1 start (sun) | 82.4 | 68.6 | 66.4 |
+| 0-1 metal (red room) | 26.6 | 32.0, a lilac arm | 21.4, red like the game |
+| 1-4 lamps (night) | 29.2 | 35.2 | 28.4 |
+
+Nothing blows out: the gun gets darker or stays the same everywhere, and in dim rooms it now takes the room's colour.
 
 ### Emission uv
 
