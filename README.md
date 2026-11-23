@@ -15,6 +15,8 @@ UltraRT is a [BepInEx](https://github.com/BepInEx/BepInEx) mod that adds hardwar
 
 | Vanilla | UltraRT (`pathtrace`) |
 |---|---|
+| ![4-4 Vanilla](assets/screenshots/4-4-before.jpg) | ![4-4 UltraRT](assets/screenshots/4-4-after.jpg) |
+| ![1-1 Vanilla](assets/screenshots/1-1-before.jpg) | ![1-1 UltraRT](assets/screenshots/1-1-after.jpg) |
 | ![8-2 Vanilla](assets/screenshots/8-2-before.jpg) | ![8-2 UltraRT](assets/screenshots/8-2-after.jpg) |
 | ![6-2 Vanilla](assets/screenshots/6-2-before.jpg) | ![6-2 UltraRT](assets/screenshots/6-2-after.jpg) |
 
