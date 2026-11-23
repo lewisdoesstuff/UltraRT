@@ -20,8 +20,6 @@ namespace UltraRT
         public float ripples = 1f;
         /// <summary>Largest tilt of the ripple normal, about radians (0.12 = 7 degrees; docs/vfx.md "Rain", 2026-11-20).</summary>
         public float rippleTilt = 0.12f;
-        /// <summary>Bench A/B (wet.ripplesOld=1): the ripples of 2026-11-15, which drew dark stamped rings on P-2's street.</summary>
-        public bool ripplesOld;
         /// <summary>Width of a puddle's edge in units of the puddle noise (0.12 = the hard outline of 2026-11-14).</summary>
         public float puddleEdge = 0.12f;
         /// <summary>A wetter margin around each puddle, this wide in noise units: the floor there is as wet as it gets
@@ -32,10 +30,8 @@ namespace UltraRT
         /// <summary>-ultrart-wet-soft on|off (bench wet.soft=0 for the old look): soft puddle edges with a wet margin and a glossier wet
         /// floor, in place of the four values above (docs/vfx.md, "Soft puddles"). On since the review of 2026-11-17.</summary>
         public bool soft = true;
-        /// <summary>Rain (drops, trails, wetness, puddles) on VERTEX_DISPLACEMENT surfaces is evaluated on their rest pose, as the
-        /// game's shader does, so it moves with the shifting surface (bench wet.restPose=0: at the displaced hit, before
-        /// 2026-11-20; docs/scene-proxies.md, "Rain on displaced surfaces").</summary>
-        public bool restPose = true;
+        // Rain (drops, trails, wetness, puddles) on VERTEX_DISPLACEMENT surfaces is evaluated on their rest pose, as the
+        // game's shader does, so it moves with the shifting surface (docs/scene-proxies.md, "Rain on displaced surfaces").
 
         /// <summary>Wet blood: fresh stains are glossy and darker, and dry to the game's matte look.</summary>
         public bool blood = true;
@@ -45,11 +41,9 @@ namespace UltraRT
         public float bloodWetness = 1f, bloodDarken = 0.3f;
         /// <summary>Gloss of fully wet blood: roughness, reflectance at normal incidence, specular weight.</summary>
         public float bloodRoughness = 0.12f, bloodF0 = 0.12f, bloodWeight = 1f;
-        /// <summary>Wet blood on surfaces the game moves with VERTEX_DISPLACEMENT (3-1 / 3-2 / P-1 flesh). Off: the game's stain
-        /// decal stays where it was stamped while the surface slides under it (vanilla does that too, as a flat tint), and a
-        /// glossy film there read as a layer that does not move with the flesh (docs/vfx.md, "Wet blood on moving
-        /// surfaces"). Bench wet.bloodOnDisplaced=1 is the behaviour before 2026-11-20.</summary>
-        public bool bloodOnDisplaced;
+        // No wet blood on surfaces the game moves with VERTEX_DISPLACEMENT (3-1 / 3-2 / P-1 flesh): the game's stain decal
+        // stays where it was stamped while the surface slides under it (vanilla does that too, as a flat tint), and a glossy
+        // film there read as a layer that does not move with the flesh (docs/vfx.md, "Wet blood on moving surfaces").
         /// <summary>At most this many of the newest stains are drawn into the wetness mask.</summary>
         public int bloodMaxStains = 4096;
         /// <summary>Bench A/B (wet.bloodFullRes=1): draw the wetness mask at full screen res instead of trace resolution.</summary>
@@ -60,10 +54,8 @@ namespace UltraRT
         /// through portals"): the game's decals only reach the main view's depth, which is the portal's plane there.
         /// Bench wet.stainPortals=0, flag -ultrart-stain-portals on|off.</summary>
         public bool stainPortals = true;
-        /// <summary>The stain tint also goes on the emission of the surface it covers, as the game's composite multiplies the
-        /// finished pixel (a stain on a glowing panel is deep red, not pale pink; docs/portals.md section 22). Bench A/B
-        /// wet.stainEmission=0 (albedo only, as before 2026-11-22).</summary>
-        public bool stainEmission = true;
+        // The stain tint also goes on the emission of the surface it covers, as the game's composite multiplies the finished
+        // pixel (a stain on a glowing panel is deep red, not pale pink; docs/portals.md section 22).
         /// <summary>Stains further than this from the camera (or its portal images) (m) are left out of the lookup.</summary>
         public float stainDistance = 80f;
         /// <summary>Debug (bench wet.stainDebug=1): stains found at reflection hits show bright green.</summary>
@@ -136,7 +128,7 @@ namespace UltraRT
             }
             _cmd.SetRayTracingTextureParam(shader, "_BloodWetTex", on ? (Texture)_bloodWet.Mask : Texture2D.blackTexture);
             _cmd.SetRayTracingVectorParam(shader, "_BloodWetParams", on ? new Vector4(Mathf.Clamp01(s.bloodWetness), _guardScale.x, _guardScale.y, Mathf.Clamp01(s.bloodDarken)) : Vector4.zero);
-            _cmd.SetRayTracingVectorParam(shader, "_BloodWetGloss", new Vector4(Mathf.Clamp(s.bloodRoughness, 0.02f, 1f), Mathf.Clamp01(s.bloodF0), Mathf.Clamp01(s.bloodWeight), s.bloodOnDisplaced ? 1f : 0f));
+            _cmd.SetRayTracingVectorParam(shader, "_BloodWetGloss", new Vector4(Mathf.Clamp(s.bloodRoughness, 0.02f, 1f), Mathf.Clamp01(s.bloodF0), Mathf.Clamp01(s.bloodWeight), 0f));
             if (on && Time.realtimeSinceStartup >= _bloodNextLog)
             {
                 _bloodNextLog = Time.realtimeSinceStartup + 10f;
@@ -158,13 +150,12 @@ namespace UltraRT
             Shader.SetGlobalVector(WetId, on
                 ? new Vector4(Mathf.Clamp01(s.rainWetness), Mathf.Clamp01(s.puddles), 1f / Mathf.Max(0.5f, s.puddleSize), Mathf.Max(0f, s.ripples))
                 : Vector4.zero);
-            Shader.SetGlobalFloat("_UltraRTTransAlpha", SceneProxies.Transparents.alphaTint ? 1f : 0f); // every frame, every mode
             // x puddle edge width, y wet margin width (noise units), z wet roughness, w wet specular weight.
             Shader.SetGlobalVector(Wet2Id, s.soft
                 ? new Vector4(0.4f, 0.3f, 0.15f, 1f)
                 : new Vector4(Mathf.Clamp(s.puddleEdge, 0.01f, 1f), Mathf.Clamp01(s.puddleMargin), Mathf.Clamp01(s.wetRoughness), Mathf.Clamp01(s.wetWeight)));
-            // x the 2026-11-15 ripples (A/B), y largest ripple tilt.
-            Shader.SetGlobalVector(Wet3Id, new Vector4(s.ripplesOld ? 1f : 0f, Mathf.Clamp(s.rippleTilt, 0f, 1f), s.restPose ? 1f : 0f, 0f));
+            // y largest ripple tilt.
+            Shader.SetGlobalVector(Wet3Id, new Vector4(0f, Mathf.Clamp(s.rippleTilt, 0f, 1f), 0f, 0f));
         }
     }
 }

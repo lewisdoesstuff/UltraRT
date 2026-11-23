@@ -47,7 +47,7 @@ Texture2D<float4> _GameColor;
 // (_UltraRTPortalOwn, docs/portals.md "Raster skip") the game's frame is empty behind a portal: no game match there.
 Texture2D<int2> _AEInstanceId;
 int _UltraRTPortalOwn;
-float4 _GameMap;  // xy: game uv = 0.5 + (trace uv - 0.5) * xy (the guard band); z: 1 = flip y; 0 = off
+float4 _GameMap;  // xy: game uv = 0.5 + (trace uv - 0.5) * xy (the guard band); 0 = off
 float4 _GameFog;  // x 1 = fog on, y mode (1 linear, 2 exp, 3 exp2), z start (linear) or density, w end
 float4 _Params5;  // x match strength up (RT darker than the game), y down, z dead band (EV), w max game fog factor
 // Colour match (docs/relight.md, "Area colour"): mean colour of the same near pixels, RT (pre-haze) and game, as fixed
@@ -105,7 +105,6 @@ void Histogram(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
         if (_GameMap.x > 0.0)
         {
             float2 uv = 0.5 + (((float2)p + 0.5) / _Dim.xy - 0.5) * _GameMap.xy;
-            if (_GameMap.z > 0.5) uv.y = 1.0 - uv.y;
             uint gw, gh;
             _GameColor.GetDimensions(gw, gh);
             bool behindPortal = false;

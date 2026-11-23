@@ -43,7 +43,6 @@ Shader "UltraRT/VolumetricsComposite"
             float4 _VolComposite;              // x in-scatter strength, y 1 = auto exposure, z fixed exposure, w debug (1 = S only)
             float  _VolMaxAdd;                 // the most the haze may add to a pixel (display units; soft); 0 = up to white
             float  _VolToe;                    // black-level toe (linear display units): s -> s * L / (L + toe); 0 = off
-            float  _UltraRTFlipY;
             // Beam channel (pass 2): hulls as in Volumetrics.raytrace (21 float4 each), the filtered visibility (r: sum w lit,
             // g: sum w), x hull count, y shadowing (0 = none, 1 = traced), z 1 = colour from _VolBeamColor (the game's meshes), w its brightness
             StructuredBuffer<float4> _VolBeams;
@@ -66,7 +65,6 @@ Shader "UltraRT/VolumetricsComposite"
                 o.pos = float4(p * 2.0 - 1.0, 0.0, 1.0);
                 o.uv = p;
                 if (_ProjectionParams.x < 0.0) o.uv.y = 1.0 - o.uv.y;
-                if (_UltraRTFlipY > 0.5) o.uv.y = 1.0 - o.uv.y;
                 return o;
             }
 

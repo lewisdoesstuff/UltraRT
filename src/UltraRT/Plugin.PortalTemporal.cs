@@ -12,21 +12,12 @@ namespace UltraRT
     /// </summary>
     public partial class Plugin
     {
-        private bool _portalRemap = true;   // bench plugin._portalRemap=0: off (histories restart at a crossing, as before)
         private bool _matchDebug;      // bench plugin._matchDebug=1: Finish paints the pixels the game keeps by the nearest trace depth (diagnostic)
         private float _grazingMatch = 0.02f; // bench plugin._grazingMatch=0: DLSS RR's depth match without the bracket test (white rows on grazing floors)
-        private bool _thinMatch = true;     // bench plugin._thinMatch=0: thin geometry keeps the game's pixel in pathtrace (grass sparkle)
         private float _thinNear = 0f;       // bench plugin._thinNear=0.1: unmatched thin pixels take the nearest-depth sample (off: breaks lava, docs/path-tracing.md)
-        private bool _waterBand = true;     // bench plugin._waterBand=0: the water reflection ray uses every ripple (noisy and blocky at pathtrace's trace scale)
-        private bool _hideHeld = true;      // bench plugin._hideHeld=0: a picked-up item stays in the RTAS (the held skull's ghost)
         private float _portalStart = 0f;   // bench plugin._portalStart=X: continued portal rays start X m past the exit plane (0: 1 mm)
-        private bool _portalEdges = true;   // bench plugin._portalEdges=0: no fresh start at a moving portal's edge
-        private bool _skinScale = true;     // bench plugin._skinScale=0: a skinned root's scale change in place is not followed
-        private bool _portalMotion = true;  // bench plugin._portalMotion=0: no motion vectors behind moving portals
         private bool _portalJumpDiag;       // bench plugin._portalJumpDiag=1: log camera jumps near portals
         private Vector3 _portalPrevCam;
-        private bool _portalDistances = true; // bench plugin._portalDistances=0: cull distances and scores by the camera alone (PortalView)
-        private bool _cachePortalViews = true; // bench plugin._cachePortalViews=0: cache cells sized by the camera's distance alone
         private readonly System.Collections.Generic.List<Vector3> _portalViews = new System.Collections.Generic.List<Vector3>();
         private readonly System.Collections.Generic.List<Vector3> _portalViewFwd = new System.Collections.Generic.List<Vector3>(); // each image's view axis
         private readonly System.Collections.Generic.List<Vector3> _portalViewUp = new System.Collections.Generic.List<Vector3>();  // and up axis
@@ -44,14 +35,13 @@ namespace UltraRT
             _portalViewUp.Clear();
             if (_portals) _proxies.PortalViewpoints(_camera.transform.position, _portalViews, camFwd: _camera.transform.forward, fwdOutput: _portalViewFwd,
                                                     camUp: _camera.transform.up, upOutput: _portalViewUp);
-            PortalView.Enabled = _portalDistances;
             PortalView.Points.Clear();
             PortalView.Points.AddRange(_portalViews);
             PortalView.Forwards.Clear();
             PortalView.Forwards.AddRange(_portalViewFwd);
             PortalView.Ups.Clear();
             PortalView.Ups.AddRange(_portalViewUp);
-            int n = _cachePortalViews ? Mathf.Min(_portalViews.Count, _portalViewRows.Length) : 0;
+            int n = Mathf.Min(_portalViews.Count, _portalViewRows.Length);
             for (int i = 0; i < _portalViewRows.Length; i++) _portalViewRows[i] = i < n ? (Vector4)_portalViews[i] : Vector4.zero;
             // Immediate, not on _cmd: Trace clears the command buffer after this point.
             Shader.SetGlobalVectorArray(CacheViewsId, _portalViewRows);
@@ -71,9 +61,7 @@ namespace UltraRT
             _portalPrevFrame = Time.frameCount;
             if (!adjacent || !_portals || !_proxies.PortalCrossing(prev, cam, out var travel, out string name)) return;
             if (_portalCrossLogs++ < 40)
-                Logger.LogInfo($"Portal crossing: through '{name}', {(cam - prev).magnitude:F1} m, residual {(travel.MultiplyPoint3x4(prev) - cam).magnitude:F2} m" +
-                               $"{(_portalRemap ? "" : " (remap off)")}");
-            if (!_portalRemap) return;
+                Logger.LogInfo($"Portal crossing: through '{name}', {(cam - prev).magnitude:F1} m, residual {(travel.MultiplyPoint3x4(prev) - cam).magnitude:F2} m");
             // The surfaces moved by the travel matrix and nothing else. What is left of the camera's jump (a step; in a
             // replayed path up to metres, the recording's exit being elsewhere) is camera motion, which the view matrix has.
             var nowToOld = travel.inverse;

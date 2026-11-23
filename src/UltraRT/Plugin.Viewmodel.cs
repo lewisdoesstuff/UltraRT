@@ -39,16 +39,12 @@ namespace UltraRT
         private float _vmFastSigma = 3f, _vmFastTol = 0.3f, _vmFastTolChange = 0.1f;
         /// <summary>RIS candidates per direct-light sample on the viewmodel (0 = the world's LightSamplingSettings.candidates).</summary>
         private int _vmCandidates = 16;
-        /// <summary>3x3 history search when the bilinear taps fail (edges of an idling gun); bench plugin._vmHistorySearch=0.</summary>
-        private bool _vmHistorySearch = true;
         private int _vmAtrous = 3;         // a-trous iterations (0-3: steps 1, 2, 4)
         private float _vmDepthTol = 0.03f; // composite: |game depth - ours| tolerance, fraction of the depth (+ 5 mm)
         private int _vmLightMask;          // 0 = auto (layer 13 | the layer under the player)
-        /// <summary>The player's own lights (eye light, flashlight, muzzle flashes, a held torch) light the gun only when the
-        /// game does: their culling mask includes layer 13. The eye light leaves 13 out; through the ground-layer bit of the
-        /// mask it lit the RT gun white in every room (4-4's lamp-lit gold hall: a grey gun; docs/viewmodel.md, "The eye
-        /// light"). False = before 2026-11-22; bench plugin._vmPlayerLayer13=0.</summary>
-        private bool _vmPlayerLayer13 = true;
+        // The player's own lights (eye light, flashlight, muzzle flashes, a held torch) light the gun only when the game does:
+        // their culling mask includes layer 13. The eye light leaves 13 out; through the ground-layer bit of the mask it lit
+        // the RT gun white in every room (4-4's lamp-lit gold hall: a grey gun; docs/viewmodel.md, "The eye light").
         private bool _vmFullScreen;        // dispatch over the whole screen instead of the viewmodel's rectangle
         private bool _vmCheckerboard = true; // trace half the half-res pixels per frame (alternating); the filter fills the rest
         private int _vmRayTest = 0;            // measurement only: 1 = dispatch a single ray-gen thread (fixed cost of the dispatch)
@@ -598,7 +594,6 @@ namespace UltraRT
             cmd.SetRayTracingVectorParam(rt, "_VMRect", new Vector4(hx, hy, w, h));
             cmd.SetRayTracingFloatParam(rt, "_VMStamp", stamp);
             cmd.SetRayTracingIntParam(rt, "_VMLightMask", ViewmodelLightMask(hud));
-            cmd.SetRayTracingIntParam(rt, "_VMPlayerLayer13", _vmPlayerLayer13 ? 1 : 0);
             cmd.SetRayTracingIntParam(rt, "_VMDirectSamples", Mathf.Clamp(_vmSamples, 1, 4));
             cmd.SetRayTracingIntParam(rt, "_VMCheckerboard", _vmCheckerboard ? 1 : 0);
             cmd.SetRayTracingIntParam(rt, "_VMStableRefl", _vmStableRefl ? 1 : 0);
@@ -646,7 +641,7 @@ namespace UltraRT
             // Lights appeared or disappeared (muzzle flashes, explosions): keep only a few frames of history.
             cmd.SetComputeVectorParam(cs, "_Params2", new Vector4(_lightSampling.LightSetChanged ? 1f : 0f, Mathf.Max(0f, _vmFastSigma), Mathf.Max(0f, _vmFastTol), Mathf.Max(0f, _vmFastTolChange)));
             bool stats = VmStatsOn;
-            cmd.SetComputeVectorParam(cs, "_Params3", new Vector4(_vmHistorySearch ? 1f : 0f, stats ? 1f : 0f, 0, 0));
+            cmd.SetComputeVectorParam(cs, "_Params3", new Vector4(1f, stats ? 1f : 0f, 0, 0)); // x: 3x3 history search when the bilinear taps fail (edges of an idling gun)
             _vmStatsBuf ??= new ComputeBuffer(4, 4) { name = "UltraRT VM stats" };
             cmd.SetComputeBufferParam(cs, _vmKTemporal, "_VMStats", _vmStatsBuf);
             if (stats) cmd.SetBufferData(_vmStatsBuf, VmStatsZero);
@@ -914,7 +909,7 @@ namespace UltraRT
                 if ((m & (uint)vmMask) == 0u) continue;
                 var l0 = _lightData[i * 4]; var l1 = _lightData[i * 4 + 1]; var l2 = _lightData[i * 4 + 2]; var l3 = _lightData[i * 4 + 3];
                 bool own = l1.w - 2f * Mathf.Floor(l1.w * 0.5f) > 0.75f; // the player-light flag, as LightPlayerFlag
-                if (_vmPlayerLayer13 && own && ((m >> 13) & 1u) == 0u) continue; // as Viewmodel.raytrace: not on the gun
+                if (own && ((m >> 13) & 1u) == 0u) continue; // as Viewmodel.raytrace: not on the gun
                 float game = 1f, d = 0f, cone = 1f;
                 if (l0.w != 0f)
                 {

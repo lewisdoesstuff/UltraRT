@@ -39,8 +39,6 @@ namespace UltraRT
         /// </summary>
         public static bool SkinnedTransformUpdates = true;
 
-        /// <summary>Experiment (-ultrart-nostatic): leave static batches out of the RTAS.</summary>
-        public static bool SkipStaticBatches;
         public int AlphaTestedMaterials { get; private set; }
         public int LitAlbedoEmissionMaterials { get; private set; }
         public int VertexBlendMaterials { get; private set; }
@@ -124,7 +122,7 @@ namespace UltraRT
             public int SkinBase = -1, SkinVerts, SkinGen;
             public bool SkinPrevValid;
             public Bounds PoseBounds;     // skinned: the proxy's bounds (updateWhenOffscreen: this frame's pose) at the last change
-            public int PoseChangedFrame;  // skinned: when they last changed; PoseSettling until the re-add (SkinnedSettleReAdd)
+            public int PoseChangedFrame;  // skinned: when they last changed; PoseSettling until the re-add (SettleReAdd)
             public bool PoseSettling;
             public Displaced Disp; // VERTEX_DISPLACEMENT: the displaced mesh copy (SceneProxies.Displaced.cs); its pose region is SkinBase
 
@@ -189,17 +187,12 @@ namespace UltraRT
         /// <summary>Per-texel normal/roughness maps (docs/materials.md).</summary>
         public MaterialMaps Maps { get; }
 
-        /// <summary>
-        /// StaticSceneOptimizer moves baked geometry to "baked" layers (24 -> 6, 8 -> 7). Lights' culling masks refer to
-        /// the original layers; until 2026-11-21 the instances were traced under those (6 -> 24, 7 -> 8). They keep their
-        /// own layers now, and every light's mask gains bit 6 where it has 24 and bit 7 where it has 8 (Plugin.Noise.cs,
-        /// BakedLayerBits), so the optimizer's global lights, which light baked geometry whatever their masks, can light
-        /// layers 6/7 without also lighting the live layer-8/24 objects their masks leave out (8-3's Space: the Fake End
-        /// room's walls were lit by the three Space suns, black in the game). <see cref="BakedOwnLayers"/> false: the old
-        /// mapping (read at scene build).
-        /// </summary>
-        public static bool BakedOwnLayers = true;
-        private static int OriginalLayer(int layer) => BakedOwnLayers ? layer : layer == 6 ? 24 : layer == 7 ? 8 : layer;
+        // StaticSceneOptimizer moves baked geometry to "baked" layers (24 -> 6, 8 -> 7). Lights' culling masks refer to the
+        // original layers; until 2026-11-21 the instances were traced under those (6 -> 24, 7 -> 8). They keep their own
+        // layers now, and every light's mask gains bit 6 where it has 24 and bit 7 where it has 8 (Plugin.Noise.cs,
+        // BakedLayerBits), so the optimizer's global lights, which light baked geometry whatever their masks, can light
+        // layers 6/7 without also lighting the live layer-8/24 objects their masks leave out (8-3's Space: the Fake End
+        // room's walls were lit by the three Space suns, black in the game).
 
         private bool LayerIncluded(int layer) => ((_cameraMask >> layer) & 1) != 0 || layer == 6 || layer == 7;
 
@@ -305,8 +298,8 @@ namespace UltraRT
             ScanRenderers(batches, stats);
             foreach (var l in Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None)) { AddLight(l); _buildLights.Add(l); }
 
-            if (!SkipStaticBatches && batches.Count > 0) BuildStaticGroups(batches);
-            if (!SkipStaticBatches && MergeStaticDynamic) BuildStaticDynamicGroups();
+            if (batches.Count > 0) BuildStaticGroups(batches);
+            if (MergeStaticDynamic) BuildStaticDynamicGroups();
 
             AddWarmHitGroups(); // one hidden instance per hit-group shader (SceneProxies.WarmHitGroups.cs)
             SyncDynamic(force: true);
@@ -724,7 +717,7 @@ namespace UltraRT
                 SkinnedProxy = proxy as SkinnedMeshRenderer,
                 BlendShapes = ss != null && ss.sharedMesh != null ? ss.sharedMesh.blendShapeCount : 0,
                 Flags = flags,
-                Id = (uint)OriginalLayer(source.gameObject.layer) | ((uint)slot << 8),
+                Id = (uint)source.gameObject.layer | ((uint)slot << 8),
                 Slot = slot,
                 Root = ss != null ? (ss.rootBone != null ? ss.rootBone : ss.transform) : null,
                 SkinVerts = ss != null && ss.sharedMesh != null ? ss.sharedMesh.vertexCount : 0,
@@ -855,7 +848,7 @@ namespace UltraRT
                     // The instance transform is the root bone's: follow it (see SkinnedTransformUpdates).
                     var m = MotionMatrix(d);
                     if (SkinnedTransformUpdates && m != d.CurM) { Rtas.UpdateInstanceTransform(d.Proxy); SkinnedTransformUpdateCount++; if (d.Root != null) d.RootWorld = d.Root.localToWorldMatrix; }
-                    else if (SkinnedScaleUpdates && d.Root != null && d.Root.localToWorldMatrix != d.RootWorld)
+                    else if (d.Root != null && d.Root.localToWorldMatrix != d.RootWorld)
                     {
                         // The root's scale changed (or it was mirrored) while it stayed in place: the position and
                         // rotation test above does not see that, and the instance would keep its old size.
@@ -876,7 +869,7 @@ namespace UltraRT
                         else Rtas.UpdateInstanceTransform(d.Proxy);
                         SkinnedTransformUpdateCount++;
                     }
-                    if (SkinnedSettleReAdd) SettleReAdd(d);
+                    SettleReAdd(d);
                     // Skinned: root motion as a matrix, the pose itself from last frame's copy (RecordMotionCopies).
                     long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     d.PrevM = d.CurM;
@@ -966,10 +959,8 @@ namespace UltraRT
         /// renderer uses, added with the "3 Stuff" hierarchy) missed on 7 of 7 loads without a re-add and were hit on
         /// 8 of 8 with one; the portal quads had the same fault (docs/portals.md, "Portal quads added too early";
         /// docs/scene-proxies.md, "Instances added too early"). Skinned instances are left alone here (a re-add on the
-        /// first add did not fix 7-1's mannequins; they get one when a pose change settles: SettleReAdd). -ultrart-noreadd
-        /// turns it off.
+        /// first add did not fix 7-1's mannequins; they get one when a pose change settles: SettleReAdd).
         /// </summary>
-        public static bool NewInstanceReAdd = true;
         /// <summary>Bench A/B: only re-add rigid instances whose mesh is newly entering the RTAS (skips already-warmed meshes like repeated gibs/projectiles).</summary>
         public static bool ReAddNewMeshesOnly = true;
         public const int NewInstanceReAddDelay = 2;
@@ -981,7 +972,7 @@ namespace UltraRT
 
         private void QueueReAdd(DynamicProxy d)
         {
-            if (!NewInstanceReAdd || d.EverAdded || d.SkinnedProxy != null) { d.EverAdded = true; return; }
+            if (d.EverAdded || d.SkinnedProxy != null) { d.EverAdded = true; return; }
             d.EverAdded = true;
             var mesh = d.Proxy.GetComponent<MeshFilter>()?.sharedMesh;
             bool isNew = mesh != null && _meshesInRtas.Add(mesh);
@@ -1011,9 +1002,8 @@ namespace UltraRT
         /// CullUpdateTransforms) could keep a stale pose in the RTAS while both skinned vertex buffers held the new one
         /// (bench, 2026-11-21: the instance view showed another pose than the game's): a sharp copy beside the game's that
         /// stayed, since nothing moved again. A re-add makes Unity build the instance afresh. Enemies that keep animating never
-        /// settle and are not touched; one that stops is re-added once. -ultrart-nosettle-readd turns it off.
+        /// settle and are not touched; one that stops is re-added once.
         /// </summary>
-        public static bool SkinnedSettleReAdd = true;
         public const int SettleFrames = 3;
         public int SkinnedSettleReAdds;
 
@@ -1056,14 +1046,13 @@ namespace UltraRT
         /// skull, a torch). The game puts it on layer 13 and the HUD camera draws it at the hand, with its own field of
         /// view; the proxy stayed in the RTAS at the hand's world place, and the main camera traced a second, larger
         /// copy beside the drawn one (user, 2026-11-18: "ghost" of the held skull). Out while held, back when put down
-        /// (the dormant poll re-evaluates it). V1's own model has the player mask and is not affected.</summary>
-        public static bool HideHeldItems = true;
+        /// (the dormant poll re-evaluates it). V1's own model has the player mask and is not affected.
         /// The test is the one a renderer passes to get a proxy at all (the main camera draws its layer), asked again
         /// while it is in the RTAS: so anything else the game hides by moving it to a layer the camera does not draw
-        /// leaves too. Portal-layer and player proxies are in the RTAS under their own rules.
+        /// leaves too. Portal-layer and player proxies are in the RTAS under their own rules.</summary>
         private bool HeldHidden(DynamicProxy d)
         {
-            if (!HideHeldItems || d.Mask == PlayerMask || d.SourceObject == null) return false;
+            if (d.Mask == PlayerMask || d.SourceObject == null) return false;
             int layer = d.SourceObject.layer;
             bool hidden = !LayerIncluded(layer) && !IsPortalLayer(layer);
             if (hidden && d.Visible && _heldLogs < 12)
@@ -1074,8 +1063,6 @@ namespace UltraRT
             return hidden;
         }
         private int _heldLogs, _scaleLogs;
-        /// <summary>A skinned root whose scale changes in place gets an instance update (bench plugin._skinScale=0: off).</summary>
-        public static bool SkinnedScaleUpdates = true;
 
         private void Evaluate(DynamicProxy d)
         {
@@ -1088,7 +1075,7 @@ namespace UltraRT
             {
                 TraceSkin("add", d);
                 Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
-                QueueReAdd(d); // first add of a rigid instance: add it again in 2 frames (NewInstanceReAdd)
+                QueueReAdd(d); // first add of a rigid instance: add it again in 2 frames
                 d.SourceTransform.hasChanged = false;
                 _active.Add(d);
                 // Newly in the RTAS: no motion history (it appears where it is).
@@ -1123,17 +1110,16 @@ namespace UltraRT
         /// reverses their winding in object space, where DXR decides facing. With culling on, rays then passed through the
         /// statue's near side and hit its far side: the traced statue lay behind the game's, so the composite kept the game's
         /// pixels and showed ours only as a rim (docs/scene-proxies.md, "Mirrored skinned meshes"). Rigid instances keep the
-        /// mirror in their instance transform, which DXR accounts for. -ultrart-nomirrorfix turns this off.
+        /// mirror in their instance transform, which DXR accounts for.
         /// </summary>
         private bool InstanceCcw(DynamicProxy d)
         {
-            if (!MirroredSkinFix || d.SkinnedProxy == null || d.Root == null || d.Root.localToWorldMatrix.determinant >= 0f) return FrontCounterClockwise;
+            if (d.SkinnedProxy == null || d.Root == null || d.Root.localToWorldMatrix.determinant >= 0f) return FrontCounterClockwise;
             if (_mirroredLogged.Add(d) && _mirroredLogged.Count <= 8)
                 _log.LogInfo($"Mirrored skinned proxy '{GameControlPath(d.Source.transform)}' (root '{d.Root.name}' scale {d.Root.lossyScale:F2}): front winding flipped");
             return !FrontCounterClockwise;
         }
 
-        public static bool MirroredSkinFix = true;
         private readonly HashSet<DynamicProxy> _mirroredLogged = new HashSet<DynamicProxy>();
 
         /// <summary>
@@ -1570,7 +1556,7 @@ namespace UltraRT
                 m.SetFloat("_UseAlbedoAsEmissive", albedoAsEmissive ? 1 : 0);
                 // _EmissiveMask: emission x main texture alpha^2.2 (6-1's furnace coffins glow only through their grate).
                 m.SetFloat("_EmissiveMask", src.HasProperty("_EmissiveMask") && src.GetFloat("_EmissiveMask") > 0.5f ? 1f : 0f);
-                if (albedoAsEmissive && src.IsKeywordEnabled("VERTEX_LIGHTING") && LitAlbedoEmission)
+                if (albedoAsEmissive && src.IsKeywordEnabled("VERTEX_LIGHTING")) // lit surfaces, not emitters, as in game
                 {
                     // The Master shader's "albedo" here is _MainTex * the vertex term, and in a lit material that term is
                     // the vertex lighting (decompiled: o1 = lighting * colour). So the "emission" is the lit, fogged albedo
@@ -1579,7 +1565,7 @@ namespace UltraRT
                     // replaces) are dark red in its red light; traced as albedo emission they were white and lit the hall
                     // as emitters. Keep it a lit surface; the emissive factor becomes an albedo scale (at most 1: the
                     // game's brightening of lit areas isn't kept, albedo above 1 would add energy to the bounce).
-                    // docs/relight.md "Area colour". -ultrart-albedo-emission-glow: the old behaviour.
+                    // docs/relight.md "Area colour".
                     var ec = src.HasProperty("_EmissiveColor") ? src.GetColor("_EmissiveColor") : Color.white;
                     float ei = src.HasProperty("_EmissiveIntensity") ? Mathf.Max(src.GetFloat("_EmissiveIntensity"), 0f) : 1f;
                     bool replaces = src.HasProperty("_EmissiveReplaces") && src.GetFloat("_EmissiveReplaces") > 0.5f;

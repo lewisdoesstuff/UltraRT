@@ -44,8 +44,6 @@ namespace UltraRT
         public float uniformMix = 0.2f;
         /// <summary>Rebuild the (camera-dependent) alias table when the camera moved this far (m) since the last build.</summary>
         public float rebuildDistance = 2f;
-        /// <summary>Keep emission on bounce hits too (double counts sampled emitters; for A/B only).</summary>
-        public bool bounceHitEmission = false;
         /// <summary>GPU readbacks (meshes, textures) allowed per frame for emitters that appear after the scene build.</summary>
         public int readbacksPerFrame = 2;
     }
@@ -59,7 +57,7 @@ namespace UltraRT
     ///  - Per frame: owner transforms (so moving emitters stay exact), which emitters are in the RTAS (a bit per
     ///    triangle), and an alias table over the active triangles weighted by luminance x area x camera falloff.
     ///  - The triangle list is append-only between compactions (a compaction bumps the generation).
-    /// Skinned emitters are not handled (TODO): they still light through bounce hits only if bounceHitEmission is on.
+    /// Skinned emitters are not handled (TODO): emitters sampled as lights get no emission at bounce hits.
     /// </summary>
     internal sealed partial class EmissiveLights : IDisposable
     {
@@ -535,7 +533,7 @@ namespace UltraRT
             cmd.SetRayTracingIntParam(shader, IdRefSamples, Mathf.Clamp(s.referenceSamples, 0, 16));
             float dmin = Mathf.Max(1e-3f, s.minDistance);
             cmd.SetRayTracingVectorParam(shader, IdParams, new Vector4(Mathf.Clamp(s.share, 0.01f, 0.99f), Mathf.Max(0f, s.lightScale) / Mathf.PI, dmin * dmin, 0));
-            cmd.SetRayTracingFloatParam(shader, IdBounceWeight, sampled && !s.bounceHitEmission ? 0f : 1f);
+            cmd.SetRayTracingFloatParam(shader, IdBounceWeight, sampled ? 0f : 1f);
         }
 
         /// <summary>Scene change / shader reload: forget everything (caches included: meshes and textures belong to the scene).</summary>

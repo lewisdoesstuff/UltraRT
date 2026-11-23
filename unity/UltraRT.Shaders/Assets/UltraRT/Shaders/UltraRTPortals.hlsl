@@ -37,14 +37,11 @@ uint PortalSkySlot(uint word) { return (word >> 16) & 0xFFu; }
 
 #include "UltraRTPortalBuffers.hlsl" // _UltraRTPortals, _UltraRTPortalQuads, PortalSegmentThrough
 StructuredBuffer<float4> _UltraRTPortalsPrev; // the same, last traced frame's (a moving portal: docs/portals.md, "Temporal")
-int _UltraRTPortalEdge; // the moving-portal edge test (PortalSegmentThrough) is on
 
 float _UltraRTPortalStart; // metres past the exit plane where a continued ray starts (0: 1 mm; bench plugin._portalStart)
 int _UltraRTPortalHops; // teleports per ray (SceneProxies.PortalHops, default 3); global, set every frame
-// Bit 0 (default on): the game's per-portal recursion limits (maxRecursions of the portal last crossed, and
-// supportInfiniteRecursion's deeper loops with _UltraRTPortalInfHops); off: one global limit of _UltraRTPortalHops
-// (bench plugin._portalRules=0). Bit 1: canSeeItself (bench plugin._portalNoSelf). Global, every frame.
-int _UltraRTPortalRules;
+// Rays follow the game's per-portal recursion limits (maxRecursions of the portal last crossed, and
+// supportInfiniteRecursion's deeper loops with _UltraRTPortalInfHops) and canSeeItself (docs/portals.md, "Recursion rules").
 int _UltraRTPortalInfHops; // teleports through supportInfiniteRecursion portals (SceneProxies.PortalInfiniteHops)
 // 1: camera rays reflect off portal mirrors like any portal (-ultrart-rtmirrors); 0 (default): they stop there and the
 // game's mirror view is kept. Global, set every frame.
@@ -163,8 +160,6 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
     path.sky = 0u;
     path.mirrorT = -1.0;
     uint lastSide = 0xFFFFFFFFu, lastWord = 0u;
-    bool rules = (_UltraRTPortalRules & 1) != 0;
-    bool noSelfRule = (_UltraRTPortalRules & 2) != 0;
     bool stopAtMirror = (inFlags & ULTRART_TRACE_STOP_AT_MIRROR) != 0u;
 #ifdef ULTRART_PORTAL_GLASS
     bool portalGlass = (inFlags & ULTRART_TRACE_PORTAL_GLASS) != 0u;
@@ -205,7 +200,7 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         }
         // canSeeItself off: the game's view through a side does not draw that side (PortalRenderV2.Render, "!canSeeItself &&
         // i == handleIndex"), so the level behind it shows there. Not a hop: trace on past the quad.
-        if (noSelfRule && i > 0u && p.instance == lastSide && (lastWord & ULTRART_PORTAL_NO_SELF) != 0u && it < 24u)
+        if (i > 0u && p.instance == lastSide && (lastWord & ULTRART_PORTAL_NO_SELF) != 0u && it < 24u)
         {
             ray.TMin = p.t + 1e-3;
             continue;
@@ -216,15 +211,14 @@ void TraceScene(uint rayFlags, uint mask, uint inFlags, inout RayDesc ray, inout
         // supportInfiniteRecursion portals goes on to _UltraRTPortalInfHops: the game pastes last frame's view onto the
         // deepest side there (fake textures), so its shaft never ends.
         bool allowed;
-        if (!rules) allowed = i < (uint)_UltraRTPortalHops;
-        else if (i == 0u) allowed = true;
+        if (i == 0u) allowed = true;
         else if ((lastWord & ULTRART_PORTAL_INFINITE) != 0u) allowed = i < (uint)_UltraRTPortalInfHops;
         else
         {
             uint maxRec = PortalMaxRecursions(lastWord);
             allowed = i <= maxRec && i < max((uint)_UltraRTPortalHops, min(maxRec + 1u, (uint)_UltraRTPortalInfHops));
         }
-        if (!allowed && rules && (p.material & ULTRART_PORTAL_INFINITE) != 0u)
+        if (!allowed && (p.material & ULTRART_PORTAL_INFINITE) != 0u)
         {
             // The end of an infinite loop: report the side as an unlit black surface (albedo 0, lit weight 0: a bounce
             // ray gets no light from it, not the sky), and let the camera ray's caller fill it (PathTrace: last

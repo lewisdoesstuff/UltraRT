@@ -148,7 +148,7 @@ namespace UltraRT
             _gpu?.Begin(_cmd, SlotExposure); // nested inside the denoise slot
             // The bench's bursts capture far below real time and set FrameTimeOverride so the denoiser blends as at 360 Hz;
             // adapt on the same clock, or every slow captured frame takes a large step after the noisy meter.
-            float dt = _aeBenchClock && Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
+            float dt = Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
             if (CombatFlashHoldsExposure()) dt = 0f; // a parry / beam / lightning flash: hold (Plugin.Effects.cs)
             // Offline cinematic render: metered once per output frame, on a 1 / fps clock (Plugin.CineRender.cs).
             if (!CineExposureGate(ref dt)) { _aeLastFrame = Time.frameCount; _gpu?.End(_cmd, SlotExposure); return; }
@@ -160,8 +160,6 @@ namespace UltraRT
         }
 
         private bool _hdrRequested;
-        /// <summary>Bench variant plugin._aeBenchClock=0: adapt on real time during bursts (the old behaviour).</summary>
-        private bool _aeBenchClock = true;
 
         /// <summary>
         /// Logs what Unity says about HDR output. Unity 2022.3 only allows it when the player was built with
@@ -223,7 +221,7 @@ namespace UltraRT
             }
             _cmd.CopyTexture(gameTex, _aeGameCopy);
             _autoExposure.GameColor = _aeGameCopy;
-            _autoExposure.GameMap = new Vector4(_guardScale.x, _guardScale.y, _flipY ? 1f : 0f, 1f);
+            _autoExposure.GameMap = new Vector4(_guardScale.x, _guardScale.y, 0f, 1f);
             var mode = RenderSettings.fogMode;
             _autoExposure.GameFog = new Vector4(RenderSettings.fog ? 1f : 0f, mode == FogMode.Linear ? 1f : mode == FogMode.Exponential ? 2f : 3f,
                 mode == FogMode.Linear ? RenderSettings.fogStartDistance : RenderSettings.fogDensity, RenderSettings.fogEndDistance);

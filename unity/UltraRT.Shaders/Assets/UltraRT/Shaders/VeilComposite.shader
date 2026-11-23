@@ -22,7 +22,6 @@ Shader "UltraRT/VeilComposite"
 
             Texture2D _VeilTex;
             SamplerState my_linear_clamp_sampler;
-            float _UltraRTFlipY;
 
             struct v2f
             {
@@ -37,7 +36,6 @@ Shader "UltraRT/VeilComposite"
                 o.pos = float4(p * 2.0 - 1.0, 0.0, 1.0);
                 o.uv = p;
                 if (_ProjectionParams.x < 0.0) o.uv.y = 1.0 - o.uv.y;
-                if (_UltraRTFlipY > 0.5) o.uv.y = 1.0 - o.uv.y;
                 return o;
             }
 

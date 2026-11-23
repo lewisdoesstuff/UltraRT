@@ -6,7 +6,7 @@ screens, lava), the game's effects (explosions, fire, beams, sparks) and the glo
 glowing parts (since 2026-11-18 evening, "Effects and bloom"). Everything else (the HUD, menus, the gun's muzzle flash,
 the rest of the image) is the SDR image at paper white.
 
-Two ways to make the HDR image (2026-11-20): **native float HDR** (the default, `[Display] HDRNative`): the game's own
+Two ways to make the HDR image (2026-11-20): **native float HDR** (the default; `[Display] HDRNative` until 2026-11-23, now `-ultrart-hdr-native`): the game's own
 frame is rendered in floating point and our passes write scene light into it, with one display transform at the end
 ("Native float HDR"); and the older **gain map**: the 8-bit SDR frame times a per-pixel brightness factor ("How it
 works" up to "Per mode"). `-ultrart-hdr-native off` (bench `plugin._hdrNative=0`) switches back to the gain map, so the
@@ -35,7 +35,7 @@ See also: [relight.md](relight.md) ("HDR displays": why Unity itself can't do it
 | `HDREffects` | `-ultrart-hdr-effects X` | 2.5 | bright pixels the game's transparents made (explosions, fire, beams, coins, sparks; the lava overlay): x their SDR value (display gamma), rolled off towards the peak. 1 = as in SDR. Needs screen effects on |
 | `HDRBloom` | `-ultrart-hdr-bloom X` | 1 | room above SDR white for bloom's glow, in display units (1 = up to twice SDR white in display gamma, or the peak). 0 = as in SDR |
 | `HDRHighlights` | `-ultrart-hdr-highlights on\|off` | true | the gain map as a whole; off = the SDR image at paper white |
-| `HDRNative` | `-ultrart-hdr-native on\|off` | true (since 2026-11-20) | native float HDR ("Native float HDR"); off = the gain map. Applies live (the game's targets are rebuilt). Bench `plugin._hdrNative=0\|1` |
+| (`HDRNative`) | `-ultrart-hdr-native on\|off` | true (since 2026-11-20) | native float HDR ("Native float HDR"); off = the gain map. Applies live (the game's targets are rebuilt). Bench `plugin._hdrNative=0\|1`. No menu row or config entry since 2026-11-23 (docs/settings.md, "Removed settings"); the gain map stays the automatic fallback |
 | | `-ultrart-hdr-tone film\|channel\|max\|lum\|log` | film (channel before 2026-11-21) | native only: how the display transform rolls colours into the peak: `film` per channel on a curve that approaches the peak and never reaches it ("Clipping"); `channel` per channel, cut flat at the white point; by the brightest channel; by luminance ("Native float HDR"); `log` is a debug capture of the scene itself. Bench `plugin._hdrToneMode=3\|1\|0\|2\|4` |
 | | `-ultrart-hdr-tail N` | 1.5 | native `film` only: the tail exponent n of its curve ("Clipping"). Higher = brighter mid highlights and a flatter top; lower = more gradation near the peak and dimmer mid highlights. Bench `plugin._hdrToneTail` |
 | | `-ultrart-hdr-white X` | 0 | composite value (display gamma, 1 = SDR white) that reaches the peak; 0 = the tone curve's white point (3). Lower = harsher. Native `channel`, `max`, `lum`: the scene value that reaches the peak (`film` has none) |

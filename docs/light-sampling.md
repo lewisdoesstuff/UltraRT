@@ -4,7 +4,7 @@ Direct lighting with a fixed number of shadow rays per pixel, independent of the
 
 Files:
 - `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/UltraRTLights.hlsl`: the light model (moved out of `PathTrace.raytrace`), the reference `DirectAll` and RIS (the reservoirs and temporal reuse went with ReSTIR on 2026-11-19). Included by `PathTrace.raytrace`.
-- `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/LightGrid.compute`: camera-centered `32×16×32` 4 m world-space light grid (ReGIR-lite, since 2026-11-21; plus up to 3 around the camera's images through portals since the same evening, "Light grid and portals"): stores up to 8 local shadowed light indices per cell (`uint4`, 256 KB VRAM) for a 50/50 unbiased MIS mixture with the global alias table when >12 shadowed lights are active, allowing `risCandidatesGrid` = 8 instead of 16. Bench A/B: `ls.grid=0`.
+- `unity/UltraRT.Shaders/Assets/UltraRT/Shaders/LightGrid.compute`: camera-centered `32×16×32` 4 m world-space light grid (ReGIR-lite, since 2026-11-21; the portal grids of the same evening were removed on 2026-11-23, "Light grid and portals"): stores up to 8 local shadowed light indices per cell (`uint4`, 256 KB VRAM) for a 50/50 unbiased MIS mixture with the global alias table when >12 shadowed lights are active, allowing `risCandidatesGrid` = 8 instead of 16. Bench A/B: `ls.grid=0`.
 - `src/UltraRT/LightSampling.cs`: settings, the per-frame alias table, light-grid dispatch, and fill-light list, and light-set change detection (until 2026-11-19 also the light index remap between frames and the ping-ponged reservoir buffers).
 
 ## Why
@@ -352,9 +352,12 @@ alias table (an exact 50/50 mixture), and the primary hit draws `risCandidatesGr
 in world space (docs/portals.md, section 9):
 
 - **Outside the grid** a point had no cell, so it drew only from the global table, and still only 8 candidates: half the
-  sampling it had before the grid. Now `_RisCandidatesFar` (= `risCandidates`, bench `ls.farFull=0` = the old 8) is used
-  for a point outside every grid (`RisCandidatesFar`, `DirectLighting`).
-- **Portal grids** (built, **off by default**: `ls.portalGrids=3` turns them on). Up to that many more grids of the same size are built each frame around the camera's images
+  sampling it had before the grid. Now `_RisCandidatesFar` (= `risCandidates`) is used for a point outside the grid
+  (`RisCandidatesFar`, `DirectLighting`). Its switch `ls.farFull` (`=0`: the old 8) was removed on 2026-11-23; this is
+  always on.
+- **Portal grids** (**removed on 2026-11-23**: `ls.portalGrids`, `LightSampling.PortalGridOrigins`, `ViewForwards`,
+  `_LightGridOrigin1..3` and `_GridBase`; the grid buffer is back to one grid, 256 KB, and `LightGridCell` tests the
+  camera's grid only. They were off by default since the measurements below. As built: Up to that many more grids of the same size are built each frame around the camera's images
   through portals (`SceneProxies.PortalViewpoints`, now with each image's forward axis): centred 32 m ahead of the image,
   nearest image first, skipping an image whose centre an existing grid already holds well inside it. The grids share one
   buffer (grid k at k x 16384 cells, 1 MB in all); `_LightGridOrigin1..3` (w <= 0: unused) say where they are, and a point
@@ -366,7 +369,8 @@ all; two runs of the same mode gave 0.25 and 0.28). Cost (exclusive `-Perf`, 256
 2026-11-21): the portal grids +0.07 to +0.11 ms on 8-3 portal poses, and the only frames over 16.7 ms of the run (worst
 36-41 ms, 1% low 35-51 fps against 70-81) were in the passes with them on. So they stay off; `farFull` stays on (it only
 changes points outside the camera's grid, within the GPU timer's noise). `ls.grid=0` was not worse than the grid at any
-8-3 pose tested here either.
+8-3 pose tested here either. The portal grids and the `farFull` switch were then removed (2026-11-23); the measurements
+above are kept as they were.
 
 ## Known limitations / next steps
 - The bounce uses plain RIS with no reuse. A light-tile or world-space grid of reservoirs would help when dim rooms are mostly bounce-lit.

@@ -108,7 +108,7 @@ namespace UltraRT
                 ? new Vector4(-1f + far / near, 1f, (-1f + far / near) / far, 1f / far)
                 : new Vector4(1f - far / near, far / near, (1f - far / near) / far, far / near / far);
             float miniMode = !mini ? 0f : _proxies.PortalSidesInRtas > 0 ? 1f : 2f;
-            _cmd.SetRayTracingVectorParam(_veilShader, "_VeilMini", new Vector4(miniMode, _guardScale.x, _guardScale.y, _flipY ? 1f : 0f));
+            _cmd.SetRayTracingVectorParam(_veilShader, "_VeilMini", new Vector4(miniMode, _guardScale.x, _guardScale.y, 0f));
             _cmd.SetRayTracingVectorParam(_veilShader, "_VeilZParams", zp);
             if (_depthCopy != null) _cmd.SetRayTracingTextureParam(_veilShader, "_VeilGameDepth", _depthCopy);
             if (_gNormalDepth != null) _cmd.SetRayTracingTextureParam(_veilShader, "_VeilNormalDepth", _gNormalDepth);

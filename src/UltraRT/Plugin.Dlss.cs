@@ -35,17 +35,12 @@ namespace UltraRT
         /// "Remodulation"). -ultrart-rr-noremod, bench plugin._rrRemodulate=0.</summary>
         private bool _rrRemodulate = true;
         private float _rrDemodSharpness = 30f, _rrDemodMaxWeight = 4f;
-        /// <summary>V1's shadow factor filtered before RR (DlssRR.PlayerFilter; bench plugin._rrPlayerFilter=0: raw, as before).</summary>
-        private bool _rrPlayerFilter = true;
         /// <summary>DlssRR.FinishDebug (bench plugin._rrFinishDebug=1 D, 2 X).</summary>
         private int _rrFinishDebug;
         /// <summary>DlssRR.FrontEmitters (-ultrart-rr-nofrontemitters, bench plugin._rrFrontEmitters=0).</summary>
         private bool _rrFrontEmitters = true;
         /// <summary>DlssRR.EmissionOutside (-ultrart-rr-emit-inside, bench plugin._rrEmitOutside=0).</summary>
         private bool _rrEmitOutside = true;
-        /// <summary>At an integer upscale (trace scale 1/2, 1/3, 1/4) jitter on the exact screen-pixel pattern instead of Halton
-        /// (DlssRR.ExactGrid). Bench plugin._rrExactJitter=0.</summary>
-        private bool _rrExactJitter = true;
         /// <summary>RR also sees the guard band (exact grid only; DlssRR.RenderGuard). Bench plugin._rrGuard=1.</summary>
         private bool _rrGuard;
         private const int SlotRR = 17, SlotRREval = 18;
@@ -212,11 +207,11 @@ namespace UltraRT
                 _rr.Remodulate = _rrRemodulate;
                 float up = 1f / Mathf.Max(0.05f, name == PathTraceModeName ? _ptSettings.scaleRR : _scale);
                 int grid = Mathf.RoundToInt(up);
-                _rr.ExactGrid = _rrExactJitter && _rrRemodulate && grid >= 2 && grid <= 5 && Mathf.Abs(up - grid) < 0.02f ? grid : 0;
+                // At an integer upscale (trace scale 1/2, 1/3, 1/4) jitter on the exact screen-pixel pattern instead of Halton.
+                _rr.ExactGrid = _rrRemodulate && grid >= 2 && grid <= 5 && Mathf.Abs(up - grid) < 0.02f ? grid : 0;
                 _rr.RenderGuard = _rrGuard;
                 _rr.DemodSharpness = _rrDemodSharpness;
                 _rr.DemodMaxWeight = _rrDemodMaxWeight;
-                _rr.PlayerFilter = _rrPlayerFilter;
                 DlssRR.FinishDebug = _rrFinishDebug;
                 _rr.FrontEmitters = _rrFrontEmitters;
                 _rr.EmissionOutside = _rrEmitOutside;
@@ -306,7 +301,7 @@ namespace UltraRT
                 _aeLastFrame = Time.frameCount;
                 _gpu?.Begin(_cmd, SlotExposure);
                 _rr.ExposureInput(_cmd, inputs, out var filtered, out var albedo);
-                float dt = _aeBenchClock && Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
+                float dt = Denoiser.FrameTimeOverride > 0f ? Denoiser.FrameTimeOverride : Time.unscaledDeltaTime;
                 if (CombatFlashHoldsExposure()) dt = 0f; // a parry / beam / lightning flash: hold (Plugin.Effects.cs)
                 BindGameMatch(); // the game's frame before our composite: game match and area colour match, as without RR
                 _autoExposure.Execute(_cmd, _aeSettings, filtered, albedo, null, _gNormalDepth, _gSurface, w, h, dt);

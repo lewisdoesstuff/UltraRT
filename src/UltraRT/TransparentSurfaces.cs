@@ -30,10 +30,6 @@ namespace UltraRT
         /// <summary>Fresnel F0. Above the physical 0.02/0.04: the game's water and glass textures are bright and fairly
         /// opaque, which hides a physical-strength reflection everywhere but at grazing angles.</summary>
         public float waterF0 = 0.12f, glassF0 = 0.08f;
-        /// <summary>Pathtrace: water tints a path by the game's blend alpha (texture alpha x colour alpha x opacity; full
-        /// tint from 0.5 up) instead of a fixed share. Off: it changed little at the five poses tried and the flaw it was
-        /// written for did not reproduce (bench trans.alphaTint=1; docs/reflections.md, "Water tint").</summary>
-        public bool alphaTint = false;
         /// <summary>Liquid blood (0-2's river): thick and opaque, so a calmer, weaker sheen than water, no ripples in the
         /// reflection ray (traced like glass), no refraction (overlay _Kind 2), and a lower cap on the reflection weight.
         /// The game's blood is alpha blended and thin; with the floor under it relit (brighter, more contrast than the
@@ -54,9 +50,6 @@ namespace UltraRT
         /// <summary>Blend factor of the new sample (smaller = calmer, slower to follow the ripples), and the neighbourhood
         /// clip half-size in standard deviations.</summary>
         public float temporalAlpha = 0.2f, temporalClip = 1.5f;
-        /// <summary>The overlay displaces its vertices like the game's VERTEX_DISPLACEMENT water (6-2's blood pools). Bench
-        /// trans.overlayDisplace=0: the rest pose, as before 2026-11-19.</summary>
-        public bool overlayDisplace = true;
         /// <summary>Water and glass behind portals (8-3's Clockwork Crushers): the camera ray collects them on every segment
         /// past a portal (UltraRTPortals.hlsl, PortalGlassSegment) and they go over the traced hit as layers
         /// (docs/portals.md, "Water and glass through portals"). Bench trans.portalGlass=0: none, as before 2026-11-20.
@@ -152,8 +145,8 @@ namespace UltraRT
         };
         private static readonly string[] DisplaceVectors = { "_FlowDirection", "_UVNoiseScale", "_UVNoiseSpeed" };
 
-        /// <summary>The game's VERTEX_DISPLACEMENT values onto the overlay (TransparentOverlay.shader displaces like the game,
-        /// under the bench switch trans.overlayDisplace). Values set later by a property block on the renderer reach the
+        /// <summary>The game's VERTEX_DISPLACEMENT values onto the overlay (TransparentOverlay.shader displaces like the game:
+        /// 6-2's blood pools). Values set later by a property block on the renderer reach the
         /// overlay too (same names); changes to the water material itself after this are not followed.</summary>
         private static void CopyDisplacement(Material src, Material overlay)
         {

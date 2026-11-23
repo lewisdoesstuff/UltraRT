@@ -33,9 +33,6 @@ namespace UltraRT
         /// <summary>Also the game's fake light cones (LightPillar materials) behind portals (SceneProxies.BeamVeil).
         /// Read at the scene build.</summary>
         public bool beams = true;
-        /// <summary>Light cones take their vertex colours (the fade from lamp to floor) by the material's _VertexColors
-        /// toggle too, not only its keyword. Read at the scene build. 2026-11-19.</summary>
-        public bool beamVertexColours = true;
     }
 
     /// <summary>
@@ -236,7 +233,7 @@ namespace UltraRT
             // fade, the cone behind 8-2's Reception portal was an even box several times the game's brightness
             // (2026-11-19, docs/portals.md section 12). Cones take the property as well; other veils keep the keyword test.
             bool vertexColours = src.IsKeywordEnabled("_VERTEXCOLORS_ON") || src.IsKeywordEnabled("VERTEX_COLORS")
-                                 || (BeamVeil(src) && Veils.beamVertexColours && src.HasProperty("_VertexColors") && src.GetFloat("_VertexColors") > 0.5f);
+                                 || (BeamVeil(src) && src.HasProperty("_VertexColors") && src.GetFloat("_VertexColors") > 0.5f);
             m.SetFloat("_VertexColors", vertexColours ? 1f : 0f);
             if (src.IsKeywordEnabled("SCROLLING") && src.HasProperty(IdScrollSpeed)) m.SetVector(IdScrollSpeed, src.GetVector(IdScrollSpeed));
             if (_veilLog.Count < 24) _veilLog.Add($"  material {DescribeVeilMaterial(src)} [keywords: {string.Join(" ", src.shaderKeywords)}; vertex colours {(vertexColours ? "on" : "off")}]");

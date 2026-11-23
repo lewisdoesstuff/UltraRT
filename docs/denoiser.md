@@ -41,7 +41,7 @@ All passes use 8x8 thread groups and run at trace resolution, except Composite, 
 
 ## Temporal stability
 
-ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has no history, so plain SVGF shows its 1 spp lighting, filtered only by the à-trous passes, for the first several frames. That shows up as speckle, worst along the leading screen edge while sliding. Four features in the `Temporal` kernel address it. `stability = false` turns all four off and reproduces plain SVGF exactly (the `Legacy` preset, `-ultrart-dn-legacy`, Ctrl+F3). The [guard band](#guard-band) removes most of the leading-edge case.
+ULTRAKILL's camera moves very fast (slides, dashes). A newly revealed pixel has no history, so plain SVGF shows its 1 spp lighting, filtered only by the à-trous passes, for the first several frames. That shows up as speckle, worst along the leading screen edge while sliding. Four features in the `Temporal` kernel address it. `stability = false` turned all four off and reproduced plain SVGF exactly (the `Legacy` preset, `-ultrart-dn-legacy`, Ctrl+F3; removed on 2026-11-23, see [Presets and Ctrl+F3](#presets-and-ctrlf3)); each still has its own off value below. The [guard band](#guard-band) removes most of the leading-edge case.
 
 **1. History-aware pre-blur** (`boostFrames` 8, `boostRadius` 4). This is the "pre-pass" of ReBLUR and A-SVGF.
 - For a pixel with `histLen < boostFrames`, the value accumulated this frame is a geometry-aware Gaussian of the noisy input around it, instead of its own sample: `color = lerp(history, preBlur, 1 / len)`.
@@ -227,13 +227,22 @@ The 0-2 run pays most (+0.28 ms): the player is in view of lit floors all the ti
 
 ## Presets and Ctrl+F3
 
-Ctrl+F3 cycles `DenoiserPreset` on the denoiser (two instances until hybrid's went on 2026-11-19; `Plugin.ApplyDenoiserPreset`, also used by the bench's `preset=` variant):
+**Removed on 2026-11-23** (before 0.3.0): the `DenoiserPreset` enum, `ApplyPreset`, `ApplyDenoiserPreset`, the Ctrl+F3
+cycle, the settings menu's Denoiser row (`[Quality] Denoiser`), `-ultrart-dn-static`, `-ultrart-dn-previous`,
+`-ultrart-dn-legacy`, the bench variant `preset=` and the `stability` master switch. `Full` (the current defaults) is
+what UltraRT's denoiser always runs: it is still the denoiser of relight and of pathtrace without DLSS RR, and every
+feature keeps its own field and flag. The cinematic accumulation render, which used `stability = false`, now zeroes the
+same fields one by one (`boostFrames`, `fireflySigma`, `historySearch`, `cacheSeed`, `freshSpread`, `antilag`,
+`moverAntilag`, `stabilize`). `-ultrart-dn-mover` went too (`dn.moverAntilag` stays, off). The measurements above that
+compare Static / Previous / Legacy with Full are kept as they were. The presets were:
+
+Ctrl+F3 cycled `DenoiserPreset` on the denoiser (two instances until hybrid's went on 2026-11-19; `Plugin.ApplyDenoiserPreset`, also used by the bench's `preset=` variant):
 - **Full**: everything above and [Motion noise](#motion-noise).
 - **Static**: the build before the motion-noise work: cache seed 1, the normal à-trous footprint for young pixels, no extra ReSTIR candidates for fresh pixels (and the optional anti-lag and per-pixel light-change history off; the ReSTIR parts are moot since ReSTIR went on 2026-11-19, so Static and Full now differ in denoiser fields only).
 - **Previous**: the build before the static-noise work. alphaMin 0.1 per frame, 32 frames, no variance floor, no stabilisation, no guard band, no hybrid spatial reuse (gone with hybrid); the four stability features stay on (motion features off, as in Static).
 - **Legacy**: Previous without the stability features, i.e. plain SVGF.
 
-`-ultrart-dn-static`, `-ultrart-dn-previous` and `-ultrart-dn-legacy` start in those presets (denoiser fields only). Individual flags: `-ultrart-dn-alpha A`, `-ultrart-dn-spatialvar K`, `-ultrart-dn-nostabilize`, `-ultrart-dn-stabilize-alpha A`, `-ultrart-dn-stabilize-sigma K`, `-ultrart-guard X [Y]` (`-ultrart-restir-spatial N` and `-ultrart-restir-spatial-hybrid N` went with ReSTIR on 2026-11-19).
+`-ultrart-dn-static`, `-ultrart-dn-previous` and `-ultrart-dn-legacy` started in those presets (denoiser fields only). Individual flags, still in place: `-ultrart-dn-alpha A`, `-ultrart-dn-spatialvar K`, `-ultrart-dn-nostabilize`, `-ultrart-dn-stabilize-alpha A`, `-ultrart-dn-stabilize-sigma K`, `-ultrart-guard X [Y]` (`-ultrart-restir-spatial N` and `-ultrart-restir-spatial-hybrid N` went with ReSTIR on 2026-11-19).
 
 **Not the denoiser**: in 1-1's start area, the tree canopies and grass are the game's own animated foliage, drawn over the RT image. The thin wires against the sky used to flicker because of the half-resolution depth-guided upsample; the [temporal upsampler](#temporal-upsampling) fixes that in the replace modes.
 
@@ -330,7 +339,7 @@ All of these are enableRandomWrite and point filtered. At 1280x720 they total ab
 | reprojPlaneTolerance | 0.01 | Maximum plane distance, relative to ray t |
 | clampHistory / clampSigma | true / 2 | Turn the clip off to compare ghosting against noise |
 | debugView | Final | `Final`, `FilteredLighting`, `RawLighting`, `Variance` (heatmap of the relative σ of the temporal estimate; blue is clean, red is σ ≥ 2× the mean), `HistoryLength` (heatmap of len / maxHistory), `Disocclusion` (red where history was rejected this frame, grey elsewhere), `SpatialBoost` (see above), `Motion` (see [Motion vectors](#motion-vectors)) |
-| stability | true | Master switch for the four features below. false = plain SVGF's temporal pass. Ctrl+F3 and `-ultrart-dn-legacy` (presets, [Presets and Ctrl+F3](#presets-and-ctrlf3)). |
+| ~~stability~~ | (removed 2026-11-23) | Was the master switch for the four features below (false = plain SVGF's temporal pass; [Presets and Ctrl+F3](#presets-and-ctrlf3)). Turn each one off by its own field. |
 | boostFrames | 8 | Pre-blur fades out at this history length. 0 = off. `-ultrart-dn-boost N` |
 | boostRadius | 4 | Pre-blur radius in trace pixels at history 0. Clamped to 4 (tile apron). `-ultrart-dn-boost-radius R` |
 | historySearch | true | 3x3 fallback search. `-ultrart-dn-nosearch` |

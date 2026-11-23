@@ -40,20 +40,9 @@ namespace UltraRT
         /// shadowed lights per cell, combined via exact 50/50 MIS mixture with global _LightAlias. Bench ls.grid=0.</summary>
         public bool grid = true;
         /// <summary>Primary RIS candidates when the world-space light grid is active (halves RIS loop ALU with equal/lower variance).</summary>
+        /// <remarks>A point outside the grid (beyond it, or seen through a portal) gets the full <see cref="risCandidates"/>
+        /// from the global table, as without the grid (docs/light-sampling.md, "Light grid and portals").</remarks>
         public int risCandidatesGrid = 8;
-        /// <summary>
-        /// Light grids around the camera's images through portals (2026-11-21, docs/light-sampling.md "Portal light grids"):
-        /// up to this many more 32x16x32 grids, each centred ahead of a portal viewpoint (SceneProxies.PortalViewpoints) that
-        /// no grid covers yet. Surfaces seen through a portal are often hundreds of metres from the camera in world space,
-        /// outside the camera's grid. Off by default (no measured gain, see the doc); bench ls.portalGrids=3.
-        /// </summary>
-        public int portalGrids = 0; // off: no measured gain, +0.1 ms and hitches (docs/light-sampling.md, "Light grid and portals")
-        /// <summary>
-        /// Primary candidates for a point outside every grid while grids are on: the full <see cref="risCandidates"/>, as
-        /// without the grid (it used to be <see cref="risCandidatesGrid"/>: half the candidates, from the global table only,
-        /// for everything beyond the grid or behind a portal). Bench ls.farFull=0.
-        /// </summary>
-        public bool farFull = true;
     }
 
     /// <summary>
@@ -78,10 +67,6 @@ namespace UltraRT
         /// <summary>Extra viewpoints for the importance weights: the camera seen through each portal side in front of it
         /// (SceneProxies.PortalViewpoints). Set by the plugin before <see cref="Bind"/>.</summary>
         public readonly List<Vector3> ViewPoints = new List<Vector3>();
-        /// <summary>The camera's forward axis as each of <see cref="ViewPoints"/> sees it (the portal light grids are centred ahead of it).</summary>
-        public readonly List<Vector3> ViewForwards = new List<Vector3>();
-        /// <summary>Light grids built this frame (1 = the camera's only), for the log.</summary>
-        public int GridCount => _gridBuiltThisFrame ? _gridCount : 0;
         /// <summary>Diagnostics: frames with a light-set change since the last <see cref="TakeChangeStats"/>, and some names.</summary>
         public int SetChangeFrames;
         private readonly List<string> _changeNames = new List<string>();
@@ -99,10 +84,7 @@ namespace UltraRT
 
         private const int GridX = 32, GridY = 16, GridZ = 32;
         private const float GridCell = 4f;
-        public const int MaxGrids = 4; // the camera's + 3 portal viewpoints' (_LightGridOrigin, _LightGridOrigin1..3)
         private const int GridCells = GridX * GridY * GridZ;
-        private readonly Vector4[] _gridOrigins = new Vector4[MaxGrids];
-        private int _gridCount = 1;
         private readonly int _maxLights;
         private readonly ComputeBuffer _alias, _fill, _gridBuf, _risIdxBuf, _globalPdfBuf;
         private readonly uint[] _aliasData, _fillData, _risIdxData;
@@ -133,13 +115,8 @@ namespace UltraRT
             IdRisLightIdxCs = Shader.PropertyToID("_RisLightIdx"),
             IdGridOriginCs = Shader.PropertyToID("_GridOrigin"),
             IdGridDimsCs = Shader.PropertyToID("_GridDims"),
-            IdGridBaseCs = Shader.PropertyToID("_GridBase"),
-            IdRisCandidatesFar = Shader.PropertyToID("_RisCandidatesFar");
-        private static readonly int[] IdLightGridOrigins =
-        {
-            Shader.PropertyToID("_LightGridOrigin"), Shader.PropertyToID("_LightGridOrigin1"),
-            Shader.PropertyToID("_LightGridOrigin2"), Shader.PropertyToID("_LightGridOrigin3"),
-        };
+            IdRisCandidatesFar = Shader.PropertyToID("_RisCandidatesFar"),
+            IdLightGridOrigin = Shader.PropertyToID("_LightGridOrigin");
 
         public LightSampling(int maxLights)
         {
@@ -147,7 +124,7 @@ namespace UltraRT
             _maxLights = maxLights;
             _alias = new ComputeBuffer(maxLights, 16) { name = "UltraRT LightAlias" };
             _fill = new ComputeBuffer(maxLights, 4) { name = "UltraRT FillLights" };
-            _gridBuf = new ComputeBuffer(GridCells * MaxGrids, 16) { name = "UltraRT LightGrid" };
+            _gridBuf = new ComputeBuffer(GridCells, 16) { name = "UltraRT LightGrid" };
             _risIdxBuf = new ComputeBuffer(maxLights, 4) { name = "UltraRT RisLightIdx" };
             _globalPdfBuf = new ComputeBuffer(maxLights, 4) { name = "UltraRT LightGlobalPdf" };
             _aliasData = new uint[maxLights * 4];
@@ -166,7 +143,7 @@ namespace UltraRT
             _fill.SetData(_fillData);
             _risIdxBuf.SetData(_risIdxData);
             _globalPdfBuf.SetData(_globalPdfData);
-            var emptyGrid = new uint[GridCells * MaxGrids * 4];
+            var emptyGrid = new uint[GridCells * 4];
             for (int i = 0; i < emptyGrid.Length; i++) emptyGrid[i] = 0xFFFFFFFFu;
             _gridBuf.SetData(emptyGrid);
         }
@@ -196,23 +173,16 @@ namespace UltraRT
             _gridBuiltThisFrame = s.grid && s.mode == LightSamplingMode.Ris && _gridCs != null && _kBuildGrid >= 0 && lightsBuffer != null && RisLightCount > 12;
             if (_gridBuiltThisFrame)
             {
-                _gridOrigins[0] = GridOriginAt(camPos);
-                _gridCount = 1;
-                PortalGridOrigins(s.portalImportance ? Mathf.Clamp(s.portalGrids, 0, MaxGrids - 1) : 0);
+                _gridOrigin = GridOriginAt(camPos);
                 cmd.SetComputeBufferParam(_gridCs, _kBuildGrid, IdLightsCs, lightsBuffer);
                 cmd.SetComputeBufferParam(_gridCs, _kBuildGrid, IdRisLightIdxCs, _risIdxBuf);
                 cmd.SetComputeBufferParam(_gridCs, _kBuildGrid, IdLightGrid, _gridBuf);
                 cmd.SetComputeIntParams(_gridCs, IdGridDimsCs, GridX, GridY, GridZ, RisLightCount);
-                for (int g = 0; g < _gridCount; g++)
-                {
-                    cmd.SetComputeVectorParam(_gridCs, IdGridOriginCs, _gridOrigins[g]);
-                    cmd.SetComputeIntParam(_gridCs, IdGridBaseCs, g * GridCells);
-                    cmd.DispatchCompute(_gridCs, _kBuildGrid, GridX / 4, GridY / 4, GridZ / 4);
-                }
-                _gridOrigin = _gridOrigins[0];
+                cmd.SetComputeVectorParam(_gridCs, IdGridOriginCs, _gridOrigin);
+                cmd.DispatchCompute(_gridCs, _kBuildGrid, GridX / 4, GridY / 4, GridZ / 4);
             }
             int cands = s.mode == LightSamplingMode.Ris ? (_gridBuiltThisFrame ? Mathf.Min(s.risCandidates, s.risCandidatesGrid) : s.risCandidates) : s.candidates;
-            int far = _gridBuiltThisFrame && s.farFull ? s.risCandidates : cands;
+            int far = _gridBuiltThisFrame ? s.risCandidates : cands; // outside the grid: the full candidates
             cmd.SetRayTracingIntParam(shader, IdLightSampling, (int)s.mode);
             cmd.SetRayTracingIntParam(shader, IdRisCandidates, Mathf.Clamp(cands, 1, 64));
             cmd.SetRayTracingIntParam(shader, IdRisCandidatesFar, Mathf.Clamp(far, 1, 64));
@@ -240,8 +210,7 @@ namespace UltraRT
             cmd.SetRayTracingBufferParam(shader, IdFillLights, _fill);
             cmd.SetRayTracingBufferParam(shader, IdLightGrid, _gridBuf);
             cmd.SetRayTracingBufferParam(shader, IdLightGlobalPdf, _globalPdfBuf);
-            for (int g = 0; g < MaxGrids; g++)
-                cmd.SetRayTracingVectorParam(shader, IdLightGridOrigins[g], useGrid && g < _gridCount ? _gridOrigins[g] : new Vector4(0f, 0f, 0f, -1f)); // w <= 0: unused
+            cmd.SetRayTracingVectorParam(shader, IdLightGridOrigin, useGrid ? _gridOrigin : new Vector4(0f, 0f, 0f, -1f)); // w <= 0: unused
             cmd.SetRayTracingFloatParam(shader, IdLightGridOn, useGrid ? 1f : 0f);
         }
 
@@ -249,30 +218,6 @@ namespace UltraRT
             Mathf.Floor(c.x / GridCell) * GridCell - 0.5f * GridX * GridCell,
             Mathf.Floor(c.y / GridCell) * GridCell - 0.5f * GridY * GridCell,
             Mathf.Floor(c.z / GridCell) * GridCell - 0.5f * GridZ * GridCell, GridCell);
-
-        /// <summary>
-        /// More grids for what the camera sees through portals: each centred a little ahead of a portal viewpoint (the
-        /// camera's image through the portal, looking along the image's forward), nearest image first, skipping a centre
-        /// that an existing grid already holds well inside it (within half its half-extent on every axis).
-        /// </summary>
-        private void PortalGridOrigins(int extra)
-        {
-            if (extra <= 0) return;
-            float hx = 0.5f * GridX * GridCell, hy = 0.5f * GridY * GridCell, hz = 0.5f * GridZ * GridCell;
-            for (int i = 0; i < ViewPoints.Count && _gridCount < 1 + extra; i++)
-            {
-                var fwd = i < ViewForwards.Count ? ViewForwards[i] : Vector3.zero;
-                var c = ViewPoints[i] + fwd * hy; // ahead of the image: it looks into the far side's room
-                bool covered = false;
-                for (int g = 0; g < _gridCount && !covered; g++)
-                {
-                    var o = _gridOrigins[g];
-                    var gc = new Vector3(o.x + hx, o.y + hy, o.z + hz);
-                    covered = Mathf.Abs(c.x - gc.x) < 0.5f * hx && Mathf.Abs(c.y - gc.y) < 0.5f * hy && Mathf.Abs(c.z - gc.z) < 0.5f * hz;
-                }
-                if (!covered) _gridOrigins[_gridCount++] = GridOriginAt(c);
-            }
-        }
 
         private int IdOf(Light l, int i) =>
             !ReferenceEquals(l, null) ? l.GetInstanceID() : VirtualIds != null && i < VirtualIds.Length ? VirtualIds[i] : 0;

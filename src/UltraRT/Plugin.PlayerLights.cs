@@ -125,17 +125,13 @@ namespace UltraRT
         private static readonly int TexScrollId = Shader.PropertyToID("_UltraRTTexScroll");
         /// <summary>SCROLLING textures move in the RT scene (-ultrart-notexscroll; bench variant plugin._texScroll=0).</summary>
         private bool _texScroll = true;
-        private static readonly int ScrollMotionId = Shader.PropertyToID("_UltraRTScrollMotion");
         private static readonly int FrameDtId = Shader.PropertyToID("_UltraRTFrameDt");
-        /// <summary>Scrolling surfaces report the texture's motion to the temporal filters (bench variant plugin._texScrollMotion=0).</summary>
-        private bool _texScrollMotion = true;
 
         /// <summary>Every traced frame: the rain clock (the game shaders' _Time.y), and the per-area rain state at 4 Hz.</summary>
         private void UpdateRain()
         {
             Shader.SetGlobalFloat(RainTimeId, Time.timeSinceLevelLoad);
             Shader.SetGlobalFloat(TexScrollId, _texScroll ? 1f : 0f);
-            Shader.SetGlobalFloat(ScrollMotionId, _texScrollMotion ? 1f : 0f);
             Shader.SetGlobalFloat(FrameDtId, Time.deltaTime);
             bool changed = SceneProxies.RainEnabled != _rainOn;
             SceneProxies.RainEnabled = _rainOn;

@@ -56,7 +56,7 @@ namespace UltraRT
             public bool FakeMirror; // "Mirror" in the portal's path: a level's mirror built from a portal into a mirrored copy
             public int CreatedFrame; // Time.frameCount when the proxy was made (see PortalAddDelay)
             public int AddedFrame;   // Time.frameCount of the last AddInstance
-            public bool Settled;     // re-added PortalAddDelay frames after that add (PortalReAdd): rays are sure to hit it
+            public bool Settled;     // re-added PortalAddDelay frames after that add (the portal re-add): rays are sure to hit it
         }
 
         private readonly Dictionary<long, PortalSide> _portalSides = new Dictionary<long, PortalSide>();
@@ -70,7 +70,7 @@ namespace UltraRT
         private Vector4[] _portalRowsPrev = new Vector4[3 * 16];
         private bool _portalPrevStale = true, _portalPrevDirty = true;
         private static readonly int IdPortalsPrev = Shader.PropertyToID("_UltraRTPortalsPrev");
-        private static readonly int IdPortalQuads = Shader.PropertyToID("_UltraRTPortalQuads"), IdPortalEdge = Shader.PropertyToID("_UltraRTPortalEdge");
+        private static readonly int IdPortalQuads = Shader.PropertyToID("_UltraRTPortalQuads");
         private ComputeBuffer _portalQuadBuffer;
         private Vector4[] _portalQuadRows = new Vector4[3 * 16];
         // Per side: world on the exit's side -> the side's quad space (the quad rows after the inverse travel), so a light
@@ -78,8 +78,6 @@ namespace UltraRT
         private static readonly int IdPortalImageQuads = Shader.PropertyToID("_UltraRTPortalImageQuads");
         private ComputeBuffer _portalImageQuadBuffer;
         private Vector4[] _portalImageQuadRows = new Vector4[3 * 16];
-        /// <summary>What slides into view at a moving portal's edge starts without history (bench plugin._portalEdges=0: off).</summary>
-        public static bool MovingPortalEdges = true;
         private Mesh _portalQuad;
         private int _portalQuadFrame;
         /// <summary>
@@ -96,9 +94,8 @@ namespace UltraRT
         /// `BigDoor` leaf) switches its portal off each time the door shuts and on as it opens, the only portal in 8-3 that
         /// comes and goes in play. An instance added in the wrong frame can stay in the RTAS without ever being hit (the
         /// fault of "Portal quads added too early" and "Instances added too early"); with the raster skip on, the doorway
-        /// then shows no view at all (docs/portals.md section 22). -ultrart-noportal-readd, bench plugin._portalReAdd=0.
+        /// then shows no view at all (docs/portals.md section 22).
         /// </summary>
-        public static bool PortalReAdd = true;
         /// <summary>Diagnostic (bench plugin._portalUnhitTest=1): sides added from now on are marked as traced but left out of
         /// the RTAS, which is what the "never hit" fault looks like (docs/portals.md section 22).</summary>
         public static bool PortalUnhitTest;
@@ -114,17 +111,9 @@ namespace UltraRT
         public static bool TraceMirrors;
         /// <summary>Teleports per ray before portals are ignored (the game's views go 3 to 4 deep).</summary>
         public static int PortalHops = 3;
-        /// <summary>
-        /// The game's per-portal recursion rules for rays (docs/portals.md, "Recursion rules"): maxRecursions of the portal
-        /// crossed last, canSeeItself, and deeper loops through supportInfiniteRecursion portals (up to
-        /// <see cref="PortalInfiniteHops"/>). Off: one global limit of <see cref="PortalHops"/> (bench plugin._portalRules=0).
-        /// </summary>
-        public static bool PortalRules = true;
-        /// <summary>canSeeItself for rays (bench plugin._portalNoSelf=0|1).</summary>
-        public static bool PortalNoSelf = true;
         /// <summary>Teleports through supportInfiniteRecursion portals (8-3's infinite drop); bench plugin._portalInfHops=N.</summary>
         public static int PortalInfiniteHops = 12;
-        private static readonly int IdPortalRules = Shader.PropertyToID("_UltraRTPortalRules"), IdPortalInfHops = Shader.PropertyToID("_UltraRTPortalInfHops");
+        private static readonly int IdPortalInfHops = Shader.PropertyToID("_UltraRTPortalInfHops");
         private int _portalLogs;
         private bool _portalLayerChecked;
         private int _portalSidesInRtas;
@@ -295,7 +284,7 @@ namespace UltraRT
                     if (!PortalUnhitTest) AddPortalSide(s);
                     s.InRtas = true;
                     s.AddedFrame = Time.frameCount;
-                    s.Settled = !PortalReAdd || PortalUnhitTest;
+                    s.Settled = PortalUnhitTest;
                     changed = true;
                     if (_portalAddLogs++ < 40)
                         _log.LogInfo($"Portals: side {s.Index} '{Bench.GameControl.PathOf(s.Portal.transform)}' {(s.Exit ? "exit" : "enter")} added at frame {Time.frameCount}{(PortalUnhitTest ? " (unhit test: left out of the RTAS)" : "")}");
@@ -309,7 +298,7 @@ namespace UltraRT
                 }
                 else if (s.InRtas && !s.Settled && Time.frameCount - s.AddedFrame >= PortalAddDelay)
                 {
-                    // The re-add (PortalReAdd): from now on rays hit the side, and the game's view of it can be skipped.
+                    // The re-add: from now on rays hit the side, and the game's view of it can be skipped.
                     Rtas.RemoveInstance(s.Proxy);
                     AddPortalSide(s);
                     s.Settled = true;
@@ -324,7 +313,7 @@ namespace UltraRT
         }
 
         private int _portalAddLogs;
-        /// <summary>Portal sides removed and added again after their add (PortalReAdd), scene total.</summary>
+        /// <summary>Portal sides removed and added again after their add (the portal re-add), scene total.</summary>
         public int PortalReAdds;
 
         private void AddPortalSide(PortalSide s) =>
@@ -660,8 +649,6 @@ namespace UltraRT
             return any;
         }
 
-        /// <summary>Motion vectors for what is seen through a moving portal (bench plugin._portalMotion=0: off, as before).</summary>
-        public static bool MovingPortalMotion = true;
         /// <summary>Travel matrix changes of existing sides, counted (diagnostics).</summary>
         public int PortalMoves;
         private int _portalJumpLogs;
@@ -733,7 +720,7 @@ namespace UltraRT
                 _portalPrevBuffer.SetData(_portalRowsPrev);
                 _portalPrevDirty = false;
             }
-            Shader.SetGlobalBuffer(IdPortalsPrev, MovingPortalMotion ? _portalPrevBuffer : _portalBuffer);
+            Shader.SetGlobalBuffer(IdPortalsPrev, _portalPrevBuffer); // motion vectors behind moving portals
             // World -> quad space per side, for the moving-portal edge test (UltraRTPortals.hlsl, PortalSegmentThrough).
             if (_portalQuadRows.Length < _portalRows.Length) { _portalQuadRows = new Vector4[_portalRows.Length]; _portalQuadsDirty = true; }
             if (_portalImageQuadRows.Length < _portalRows.Length) { _portalImageQuadRows = new Vector4[_portalRows.Length]; _portalQuadsDirty = true; }
@@ -770,9 +757,7 @@ namespace UltraRT
             }
             Shader.SetGlobalBuffer(IdPortalQuads, _portalQuadBuffer);
             Shader.SetGlobalBuffer(IdPortalImageQuads, _portalImageQuadBuffer);
-            Shader.SetGlobalInt(IdPortalEdge, MovingPortalMotion && MovingPortalEdges ? 1 : 0);
             Shader.SetGlobalInt(IdPortalHops, Mathf.Clamp(PortalHops, 0, 8));
-            Shader.SetGlobalInt(IdPortalRules, (PortalRules ? 1 : 0) | (PortalNoSelf ? 2 : 0));
             Shader.SetGlobalInt(IdPortalInfHops, Mathf.Clamp(PortalInfiniteHops, 1, 32));
             Shader.SetGlobalInt(IdMirrors, TraceMirrors ? 1 : 0);
         }

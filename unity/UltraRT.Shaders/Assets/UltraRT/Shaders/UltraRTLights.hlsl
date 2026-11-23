@@ -65,29 +65,20 @@ StructuredBuffer<uint4>  _LightAlias;
 int      _FillCount;
 StructuredBuffer<uint>   _FillLights;   // indices of unshadowed fill lights
 // World-space light grid (ReGIR-lite, Wave 3): 32x16x32 camera-centered 4 m cells, 8 x uint16 light indices per uint4.
-// Since 2026-11-21 up to 3 more grids of the same size around the camera's images through portals (LightSampling.cs,
-// "Portal light grids"), stored after the camera's (grid k at k x 16384).
+// (The portal viewpoint grids of 2026-11-21 were removed on 2026-11-23: no measured gain, docs/light-sampling.md.)
 StructuredBuffer<uint4>  _LightGrid;
 StructuredBuffer<float>  _LightGlobalPdf;
-float4   _LightGridOrigin; // xyz world origin, w cellSize (4 m)
-float4   _LightGridOrigin1, _LightGridOrigin2, _LightGridOrigin3; // portal viewpoint grids (w <= 0: none)
+float4   _LightGridOrigin; // xyz world origin, w cellSize (4 m; w <= 0: no grid)
 float    _LightGridOn;     // 1 = active
 
-// The grid cell holding p (index into _LightGrid), or -1: the first grid that contains it.
-int LightGridCellIn(float4 o, float3 p, uint gridBase)
+// The grid cell holding p (index into _LightGrid), or -1 outside the grid.
+int LightGridCell(float3 p)
 {
+    float4 o = _LightGridOrigin;
     if (o.w <= 0.0) return -1;
     int3 gc = (int3)floor((p - o.xyz) / o.w);
     if (gc.x < 0 || gc.x >= 32 || gc.y < 0 || gc.y >= 16 || gc.z < 0 || gc.z >= 32) return -1;
-    return (int)(gridBase + (uint)gc.x + (uint)gc.y * 32u + (uint)gc.z * 512u);
-}
-int LightGridCell(float3 p)
-{
-    int c = LightGridCellIn(_LightGridOrigin, p, 0u);
-    if (c < 0) c = LightGridCellIn(_LightGridOrigin1, p, 16384u);
-    if (c < 0) c = LightGridCellIn(_LightGridOrigin2, p, 32768u);
-    if (c < 0) c = LightGridCellIn(_LightGridOrigin3, p, 49152u);
-    return c;
+    return gc.x + gc.y * 32 + gc.z * 512;
 }
 
 // Moving occluders (docs/denoiser.md, "Moving shadows"): world AABBs of dynamic objects that moved in the last frames (the
@@ -238,8 +229,8 @@ static uint g_ShadowPlayerMask;
 float4 _UltraRTPlayerBoxMin, _UltraRTPlayerBoxMax;
 
 bool InPlayerBox(float3 e) { return all(e >= _UltraRTPlayerBoxMin.xyz) && all(e <= _UltraRTPlayerBoxMax.xyz); }
-// The camera (xyz) and w = 1 while the player's own spot lights clip their shadow rays at the eye (LightShadowSetup;
-// Plugin.cs, -ultrart-noeyeclip / bench plugin._playerLightEyeClip=0).
+// The camera (xyz), and w = 1 once set (Plugin.cs, every traced frame): the player's own spot lights clip their shadow
+// rays at the eye (LightShadowSetup).
 float4 _UltraRTPlayerEye;
 
 // The transmittance of the last visibility ray that got through (VisibleRaw): 1, or the colour of the stained glass it

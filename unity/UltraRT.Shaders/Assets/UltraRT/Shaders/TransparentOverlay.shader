@@ -98,7 +98,6 @@ Shader "UltraRT/TransparentOverlay"
         SamplerState my_linear_clamp_sampler;
 
         float _UltraRTDisplace;          // material: the water material has VERTEX_DISPLACEMENT
-        float _UltraRTOverlayDisplace;   // global (Plugin.Transparent.cs): 1 = follow it (bench trans.overlayDisplace)
         Texture2D<float4> _VertexNoiseTex;
         SamplerState sampler_VertexNoiseTex;
         float4 _FlowDirection, _UVNoiseScale, _UVNoiseSpeed;
@@ -130,7 +129,7 @@ Shader "UltraRT/TransparentOverlay"
             // The game moves this surface's vertices (VERTEX_DISPLACEMENT waves): so must the overlay, or it sits at the
             // rest pose, fails the depth test where a wave rises above it and its distance no longer matches the traced
             // (displaced) copy: whole triangles of 6-2's blood pools flickered in and out of the reflection.
-            [branch] if (_UltraRTDisplace > 0.5 && _UltraRTOverlayDisplace > 0.5)
+            [branch] if (_UltraRTDisplace > 0.5)
             {
                 DispMat m;
                 m.flow = _FlowDirection.xyz; m.mode = _VertexMode; m.reverse = _ReverseFlow; m.noiseScale = _VertexNoiseScale;

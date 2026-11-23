@@ -25,7 +25,7 @@ float4   _VeilParams;      // x colour gain, y cover gain, z 1 = also on pixels 
 float4   _VeilFog;         // the level's fog: x mode (0 off, 1 linear, 2 exp, 3 exp2), y start, z end, w density
 float4   _VeilFogColor;    // rgb the level's fog colour, w strength of the fog behind portals (0 = none)
 float4   _VeilCamFwd;      // xyz the camera's forward axis (fog goes by view depth, as the game's), w 1 = the fog pass ran
-float4   _VeilMini;        // x: 0 full RTAS, 1 mini RTAS with portals, 2 mini RTAS without portals; yz _guardScale; w _flipY
+float4   _VeilMini;        // x: 0 full RTAS, 1 mini RTAS with portals, 2 mini RTAS without portals; yz _guardScale
 float4   _VeilZParams;     // camera _ZBufferParams
 Texture2D<float>  _VeilGameDepth;
 Texture2D<float4> _VeilNormalDepth;

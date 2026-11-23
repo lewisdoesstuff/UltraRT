@@ -17,7 +17,7 @@ Texture2D _StainAtlas;           // the game's stain shapes (_SplatterAtlas): 5 
 SamplerState my_point_repeat_sampler_StainAtlas;
 float4 _StainParams;             // x on (0/1; 2 = debug: stains bright green), y darkening of a wet stain (0-1), z fog near, w fog far (m; the composite's fade)
 float4 _StainCamPos;             // xyz camera position (the fade is by distance from it, as the game's)
-float4 _StainModes;              // x 1 = at reflection hits (StainTint), y 1 = at camera hits behind portals (StainTintAt), z 1 = on the emission too (StainEmissionTint)
+float4 _StainModes;              // x 1 = at reflection hits (StainTint), y 1 = at camera hits behind portals (StainTintAt)
 
 // Coverage (0/1) of the stain at world point p with surface normal n (either side), and that stain's wetness.
 float StainAt(float3 p, float3 n, out float wet)
@@ -57,8 +57,8 @@ float3 StainTintAt(float3 p, float3 n, float viewDistance)
 }
 
 // The part of a stain tint that goes on the surface's emission: all of it (the game's composite multiplies the finished
-// pixel, glow included), or none with bench wet.stainEmission=0 (the albedo only, as before 2026-11-22).
-float3 StainEmissionTint(float3 tint) { return _StainModes.z > 0.5 ? tint : 1.0; }
+// pixel, glow included; since 2026-11-22).
+float3 StainEmissionTint(float3 tint) { return tint; }
 
 // At reflection hits.
 float3 StainTint(float3 p, float3 n)

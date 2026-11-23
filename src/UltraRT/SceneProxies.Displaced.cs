@@ -22,8 +22,6 @@ namespace UltraRT
         public static bool DisplacementBuild = true;
         /// <summary>Runtime switch (bench variant plugin._displace=0): the copies get the rest pose. Set by the plugin every frame.</summary>
         public static bool DisplacementActive = true;
-        /// <summary>Per-vertex motion of displaced proxies (bench variant plugin._displaceMotion=0: rigid motion only, for A/B).</summary>
-        public static bool DisplacementMotion = true;
         /// <summary>
         /// Displaced copies whose bounds are farther than this from the camera (m) stop moving: the copy switches to a Static
         /// BLAS, frozen in its last pose, and is no longer dispatched. Unity rebuilds a DynamicGeometry BLAS every frame and
@@ -389,7 +387,7 @@ namespace UltraRT
         private void DisplacedMotion(DynamicProxy d)
         {
             // The copy holds last frame's pose only if it was displaced last frame; this frame's kernel then copies it out.
-            bool prev = DisplacementMotion && d.SkinBase >= 0 && d.Disp.LastFrame == Time.frameCount - 1;
+            bool prev = d.SkinBase >= 0 && d.Disp.LastFrame == Time.frameCount - 1;
             Motion.SetMotion(d.Slot, d.PrevM == d.CurM ? Matrix4x4.identity : d.PrevM * d.CurM.inverse, prev ? d.SkinBase : -1);
         }
 

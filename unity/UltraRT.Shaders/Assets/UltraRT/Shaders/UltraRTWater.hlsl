@@ -11,9 +11,6 @@
 // x ripple strength (0 = flat), y time (s, wrapped), z fade-out distance (m), w refraction strength (overlay only)
 float4 _UltraRTWater;
 
-// 1 = the reflection ray's ripples are band-limited to its texel's footprint (global; bench plugin._waterBand=0).
-float _UltraRTWaterBand;
-
 // The ripples: direction xy (in the surface's tangent plane), wavelength (m), slope amplitude. Shared by the reflection
 // normal (WaterNormalBand) and the caustics under the water (WaterRippleCaustic): both move together.
 static const float4 kWaterWaves[4] =

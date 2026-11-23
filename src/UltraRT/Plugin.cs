@@ -114,7 +114,7 @@ namespace UltraRT
         private bool _imgPrewarmFirst = true;
 
         private string _autoScene;
-        private bool _capture, _quit;
+        private bool _quit;
         private string _outDir;
 
         /// <summary>[View] ConfigVersion: which one-time default migrations this config file has had (here: the default
@@ -305,7 +305,6 @@ namespace UltraRT
                     case "-ultrart-view": { var v = Next(); if (!int.TryParse(v, out _mode)) { int vi = ModeIndex(v); _mode = vi >= 0 ? vi : _mode; } break; } // index or name
                     case "-ultrart-scale": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _scale); break;
                     case "-ultrart-accumulate": _accumulate = true; break;
-                    case "-ultrart-capture": _capture = true; break;
                     case "-ultrart-quit": _quit = true; break;
                     case "-ultrart-off": _viewEnabled = false; break;
                     case "-ultrart-skinned-visible": SceneProxies.SkinnedProxiesVisible = true; break;
@@ -316,11 +315,8 @@ namespace UltraRT
                     case "-ultrart-displace-range": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _displaceRange); break; // m; < 0: original meshes (displacement off at run time)
                     case "-ultrart-spawn-test": _spawnTest = true; break;
                     case "-ultrart-gputimer": _useGpuTimer = true; break;
-                    case "-ultrart-nostatic": SceneProxies.SkipStaticBatches = true; break;
                     case "-ultrart-nomerge": SceneProxies.NoSubmeshMerge = true; break;
-                    case "-ultrart-flipy": _flipY = true; break;
                     case "-ultrart-ccw": SceneProxies.FrontCounterClockwise = true; break;
-                    case "-ultrart-noscene": _noScene = true; break;
                     case "-ultrart-relight-falloff": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightFalloff); break;
                     case "-ultrart-relight-fill": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightFillCut); break;
                     case "-ultrart-relight-ambient": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _relightAmbientCut); break;
@@ -342,9 +338,7 @@ namespace UltraRT
                     case "-ultrart-enemy-survey": _enemySurvey = true; break;        // bench: enemies_<scene>.txt per level (Plugin.EnemySurvey.cs)
                     case "-ultrart-light-census": _lightCensus = true; break;        // bench: lights_<scene>.json per level (Plugin.LightClasses.cs)
                     case "-ultrart-logfixtures": _logFixtures = true; break;
-                    case "-ultrart-noeyeclip": _playerLightEyeClip = false; break; // player spot lights: shadow rays to the light itself
                     case "-ultrart-log-light-toggles": _logLightToggles = true; break; // diagnostics: lights switching on/off, per-frame cine exposure
-                    case "-ultrart-nodepthmatch": _noDepthMatch = true; break;
                     case "-ultrart-noportals": _portals = false; break;
                     case "-ultrart-noportallayer": SceneProxies.TracePortalLayer = false; break;
                     case "-ultrart-portal-hops": int.TryParse(Next(), out _portalHops); break;
@@ -363,7 +357,6 @@ namespace UltraRT
                     case "-ultrart-handover-tint": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _handoverTint); break; // fullbright handover parts take their lights' colour (Plugin.Handover.cs)
                     case "-ultrart-norain": _rainOn = false; break;
                     case "-ultrart-notexscroll": _texScroll = false; break;
-                    case "-ultrart-notexscroll-motion": _texScrollMotion = false; break;
                     case "-ultrart-player-noanimate": SceneProxies.PlayerAlwaysAnimate = false; break;
                     case "-ultrart-lights":
                     {
@@ -385,9 +378,7 @@ namespace UltraRT
                     case "-ultrart-static-budget": { if (int.TryParse(Next(), out var bg)) SceneProxies.StaticRecordBudget = bg; break; }
                     case "-ultrart-nohook": _noHook = true; break;
                     case "-ultrart-pose": _capturePose = Next(); break;
-                    case "-ultrart-inject": if (Enum.TryParse(Next(), true, out CameraEvent ev)) { InjectEvent = ev; _injectForced = true; } break;
                     case "-ultrart-gputimer-flags": Environment.SetEnvironmentVariable("ULTRART_GPUTIMER_FLAGS", Next()); break;
-                    case "-ultrart-ambient": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _primaryAmbient); break;
                     case "-ultrart-noreflections": _reflSettings.enabled = false; break;
                     case "-ultrart-refl-strength": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _reflSettings.reflStrength); break;
                     case "-ultrart-spec-weight": float.TryParse(Next(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _reflSettings.specWeight); break;
@@ -395,11 +386,8 @@ namespace UltraRT
                     case "-ultrart-matdump": SceneProxies.DumpMaterialClasses = true; break;
                     case "-ultrart-viewprobe": SceneProxies.ViewProbe = true; break;
                     case "-ultrart-skin-probe": SceneProxies.SkinProbeFilter = Next(); break; // bench screenshots: game vs proxy skinned vertices (SceneProxies.Probe.cs)
-                    case "-ultrart-nosettle-readd": SceneProxies.SkinnedSettleReAdd = false; break; // skinned instances are not re-added when a pose change settles (docs/scene-proxies.md, "Posed mannequins")
                     case "-ultrart-glow-smooth": _smoothGlow = !string.Equals(Next(), "off", StringComparison.OrdinalIgnoreCase); break;
                     case "-ultrart-nomatsync": SceneProxies.MaterialSync = false; break;
-                    case "-ultrart-albedo-emission-glow": SceneProxies.LitAlbedoEmission = false; break;
-                    case "-ultrart-baked-remap": SceneProxies.BakedOwnLayers = false; break; // trace baked layers 6/7 as 24/8 (before 2026-11-21; SceneProxies.OriginalLayer)
                     case "-ultrart-novertexblend": SceneProxies.VertexBlendTextures = false; break; // Master VERTEX_BLENDING: _MainTex only (SceneProxies.cs)
                     case "-ultrart-nomotion": MotionVectors.Enabled = false; break;
                     case "-ultrart-guard":
@@ -409,9 +397,6 @@ namespace UltraRT
                         break;
                     case "-ultrart-motion-probe": SceneProxies.MotionProbe = true; break;
                     case "-ultrart-motion-probe-filter": SceneProxies.MotionProbe = true; SceneProxies.MotionProbeFilter = Next(); break;
-                    case "-ultrart-nomirrorfix": SceneProxies.MirroredSkinFix = false; break; // mirrored skinned meshes keep the default winding (docs/scene-proxies.md)
-                    case "-ultrart-noportal-readd": _portalReAdd = false; break; // portal sides are added once, not re-added (docs/portals.md section 22)
-                    case "-ultrart-noreadd": SceneProxies.NewInstanceReAdd = false; break; // new rigid instances are added once only (docs/scene-proxies.md, "Instances added too early")
                     case "-ultrart-trace-proxies": SceneProxies.TraceFilter = Next(); break;
                     case "-ultrart-trace-skinned": SceneProxies.TraceSkinned = true; break;
                     case "-ultrart-noblaspatch": UnityBlasPatch.Enabled = false; break; // UnityBlasPatch.cs: leave Unity's BLAS cache code unpatched
@@ -522,7 +507,6 @@ namespace UltraRT
             UpdateConeGain(); // the game's light cones while traced (Plugin.Beams.cs)
             MaterialsUpdate(); // Ctrl+F1, _UltraRTDetail global
             HdrTick(); // HDR display output: settings and log (Plugin.Hdr.cs)
-            MsaaProbeUpdate(); // measurement probe, bench plugin._msaaProbe only (Plugin.MsaaProbe.cs)
             try
             {
                 if (_keysLive) PlayerAndDevHotkeys();
@@ -571,7 +555,7 @@ namespace UltraRT
                 Logger.LogInfo($"Temporal upsampling: {on}");
                 Toast($"Temporal upsampling {on} (F2)");
             }
-            CacheHotkeys(); // F3, Shift+F3, Ctrl+F3 (developer keys)
+            CacheHotkeys(); // F3, Shift+F3 (developer keys)
         }
 
         // ---------------------------------------------------------------- scene
@@ -624,7 +608,7 @@ namespace UltraRT
             while (SceneHelper.PendingScene != null) yield return null;
             yield return new WaitForSecondsRealtime(1f);
             if (_proxies != null || _proxyShader == null) yield break;
-            if (_noScene) { Logger.LogInfo("RT scene build skipped (-ultrart-noscene)"); yield break; }
+            if (_noScene) { Logger.LogInfo("RT scene build skipped (ray tracing unavailable or -ultrart-minimal)"); yield break; }
             try
             {
                 var sw = Stopwatch.StartNew();
@@ -889,9 +873,6 @@ namespace UltraRT
         /// <summary>White statue orbs' glow shell strength while traced (SceneProxies.OrbShells.cs; bench plugin._orbShellGain).</summary>
         private float _orbShellGain = SceneProxies.OrbShellGain;
         private int _rtTracedFrame = -100;
-        /// <summary>Limbo water is not faded around the player while traced (bench plugin._flatWaterFade=0: the game's fade
-        /// with its dither squares).</summary>
-        private bool _flatWaterFade = true;
         /// <summary>Diagnostic (bench plugin._readdDynamic=1): remove and re-add every active dynamic instance once.</summary>
         private bool _readdDynamic;
         private readonly bool[] _lightPlaced = new bool[MaxLights]; // packed light i is placed by a light override (offset / shape)
@@ -1003,8 +984,6 @@ namespace UltraRT
 
         // The RT image is drawn inside the main camera's render, after opaques + skybox. Transparents, blood decals,
         // post-processing, the viewmodel camera and UI all still draw on top of it.
-        private CameraEvent InjectEvent = CameraEvent.AfterSkybox; // -ultrart-inject overrides the choice below
-        private bool _injectForced;
         private CameraEvent _attachedEvent;
 
         /// <summary>
@@ -1014,21 +993,16 @@ namespace UltraRT
         /// </summary>
         private CameraEvent InjectEventFor(Camera cam)
         {
-            if (_injectForced) return InjectEvent;
             bool sky = cam.clearFlags == CameraClearFlags.Skybox &&
                        (RenderSettings.skybox != null || (cam.TryGetComponent<Skybox>(out var sb) && sb.enabled && sb.material != null));
             return sky ? CameraEvent.AfterSkybox : CameraEvent.AfterForwardOpaque;
         }
         private Camera _attachedCam;
         private static readonly int UltraRTImageId = Shader.PropertyToID("_UltraRTImage");
-        private static readonly int UltraRTFlipYId = Shader.PropertyToID("_UltraRTFlipY");
         private static readonly int UltraRTNormalDepthId = Shader.PropertyToID("_UltraRTNormalDepth");
         private static readonly int UltraRTInstanceIdId = Shader.PropertyToID("_UltraRTInstanceId");
         private static readonly int UltraRTSurfaceId = Shader.PropertyToID("_UltraRTSurface");
         private static readonly int UltraRTSurfaceOnId = Shader.PropertyToID("_UltraRTSurfaceOn");
-        /// <summary>The game's fog on traced pixels leaves "NoFog" (_FOG_OFF) materials alone, as the game does (bench
-        /// plugin._noFogSkip=0: fogged like everything else, before 2026-11-18).</summary>
-        private bool _noFogSkip = true;
 
         private static readonly int UltraRTAlbedoId = Shader.PropertyToID("_UltraRTAlbedo");
         private static readonly int UltraRTSpecularId = Shader.PropertyToID("_UltraRTSpecular");
@@ -1046,14 +1020,9 @@ namespace UltraRT
         /// <summary>Runtime switch for vertex displacement in the RT scene (bench variant plugin._displace=0: rest pose, as before).</summary>
         private bool _displace = true;
         private float _displaceRange = 40f; // bench variant plugin._displaceRange: copies beyond this (m) freeze (SceneProxies.DisplacementRange)
-        private bool _displaceMotion = true; // bench variant plugin._displaceMotion=0: displaced proxies without per-vertex motion vectors
         private bool _portals = true; // -ultrart-noportals (bench variant: plugin._portals=0): rays ignore portals (docs/portals.md)
         private int _portalHops = 3;  // -ultrart-portal-hops N (bench variant: plugin._portalHops=N): teleports per ray
-        private bool _portalRules = true; // bench plugin._portalRules=0: one global hop limit instead of the game's per-portal rules
-        private bool _portalNoSelf = true; // bench plugin._portalNoSelf=0: rays ignore canSeeItself
-        private bool _portalReAdd = true;    // -ultrart-noportal-readd, bench plugin._portalReAdd=0: portal sides are added once (SceneProxies.PortalReAdd)
         private bool _portalUnhitTest;       // bench plugin._portalUnhitTest=1: sides added from now on stay out of the RTAS (diagnostic)
-        private bool _portalFeedback = true; // bench plugin._portalFeedback=0: the end of an infinite portal loop stays black
         private int _portalCheapHops = 4;    // bench plugin._portalCheapHops=N: past N hops one light sample, no reflection ray (0 = never)
         private Texture _fbTex;              // last frame's image for the portal loop feedback (PathTrace, path.capped)
         private Matrix4x4 _fbViewProj = Matrix4x4.identity;
@@ -1088,10 +1057,6 @@ namespace UltraRT
         private static readonly int PlayerRaysId = Shader.PropertyToID("_UltraRTPlayerRays");
         private static readonly int PlayerBoxMinId = Shader.PropertyToID("_UltraRTPlayerBoxMin"), PlayerBoxMaxId = Shader.PropertyToID("_UltraRTPlayerBoxMax");
         private static readonly int PlayerEyeId = Shader.PropertyToID("_UltraRTPlayerEye");
-        /// <summary>The player's own spot lights (7-3's flashlight, 10 m behind the eye) end their shadow rays at the eye
-        /// plane, so nothing behind the player shadows them (-ultrart-noeyeclip, bench plugin._playerLightEyeClip=0).</summary>
-        private bool _playerLightEyeClip = true;
-        private bool _flipY;
         private int _recordedFrame = -1;
         private int _camSwitchLogs;
         private Material _compositeMat;
@@ -1215,14 +1180,13 @@ namespace UltraRT
         /// docs/performance.md, "Pass schedule".</summary>
         public int _auxEvery = 1;
         private RenderTexture _depthCopy;
-        private bool _noDepthMatch;
         private static readonly int UltraRTGameDepthId = Shader.PropertyToID("_UltraRTGameDepth");
         private static readonly int SoftParticlesId = Shader.PropertyToID("_UltraRTSoft");
         private static readonly int UltraRTDepthParamsId = Shader.PropertyToID("_UltraRTDepthParams");
         private static readonly int UltraRTUVScaleId = Shader.PropertyToID("_UltraRTUVScale");
         /// <summary>-ultrart-guard X [Y]: guard band per side as a fraction of the trace width / height (0 = off).</summary>
         private float _guardX = 0.04f, _guardY = 0f;
-        /// <summary>Ctrl+F3's "previous build" and "legacy" presets turn the guard band off.</summary>
+        /// <summary>Guard band on (the cinematic accumulation render turns it off, Plugin.CineRender.cs).</summary>
         private bool _guardActive = true;
         /// <summary>Traced size / visible size this frame (1 without a guard band).</summary>
         private Vector2 _guardScale = Vector2.one;
@@ -1233,7 +1197,7 @@ namespace UltraRT
         /// </summary>
         private void BindGameDepth(bool pt)
         {
-            var depth = pt && !_noDepthMatch ? MonoSingleton<PostProcessV2_Handler>.Instance?.depthBuffer : null;
+            var depth = pt ? MonoSingleton<PostProcessV2_Handler>.Instance?.depthBuffer : null;
             if (depth == null)
             {
                 _cmd.SetGlobalVector(UltraRTDepthParamsId, Vector4.zero);
@@ -1592,7 +1556,7 @@ namespace UltraRT
             if (resolve) _accumulate = false; // the denoiser and the reflection filter need unjittered primary rays
             // Temporal upsampling (pt-dn, relight, pathtrace, dn-*): jitter the trace grid over the screen pixels;
             // Upsample.compute accumulates the result at screen resolution using the game's depth buffer.
-            var depthBuf = pt && !_noDepthMatch ? MonoSingleton<PostProcessV2_Handler>.Instance?.depthBuffer : null;
+            var depthBuf = pt ? MonoSingleton<PostProcessV2_Handler>.Instance?.depthBuffer : null;
             bool full = PathTraceActive; // the pathtrace mode: RayGenPT, its own trace scale (Plugin.PathTrace.cs)
             bool rr = RayReconstructionFor(kind, depthBuf); // DLSS RR replaces the denoiser and the upsampler (Plugin.Dlss.cs)
             float scale = pt ? TraceScaleFor(full, rr) : 1f;
@@ -1655,22 +1619,14 @@ namespace UltraRT
             _proxies.UpdateVeils(); // the same for the veil proxies (SceneProxies.Veils.cs)
             _proxies.UpdateFrosted(); // frosted (ice) scene proxies on/off (SceneProxies.Transparent.cs)
             SceneProxies.PortalHops = _portalHops;
-            SceneProxies.PortalRules = _portalRules;
-            SceneProxies.PortalNoSelf = _portalNoSelf;
-            SceneProxies.PortalReAdd = _portalReAdd;
             SceneProxies.PortalUnhitTest = _portalUnhitTest;
             SceneProxies.PortalInfiniteHops = _portalInfHops;
             // The game's mirror views are skipped with the other portal views: camera rays reflect off the mirrors instead.
             SceneProxies.TraceMirrors = _rtMirrors || PortalRasterSkip.Active;
-            SceneProxies.MovingPortalMotion = _portalMotion;
-            SceneProxies.MovingPortalEdges = _portalEdges;
             Shader.SetGlobalFloat("_UltraRTPortalStart", _portalStart);
-            SceneProxies.HideHeldItems = _hideHeld; SceneProxies.SkinnedScaleUpdates = _skinScale;
             DlssRR.GrazingMatch = _grazingMatch;
             DlssRR.MatchDebug = _matchDebug;
-            DlssRR.ThinMatch = _thinMatch;
             DlssRR.ThinNear = _thinNear;
-            Shader.SetGlobalFloat("_UltraRTWaterBand", _waterBand ? 1f : 0f);
             _proxies.SyncPortals(_portals); // portal quads + travel matrices (docs/portals.md); binds _UltraRTPortals
             PortalCrossingRemap(); // the camera went through a portal: histories follow it (Plugin.PortalTemporal.cs)
             PortalViews(); // the camera's images through portals: light importance, emitter importance, cache cell size
@@ -1683,7 +1639,7 @@ namespace UltraRT
             SceneProxies.PlayerHeldSize = _v1HeldSize;
             _proxies.UpdateHeldItem(); // the held skull / torch in V1's third-person hand (reflections)
             var eye = _camera.transform.position; // the player's own spot lights end their shadow rays here (UltraRTLights.hlsl)
-            Shader.SetGlobalVector(PlayerEyeId, new Vector4(eye.x, eye.y, eye.z, _playerLightEyeClip ? 1f : 0f));
+            Shader.SetGlobalVector(PlayerEyeId, new Vector4(eye.x, eye.y, eye.z, 1f)); // the player's spot lights (7-3's flashlight) clip their shadow rays at the eye
             if (_proxies.PlayerShadowBox(_camera.transform.position, out var playerBox))
             {
                 Shader.SetGlobalVector(PlayerBoxMinId, playerBox.min);
@@ -1754,7 +1710,6 @@ namespace UltraRT
             {
                 // The game's vertex displacement into the displaced proxies' meshes (their BLAS is rebuilt from them below).
                 SceneProxies.DisplacementActive = _displace;
-                SceneProxies.DisplacementMotion = _displaceMotion;
                 SceneProxies.DisplacementRange = _displaceRange;
                 _gpu?.Begin(_cmd, SlotDisplace);
                 _proxies.RecordDisplacement(_cmd, _camera.transform.position);
@@ -1775,7 +1730,7 @@ namespace UltraRT
             _cmd.SetRayTracingVectorParam(shader, "_CamPos", _camera.transform.position);
             // Infinite portal loops (docs/portals.md, "Recursion rules"): last frame's image at the loop's end. Not the
             // texture this dispatch writes (_output in the modes without a denoiser), and not across a mode change.
-            bool fb = _portalFeedback && _fbTex != null && _fbTex != _output && _fbMode == _mode && _fbFrame == Time.frameCount - 1;
+            bool fb = _fbTex != null && _fbTex != _output && _fbMode == _mode && _fbFrame == Time.frameCount - 1;
             _cmd.SetRayTracingTextureParam(shader, "_UltraRTPrevImage", fb ? _fbTex : Texture2D.blackTexture);
             _cmd.SetRayTracingMatrixParam(shader, "_UltraRTPrevViewProj", _fbViewProj);
             _cmd.SetRayTracingFloatParam(shader, "_UltraRTPortalFeedback", fb ? 1f : 0f);
@@ -1804,8 +1759,6 @@ namespace UltraRT
                 PathTraceLightsBegin(full, rr); // RR may want another light sampling mode (restored below)
                 _lightSampling.ViewPoints.Clear();
                 _lightSampling.ViewPoints.AddRange(_portalViews); // portal-aware importance
-                _lightSampling.ViewForwards.Clear();
-                _lightSampling.ViewForwards.AddRange(_portalViewFwd); // where each image looks: the portal light grids (LightSampling.Bind)
                 _lightSampling.Bind(_cmd, shader, _camera.transform.position, _packedLights, _lightData, _surfLightCount, _lightBuffer);
                 Perf.Add(Perf.Sec.LightSampling, tls);
                 _emissive.Bind(_cmd, shader, _lightSampling.ActiveMode);
@@ -1828,7 +1781,7 @@ namespace UltraRT
                 _cmd.SetRayTracingTextureParam(shader, "_NormalDepth", _gNormalDepth);
                 _cmd.SetRayTracingTextureParam(shader, "_InstanceId", _gInstanceId);
                 long tc = Perf.Now;
-                TraceRadianceCache(shader, w, h, invViewProj, ambient);
+                TraceRadianceCache(shader, ambient);
                 Perf.Add(Perf.Sec.Cache, tc);
                 BindTransparents(shader, denoised, viewProj, w, h); // water and glass (Plugin.Transparent.cs)
                 BindBloodWet(shader, w, h); // wet blood: the wetness mask of fresh stains (Plugin.Wet.cs)
@@ -1947,7 +1900,7 @@ namespace UltraRT
 
             BindGameDepth(pt);
             // Soft particles (LitParticle.shader): the depth copy is this camera's, from here to the end of its render.
-            _cmd.SetGlobalVector(SoftParticlesId, _depthCopy != null && pt && !_noDepthMatch && _particleSettings.soft
+            _cmd.SetGlobalVector(SoftParticlesId, _depthCopy != null && pt && _particleSettings.soft
                 ? new Vector4(1f / Mathf.Max(0.02f, _particleSettings.softDistance), 1f, 0f, 0f) : Vector4.zero);
             bool upsampled = false;
             Texture upsampledTex = null; // the screen-layout image the composite takes (portal loop feedback, next frame)
@@ -1981,8 +1934,7 @@ namespace UltraRT
             _cmd.SetGlobalTexture(UltraRTInstanceIdId, _gInstanceId); // portal pixels: distance to the portal (Composite.shader)
             // The game's fog on traced pixels skips "NoFog" materials (SurfaceNoFog; VolumetricsComposite.shader, pass 0).
             if (_gSurface != null) _cmd.SetGlobalTexture(UltraRTSurfaceId, _gSurface);
-            _cmd.SetGlobalFloat(UltraRTSurfaceOnId, _gSurface != null && _noFogSkip ? 1f : 0f);
-            _cmd.SetGlobalFloat(UltraRTFlipYId, _flipY ? 1f : 0f);
+            _cmd.SetGlobalFloat(UltraRTSurfaceOnId, _gSurface != null ? 1f : 0f); // the game's fog on traced pixels skips "NoFog" (_FOG_OFF) materials, as the game does
             _cmd.DrawProcedural(Matrix4x4.identity, _compositeMat, 0, MeshTopology.Triangles, 3);
             _gpu?.End(_cmd, SlotBlit);
             // The end of an infinite portal loop shows this frame's image next frame (PathTrace.raytrace, path.capped):
@@ -2042,9 +1994,6 @@ namespace UltraRT
         private static readonly string[] SlotNames = { "total", "rtas", "dispatch", "denoise", "blit", "cache", "exposure", "prealpha", "upsample", "volumetrics", "vollate", "viewmodel", "vm-gbuffer", "vm-rays", "vm-filter", "vm-composite", "particles", "rr", "rr-eval", "vfx", "vfxlate", "displace", "frame", "veils" };
         private bool _useGpuTimer;
         private GpuTimer _gpu;
-        private long _lastResolved;
-        private readonly double[] _gpuSum = new double[SlotCount];
-        private readonly int[] _gpuN = new int[SlotCount];
 
         private CommandBuffer _frameBeginCmd, _frameEndCmd;
 
@@ -2068,29 +2017,7 @@ namespace UltraRT
             {
                 if (_gpu == null) return;
                 Graphics.ExecuteCommandBuffer(_frameEndCmd);
-                SampleGpuTimings();
             };
-        }
-
-        /// <summary>Accumulate each newly resolved frame's per-slot timings (values lag 2-4 frames).</summary>
-        private void SampleGpuTimings()
-        {
-            long resolved = _gpu.ResolvedFrames;
-            if (resolved == _lastResolved) return;
-            _lastResolved = resolved;
-            for (int s = 0; s < SlotCount; s++)
-                if (_gpu.TryGetMs(s, out var ms) && ms > 0f) { _gpuSum[s] += ms; _gpuN[s]++; }
-        }
-
-        /// <summary>Averages since the last call, then resets. Empty if the timer is off.</summary>
-        private string TakeGpuSummary()
-        {
-            if (_gpu == null) return "";
-            var parts = Enumerable.Range(0, SlotCount).Where(s => _gpuN[s] > 0)
-                .Select(s => $"{SlotNames[s]}={_gpuSum[s] / _gpuN[s]:F3}").ToArray(); // materialise before clearing
-            Array.Clear(_gpuSum, 0, SlotCount);
-            Array.Clear(_gpuN, 0, SlotCount);
-            return "GPU ms: " + string.Join(" ", parts);
         }
 
         private static bool Approximately(Matrix4x4 a, Matrix4x4 b)
@@ -2131,71 +2058,6 @@ namespace UltraRT
             }
             if (_spawnTest) yield return SpawnTestEnemy();
 
-            if (_capture)
-            {
-                string tag = new string(_autoScene.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
-                var report = new StringBuilder($"# UltraRT capture {DateTime.Now:yyyy-MM-dd HH:mm:ss} {_autoScene} scale={_scale}\n");
-                bool prevView = _viewEnabled, prevAccum = _accumulate;
-                int prevMode = _mode;
-
-                // Uncapped frame-time cost: game alone vs. each tracing mode.
-                QualitySettings.vSyncCount = 0;
-                Application.targetFrameRate = -1;
-                _viewEnabled = false;
-                yield return Measure("game only", report);
-                _viewEnabled = true;
-                _accumulate = false;
-                foreach (string name in new[] { "pt-dn", "pt", "lit" })
-                {
-                    int m = Array.FindIndex(Modes, x => x.name == name);
-                    _mode = m;
-                    yield return Measure($"+ {Modes[m].name} @ {(Modes[m].kind != Kind.Debug ? _scale : 1f)}x", report);
-                }
-
-                _viewEnabled = false;
-                yield return null; yield return null;
-                ScreenCapture.CaptureScreenshot(Path.Combine(_outDir, $"dv-{tag}-game.png"));
-                yield return null; yield return null;
-                _viewEnabled = true;
-                _mode = Array.FindIndex(Modes, x => x.name == "pt-dn");
-                for (int f = 0; f < 30; f++) yield return null;
-                ScreenCapture.CaptureScreenshot(Path.Combine(_outDir, $"dv-{tag}-composited-{_attachedEvent}.png"));
-                yield return null; yield return null;
-                _viewEnabled = false;
-                yield return null; yield return null;
-                _viewEnabled = true;
-
-                for (int m = 0; m < Modes.Length; m++)
-                {
-                    _mode = m;
-                    _accumulate = false;
-                    yield return null; yield return null;
-                    if (Modes[m].kind == Kind.Denoised || Modes[m].kind == Kind.Reflection)
-                        for (int f = 0; f < 60; f++) yield return null; // let temporal history build up
-                    yield return new WaitForEndOfFrame();
-                    SaveOutput(Path.Combine(_outDir, $"dv-{tag}-{m:00}-{Modes[m].name}.png"));
-                    if (Modes[m].kind == Kind.PathTrace)
-                    {
-                        // Reference image: freeze game time so the camera holds still, accumulate up to 256 frames.
-                        float prevTimeScale = Time.timeScale;
-                        Time.timeScale = 0f;
-                        _accumulate = true;
-                        _accumFrames = 0;
-                        float deadline = Time.realtimeSinceStartup + 8f;
-                        while (_accumFrames < 256 && Time.realtimeSinceStartup < deadline) yield return null;
-                        yield return new WaitForEndOfFrame();
-                        SaveOutput(Path.Combine(_outDir, $"dv-{tag}-{m:00}-{Modes[m].name}-accum{_accumFrames}.png"));
-                        report.AppendLine($"{Modes[m].name}: accumulated {_accumFrames} frames");
-                        _accumulate = false;
-                        Time.timeScale = prevTimeScale;
-                    }
-                }
-
-                File.WriteAllText(Path.Combine(_outDir, $"dv-{tag}-timing.md"), report.ToString());
-                Logger.LogInfo(report.ToString());
-                _viewEnabled = prevView; _accumulate = prevAccum; _mode = prevMode;
-                Logger.LogInfo("Capture done");
-            }
             if (_quit)
             {
                 yield return new WaitForSecondsRealtime(1f);
@@ -2233,29 +2095,6 @@ namespace UltraRT
                 yield return new WaitForSecondsRealtime(0.3f);
             }
             _mode = prevMode;
-        }
-
-        private IEnumerator Measure(string label, StringBuilder report, float seconds = 4f)
-        {
-            yield return new WaitForSecondsRealtime(0.5f);
-            if (_gpu != null) TakeGpuSummary(); // discard warm-up samples
-            var dts = new List<float>(4096);
-            float end = Time.realtimeSinceStartup + seconds;
-            while (Time.realtimeSinceStartup < end)
-            {
-                yield return null;
-                dts.Add(Time.unscaledDeltaTime * 1000f);
-            }
-            dts.Sort();
-            float avg = dts.Average();
-            var line = $"{label,-28} avg {avg:F3} ms ({1000f / avg:F0} fps)  p50 {dts[dts.Count / 2]:F3}  p99 {dts[(int)(dts.Count * 0.99)]:F3}  {TakeGpuSummary()}";
-            report.AppendLine(line);
-            Logger.LogInfo(line);
-            if (_gpu != null)
-            {
-                var raw = string.Join(" ", Enumerable.Range(0, SlotCount).Select(s => _gpu.TryGetMs(s, out var v) ? $"{SlotNames[s]}={v:F4}" : $"{SlotNames[s]}=n/a"));
-                Logger.LogInfo($"GPU timer status: ready={_gpu.IsReady} resolved={_gpu.ResolvedFrames} dropped={_gpu.DroppedFrames} raw[{raw}] '{_gpu.Status}'");
-            }
         }
 
         private void SaveOutput(string path)

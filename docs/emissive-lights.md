@@ -567,12 +567,14 @@ Screenshots: `bench/results/20261114-064629_effects` (before) and `20261114-0650
 | | `gunFlash`, `gunFlashHold`, `gunFlashFade` | on, 0.02, 0.06 | gunshot lights' crisp envelope ("Gunshot flashes") |
 | | `lightningInsideScenes`, `lightningInsideGain` | `Level P-2`, 3 | bolts inside the play space: unshadowed, x gain ("Lightning flash") |
 | | `flameVirtualGain` | 1.5 | flame sprites without a light ("Player-made fire"; 6 until 2026-11-22, calibrated against two faults: "second pass") |
-| | `spriteColourOnce` | true | a sprite's colour from its tint, sprite average and colour, each once ("second pass") |
-| | `flameOnSurface` | true | an oversized flame's light 1 m over the surface it burns on ("second pass") |
 | | `particleCoverage` | 0.25 | particle strength x their coverage of the bounds, full at this ("Sparse particles"); 0 = off |
-| | `flameOwnLight` | true | no virtual light for an emitter whose own Light (on it or up to 3 parents above) is on ("Flames with their own light") |
 
-Flames: `flameDriven` on, `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5. Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
+Always on since 2026-11-23, their switches removed (`fx.spriteColourOnce`, `fx.flameOnSurface`, `fx.flameOwnLight`,
+`fx.flameDriven`; a bench variant naming one fails its scenario): a sprite's colour from its tint, sprite average and
+colour, each once, and an oversized flame's light 1 m over the surface it burns on ("second pass"); no virtual light for
+an emitter whose own Light (on it or up to 3 parents above) is on ("Flames with their own light"); flame-driven lights.
+
+Flames: `flameRadius` 0.45, `flameMaxRadius` 0.6, `flameHue` 0.15, `flameGain` 0.5, `flameFlickerRange` 0.5. Other fields: `cullDistance` 45, `rangePerSize` 4, `minRange` 3, `maxRange` 12, `minStrength` 0.1, `coverDistance` 1, `flickerRange` 0.35, `virtualTrailsAndMeshes` false.
 
 In the bench, `Scenario.Effects` (`bench/README.md`, `bench/suites/effects.json`) spawns revolver beams, explosions, projectiles or pooled fires in front of the camera, both periodically and right before each screenshot.
 

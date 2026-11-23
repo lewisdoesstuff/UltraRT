@@ -4,10 +4,10 @@ A world-space hash grid of cached lighting, modelled on NVIDIA's SHaRC (Spatial 
 
 Files:
 - `unity/.../Shaders/UltraRTCache.hlsl`: keys, hashing, lookups (all shaders), and insert/accumulate (update only, `#define ULTRART_CACHE_WRITE`).
-- `unity/.../Shaders/CacheUpdate.raytrace`: `UpdateRayGen` (the update paths) and `DebugRayGen` (the debug views). It is its own `.raytrace` file, so it has its own UAV budget.
+- `unity/.../Shaders/CacheUpdate.raytrace`: `DebugRayGen` (the debug views, `cache` and `cache-cells`). Its `UpdateRayGen` (the separate update paths) was removed on 2026-11-23: PathTrace's folded update (2026-11-21) has been the only update since, see [Update pass](#update-pass-cacheupdateraytrace-updateraygen).
 - `unity/.../Shaders/CacheResolve.compute`: `Resolve` (temporal blend and eviction) and `Clear`.
-- `unity/.../Shaders/PathTrace.raytrace`: one include plus the bounce block. Read-only: **adds no UAVs**.
-- `src/UltraRT/RadianceCache.cs`: settings, buffers, update and resolve dispatch, lookup bindings for PathTrace, and the debug dispatch.
+- `unity/.../Shaders/PathTrace.raytrace`: one include plus the bounce block, and the folded update (`_CacheFold`; `_CacheKeys` and `_CacheAccum` are two of its 8 UAVs since 2026-11-21).
+- `src/UltraRT/RadianceCache.cs`: settings, buffers, the cache bindings on PathTrace (`Execute`), the resolve dispatch (`Resolve`), and the debug dispatch.
 - `src/UltraRT/Plugin.Cache.cs`: Plugin wiring (arguments, shader loading, hotkeys, shared bindings for the update shader). Plugin.cs only has one-line hooks.
 - `src/UltraRT/LightSampling.cs`: new `BindTables(cmd, shader)`. It binds this frame's alias and fill tables to another shader (without advancing ReSTIR's reservoir ping-pong, until ReSTIR was removed on 2026-11-19).
 
@@ -41,6 +41,13 @@ Lighting is demodulated, in the same game units as PathTrace's `lighting`:
 Ambient (`_Ambient · _BounceAmbient`) is not in the cache. PathTrace still adds it at the bounce hit exactly as before, so a cache hit and a cache miss differ only in the light term (no seams between them).
 
 ## Update pass (`CacheUpdate.raytrace`, `UpdateRayGen`)
+
+**Removed on 2026-11-23** with `cache.folded` (its A/B switch), `cache.bounces`, `cache.candidates` and
+`-ultrart-cache-bounces`. Since 2026-11-21 the update has been folded into PathTrace: whole 8x4 warps, one per
+`updateStride × updateStride` block of warps, add vertex 0 and vertex 1 of PathTrace's own paths to their cells during the
+main `DispatchRays` (`_CacheFold`: stride, `feedback`, `albedoMax`, `maxSample`), and `CacheResolve.compute` runs right
+after it. The separate pass below was only reachable with `cache.folded=0`. Its description is kept as history: the
+feedback, clamps and back-propagation are the same in the folded update.
 
 There is one path per `updateStride × updateStride` block of trace pixels (4 → 320 × 180 = 57.6k paths at 1280x720), starting from a random pixel in the block (jittered every frame), with its own primary ray. With `bounces` = 2:
 
@@ -105,12 +112,12 @@ There are two new view modes at the end of the Page Up / Page Down list (it was 
 | `cellSize` (m) | 0.5 | `-ultrart-cache-cell N` |
 | `lodDistance` (m) | 10 | `-ultrart-cache-lod N` |
 | `updateStride` | 4 (1 path / 16 px) | `-ultrart-cache-stride N` |
-| `bounces` | 2 (1–4) | `-ultrart-cache-bounces N` |
+| ~~`bounces`~~ | (removed 2026-11-23 with the separate update pass) | ~~`-ultrart-cache-bounces N`~~ |
 | `historyFrames` | 32 | `-ultrart-cache-history N` |
 | `feedback` | 0.8 | `-ultrart-cache-feedback F` |
 | `capacityLog2` | 20 (52 MB; clamped to 12–22) | `-ultrart-cache-size N` |
 | `debugView` | None | `-ultrart-cache-debug N` |
-| `candidates` 12, `changeHistoryFrames` 4, `changeFrames` 4, `staleFrames` 120, `albedoMax` 0.95, `maxSample` 64, `minSamples` 2, `queryJitter` 1, `levelFallback` true, `normalOffset` 0.5 | | |
+| `changeHistoryFrames` 4, `changeFrames` 4, `staleFrames` 120, `albedoMax` 0.95, `maxSample` 64, `minSamples` 2, `queryJitter` 1, `levelFallback` true, `normalOffset` 0.5 | | |
 
 Changing `cellSize`, `lodDistance`, `normalOffset` or `capacityLog2` clears the cache, because every key changes. With `enabled = false` the buffers are released, and PathTrace binds 8-slot dummies.
 
@@ -118,8 +125,8 @@ Changing `cellSize`, `lodDistance`, `normalOffset` or `capacityLog2` clears the 
 
 | Shader | UAVs |
 |---|---|
-| `PathTrace.raytrace` | **8 exact (`U0..U7`)** since 2026-11-21 Wave 2 (folded update): `_Output _Radiance _Surface _NormalDepth _InstanceId _Reflection _CacheKeys _CacheAccum` (`_LitWeight` was packed into `_Surface.z >> 24` to free `U6`/`U7`). Whole-warp `8×4` coherent tiling (`1/16` warps per frame) updates vertex 0 + vertex 1 during the main `DispatchRays`, eliminating `CacheUpdate.raytrace`'s `DispatchRays` (A/B `cache.folded=0`). |
-| `CacheUpdate.raytrace` | **3**: `_CacheKeys _CacheAccum _CacheDebugOut`. Used only for debug views (`DebugRayGen`) or when `cache.folded=0`. |
+| `PathTrace.raytrace` | **8 exact (`U0..U7`)** since 2026-11-21 Wave 2 (folded update): `_Output _Radiance _Surface _NormalDepth _InstanceId _Reflection _CacheKeys _CacheAccum` (`_LitWeight` was packed into `_Surface.z >> 24` to free `U6`/`U7`). Whole-warp `8×4` coherent tiling (`1/16` warps per frame) updates vertex 0 + vertex 1 during the main `DispatchRays`, eliminating `CacheUpdate.raytrace`'s `DispatchRays` (the A/B `cache.folded=0` was removed on 2026-11-23). |
+| `CacheUpdate.raytrace` | **1** since 2026-11-23: `_CacheDebugOut` (the debug views only; `_CacheKeys` is read-only there). It was 3 (`_CacheKeys _CacheAccum _CacheDebugOut`) while it held `UpdateRayGen`. |
 | `CacheResolve.compute` | 3 (compute, no RT limit). With folded updates, runs immediately after `PathTrace` `DispatchRays` (before `ParticleLight` and `Denoiser`). |
 
 ## Integration (already wired)
@@ -129,10 +136,10 @@ Plugin.cs has one-line hooks only. Everything else is in `Plugin.Cache.cs`:
 2. `Awake`: `ParseCacheArgs();` after `ParseArgs();`.
 3. `LoadShaders`: `LoadCacheShaders(bundle);`. Missing cache shaders only log a warning and leave the cache off; the bundle still loads.
 4. `ResetScene`: `_radianceCache?.Reset();` (scene change and shader reload).
-5. `OnUpdate`: `CacheHotkeys();` (F3, Shift+F3; Ctrl+F3, the denoiser preset, is handled first in the same function).
-6. `Trace`, at the end of the `if (pt)` bind block: `TraceRadianceCache(shader, w, h, invViewProj, ambient);`. It binds the scene, lights, light tables, emitters and sky on the update shader, records update and resolve, and binds the lookups on PathTrace. It must come **after** `_emissive.Bind(_cmd, shader, ...)` for PathTrace, because `EmissiveLights.Bind` consumes its history-valid flag on the first call of the frame. It must run on every PathTrace dispatch, since PathTrace declares the lookup inputs.
+5. `OnUpdate`: `CacheHotkeys();` (F3, Shift+F3; Ctrl+F3, the denoiser preset, was handled there until 2026-11-23).
+6. `Trace`, at the end of the `if (pt)` bind block: `TraceRadianceCache(shader, ambient);`. It binds the cache on PathTrace (lookups, the folded update's buffers and `_CacheFold`); `ResolveRadianceCache()` after PathTrace's `DispatchRays` records the resolve. (Until 2026-11-23 it could also bind the scene, lights, light tables, emitters and sky on the update shader and record the separate update.) It must come **after** `_emissive.Bind(_cmd, shader, ...)` for PathTrace, because `EmissiveLights.Bind` consumes its history-valid flag on the first call of the frame. It must run on every PathTrace dispatch, since PathTrace declares the lookup inputs.
 7. `Trace`, after PathTrace's `DispatchRays`: `if (kind == Kind.PathTrace) TraceCacheDebug(mode);`.
-8. GPU timer: new slot `cache` (5), which wraps update + resolve. It appears in the bench JSON `GpuMs` and in `TakeGpuSummary`. The PathTrace query cost is inside `dispatch`.
+8. GPU timer: slot `cache` (5), which wraps the resolve (and wrapped the separate update until 2026-11-23). It appears in the bench JSON `GpuMs`. The PathTrace query and folded-update cost is inside `dispatch`.
 9. The "First trace OK" log line reports the cache mode, slots and MB.
 
 ## Cost (estimated, not measured)
@@ -167,4 +174,4 @@ At 1280x720 trace resolution, stride 4, 2 bounces:
    - Leak check: stand next to a wall between a lit and a dark room. In the `cache` view, check the floor strip on the dark side.
    - Room toggle: walk through a door that switches rooms. The bounce should settle within about 8 frames.
 3. **1-1** via the bench harness: add `"cache"` to a scenario's modes if wanted. Compare `GpuMs.cache` and `GpuMs.dispatch` with and without the cache (`-ultrart-nocache` as the bench tag run). The expected `cache` slot is ≤ 0.15 ms at a trace scale giving 1280x720.
-4. Mode A/B: `-ultrart-cache-mode primary` (cheaper, blurrier); `-ultrart-cache-cell 0.25` (less leak, more noise); `-ultrart-cache-bounces 3`; `-ultrart-cache-history 16` (less lag).
+4. Mode A/B: `-ultrart-cache-mode primary` (cheaper, blurrier); `-ultrart-cache-cell 0.25` (less leak, more noise); `-ultrart-cache-history 16` (less lag).

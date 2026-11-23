@@ -50,12 +50,7 @@ namespace UltraRT
         private float _portalLightLoopSpan = 100f;
         /// <summary>Diagnostics (bench plugin._portalLightGuards=0): no loop or contiguous guard, to see what they prevent.</summary>
         private bool _portalLightGuards = true;
-        /// <summary>Diagnostics (bench plugin._portalLightHalfSpace=1): the loop and contiguous guards as before 2026-11-21, by
-        /// the exit's plane and distance alone (no line of sight).</summary>
-        private bool _portalLightHalfSpace;
-        /// <summary>Handed-over fixtures shine through portals with their whole strength (bench plugin._portalHandedLights=0:
-        /// only packed lights at what they kept, as before 2026-11-21).</summary>
-        private bool _portalHandedLights = true;
+        // Handed-over fixtures shine through portals with their whole strength (since 2026-11-21).
         /// <summary>A handed-over fixture's image x this, in linear power (bench plugin._portalHandedGain; 1 = the light it
         /// kept + its part, as LightResolved.HandedLinear).</summary>
         private float _portalHandedGain = 1f;
@@ -104,29 +99,28 @@ namespace UltraRT
                 }
                 // Lights handed over in full (keep 0) are not packed: their fixture's part lights the room, and nothing
                 // behind a portal. Each is packed in a scratch slot at full strength, as a source of images only.
-                if (_portalHandedLights)
-                    foreach (var l in _handedOff)
+                foreach (var l in _handedOff)
+                {
+                    if (l == null) continue;
+                    if (_lightCount >= MaxLights - PortalLightReserve) break;
+                    var rl = ResolveLight(l);
+                    if (rl == null || !(rl.HandedFull > 0f)) continue;
+                    int slot = _lightCount;
+                    float kept = rl.Intensity;
+                    rl.Intensity = HandedImageIntensity(rl);
+                    try { PackSceneLight(l, rl, null); }
+                    finally { rl.Intensity = kept; }
+                    if (_lightCount == slot) continue;
+                    var src = new PortalSource
                     {
-                        if (l == null) continue;
-                        if (_lightCount >= MaxLights - PortalLightReserve) break;
-                        var rl = ResolveLight(l);
-                        if (rl == null || !(rl.HandedFull > 0f)) continue;
-                        int slot = _lightCount;
-                        float kept = rl.Intensity;
-                        rl.Intensity = HandedImageIntensity(rl);
-                        try { PackSceneLight(l, rl, null); }
-                        finally { rl.Intensity = kept; }
-                        if (_lightCount == slot) continue;
-                        var src = new PortalSource
-                        {
-                            L0 = _lightData[slot * 4], L1 = _lightData[slot * 4 + 1], L2 = _lightData[slot * 4 + 2], L3 = _lightData[slot * 4 + 3],
-                            Mask = _lightMasks[slot], Player = false, Id = l.GetInstanceID(), Name = l.name, Handed = true,
-                        };
-                        _packedLights[slot] = null;
-                        _lightCount = slot; // the slot is the next image's (or air-only light's)
-                        _portalGhosts.Add(src);
-                        PortalCandidates(-_portalGhosts.Count, src, ref loops, ref contiguous, ref mirrors);
-                    }
+                        L0 = _lightData[slot * 4], L1 = _lightData[slot * 4 + 1], L2 = _lightData[slot * 4 + 2], L3 = _lightData[slot * 4 + 3],
+                        Mask = _lightMasks[slot], Player = false, Id = l.GetInstanceID(), Name = l.name, Handed = true,
+                    };
+                    _packedLights[slot] = null;
+                    _lightCount = slot; // the slot is the next image's (or air-only light's)
+                    _portalGhosts.Add(src);
+                    PortalCandidates(-_portalGhosts.Count, src, ref loops, ref contiguous, ref mirrors);
+                }
                 _portalCandidates.Sort((a, b) => b.score.CompareTo(a.score));
                 int cap = Mathf.Min(_portalLightMax, MaxLights - PortalLightReserve - _lightCount);
                 foreach (var cand in _portalCandidates)
@@ -179,7 +173,7 @@ namespace UltraRT
         /// <summary>The colour factor (gamma) that takes a packed hybrid fixture light, at its keep, to its whole fixture.</summary>
         private float HandedImageScale(Light l)
         {
-            if (!_portalHandedLights || ReferenceEquals(l, null) || l == null) return 1f;
+            if (ReferenceEquals(l, null) || l == null) return 1f;
             var rl = ResolveLight(l);
             if (rl == null || !(rl.HandedFull > 0f) || !(rl.Intensity > 0f) || rl.Intensity >= rl.HandedFull) return 1f;
             return HandedImageIntensity(rl) / rl.Intensity;
@@ -215,13 +209,6 @@ namespace UltraRT
                 if (_portalLightGuards)
                 {
                     if (im.MirrorLike) { skip = "mirror"; mirrors++; }
-                    else if (_portalLightHalfSpace)
-                    {
-                        // The rules before 2026-11-21 (diagnostics): no line of sight for the first and the last.
-                        if (im.ExitFacesLight && im.ExitDistance < Mathf.Max(reach, _portalLightLoopSpan)) { skip = "loop"; loops++; }
-                        else if (im.Span < _portalLightLoopSpan && LightReachesExit(id, p, im)) { skip = "loop"; loops++; }
-                        else if (im.ExitDistance < reach) { skip = "contiguous"; contiguous++; }
-                    }
                     else if (im.ExitDistance < Mathf.Max(reach, _portalLightLoopSpan) || im.Span < _portalLightLoopSpan)
                     {
                         sees = LightReachesExit(id, p, im);

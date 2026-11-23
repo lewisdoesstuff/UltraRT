@@ -38,9 +38,6 @@ namespace UltraRT
         /// <summary>Camera rays past a portal hop collect the effects too: the game's portal views drew them, and the trace
         /// replaces those views (docs/portals.md, "Effects and Providence through portals"). -ultrart-portal-effects on|off.</summary>
         public bool portalEffects = true;
-        /// <summary>Effects nearer one of the camera's images through a portal than to the camera are baked facing that
-        /// image (their billboards face the camera that sees them; 0 = always the main camera, as before).</summary>
-        public bool portalBillboards = true;
         /// <summary>Glowing transparent meshes of enemies (Providence's wings, eye, rainbows and glow plane; fullbright Master
         /// transparents and sprite-shader meshes under an EnemyIdentifier) are traced like the effects: in reflections and
         /// behind portals. Alpha-blended ones also dim what is behind them.</summary>
@@ -451,11 +448,11 @@ namespace UltraRT
         private Camera _viewCam;
         private int _viewCamFor = -2, _viewCamFrame = -1;
 
-        /// <summary>The camera an effect's billboards are baked for: the main camera, or (portalBillboards) a hidden camera
-        /// at the main camera's image through a portal when the effect is nearer that image (PortalView).</summary>
+        /// <summary>The camera an effect's billboards are baked for: the main camera, or a hidden camera at the main camera's
+        /// image through a portal when the effect is nearer that image (PortalView): billboards face the camera that sees them.</summary>
         private Camera BakeCamera(Entry e, Camera cam)
         {
-            if (!Settings.portalBillboards || e.View < 0 || e.View >= PortalView.Points.Count || e.View >= PortalView.Forwards.Count || e.View >= PortalView.Ups.Count)
+            if (e.View < 0 || e.View >= PortalView.Points.Count || e.View >= PortalView.Forwards.Count || e.View >= PortalView.Ups.Count)
                 return cam;
             var f = PortalView.Forwards[e.View];
             var u = PortalView.Ups[e.View];
