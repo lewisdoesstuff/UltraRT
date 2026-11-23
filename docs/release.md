@@ -1,7 +1,7 @@
 # Releasing UltraRT on Thunderstore
 
 How UltraRT is packaged for the ULTRAKILL community on Thunderstore (installed by r2modman or the Thunderstore Mod
-Manager), what goes where, and what is still to decide before the first upload. Set up on 2026-11-19
+Manager), what goes where, and the licensing decisions behind the first upload. Set up on 2026-11-19
 (`t3/thunderstore-release-package`).
 
 ```powershell
@@ -170,15 +170,16 @@ bundle (the code path is the same notice), Steam's own launch options combined w
 ## Licensing checklist
 
 - [x] **No game files** in either package: the file list is the plugin's own files, shipped JSON, and NVIDIA's DLL
-  with its license and notices. The detail maps are derived from the game's textures (see the open question below).
+  with its license and notices. The detail maps are derived from the game's textures (see "Detail maps" below).
 - [x] **NVIDIA DLSS runtime** ([dlss.md](dlss.md), "License"): only the `rel` DLL, unmodified and signed (both checked by
   the script); `NVIDIA-RTX-SDKs-LICENSE.txt` and the third-party notices (Programming Guide 9.6) beside it;
   attribution as text in the package README's credits and the settings page's Credits block ("NVIDIA DLSS Ray
   Reconstruction (NVIDIA DLSS SDK)", the trademark line, and "not sponsored or endorsed by NVIDIA", license 4c).
-- [ ] **NVIDIA marks** (logos) are not used: the license (exhibit 7.1(b)) asks for "the NVIDIA Marks" in splash
+- [x] **NVIDIA marks** (logos) are not used: the license (exhibit 7.1(b)) asks for "the NVIDIA Marks" in splash
   screens, about box and credits, but each use of a mark needs NVIDIA's prior written approval (7.2(c)). Text
   attribution only until NVIDIA says otherwise.
-- [ ] **NVIDIA notification / permission** (decision): notification is required before a *commercial* release (a free
+- [x] **NVIDIA notification / permission** (decided 2026-11-19: the DLL ships, with a courtesy notice; "Manual steps"
+  item 4 below): notification is required before a *commercial* release (a free
   mod arguably isn't one). The RR Integration Guide's section 4.2 says the DLLs in the SDK must not be distributed
   publicly and to contact NVIDIA for a distributable one, while the same guide's 5.1 and the SR guide name the public
   `rel` DLL as the one to ship ([dlss.md](dlss.md)). Options: email nvidia-rtx-license-questions@nvidia.com (and the
@@ -188,7 +189,8 @@ bundle (the code path is the same notice), Steam's own launch options combined w
 - [x] **UltraRT's own licence**: MIT (2026-11-19, `LICENSE`, copyright lemmonsltd), shipped in the package root. Its
   "not covered" list excludes the NVIDIA runtime and the NGX helper code in `Dlss.cpp`, the game, and the detail maps. An open-source licence for UltraRT must not
   cover the NVIDIA files (license restriction e): say so in the licence text, or keep the DLL out of the package.
-- [ ] **Detail maps** (decision): they contain no game textures but are derived from every one of them (normal and
+- [x] **Detail maps** (decided 2026-11-19: the optional `UltraRT_DetailMaps` pack ships, non-commercial; "Manual
+  steps" item 4 below): they contain no game textures but are derived from every one of them (normal and
   roughness by PBRify Remix). Decide whether to publish them, perhaps after asking New Blood / Hakita; the generator
   path (users make the maps themselves with `tools/materials`) needs no permission.
 - [x] **PBRify Remix** (CC0): no obligation; credited in both READMEs and the settings page.

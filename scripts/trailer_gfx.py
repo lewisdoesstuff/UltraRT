@@ -1,7 +1,7 @@
-"""Motion graphics for scripts/trailer.py (docs/trailer.md, "Graphics"): title and end cards, level titles, feature
+"""Motion graphics for scripts/trailer.py (docs/cinematics.md, "Trailer assembly"): title and end cards, level titles, feature
 captions and state badges, drawn frame by frame with Pillow into PNG sequences that the assembly overlays.
 
-The style is the game's own HUD, measured from its UI (docs/trailer.md has the numbers):
+The style is the game's own HUD, measured from its UI:
   - level titles as LevelNamePopup shows them: VCR OSD Mono, white with a hard dark drop shadow, centred near the top,
     the layer line ("PRELUDE /// FIRST") typed out at 100 letters a second, half a second's pause, the level's name
     typed under it in larger type, a hold, a one-second fade; higher than the game has it (level with the state badge,

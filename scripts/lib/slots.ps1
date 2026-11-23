@@ -2,13 +2,66 @@
 # Two game installs ("slots"): main = the Steam install, alt = a copy for visual/diagnostic runs (bench/README.md).
 # ASCII only, PowerShell 5.1.
 
-$script:UrtMainDefault = 'D:\SteamLibrary\steamapps\common\ULTRAKILL'
-$script:UrtAltDefault = 'D:\UltraRT-Bench\ULTRAKILL'
+# Where the installs are (first match wins):
+#   main: $env:ULTRAKILL_DIR, the local config's "main", the Steam library that has ULTRAKILL (Steam's registry key and
+#         steamapps\libraryfolders.vdf), else the default Steam folder.
+#   alt:  $env:ULTRAKILL_ALT_DIR, the local config's "alt"; neither = no alt slot.
+# The local config is per user and outside the repo, so every worktree sees it: %LOCALAPPDATA%\UltraRT\installs.json,
+# for example {"alt": "E:\\UltraRT-Alt\\ULTRAKILL"} (bench/README.md, "Install locations").
+$script:UrtLocalConfig = Join-Path $env:LOCALAPPDATA 'UltraRT\installs.json'
+$script:UrtSteamDefault = Join-Path ${env:ProgramFiles(x86)} 'Steam\steamapps\common\ULTRAKILL'
+
+function Get-UrtLocalConfig {
+    if (-not (Test-Path $script:UrtLocalConfig)) { return $null }
+    try { return (Get-Content $script:UrtLocalConfig -Raw | ConvertFrom-Json) }
+    catch { Write-Warning "Unreadable $($script:UrtLocalConfig): $($_.Exception.Message)"; return $null }
+}
+
+# The ULTRAKILL folder of the Steam library that has it, or '' if Steam or the game is not found.
+function Find-SteamUltrakill {
+    $steam = $null
+    foreach ($k in 'HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam', 'HKLM:\SOFTWARE\Valve\Steam') {
+        $v = Get-ItemProperty $k -ErrorAction SilentlyContinue
+        if ($v -and $v.SteamPath) { $steam = [string] $v.SteamPath; break }
+        if ($v -and $v.InstallPath) { $steam = [string] $v.InstallPath; break }
+    }
+    if (-not $steam) { return '' }
+    $steam = $steam -replace '/', '\'
+    $libs = @($steam)
+    $vdf = Join-Path $steam 'steamapps\libraryfolders.vdf'
+    if (Test-Path $vdf) {
+        # "path"  "E:\\Games": VDF doubles every backslash.
+        foreach ($m in [regex]::Matches((Get-Content $vdf -Raw), '"path"\s+"([^"]+)"')) { $libs += $m.Groups[1].Value.Replace('\\', '\') }
+    }
+    foreach ($lib in $libs) {
+        $d = Join-Path $lib 'steamapps\common\ULTRAKILL'
+        if (Test-Path (Join-Path $d 'ULTRAKILL.exe')) { return $d }
+    }
+    return ''
+}
+
+# The alt install's folder, or '' when none is configured.
+function Get-AltDir {
+    if ($env:ULTRAKILL_ALT_DIR) { return $env:ULTRAKILL_ALT_DIR }
+    $c = Get-UrtLocalConfig
+    if ($c -and $c.alt) { return [string] $c.alt }
+    return ''
+}
 
 function Get-SlotDir {
     param([ValidateSet('main', 'alt')] [string] $Slot)
-    if ($Slot -eq 'alt') { if ($env:ULTRAKILL_ALT_DIR) { return $env:ULTRAKILL_ALT_DIR } else { return $script:UrtAltDefault } }
-    if ($env:ULTRAKILL_DIR) { return $env:ULTRAKILL_DIR } else { return $script:UrtMainDefault }
+    if ($Slot -eq 'alt') {
+        $a = Get-AltDir
+        if (-not $a) { throw "No alt install configured: set ULTRAKILL_ALT_DIR or add `"alt`" to $($script:UrtLocalConfig) (bench/README.md, 'Install locations')" }
+        return $a
+    }
+    if ($env:ULTRAKILL_DIR) { return $env:ULTRAKILL_DIR }
+    if (-not $script:UrtMainDir) {
+        $c = Get-UrtLocalConfig
+        $script:UrtMainDir = if ($c -and $c.main) { [string] $c.main } else { Find-SteamUltrakill }
+        if (-not $script:UrtMainDir) { $script:UrtMainDir = $script:UrtSteamDefault }
+    }
+    return $script:UrtMainDir
 }
 
 function Get-NormPath([string] $p) {

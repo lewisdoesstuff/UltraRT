@@ -1,7 +1,0 @@
-{
- "Name": "glass-check",
- "Note": "Branch t3/stained-glass: is the transmission path alive? Run with -Extra '-ultrart-glass-extra *' (every material transmits: shadows take their caster's colour) on 1-1's sunlit start, glass off vs on.",
- "Scenarios": [
-  { "Name": "1-1 outdoor", "Scene": "Level 1-1", "Path": { "Type": "static", "Approach": "../recordings/1-1-approach.json", "Duration": 3 }, "Modes": [ "off", "relight+glass.enabled=0", "relight", "pathtrace+glass.enabled=0", "pathtrace" ], "Screenshots": [ 2 ] }
- ]
-}

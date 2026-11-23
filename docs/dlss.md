@@ -20,7 +20,7 @@ section "RR for path tracing" is what changed for the `pathtrace` mode, where it
 
 ## Use
 
-- Settings menu: "Path tracing" and the DLSS entries ([settings.md](settings.md)). The offline renderer and the trailer use RR at full resolution ([cinematics.md](cinematics.md), [trailer.md](trailer.md)); the cache tail is [radiance-cache.md](radiance-cache.md).
+- Settings menu: "Path tracing" and the DLSS entries ([settings.md](settings.md)). The offline renderer and the trailer use RR at full resolution ([cinematics.md](cinematics.md), "Trailer assembly"); the cache tail is [radiance-cache.md](radiance-cache.md).
 - `scripts\fetch-dlss.ps1` once (by running it you accept NVIDIA's license, see "License"). Then build as usual.
   `native\UltraRT.Native\build.ps1` links `nvsdk_ngx_s.lib` when it finds the SDK. Without it, it builds the stub and RR
   reports itself unavailable. `scripts\build.ps1 -NoDeploy` stages `nvngx_dlssd.dll`, and `deploy.ps1` copies it next to
@@ -108,7 +108,7 @@ ignores exposure parameters).
 ## RR for path tracing
 
 Four changes made RR the better denoiser for the `pathtrace` mode. The measurements behind them are in
-[pt-plan.md](archive/pt-plan.md), section 6.1, and in [path-tracing.md](path-tracing.md).
+[path-tracing.md](path-tracing.md) and below.
 
 ### Independent samples
 

@@ -34,7 +34,7 @@ gh api repos/Kim2091/PBRify_Remix/contents/Models/1x-PBRify_RoughnessV2.pth -H "
 
 ```powershell
 $work = "$env:LOCALAPPDATA\UltraRT\materials-work"   # anywhere outside the repo
-.venv\Scripts\python.exe -I extract.py --game D:\SteamLibrary\steamapps\common\ULTRAKILL --out $work   # ~1.5 min
+.venv\Scripts\python.exe -I extract.py --game <ULTRAKILL_DIR> --out $work   # ~1.5 min
 .venv\Scripts\python.exe -I generate.py --cache $work                                                   # ai ~2.5 min (RTX 5070 Ti), proc ~30 s
 ```
 

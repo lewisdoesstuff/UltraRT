@@ -24,7 +24,7 @@ The menu's config key is `Quality.LightSampler` (renamed from `LightSampling`, w
 `candidates` (8) is still the count for the radiance cache's update and the other shaders bound through `BindTables`.
 
 ### Removed: ReSTIR and the hybrid mode's sampler (2026-11-19)
-ReSTIR (`mode` 2) and the hybrid mode, whose own `hybridMode` used ReSTIR with the old visibility reuse and spatial reuse, were removed on 2026-11-19 ([cleanup-audit-2026-11-19.md](cleanup-audit-2026-11-19.md)). RIS had been the default since 2026-11-15 and measured unbiased and quieter (below). What went: the reservoir buffers (`_ReservoirPrev` / `_ReservoirCur`, so PathTrace has a free UAV slot), temporal and spatial reuse, visibility reuse and visibility memory, the light-change list and index remap, the occluded-history cap and re-test, fresh-pixel candidates, and the flags and bench keys for them (`-ultrart-restir-*`, `ls.historyLimit`, `ls.spatialSamples`, `ls.visibilityReuse`, `ls.visibilityMemory`, `ls.occludedHistory`, `ls.occludedRetest`, `ls.freshCandidates`, `ls.perPixelLightChange`, `ls.lightChangeKept`, ...). RIS output is unchanged by the removal (the same random sequence).
+ReSTIR (`mode` 2) and the hybrid mode, whose own `hybridMode` used ReSTIR with the old visibility reuse and spatial reuse, were removed on 2026-11-19. RIS had been the default since 2026-11-15 and measured unbiased and quieter (below). What went: the reservoir buffers (`_ReservoirPrev` / `_ReservoirCur`, so PathTrace has a free UAV slot), temporal and spatial reuse, visibility reuse and visibility memory, the light-change list and index remap, the occluded-history cap and re-test, fresh-pixel candidates, and the flags and bench keys for them (`-ultrart-restir-*`, `ls.historyLimit`, `ls.spatialSamples`, `ls.visibilityReuse`, `ls.visibilityMemory`, `ls.occludedHistory`, `ls.occludedRetest`, `ls.freshCandidates`, `ls.perPixelLightChange`, `ls.lightChangeKept`, ...). RIS output is unchanged by the removal (the same random sequence).
 
 Fallbacks: `-ultrart-lights restir` and bench `lights=restir` log a warning and use RIS; a config file holding `LightSampler = ReSTIR` is reset to the default (RIS) by BepInEx, because the default is the first acceptable value. Unknown `ls.<field>` bench keys only log a warning, as before.
 
@@ -225,7 +225,7 @@ columns ran with the visibility memory on, which measured neutral at rest):
 **Default: RIS, 16 candidates.** Unbiased, quieter than either ReSTIR at every held pose (at the reference's level on
 0-1 metal and 1-4's penumbrae), the same in motion within the metric's spread. ReSTIR's samples persist for up to 20
 frames, which relight's temporal filter can't average away (slow boiling: high block sigma); RIS samples are
-independent from frame to frame and the filter averages them (docs/archive/pt-plan.md 6.1 found the same for DLSS RR). 32
+independent from frame to frame and the filter averages them (the path-tracing experiments of 2026-11-14 found the same for DLSS RR). 32
 candidates helped 8-2 a little and nothing else. ReSTIR stayed available (F6, the menu, `lights=restir`) until its removal on 2026-11-19 and might still
 win where many lights compete per pixel (8-3's 100+ lights were not re-measured here).
 

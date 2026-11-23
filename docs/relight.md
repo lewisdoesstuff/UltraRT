@@ -203,7 +203,7 @@ poses is 0.10 to 0.31, under the SDR key, so the key was not darkening them to b
 does pass the key (bright outdoor views) is not measured yet.
 
 #### Follow the game (2026-11-17)
-User report: "still too bright compared to the base game". Most of the mean excess was exposure policy, not lights (docs/archive/plan-look-and-perf.md, workstream A): the dark lift raised near-black scenes half way to the dark key, and the game match removed only 40 % of an excess, and only beyond 0.35 EV. Now:
+User report: "still too bright compared to the base game". Most of the mean excess was exposure policy, not lights (the look-and-perf plan of 2026-11-17, workstream A): the dark lift raised near-black scenes half way to the dark key, and the game match removed only 40 % of an excess, and only beyond 0.35 EV. Now:
 
 - the dark lift (`up`) is 0: a dark place is as dark as its lights make it;
 - the game match's down side is 0.9 beyond 0.1 EV (`gameMatchDown`, `gameMatchBandDown`). The up side is unchanged. **Reverted 2026-11-18** to 0.4 beyond 0.35 EV: see "Punch" below;

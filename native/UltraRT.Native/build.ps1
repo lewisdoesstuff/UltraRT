@@ -15,7 +15,8 @@ param(
     [string] $OutDir,
     [string] $VsDir = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools',
     [string] $PluginApi = 'C:\Program Files\Unity\Hub\Editor\2022.3.29f1\Editor\Data\PluginAPI',
-    [string] $UnityPlayer = $(Join-Path $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }) 'UnityPlayer.dll')
+    # -Test only. Default: the main install's (scripts\lib\slots.ps1: ULTRAKILL_DIR or Steam's library list).
+    [string] $UnityPlayer
 )
 
 $ErrorActionPreference = 'Stop'
@@ -108,6 +109,10 @@ Set-Content -Encoding ascii $stamp $inputHash
 "Built $dll"
 
 if ($Test) {
+    if (-not $UnityPlayer) {
+        . (Join-Path (Split-Path (Split-Path $src -Parent) -Parent) 'scripts\lib\slots.ps1')
+        $UnityPlayer = Join-Path (Get-SlotDir 'main') 'UnityPlayer.dll'
+    }
     if (-not (Test-Path $UnityPlayer)) { throw "UnityPlayer.dll not found at $UnityPlayer" }
     & $exe $UnityPlayer
     if ($LASTEXITCODE -ne 0) { throw "Locator test failed against $UnityPlayer" }

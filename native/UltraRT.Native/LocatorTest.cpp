@@ -1,6 +1,6 @@
 // Offline check of the UnityPlayer.dll signature scan. Maps the DLL as an image resource (no code runs,
 // no imports resolved), runs the locator and prints the RVA it found.
-//   LocatorTest.exe "D:\SteamLibrary\steamapps\common\ULTRAKILL\UnityPlayer.dll" [expectedRvaHex]
+//   LocatorTest.exe "<ULTRAKILL_DIR>\UnityPlayer.dll" [expectedRvaHex]
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>

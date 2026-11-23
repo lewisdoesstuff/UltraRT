@@ -20,7 +20,6 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'lib\slots.ps1')
 if (-not $GameDir) { $GameDir = Get-SlotDir $Slot }
-$explicitGameDir = ($Slot -ne 'main') -or $PSBoundParameters.ContainsKey('GameDir')
 if ($StageDir) { $NoDeploy = $true }
 if ($NoDeploy -and -not $StageDir) { $StageDir = Join-Path $root 'stage' }
 if ($NoDeploy) {
@@ -59,9 +58,9 @@ if (-not $SkipPlugins) {
     $dotnet = if (Test-Path $userDotnet) { $userDotnet } else { 'dotnet' }
     if (Test-Path $userDotnet) { $env:DOTNET_ROOT = Split-Path $userDotnet }
     $env:DOTNET_NOLOGO = 1; $env:DOTNET_CLI_TELEMETRY_OPTOUT = 1
-    # References come from the game folder (the main one unless told otherwise); -NoDeploy never writes there.
-    $props = @()
-    if ($explicitGameDir) { $props += "/p:GameDir=$GameDir" }
+    # References come from the game folder (the main one unless told otherwise; scripts\lib\slots.ps1 finds it, also in
+    # another Steam library); -NoDeploy never writes there.
+    $props = @("/p:GameDir=$GameDir")
     if ($NoDeploy) { $props += '/p:Deploy=false' }
     foreach ($proj in 'src\UltraRT.Preload\UltraRT.Preload.csproj', 'src\UltraRT\UltraRT.csproj') {
         & $dotnet build (Join-Path $root $proj) -c Release -v q -nologo @props 2>&1 | Select-String ' error |Deployed' | ForEach-Object Line | Select-Object -Unique

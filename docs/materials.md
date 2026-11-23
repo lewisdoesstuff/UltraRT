@@ -792,7 +792,7 @@ Measured (main and alt, 2560 x 1440, SDR, suite `bench/suites/playtest-1121.json
 | 1-3 pose 1 (day, 14 % in a beam) | +24.0 | +15.4 (soft colour on the floor and the tombs) |
 
 1-4's pool under the west window (the under-water path): before, a bright crisp mosaic on the water; after, a faint soft
-wash. Review sheets (local, game-derived) in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`: `1-4_pose_1_stained_glass.jpg`,
+wash. Review sheets (local and game-derived, not in the repo): `1-4_pose_1_stained_glass.jpg`,
 `1-3_pose_1_stained_glass.jpg`, `1-3_pose_1_floor_crop.jpg`, `1-4_arena_west_pool.jpg`. The "Look" numbers above (strength
 3) are the old default.
 

@@ -2,13 +2,15 @@
 
 ## How to run tests (agents)
 
-Two game installs exist: **main** (the Steam install, also what the user plays) and **alt** (`D:\UltraRT-Bench\ULTRAKILL`, a copy with BepInEx and our plugin, for visual and diagnostic runs). `scripts\game-lock.ps1` queues everybody (FIFO) in front of them. The game is only ever started while you hold a slot, so **build first, queue second, release as soon as the runs are done**.
+Two game installs can exist: **main** (the Steam install, also what the user plays) and, optionally, **alt** (a copy with BepInEx and our plugin, for visual and diagnostic runs; "The alt install" below). `scripts\game-lock.ps1` queues everybody (FIFO) in front of them. The game is only ever started while you hold a slot, so **build first, queue second, release as soon as the runs are done**.
+
+Where the installs are ("Install locations" below): main is found through Steam (its library folders), or set `ULTRAKILL_DIR`; alt comes from `ULTRAKILL_ALT_DIR` or the per-user file `%LOCALAPPDATA%\UltraRT\installs.json`. Several checkouts (git worktrees) share one lock: run `game-lock.ps1` from the main checkout's `scripts` folder, so everybody runs the same version (written `.\scripts\game-lock.ps1` below).
 
 ```powershell
 # 1. Build outside the lock (no game needed). Stages the build in <repo>\stage.
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -NoDeploy
 # 2. Queue once (shows position and estimate; no polling loop needed, one ticket per owner). Perf is the default kind.
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\death\.t3\projects\ultrart\scripts\game-lock.ps1 acquire <you>
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\game-lock.ps1 acquire <you>
 #    visual run:   ... acquire <you> -Kind visual            (alt install if it is free, else main; prints "slot: alt|main")
 # 3. Copy the staged build into the slot (seconds).
 .\scripts\deploy.ps1 -Owner <you> [-Slot alt]    (-Owner is required: it refuses a slot someone else holds)
@@ -16,7 +18,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\death\.t3\projects\
 .\scripts\bench.ps1 -Suite a,b,c -Perf [-Slot alt] [-Compare <older run>]
 #    Each results folder gets game.log: this run's part of BepInEx\LogOutput.log (the game rewrites that file at every launch).
 # 5. Release right away (stops your resident game, restores main's build from a cached copy: about a second).
-powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\death\.t3\projects\ultrart\scripts\game-lock.ps1 release <you>
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\game-lock.ps1 release <you>
 ```
 
 Which kind of run for which question:
@@ -38,6 +40,11 @@ Shader-only or config-only iterations (the bundle hot-reloads): `bench.ps1 -Suit
 .\scripts\bench.ps1 -Suite full           # everything
 .\scripts\bench.ps1 -Compare 20261113-171622_short   # diff against an earlier run in bench\results
 ```
+
+Results folders (`bench/results/<yyyyMMdd-HHmmss>_<suite>[_alt]`) are local and never committed. The run ids that docs
+cite (for example `bench/results/20261121-172343_perf-core`) record where a measurement came from on the development
+PC; they are not in the repository. The same goes for suites cited in docs that are no longer in `bench/suites`: they
+were one-off investigations, removed before 0.3.0, and git history has them.
 
 Each run launches the game on DX12 and plays every scenario in `bench/suites/<suite>.json`, then quits. Output goes to `bench/results/<timestamp>_<suite>/`: `results.json`, `summary.md` and screenshots. The run is tagged with the git commit (`-dirty` if the tree has uncommitted changes).
 
@@ -295,7 +302,20 @@ A burst mode may add runtime variants after the view mode, separated by `+`: `re
 ## Level settle
 `Scenario.Settle` (seconds to wait after a level load, before the player is taken over) was 3 and is now 1; `bench.ps1 -Settle <s>` overrides it for a whole run (`-Settle 3` gives the old behaviour; a suite that sets `Settle` itself keeps its value unless `-Settle` is given). Measured on 0-1, 1-4, 0-3, 6-2, 0-5 (`infra-settle.json`, `-Perf`, two runs each at 3 s and 0.5 s, one at 1 s): avg frame times match within the run-to-run noise (relight 5.27/5.48 ms at 3 s against 5.08/5.39 at 0.5 s in 6-2; every other row the same way), and the level load drops from 5.3-6.6 s to 2.6-3.9 s (88 s -> 76 s for the suite). The RT warm-up before measuring (at least 30 frames) and the 0.5 s take-over already cover what the 3 s was for. Visual runs that need a fully settled scene (auto exposure, radiance cache) have `ShotSettle` and `BurstSettle`.
 
-## The alt install (`D:\UltraRT-Bench\ULTRAKILL`)
+## Install locations
+`scripts\lib\slots.ps1` resolves both installs for every script (build, deploy, bench, lock, display prefs); the
+projects (`src\GameDir.props`) find main the same way when built without `build.ps1`.
+
+| Slot | First match wins |
+|---|---|
+| main | `$env:ULTRAKILL_DIR`; `"main"` in `%LOCALAPPDATA%\UltraRT\installs.json`; the Steam library that has ULTRAKILL (Steam's registry key and `steamapps\libraryfolders.vdf`); `C:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL` |
+| alt | `$env:ULTRAKILL_ALT_DIR`; `"alt"` in `%LOCALAPPDATA%\UltraRT\installs.json`; otherwise there is no alt slot (`game-lock.ps1 status` shows `alt (not installed)`) |
+
+`installs.json` is per user and outside the repo, so every worktree sees it, also from shells that were started before
+it was written: `{ "alt": "E:\\UltraRT-Alt\\ULTRAKILL" }`. `scripts\etw-setup.ps1` takes `-OutDir` for the trace
+folder (default `%LOCALAPPDATA%\UltraRT\etw`); `scripts\etw.ps1` reads it back from the registered task.
+
+## The alt install (`<ULTRAKILL_ALT_DIR>`)
 A plain copy of the Steam install (3.7 GB: game, BepInEx, our plugin, a snapshot of `Saves` and `Preferences`, without `BepInEx\ultrart` and the logs), made with `robocopy ... /E`. It is a normal Steam game folder moved out of Steam's tree, with a `steam_appid.txt` (`1229490`) next to the exe so the Steamworks init does not try to restart the game through Steam; **Steam has to be running**, as for the main install. Use it only through `game-lock.ps1` / `bench.ps1 -Slot alt` / `deploy.ps1 -Slot alt`.
 - *Saves and prefs.* The alt folder has its own `Saves` and `Preferences`, and `BenchSafety` blocks every save, prefs and Steam-stat writer there as well, so nothing a run does can reach the user's files.
 - *Shared state, checked.* `Player.log` (`%USERPROFILE%\AppData\LocalLow\Hakita\ULTRAKILL`) is the main install's: `bench.ps1 -Slot alt` passes `-logFile <alt>\Player.log`, and the alt runs left the LocalLow log untouched. The registry key `HKCU\Software\Hakita\ULTRAKILL` is shared; across alt-only runs and runs of both installs at once the only values that changed were Unity's analytics counters (`unity.player_session_count`, `unity.player_sessionid`), which every launch changes anyway. The window mode, resolution and position values (`Screenmanager ...`) stayed as they were. Both installs run at the same resolution, so screenshots from either are comparable.
@@ -304,9 +324,9 @@ A plain copy of the Steam install (3.7 GB: game, BepInEx, our plugin, a snapshot
 - *Material maps.* The per-texel detail cache (`BepInEx\ultrart\materials\ai`, docs/materials.md) is not in the
   robocopy (it sits under the excluded `BepInEx\ultrart`); it was copied in on 2026-11-15. Before that, detail was off in
   every alt run. Check the log for `Material maps: N textures in ...` (not `no cache at ...`).
-- *Keeping it current.* `release` copies the cached main build into both installs. After a change that is not in the plugin folder (BepInEx, game update), redo the robocopy: `robocopy D:\SteamLibrary\steamapps\common\ULTRAKILL D:\UltraRT-Bench\ULTRAKILL /E /XD ...\BepInEx\ultrart /XF LogOutput.log LogOutput.log.1`, (the copy's `steam_appid.txt` is not in the source, so robocopy keeps it).
+- *Keeping it current.* `release` copies the cached main build into both installs. After a change that is not in the plugin folder (BepInEx, game update), redo the robocopy: `robocopy <ULTRAKILL_DIR> <ULTRAKILL_ALT_DIR> /E /XD <ULTRAKILL_DIR>\BepInEx\ultrart /XF LogOutput.log LogOutput.log.1` (the copy's `steam_appid.txt` is not in the source, so robocopy keeps it).
 
-## Measured (2026-11-14, this machine)
+## Measured (2026-11-14, development PC)
 | | Before | After |
 |---|---|---|
 | `release` (restore main's build) | 15 s (Unity shader build + `dotnet build`, under the lock) | 1.3 s (copy of changed files from the cache) |
@@ -334,7 +354,7 @@ A burst measures a held pose. In motion a pixel's history keeps moving and being
 
 ## Methods and traps
 
-Collected from the look-and-perf handoff of 2026-11-18 (`docs/archive/handoff-2026-11-18.md`).
+Collected from the look-and-perf work of 2026-11-18.
 
 - **`-Extra`**: one comma-separated string (`-Extra "-ultrart-viewprobe,-ultrart-light-census"`); the wrapper
   re-quotes each part. An array does not survive the nested PowerShell call.

@@ -121,7 +121,7 @@ which sides are on screen, from the main camera's pose and projection at that mo
 `onBeforeRender`, so the game used to pick its portal views from the frozen player's eye: a side that only the camera
 sees was never rendered, and its quad pasted an empty (black) buffer into the game's image. 8-2's supermarket arch (the
 exit of the island's `12 -> 12B Entrance`) was black that way in the v5c trailer's RT-off half while the trace showed the
-island through it (docs/trailer.md, "v5c light fixes"). `CinePortalSetup` (`Plugin.Cinematics.cs`) now runs the game's own
+island through it (found while fixing the v5c trailer's lighting, 2026-11-20). `CinePortalSetup` (`Plugin.Cinematics.cs`) now runs the game's own
 `Setup` again right after posing, from the camera (only when the manager is initialised, as its LateUpdate requires);
 bench `plugin._cinePortalSetup=0` turns it off. Traced images never depended on it (UltraRT reads the portal set, not the
 game's on-screen list).
@@ -309,7 +309,7 @@ and can be wiped or split against each other. In a bench scenario, `"Modes": ["o
 renders both takes back to back into `cine_<scenario>_off` and `cine_<scenario>_live` and keeps the world frozen from the
 first take to the last, so particles (falling leaves, smoke) are at the same instant in both; two separate scenarios
 line up in camera and geometry only. `scripts/trailer.py` does the wipe and the rest of an edit (title cards,
-captions, cross-fades, music) from an edit-list JSON: see docs/trailer.md.
+captions, cross-fades, music) from an edit-list JSON: see "Trailer assembly" below.
 
 ### Paired capture: both images from one take, world running
 
@@ -337,6 +337,98 @@ the player fires it, with its muzzle light, beam and recoil; `["shotgun"]` fires
 `"Weapon": 2, "WeaponVariant": "Shotgun Grenade"` on the scenario; any kind of the bench's `Effects` works). Add the runtime
 variant `plugin._vmFullScreen=1` to the mode: the viewmodel pass otherwise works in a rectangle measured a few frames
 earlier, and the recoil swings the gun out of it for a moment.
+
+## Trailer assembly
+
+The trailer is scripted from camera paths to a finished MP4 (wipes, level titles, cards, music), so a shot can be
+rendered again after a rendering fix and the cut rebuilt with one command. Rendered frames, videos, fonts and music are
+never committed: they live under `bench/results/` (gitignored).
+
+| Part | |
+|---|---|
+| `bench/trailer/final-plan.json` | the whole trailer: shots in order, each a whole number of music bars, with its path, treatment, level title, the quality tiers and the music |
+| `scripts/trailer-plan.py` | turns the plan into bench suites (`bench/suites/trailer-final-<tier>-<n>.json`, `-main` for shots rendered in the main install) and edit lists (`bench/trailer/trailer-final-<tier>.json`) |
+| `bench/trailer/paths.json`, `scripts/trailer-paths.py` | camera paths given relative to a known pose, written to `bench/cinematics/<name>.json`; `--scout` writes a suite of one quick frame per key (`bench/trailer/scout-example.json`) |
+| `scripts/trailer.py` | the assembly (ffmpeg) from an edit list |
+| `scripts/trailer_gfx.py`, `scripts/trailer-font.py` | motion graphics in the game's HUD style; the game's font, extracted once to `bench\results\trailer\fonts` |
+
+```powershell
+python scripts\trailer-font.py "<ULTRAKILL_DIR>"                          # once: the game's font for the graphics
+python scripts\trailer-paths.py bench\trailer\paths.json                  # after editing paths
+python scripts\trailer-plan.py bench\trailer\final-plan.json              # suites + edit lists for every tier
+#   --tier draft                    only that tier
+#   --only "8-2 street,7-3 gun"     also writes trailer-final-<tier>-redo.json with just those shots
+.\scripts\bench.ps1 -Suite trailer-final-draft-1 -Slot alt                # ... -2, -3, -4: a few shots per run (hold a slot)
+python scripts\trailer.py bench\trailer\trailer-final-draft.json          # -> bench\results\trailer\trailer-final-draft\
+```
+
+The edit list's sources are wildcards over every run of the tier (`*_trailer-final-<tier>-*_alt/cine_<shot>`) and the
+newest match wins, so rendering one shot again with the `-redo` suite replaces just that shot. `trailer.py --only 2,5`
+rebuilds only those clips (the others are reused) and joins again; `--root` and `--out` move the source and output
+folders; `--no-exports` skips the edit list's `Exports` (for example the 1080p copy). The `draft` tier is 1280x720 at
+30 fps with RR at a third of the resolution; `final` is 2560x1440 at 60 fps with RR at full resolution
+(`ptx.scaleRR=1`), clips at CRF 8, the master at CRF 13 and a 1080p export.
+
+**Footage.** Comparisons are paired `live` takes ("Paired capture" above): what a player sees, with DLSS Ray
+Reconstruction (the DLSS SDK has to be in `lib\dlss` when the native DLL is built). `"TimeScale": 0` freezes the world
+for one shot. `"Slot": "main"` renders a shot in the main install (the user's save, so the user's gun colours) in a run
+of its own (suite `trailer-final-<tier>-main`).
+
+**Gameplay clips.** A shot of `"Kind": "video"` is a video file instead of a bench render: `Source` (absolute, or
+relative to `bench/results`), `In` (seconds into the file), optional `Speed`, plus `Caption`, `Tag`, `Labels`, `FadeIn`,
+`FadeOut`, `Transition`; no bench scenario is written for it, and `"Labels": null` drops the state badge. Swapping in a
+new capture is one line at the same bars, for example
+`{ "Kind": "video", "Name": "combat", "Bars": 4, "Source": "trailer/combat/<capture>.mp4", "In": 16.0 }`; then run
+`trailer-plan.py` and `trailer.py` again (no game needed). Keep `Bars` the same, or take bars from another shot of the
+same music layer, so every cut stays on the beat.
+
+### Plan fields
+
+| Field | |
+|---|---|
+| `Bar`, `Margin` | seconds per bar (1.5 at 160 bpm); extra seconds rendered either side of a comparison's switch |
+| `Tiers` | per tier: `Mode` (the cinematic's render mode), `Modes` (the scenario's RT mode and runtime variants), `OutputScale`, `Fps`, `Preroll`, `Width`, `Height`, `Crf`, `ClipCrf`, `Exports` |
+| `Scenario` | fields for every bench scenario (`"Enemies": "blind", "EnemyOutlines": false`) |
+| `Labels`, `Graphics`, `Music` | passed to the edit list |
+| `Shots` | `Kind`: `title` / `end` (a card; `Card` holds the title clip's fields), `video` (above), `beauty` (one traced take), `switch` (the game's image, then a hard switch to the traced one after `Off` seconds) or `sweep` (the divider crosses once, starting after `Off` seconds and taking `Sweep`; `Slant`, `Flip`). `Bars` (+ `Lead` / `Seconds`) is the length; `File` the path in `bench/cinematics`; `Path` and `Scenario` go to the bench scenario, `Cinematic` to its cinematic block, `TierCinematic` the same for one tier; `ModeAdd` appends runtime variants for one shot; `In` starts the clip that far into the take and `Render` renders a longer take than the clip (`TierIn` gives `In` per tier); `Caption` and `Tag` as in the edit list |
+
+### Edit list
+
+Top level: `Name`, `Root` (the folder sources and music are relative to; `--root` overrides), `Width`, `Height`, `Fps`,
+`Crf`, `Font`, `TitleFont`, `Graphics` (`"motion"`: animated overlays from `trailer_gfx.py` instead of ffmpeg
+`drawtext`), `Labels` (the two state names, `["RT OFF", "PATH TRACED"]`), `Exports`, `ClipCrf`, `Music` (`File`,
+`Start`, `Volume`, `FadeIn`, `FadeOut`; or `Tracks`, several pieces on the timeline, each with `At` and `Until`) and
+`Clips`.
+
+| Clip `Type` | Fields |
+|---|---|
+| `shot` | `Source`, `In`, `Out` (seconds of the source), `Speed` |
+| `wipe` | `Before`, `After` (two renders of one path), `In`, `Out`, `Wipe` (`Keys`: `[time, position]` pairs, 0 = all before, 1 = all after; `Slant`, `Flip`, `Line`, `Border`, `Shade`), `Labels` |
+| `title` | `Duration`, `Text`, `Sub`, `Small`, `Size`; optional `Source` (+ `Dim`, `Blur`, `Saturation`) to set it over a dimmed shot |
+
+Every clip also takes `Name`, `Caption`, `Tag` (for example the level title), `FadeIn` / `FadeOut` and `Transition`
+(`cut`, `{ "Type": "fade", "Duration": 0.4 }` or `dip` through black). A `Source` is a render folder (`frame_00000.png`
+...; its frame rate comes from `render.json`) or a video file. A hard switch is a wipe whose keys jump
+(`[[0, 0], [1.499, 0], [1.5, 1]]`). Each clip is rendered to `clips/NN_<name>.mp4`, then they are joined and the music
+is added.
+
+### Music
+
+The trailer uses 0-1's theme from the game's own files (your install; never committed):
+`ULTRAKILL_Data\StreamingAssets\aa\StandaloneWindows64\music_assets_layer*.bundle` hold every level's music as AudioClips
+(`0-1`, `0-1 Clean`, ...; "Clean" is the calm layer). With UnityPy in a scratch venv, `obj.read().samples` gives the WAV:
+
+```python
+env = UnityPy.load(r"<ULTRAKILL_DIR>\ULTRAKILL_Data\StreamingAssets\aa\StandaloneWindows64\music_assets_layer0.bundle")
+for obj in env.objects:
+    if obj.type.name == "AudioClip" and obj.read().m_Name == "0-1":
+        for name, data in obj.read().samples.items():
+            open(r"bench\results\trailer\music\0-1.wav", "wb").write(data)
+```
+
+At 160 bpm the bars fall at 0.34 + 1.5 n seconds. The calm layer plays under the title and the first shots; the battle
+layer comes in from its step-up and runs exactly 32 bars to its loop point, so a battle-layer shot can only grow by
+taking bars from another one.
 
 ## Limitations
 

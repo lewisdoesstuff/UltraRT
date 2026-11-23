@@ -1,0 +1,32 @@
+<Project>
+  <!-- Where ULTRAKILL is installed (compile references come from it). First match wins:
+         /p:GameDir=...  (scripts\build.ps1 always passes it: scripts\lib\slots.ps1 also reads Steam's library list)
+         the ULTRAKILL_DIR environment variable
+         the Steam library that lists ULTRAKILL (app 1229490) in Steam's steamapps\libraryfolders.vdf
+         Steam's own folder, then the default Steam folder -->
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == '' and '$(ULTRAKILL_DIR)' != ''">$(ULTRAKILL_DIR)</GameDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GameDir)' == '' and '$(OS)' == 'Windows_NT'">
+    <_UrtSteamDir>$([MSBuild]::GetRegistryValue('HKEY_CURRENT_USER\Software\Valve\Steam', 'SteamPath'))</_UrtSteamDir>
+    <_UrtSteamDir Condition="'$(_UrtSteamDir)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\Valve\Steam', 'InstallPath', null, RegistryView.Registry32))</_UrtSteamDir>
+    <_UrtSteamDir>$(_UrtSteamDir.Replace('/', '\'))</_UrtSteamDir>
+    <_UrtSteamVdf>$(_UrtSteamDir)\steamapps\libraryfolders.vdf</_UrtSteamVdf>
+    <!-- One library block: "path" "D:\\Lib" ... "apps" { ... "1229490" ... }. VDF doubles every backslash. -->
+    <_UrtLibPattern>"path"\s+"([^"]+)"[^}]*"apps"\s*\{[^}]*"1229490"</_UrtLibPattern>
+    <_UrtVdfText Condition="'$(_UrtSteamDir)' != '' and Exists('$(_UrtSteamVdf)')">$([System.IO.File]::ReadAllText('$(_UrtSteamVdf)'))</_UrtVdfText>
+    <_UrtSteamLib Condition="'$(_UrtVdfText)' != '' and $([System.Text.RegularExpressions.Regex]::IsMatch('$(_UrtVdfText)', '$(_UrtLibPattern)'))">$([System.Text.RegularExpressions.Regex]::Match('$(_UrtVdfText)', '$(_UrtLibPattern)').Groups[1].Value.Replace('\\', '\'))</_UrtSteamLib>
+    <GameDir Condition="'$(_UrtSteamLib)' != '' and Exists('$(_UrtSteamLib)\steamapps\common\ULTRAKILL')">$(_UrtSteamLib)\steamapps\common\ULTRAKILL</GameDir>
+    <GameDir Condition="'$(GameDir)' == '' and '$(_UrtSteamDir)' != '' and Exists('$(_UrtSteamDir)\steamapps\common\ULTRAKILL')">$(_UrtSteamDir)\steamapps\common\ULTRAKILL</GameDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == ''">$(MSBuildProgramFiles32)\Steam\steamapps\common\ULTRAKILL</GameDir>
+  </PropertyGroup>
+
+  <Target Name="UrtCheckGameDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(BepInExDir)\core\BepInEx.dll')"
+           Text="ULTRAKILL with BepInEx not found at '$(GameDir)'. Set the ULTRAKILL_DIR environment variable or pass /p:GameDir=&lt;ULTRAKILL folder&gt;." />
+  </Target>
+</Project>

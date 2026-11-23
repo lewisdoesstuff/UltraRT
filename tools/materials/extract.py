@@ -15,7 +15,7 @@ own materials and the shared models/materials bundles), so they are covered; the
 (marked "atlas") for reference and for the procedural fallback.
 
 Usage (from the repo root, see tools/materials/README.md):
-  tools/materials/.venv/Scripts/python.exe -I tools/materials/extract.py --game D:/.../ULTRAKILL --out <cache>
+  tools/materials/.venv/Scripts/python.exe -I tools/materials/extract.py --game <ULTRAKILL_DIR> --out <cache>
 """
 import argparse
 import json

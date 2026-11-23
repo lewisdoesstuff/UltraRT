@@ -19,7 +19,8 @@ to start and stop a system-wide CPU trace. The trace file stays on this machine.
 #>
 param(
     [switch]$Remove,
-    [string]$OutDir = 'D:\UltraRT-Bench\etw',
+    # Where wpr writes the trace before etw.ps1 moves it (a fixed path in the task). Pick a drive with room: tens of MB per second.
+    [string]$OutDir = (Join-Path $env:LOCALAPPDATA 'UltraRT\etw'),
     [string]$User = ''
 )
 $ErrorActionPreference = 'Stop'
