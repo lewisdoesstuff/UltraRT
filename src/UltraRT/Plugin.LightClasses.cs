@@ -245,7 +245,7 @@ namespace UltraRT
                 EnsureLightOverrides();
                 _lightOv.SetLayer(value == "0" || value == "off" ? null : value);
             }
-            else Logger.LogWarning($"Burst: unknown light variant 'lc.{key}'");
+            else throw BenchVariantError($"unknown light variant 'lc.{key}'");
         }
 
         private void RestoreLightVariants()

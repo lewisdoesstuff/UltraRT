@@ -211,6 +211,16 @@ with what a removal would take; none is recommended without the owner's yes.
 | O8 | Diagnostics whose question is answered: `Plugin.MsaaProbe.cs` (81, polled every `OnUpdate` at `Plugin.cs:429`, returns at once), `Plugin.EnemySurvey.cs` (80, `-ultrart-enemy-survey`; the enemy-glow work it fed has shipped) | off | MSAA probe: keep until the AA decision (docs/aliasing.md) is made, then remove. Enemy survey: remove if `Plugin.EnemyGlow.cs` no longer needs its output | ~160 |
 | O9 | Undocumented early-days flags and old-look switches (list in section 7) | off; flag only | in no script, suite or doc (the first group); one doc each (the second) | ~5 each |
 
+**Done 2026-11-23** (branch `t3/cleanup-flags-legacy-code`, before 0.3.0): O3 (the Static / Previous / Legacy presets,
+`stability`, Ctrl+F3, the menu row, their flags and `preset=`; `Full` stays), O4 as far as the flag and the menu row go
+(the TAAU-off path stays for F2 and the cinematic render), O5, O6, O7, the MSAA probe of O8 (the enemy survey stays), and
+from O9 `-ultrart-ambient`, `-ultrart-inject`, `-ultrart-nodepthmatch`, `-ultrart-noscene`, `-ultrart-nostatic`,
+`-ultrart-capture`, `-ultrart-dn-mover`, `-ultrart-flipy`, `-ultrart-lit-unlit` (the field stays) and
+`plugin._aeBenchClock`. The same pass removed the portal light grids and `ls.farFull` (docs/light-sampling.md), the
+separate radiance cache update (`cache.folded=0`, docs/radiance-cache.md) and some thirty one-shot bugfix A/B switches
+(`fx.*`, `wet.*`, `trans.*`, `plugin._portal*` and others; docs/settings.md "Removed settings"). Unknown bench variant
+keys now fail the scenario.
+
 ## 6. Structure (PR 5+)
 
 | Id | Finding | Proposal | Effort |

@@ -151,7 +151,7 @@ namespace UltraRT
                     {
                         if (dn == null) continue;
                         dn.iterations = 0; dn.alphaMin = 0f; dn.maxHistory = 255; dn.clampHistory = false;
-                        dn.stability = false; dn.stabilize = false; dn.antilag = 0f; dn.moverAntilag = 0f;
+                        dn.boostFrames = 0f; dn.fireflySigma = 0f; dn.historySearch = false; dn.cacheSeed = 0f; dn.freshSpread = 1f; dn.stabilize = false; dn.antilag = 0f; dn.moverAntilag = 0f;
                         dn.debugView = DenoiserDebugView.Final;
                     }
                     var rf = _reflSettings;

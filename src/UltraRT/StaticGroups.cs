@@ -270,7 +270,7 @@ namespace UltraRT
                 // Combined vertices live in the batch root's space, or world space if there is no root.
                 Root = StaticBatchRoot?.GetValue(sources[0]) as Transform,
                 // All sources of one combined mesh share a layer in practice (StaticSceneOptimizer: one per material).
-                Id = (uint)OriginalLayer(sources[0].gameObject.layer),
+                Id = (uint)sources[0].gameObject.layer,
                 Slots = new Slot[subCount],
                 SubMaterials = Enumerable.Repeat(_disabledMaterial, subCount).ToArray(),
                 Bounds = combined.bounds,

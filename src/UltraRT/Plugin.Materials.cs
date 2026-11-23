@@ -61,7 +61,6 @@ namespace UltraRT
                     case "-ultrart-flesh-rim": s.fleshRim = Mathf.Max(0f, F(s.fleshRim)); break;
                     case "-ultrart-translucency": s.translucency = Mathf.Max(0f, F(s.translucency)); break;
                     case "-ultrart-translucent-shadow": s.translucentShadow = Mathf.Max(0f, F(s.translucentShadow)); break;
-                    case "-ultrart-lit-unlit": u.fullbright = false; break; // relight unlit materials (the old look)
                     case "-ultrart-enemy-lit": u.enemy = F(u.enemy); break;
                     case "-ultrart-enemy-types": u.enemyTypes = Next(); break;
                     case "-ultrart-lit-rules": u.rules = On(); break;

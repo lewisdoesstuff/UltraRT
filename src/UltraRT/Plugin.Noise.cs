@@ -55,19 +55,16 @@ namespace UltraRT
         /// (_GlobalLightData + per-renderer light indices), which ignores culling masks; the optimizer even strips the baked
         /// layers from its lights' masks. Lights in its globalLights list therefore light the baked layers here too (8-2's
         /// alley was lit in game by lights whose masks never included them). Since 2026-11-21 the baked layers are traced as
-        /// their own (6/7, SceneProxies.BakedOwnLayers), so this bit reaches only the baked geometry: traced as 24/8 it also
-        /// lit every live layer-24/8 object (8-3's Space: the floating rooms' walls and floor under the SSO's suns).
-        /// BakedLayerBits gives 6/7 the bits of 24/8 for the other lights. Bench: plugin._bakedLightMasks=0 for the old masks,
-        /// -ultrart-baked-remap for the old layers.
+        /// their own (6/7, SceneProxies.cs), so this bit reaches only the baked geometry: traced as 24/8 it also lit every
+        /// live layer-24/8 object (8-3's Space: the floating rooms' walls and floor under the SSO's suns). BakedLayerBits
+        /// gives 6/7 the bits of 24/8 for the other lights.
         /// </summary>
-        private bool _bakedLightMasks = true;
         private readonly HashSet<Light> _globalLights = new HashSet<Light>();
         private object _globalLightsOwner;
 
         private uint BakedLightMask(Light l)
         {
-            if (!_bakedLightMasks) return 0u;
-            uint baked = SceneProxies.BakedOwnLayers ? (1u << 6) | (1u << 7) : (1u << 24) | (1u << 8);
+            const uint baked = (1u << 6) | (1u << 7);
             if (!ReferenceEquals(_globalLightsOwner, _proxies))
             {
                 _globalLightsOwner = _proxies;
@@ -80,13 +77,12 @@ namespace UltraRT
         }
 
         /// <summary>
-        /// Baked geometry is traced under its own layers 6/7 (SceneProxies.OriginalLayer): before the upload, every light that
+        /// Baked geometry is traced under its own layers 6/7 (since 2026-11-21): before the upload, every light that
         /// lights layer 24 also lights 6, and one that lights 8 also lights 7, as the light did for the baked geometry when it
         /// was traced under 24/8. Idempotent (the masks are rebuilt or appended every frame; this only adds bits).
         /// </summary>
         private void BakedLayerBits(int count)
         {
-            if (!SceneProxies.BakedOwnLayers) return;
             for (int i = 0; i < count; i++)
             {
                 uint m = _lightMasks[i];

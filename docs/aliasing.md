@@ -3,7 +3,9 @@
 How much stair-stepping, crawling edges and specular sparkle each view mode has, measured against an anti-aliased
 reference of the same frozen instant, and which anti-aliasing approach would help each kind. Measurement only: no
 rendering default changed. Suite `bench/suites/aliasing.json` (written by `tools/aliasing/make_suite.py`), analysis
-`tools/aliasing/analyze.py`, MSAA probe `src/UltraRT/Plugin.MsaaProbe.cs` (bench variant `plugin._msaaProbe=4`).
+`tools/aliasing/analyze.py`. The MSAA probe (`src/UltraRT/Plugin.MsaaProbe.cs`, bench variant `plugin._msaaProbe=4`)
+was removed on 2026-11-23 once its question was answered; its results below are kept, and `git show 5b02c0e:src/UltraRT/Plugin.MsaaProbe.cs`
+has the code. A suite that still sets `plugin._msaaProbe` now fails its scenarios (unknown bench variant).
 
 ## Summary (2026-11-19, RTX 5070 Ti, 2560x1440, alt install, `bench/results/20261119-150542_aliasing_alt`)
 
@@ -207,6 +209,8 @@ not committed: rendered frames). What they show:
   and 8-2 pathtrace draws a bright rim along a pipe's silhouette.
 
 ### MSAA probe (`bench/results/20261119-153011_aliasing-msaa_alt`)
+
+(History: the probe was removed on 2026-11-23, see the top of this page.)
 
 `plugin._msaaProbe=4` replaces the game's four world-camera targets with 4x multisampled ones of the same formats
 (next section). Same pose and camera as the main run, still frame, scored with the main run's masks against the

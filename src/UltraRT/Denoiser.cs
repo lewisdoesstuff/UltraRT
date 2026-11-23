@@ -32,15 +32,6 @@ namespace UltraRT
         Indirect = 2,
     }
 
-    /// <summary>
-    /// Ctrl+F3 cycles these. Full: the defaults (docs/denoiser.md, "Temporal stability", "Static noise" and "Motion noise").
-    /// Static: the build before the motion-noise work (no anti-lag, cache seed 1, normal a-trous footprint for young pixels,
-    /// and in LightSampling no per-pixel light-change history or extra candidates for fresh pixels).
-    /// Previous: the build before the static-noise work (alphaMin 0.1, 32 frames, no spatial variance floor, no output
-    /// stabilisation, no guard band). Legacy: Previous without the four stability features (plain SVGF).
-    /// </summary>
-    public enum DenoiserPreset { Full, Static, Previous, Legacy, Custom }
-
     /// <summary>Tunables, read every <see cref="Denoiser.Execute"/>. Safe to change at any time.</summary>
     public sealed class DenoiserSettings
     {
@@ -75,9 +66,8 @@ namespace UltraRT
         public float clampSigma = 2f;
         public DenoiserDebugView debugView = DenoiserDebugView.Final;
 
-        // ---- Temporal stability (docs/denoiser.md). `stability = false` is the previous behaviour, for A/B.
-        /// <summary>Master switch for the four features below (Ctrl+F3, -ultrart-dn-legacy).</summary>
-        public bool stability = true;
+        // ---- Temporal stability (docs/denoiser.md). The legacy presets (Static, Previous, plain SVGF) and their master
+        //      switch were removed on 2026-11-23; each feature below still has its own off value.
         /// <summary>Pre-blur: pixels with less history than this (frames) accumulate a geometry-aware blur of the input
         /// instead of their own sample; the strength falls linearly to 0 at this length. 0 = off.</summary>
         public float boostFrames = 8f;
@@ -114,8 +104,7 @@ namespace UltraRT
         public float freshSpread = 2f;
         public float freshSpreadFrames = 8f;
 
-        // ---- Temporal stabilisation of the filtered output (docs/denoiser.md, "Stabilisation"). Ctrl+F3 cycles
-        //      stabilize + stability -> stability only -> neither.
+        // ---- Temporal stabilisation of the filtered output (docs/denoiser.md, "Stabilisation").
         /// <summary>Blend the final filtered lighting with its own reprojected history, clamped to its temporal spread.</summary>
         public bool stabilize = true;
         /// <summary>Clamp half-size in temporal standard deviations of the filtered signal.</summary>
@@ -129,43 +118,11 @@ namespace UltraRT
 
         /// <summary>
         /// Defaults overridden by command-line flags (both denoiser instances):
-        /// -ultrart-dn-legacy (stability off), -ultrart-dn-boost N (frames, 0 = off), -ultrart-dn-boost-radius R,
+        /// -ultrart-dn-boost N (frames, 0 = off), -ultrart-dn-boost-radius R,
         /// -ultrart-dn-firefly K (0 = off), -ultrart-dn-nosearch, -ultrart-dn-cache W (0 = off), -ultrart-dn-noclamp,
         /// -ultrart-dn-iterations N.
         /// </summary>
         public DenoiserSettings Clone() => (DenoiserSettings)MemberwiseClone();
-
-        /// <summary>Ctrl+F3 presets (the temporal/stability fields only; other fields are kept).</summary>
-        public void ApplyPreset(DenoiserPreset p)
-        {
-            var d = new DenoiserSettings();
-            bool full = p == DenoiserPreset.Full || p == DenoiserPreset.Static;
-            bool motion = p == DenoiserPreset.Full;
-            alphaMin = full ? d.alphaMin : 0.1f;
-            maxHistory = full ? d.maxHistory : 32;
-            referenceHz = full ? d.referenceHz : 0f;
-            spatialVarianceFloor = full ? d.spatialVarianceFloor : 0f;
-            stabilize = full;
-            stability = p != DenoiserPreset.Legacy;
-            cacheSeed = motion ? d.cacheSeed : 1f;
-            antilag = motion ? d.antilag : 0f;
-            moverAntilag = motion ? d.moverAntilag : 0f;
-            freshSpread = motion ? d.freshSpread : 1f;
-        }
-
-        /// <summary>Which preset these settings match (Custom when they match none).</summary>
-        public DenoiserPreset CurrentPreset()
-        {
-            foreach (DenoiserPreset p in new[] { DenoiserPreset.Full, DenoiserPreset.Static, DenoiserPreset.Previous, DenoiserPreset.Legacy })
-            {
-                var t = Clone();
-                t.ApplyPreset(p);
-                if (t.alphaMin == alphaMin && t.maxHistory == maxHistory && t.referenceHz == referenceHz &&
-                    t.spatialVarianceFloor == spatialVarianceFloor && t.stabilize == stabilize && t.stability == stability &&
-                    t.cacheSeed == cacheSeed && t.antilag == antilag && t.freshSpread == freshSpread && t.moverAntilag == moverAntilag) return p;
-            }
-            return DenoiserPreset.Custom;
-        }
 
         public static DenoiserSettings FromCommandLine()
         {
@@ -177,11 +134,7 @@ namespace UltraRT
                 float F(float fallback) => float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
                 switch (a[i].ToLowerInvariant())
                 {
-                    case "-ultrart-dn-legacy": s.ApplyPreset(DenoiserPreset.Legacy); break;
-                    case "-ultrart-dn-previous": s.ApplyPreset(DenoiserPreset.Previous); break;
-                    case "-ultrart-dn-static": s.ApplyPreset(DenoiserPreset.Static); break;
                     case "-ultrart-dn-antilag": s.antilag = F(s.antilag); break;
-                    case "-ultrart-dn-mover": s.moverAntilag = F(s.moverAntilag); break;
                     case "-ultrart-dn-fresh-spread": s.freshSpread = F(s.freshSpread); break;
                     case "-ultrart-dn-alpha": s.alphaMin = F(s.alphaMin); break;
                     case "-ultrart-dn-spatialvar": s.spatialVarianceFloor = F(s.spatialVarianceFloor); break;
@@ -427,13 +380,13 @@ namespace UltraRT
             cmd.SetComputeIntParam(cs, IdHistoryValid, _historyValid ? 1 : 0);
             cmd.SetComputeFloatParam(cs, IdAlphaMin, RateAlpha(s.alphaMin));
             cmd.SetComputeFloatParam(cs, IdSpatialVarFloor, Mathf.Max(0f, s.spatialVarianceFloor));
-            cmd.SetComputeVectorParam(cs, IdAntilag, new Vector4(s.stability ? Mathf.Max(0f, s.antilag) : 0f, Mathf.Max(0f, s.antilagTolerance), Mathf.Max(0f, s.antilagMinLength), 0f));
+            cmd.SetComputeVectorParam(cs, IdAntilag, new Vector4(Mathf.Max(0f, s.antilag), Mathf.Max(0f, s.antilagTolerance), Mathf.Max(0f, s.antilagMinLength), 0f));
             cmd.SetComputeFloatParam(cs, IdNormalTol, s.reprojNormalTolerance);
             cmd.SetComputeFloatParam(cs, IdPlaneTol, Mathf.Max(0f, s.reprojPlaneTolerance));
             cmd.SetComputeIntParam(cs, IdClampHistory, s.clampHistory ? 1 : 0);
             cmd.SetComputeFloatParam(cs, IdClampSigma, Mathf.Max(0f, s.clampSigma));
             cmd.SetComputeTextureParam(cs, _kTemporal, IdRadiance, inputs.radiance);
-            bool movers = s.stability && s.moverAntilag > 0f && inputs.moverFlags != null;
+            bool movers = s.moverAntilag > 0f && inputs.moverFlags != null;
             cmd.SetComputeVectorParam(cs, IdMoverAntilag, new Vector4(movers ? s.moverAntilag : 0f, Mathf.Max(0f, s.moverAntilagTolerance), Mathf.Max(0f, s.moverAntilagMinLength), 0f));
             cmd.SetComputeTextureParam(cs, _kTemporal, IdMoverSrc, inputs.moverFlags != null ? inputs.moverFlags : inputs.radiance);
             bool playerF = inputs.moverFlags != null && s.playerShadowBlend > 0f;
@@ -451,13 +404,12 @@ namespace UltraRT
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutGeo, _geo[_cur]);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutBoost, _boostInfo);
             cmd.SetComputeTextureParam(cs, _kTemporal, IdOutReproj, _reproj);
-            bool st = s.stability;
             cmd.SetComputeVectorParam(cs, IdBoost, new Vector4(
-                st ? Mathf.Max(0f, s.boostFrames) : 0f,
-                st ? Mathf.Clamp(s.boostRadius, 0f, 4f) : 0f,
-                st ? Mathf.Max(0f, s.fireflySigma) : 0f,
-                st && s.historySearch ? 1f : 0f));
-            bool seed = st && s.cacheSeed > 0f && CacheChannel != DenoiserCacheChannel.None && CacheSource != null
+                Mathf.Max(0f, s.boostFrames),
+                Mathf.Clamp(s.boostRadius, 0f, 4f),
+                Mathf.Max(0f, s.fireflySigma),
+                s.historySearch ? 1f : 0f));
+            bool seed = s.cacheSeed > 0f && CacheChannel != DenoiserCacheChannel.None && CacheSource != null
                         && CacheSource.BindComputeLookup(cmd, cs, _kTemporal);
             if (!seed)
             {
@@ -485,7 +437,7 @@ namespace UltraRT
                 cmd.SetComputeFloatParam(cs, IdPhiLuminance, Mathf.Max(1e-3f, s.phiLuminance));
                 cmd.SetComputeTextureParam(cs, kAtrous, IdGeo, _geo[_cur]);
                 cmd.SetComputeTextureParam(cs, kAtrous, IdAtrousMoments, _moments[_cur]);
-                cmd.SetComputeVectorParam(cs, IdFreshSpread, new Vector4(s.stability ? Mathf.Clamp(s.freshSpread, 1f, 4f) : 1f, Mathf.Max(1f, s.freshSpreadFrames), 0f, 0f));
+                cmd.SetComputeVectorParam(cs, IdFreshSpread, new Vector4(Mathf.Clamp(s.freshSpread, 1f, 4f), Mathf.Max(1f, s.freshSpreadFrames), 0f, 0f));
                 RenderTexture src = _t0;
                 for (int i = 0; i < iterations; i++)
                 {

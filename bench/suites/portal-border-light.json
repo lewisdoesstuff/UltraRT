@@ -1,6 +1,6 @@
 {
  "Name": "portal-border-light",
- "Note": "docs/portals.md section 20 (2026-11-21): the lighting seam at the 8-3 Fallway doorway (pose 144) and 10 m back in the hallway, with bursts; the Clockwork Crushers' loops and two 8-2 portals for the guards. Before = plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0 (the loop guard by the exit's plane alone, handed-over fixtures not imaged).",
+ "Note": "docs/portals.md section 20 (2026-11-21): the lighting seam at the 8-3 Fallway doorway (pose 144) and 10 m back in the hallway, with bursts; the Clockwork Crushers' loops and two 8-2 portals for the guards. Its 'before' variant (plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0) was removed on 2026-11-23.",
  "Scenarios": [
   {
    "Name": "8-3 portal light",
@@ -13,7 +13,6 @@
    "Modes": [
     "off",
     "pathtrace",
-    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0",
     "relight"
    ],
    "Screenshots": [
@@ -22,8 +21,7 @@
    "Burst": 32,
    "BurstModes": [
     "off",
-    "pathtrace",
-    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+    "pathtrace"
    ]
   },
   {
@@ -43,16 +41,14 @@
    },
    "Modes": [
     "off",
-    "pathtrace",
-    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+    "pathtrace"
    ],
    "Screenshots": [
     3
    ],
    "Burst": 32,
    "BurstModes": [
-    "pathtrace",
-    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+    "pathtrace"
    ]
   },
   {
@@ -66,8 +62,7 @@
    },
    "Modes": [
     "off",
-    "pathtrace",
-    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+    "pathtrace"
    ],
    "Enemies": "blind",
    "Screenshots": [
@@ -84,8 +79,7 @@
    },
    "Modes": [
     "off",
-    "pathtrace",
-    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+    "pathtrace"
    ],
    "Screenshots": [
     2
@@ -101,8 +95,7 @@
    },
    "Modes": [
     "off",
-    "pathtrace",
-    "pathtrace+plugin._portalLightHalfSpace=1+plugin._portalHandedLights=0"
+    "pathtrace"
    ],
    "Screenshots": [
     2

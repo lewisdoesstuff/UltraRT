@@ -22,9 +22,6 @@ namespace UltraRT
     {
         /// <summary>-ultrart-nomatsync: no runtime material sync (the old behaviour, for A/B).</summary>
         public static bool MaterialSync = true;
-        /// <summary>Lit Master materials with _UseAlbedoAsEmissive are lit surfaces, not emitters, as in game
-        /// (SceneProxies.cs material setup; -ultrart-albedo-emission-glow: the old albedo emission).</summary>
-        public static bool LitAlbedoEmission = true;
 
         private const int SyncEntriesPerFrame = 16;   // dynamic proxies checked for swaps / new property blocks
         private const int SyncMaterialsPerFrame = 4;  // source materials re-copied

@@ -1,5 +1,4 @@
-// World-Space Light Grid (ReGIR-lite, Wave 3): 32x16x32 camera-centered 4 m cells (128x64x128 m). Since 2026-11-21 up to
-// 3 more such grids around the camera's images through portals (LightSampling.PortalGridOrigins), one dispatch each.
+// World-Space Light Grid (ReGIR-lite, Wave 3): 32x16x32 camera-centered 4 m cells (128x64x128 m).
 // Each cell stores up to 8 local shadowed light indices packed into a single uint4 (16 B/cell, 256 KB total, L2-resident).
 // Ranked by attenuated luminance to the cell's AABB, skipping directional lights (handled by global alias) and lights whose
 // reach (2 x range) does not intersect the cell.
@@ -11,7 +10,6 @@ RWStructuredBuffer<uint4> _LightGrid;   // 32*16*32 = 16384 uint4s (8 x uint16 l
 
 float4 _GridOrigin; // xyz world origin (snapped to cellSize), w cellSize (4.0 m)
 uint4  _GridDims;   // x=32, y=16, z=32, w=_RisLightCount
-uint   _GridBase;   // first cell of this grid in _LightGrid (grid k = k x 16384: the camera's, then portal viewpoints')
 
 [numthreads(4, 4, 4)]
 void BuildGrid(uint3 id : SV_DispatchThreadID)
@@ -66,7 +64,7 @@ void BuildGrid(uint3 id : SV_DispatchThreadID)
     }
 
     uint cellIdx = id.x + id.y * _GridDims.x + id.z * (_GridDims.x * _GridDims.y);
-    _LightGrid[_GridBase + cellIdx] = uint4(
+    _LightGrid[cellIdx] = uint4(
         topIdx[0] | (topIdx[1] << 16),
         topIdx[2] | (topIdx[3] << 16),
         topIdx[4] | (topIdx[5] << 16),

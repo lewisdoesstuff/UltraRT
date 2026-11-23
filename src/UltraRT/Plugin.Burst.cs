@@ -90,10 +90,11 @@ namespace UltraRT
 
         /// <summary>"mode+key=value+..." -> applies the variants, returns the view mode. Keys: lights=ref|ris (restir: ris, with a warning),
         /// cache=off|bounce|primary, refl=0|1, emissive=0|1, relight=0|1 (force the relight model), and
-        /// &lt;object&gt;.&lt;field&gt;=value for any public field of ls (LightSamplingSettings), cache (RadianceCacheSettings),
-        /// refl (ReflectionSettings), em (EmissiveLightSettings), dn (DenoiserSettings, both instances) or up (UpsamplerSettings;
-        /// taau=0|1 is up.enabled), e.g.
-        /// dn.stability=0, dn.alphaMin=0.05, cache.historyFrames=64, ls.spatialSamples=2.</summary>
+        /// &lt;object&gt;.&lt;field&gt;=value for any public field of a <see cref="VariantTargets"/> object (ls, cache, refl, em,
+        /// dn, up, ...; taau=0|1 is up.enabled), plugin.&lt;field&gt; for any Plugin field and lc.* (light classes), e.g.
+        /// dn.alphaMin=0.05, cache.historyFrames=64, plugin._lightRadius=0.
+        /// A key that names nothing (a removed switch, a typo) fails the scenario (<see cref="BenchVariantError"/>): it would
+        /// otherwise run as a silent no-op A/B.</summary>
         private string ApplyBenchVariant(string spec)
         {
             var parts = spec.Split('+');
@@ -117,15 +118,6 @@ namespace UltraRT
                     case "relight": _relightForce = on; break;
                     case "taau": if (_upsampler != null) _upsampler.Settings.enabled = on; break;
                     case "vol": _volSettings.enabled = on; break;
-                    case "preset":
-                    {
-                        // Ctrl+F3's presets: full | static | previous | legacy (also the guard band and LightSampling, like the hotkey).
-                        var preset = (DenoiserPreset)Enum.Parse(typeof(DenoiserPreset), v, true);
-                        var g = typeof(Plugin).GetField(nameof(_guardActive), BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (!_variantPluginRestore.ContainsKey(g)) _variantPluginRestore[g] = _guardActive;
-                        ApplyDenoiserPreset(preset);
-                        break;
-                    }
                     default:
                     {
                         int dot = k.IndexOf('.');
@@ -134,13 +126,13 @@ namespace UltraRT
                         {
                             // Any Plugin field, e.g. plugin._lightRadius=0
                             var f = typeof(Plugin).GetField(k.Substring(dot + 1), BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
-                            if (f == null) { Logger.LogWarning($"Burst: no Plugin field '{k}'"); break; }
+                            if (f == null) throw BenchVariantError($"no Plugin field '{k.Substring(dot + 1)}' (variant '{p}')");
                             if (!_variantPluginRestore.ContainsKey(f)) _variantPluginRestore[f] = f.GetValue(this);
                             SetField(this, f.Name, v);
                             break;
                         }
                         var target = dot > 0 ? VariantTargets().FirstOrDefault(t => t.Key == k.Substring(0, dot)).Value : null;
-                        if (target == null) { Logger.LogWarning($"Burst: unknown variant '{p}'"); break; }
+                        if (target == null) throw BenchVariantError($"unknown variant '{p}'");
                         SetField(target, k.Substring(dot + 1), v);
                         break;
                     }
@@ -150,17 +142,25 @@ namespace UltraRT
             return parts[0];
         }
 
+        /// <summary>A bench variant that changes nothing: logged as an error, and thrown, so the bench runner fails the scenario
+        /// (results.json / summary.md: "failed") and restores the variant state, instead of measuring an A/B of identical runs.</summary>
+        private Exception BenchVariantError(string message)
+        {
+            Logger.LogError($"Benchmark variant: {message}. The scenario fails: a removed or misspelt switch would run as a no-op A/B.");
+            return new ArgumentException($"bench variant: {message}");
+        }
+
         private void SetField(object o, string name, string value)
         {
             var f = o.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
-            if (f == null) { Logger.LogWarning($"Burst: no field '{name}' on {o.GetType().Name}"); return; }
+            if (f == null) throw BenchVariantError($"no field '{name}' on {o.GetType().Name}");
             object val;
             if (f.FieldType == typeof(bool)) val = value != "0" && value != "false" && value != "off";
             else if (f.FieldType == typeof(int)) val = int.Parse(value, CultureInfo.InvariantCulture);
             else if (f.FieldType == typeof(float)) val = float.Parse(value, CultureInfo.InvariantCulture);
             else if (f.FieldType.IsEnum) val = Enum.Parse(f.FieldType, value, true);
             else if (f.FieldType == typeof(string)) val = value;
-            else { Logger.LogWarning($"Burst: field '{name}' has unsupported type {f.FieldType.Name}"); return; }
+            else throw BenchVariantError($"field '{name}' has unsupported type {f.FieldType.Name}");
             f.SetValue(o, val);
         }
 

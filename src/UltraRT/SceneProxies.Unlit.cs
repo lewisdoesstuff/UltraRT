@@ -14,13 +14,13 @@ namespace UltraRT
     ///  2. for unlit ENEMY materials, the enemy type's weight (<see cref="UnlitSettings.enemyTypes"/>) or the global
     ///     <see cref="UnlitSettings.enemy"/> (0.5),
     ///  3. unlit Master: 0 (fullbright); everything else: 1.
-    /// <see cref="UnlitSettings.fullbright"/> off relights everything (the old behaviour, -ultrart-lit-unlit).
+    /// <see cref="UnlitSettings.fullbright"/> off relights everything (the old behaviour; bench unlit.fullbright=0).
     /// The settings can change at runtime (bench variants "unlit.enemy=0.8", the settings menu): every proxy material made
     /// so far is re-weighted the next frame.
     /// </summary>
     internal sealed class UnlitSettings
     {
-        /// <summary>Unlit materials stay fullbright as in the game (false: everything is relit, -ultrart-lit-unlit).</summary>
+        /// <summary>Unlit materials stay fullbright as in the game (false: everything is relit).</summary>
         public bool fullbright = true;
         /// <summary>Apply the "lit" rules of ultrart-materials.json.</summary>
         public bool rules = true;

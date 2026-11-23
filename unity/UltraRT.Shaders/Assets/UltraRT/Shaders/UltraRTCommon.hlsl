@@ -81,7 +81,7 @@ struct RayPayload
 #define ULTRART_FLAG_CAUSTIC 0x80000000u
 // hit -> ray gen: the surface is one the game moves with VERTEX_DISPLACEMENT (a displaced copy: its mesh carries the rest
 // pose in uv7, SceneProxies.Displaced.cs). The game's blood stains do not stick to it, so fresh-blood gloss is not applied
-// there (PathTrace, _BloodWetGloss.w; docs/vfx.md "Wet blood on moving surfaces").
+// there (PathTrace; docs/vfx.md "Wet blood on moving surfaces").
 #define ULTRART_FLAG_DISPLACED 0x80u
 // hit -> ray gen: a thin translucent surface (the game's TRANSMISSION keyword: 8-1's fabric lamp shades; docs/materials.md
 // "Translucent shades"). Light arriving on its back comes through to the front (UltraRTLights.hlsl, TranslucentBegin).

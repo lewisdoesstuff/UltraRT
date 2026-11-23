@@ -37,12 +37,9 @@ namespace UltraRT
         /// matters (revolver, railcannon) has its own Light.
         /// </summary>
         public bool virtualTrailsAndMeshes = false;
-        /// <summary>
-        /// Flame-driven lights (docs/emissive-lights.md, "Flame-driven lights"): the game light a flame sits on (a torch's,
-        /// a candle's) becomes a sphere light at the flame, the size of the flame, in the flame's colour, flickering
-        /// with it; its mean strength stays the game light's (with its class policy). The game's point in the cup is gone.
-        /// </summary>
-        public bool flameDriven = true;
+        // Flame-driven lights (docs/emissive-lights.md, "Flame-driven lights"): the game light a flame sits on (a torch's,
+        // a candle's) becomes a sphere light at the flame, the size of the flame, in the flame's colour, flickering with
+        // it; its mean strength stays the game light's (with its class policy). The game's point in the cup is gone.
         /// <summary>The sphere's radius: this x the flame's bounds radius, clamped to [0.05, flameMaxRadius] m.</summary>
         public float flameRadius = 0.45f, flameMaxRadius = 0.6f;
         /// <summary>How much of the flame's own colour the light takes (0 = the game light's colour, 1 = the flame's hue
@@ -59,20 +56,12 @@ namespace UltraRT
         /// calibrated while the flame's colour was squared to a deep red at ~0.05 strength and the gasoline flames' light
         /// sat under the floor (docs/emissive-lights.md, "Player-made fire, second pass").</summary>
         public float flameVirtualGain = 1.5f;
-        /// <summary>A glowing effect with a Light of its own on it or up to 3 parents above it (a torch's FireSprite under
-        /// its Fire light) gets no virtual light while that light is on (2026-11-21; false = before: only the distance
-        /// cover test, which missed every 1-1 torch). Bench fx.flameOwnLight=0.</summary>
-        public bool flameOwnLight = true;
-        /// <summary>A sprite's colour is its material tint x the average of what it draws (its sprite's rectangle, or an
-        /// animation frame swapped in through a property block) x its colour, each once (2026-11-22). False = before: the
-        /// material's texture average, the sprite colour and the sprite's whole sheet (SpriteRenderer puts its own texture
-        /// into the property block) were multiplied in on top, which squared the flame's hue to deep red and cut its
-        /// strength to ~0.05 (docs/emissive-lights.md, "Player-made fire, second pass"). Bench fx.spriteColourOnce=0.</summary>
-        public bool spriteColourOnce = true;
-        /// <summary>An oversized flame's light (the gasoline fire's x4 FireSimple flames) sits 1 m over the surface it burns
-        /// on (a ray down) instead of 1.5 m over its billboard's bounds, which reach below the floor (2026-11-22). Bench
-        /// fx.flameOnSurface=0.</summary>
-        public bool flameOnSurface = true;
+        // A glowing effect with a Light of its own on it or up to 3 parents above it (a torch's FireSprite under its Fire
+        // light) gets no virtual light while that light is on (2026-11-21). A sprite's colour is its material tint x the
+        // average of what it draws (its sprite's rectangle, or an animation frame swapped in through a property block) x
+        // its colour, each once (2026-11-22). An oversized flame's light (the gasoline fire's x4 FireSimple flames) sits
+        // 1 m over the surface it burns on (a ray down), not over its billboard's bounds, which reach below the floor
+        // (2026-11-22; docs/emissive-lights.md, "Player-made fire, second pass").
         /// <summary>A particle system's strength also scales with how much of its bounds its particles cover: the summed
         /// area of its particles (count x start size²) over the bounds' cross-section (pi r²), full at this fraction.
         /// A cloud of a few small sparkles across a 10 m room (4-4's gold dust) is no lamp; a fireball, a flamethrower's
@@ -248,7 +237,7 @@ namespace UltraRT
                 if (e.Flame && e.CoverLight != null && e.R != null && e.Go.activeInHierarchy && e.R.enabled)
                     output.Add(new KeyValuePair<Light, Vector4>(e.CoverLight, new Vector4(e.Pos.x, e.Pos.y, e.Pos.z, e.Radius)));
         }
-        /// <summary>Lights driven by a flame in the last frame (flameDriven).</summary>
+        /// <summary>Lights driven by a flame in the last frame.</summary>
         public int DrivenLights { get; private set; }
 
         private struct MatInfo { public bool Glows; public Color Color; public Color Tint; }
@@ -613,7 +602,7 @@ namespace UltraRT
         }
 
         private bool OwnLightOn(Emitter e) =>
-            Settings.flameOwnLight && e.OwnLight != null && e.OwnLight.isActiveAndEnabled && e.OwnLight.intensity > 0f;
+            e.OwnLight != null && e.OwnLight.isActiveAndEnabled && e.OwnLight.intensity > 0f;
 
         private static bool IsFlame(string name)
         {
@@ -884,7 +873,7 @@ namespace UltraRT
             foreach (var e in _flickers)
             {
                 if (e.CoverLight == null || e.R == null || !e.Go.activeInHierarchy || !e.R.enabled || e.Strength <= 0f) continue;
-                bool drive = Settings.flameDriven && e.Flame;
+                bool drive = e.Flame;
                 // Brightness x size (flames flicker by swapping sprites and by scaling), against its running mean over
                 // ~1 s at 60+ fps: the light keeps the game's intensity on average.
                 float b = e.Strength * e.Radius * e.Radius;
@@ -979,11 +968,9 @@ namespace UltraRT
                     else if (e.LastSprite.r >= 0f) a = e.LastSprite;
                     else { e.Strength = 0f; return false; }
                     var c = e.SR.color;
-                    bool once = Settings.spriteColourOnce;
                     // Base already holds the material's texture average and the sprite colour at collection; a sprite
-                    // draws its own texture instead, so with spriteColourOnce only the tint is kept from it.
-                    var baseCol = once ? e.Tint : col;
-                    col = new Color(baseCol.r * a.r * c.r * c.a, baseCol.g * a.g * c.g * c.a, baseCol.b * a.b * c.b * c.a, 1f);
+                    // draws its own texture instead, so only the tint is kept from it.
+                    col = new Color(e.Tint.r * a.r * c.r * c.a, e.Tint.g * a.g * c.g * c.a, e.Tint.b * a.b * c.b * c.a, 1f);
                     // Flames animate with AnimatedTexture, which swaps _MainTex frames through a property block. A
                     // SpriteRenderer also puts its own sprite's texture (the whole sheet) there: that is the rectangle
                     // average above again, not a frame.
@@ -992,15 +979,14 @@ namespace UltraRT
                     if (!_mpb.isEmpty)
                     {
                         var frame = _mpb.GetTexture(MainTexId);
-                        if (frame != null && !(once && frame == sp.texture))
+                        if (frame != null && frame != sp.texture)
                         {
                             frameTex = frame;
                             if (ReadAverage(frame, out var f)) e.LastFrame = f;
                             else if (e.LastFrame.r >= 0f) f = e.LastFrame;
                             else { e.Strength = 0f; return false; }
                             // A swapped frame replaces the sprite's texture: its average stands in for the rectangle's.
-                            if (once) col = new Color(e.Tint.r * f.r * c.r * c.a, e.Tint.g * f.g * c.g * c.a, e.Tint.b * f.b * c.b * c.a, 1f);
-                            else col = new Color(col.r * f.r, col.g * f.g, col.b * f.b, 1f);
+                            col = new Color(e.Tint.r * f.r * c.r * c.a, e.Tint.g * f.g * c.g * c.a, e.Tint.b * f.b * c.b * c.a, 1f);
                         }
                     }
                     if (!e.ColourLogged && _colourLogged < 12)
@@ -1009,7 +995,7 @@ namespace UltraRT
                         _colourLogged++;
                         _log.LogInfo($"Effect lights: sprite colour '{PathOf(e.T)}' mat '{e.Name}': tint ({e.Tint.r:F2}, {e.Tint.g:F2}, {e.Tint.b:F2}), " +
                                      $"sprite '{(sp.texture != null ? sp.texture.name : "-")}' rect average ({a.r:F3}, {a.g:F3}, {a.b:F3}), colour ({c.r:F2}, {c.g:F2}, {c.b:F2}, {c.a:F2}), " +
-                                     $"block texture '{(frameTex != null ? frameTex.name : "-")}', collected base ({e.Base.r:F3}, {e.Base.g:F3}, {e.Base.b:F3}) -> ({col.r:F3}, {col.g:F3}, {col.b:F3}){(once ? "" : " (spriteColourOnce off)")}");
+                                     $"block texture '{(frameTex != null ? frameTex.name : "-")}', collected base ({e.Base.r:F3}, {e.Base.g:F3}, {e.Base.b:F3}) -> ({col.r:F3}, {col.g:F3}, {col.b:F3})");
                     }
                     break;
                 }
@@ -1064,7 +1050,7 @@ namespace UltraRT
                                  $"surface {(float.IsNaN(e.Surface.x) ? "none" : $"y {e.Surface.y:F2} ('{hit.collider.name}')")} -> light y {(float.IsNaN(e.Surface.x) ? fallback : e.Surface.y + 1f):F2} (bounds rule: {fallback:F2})");
                 }
             }
-            if (float.IsNaN(e.Surface.x) || !Settings.flameOnSurface) return new Vector3(b.center.x, fallback, b.center.z);
+            if (float.IsNaN(e.Surface.x)) return new Vector3(b.center.x, fallback, b.center.z);
             return new Vector3(e.Surface.x, Mathf.Min(e.Surface.y + 1f, b.max.y), e.Surface.z);
         }
 

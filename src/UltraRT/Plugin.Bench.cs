@@ -1198,7 +1198,7 @@ namespace UltraRT
 
         private void ApplyBenchMode(string mode)
         {
-            // Modes may carry runtime variants ("relight+preset=previous", Plugin.Burst.cs); undo the previous ones first.
+            // Modes may carry runtime variants ("relight+cache=off", Plugin.Burst.cs); undo the previous ones first.
             if (_benchModeVariant != null) { RestoreVariantState(_benchModeVariant); _benchModeVariant = null; Denoiser.FrameTimeOverride = 0f; }
             if (mode.Contains("+"))
             {

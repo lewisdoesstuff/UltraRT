@@ -203,7 +203,7 @@ namespace UltraRT
                 ProxyMats = proxyMats,
                 TwoSided = twoSided,
                 SkyWall = skyWall,
-                LayerId = (uint)OriginalLayer(r.gameObject.layer),
+                LayerId = (uint)r.gameObject.layer,
             });
             return true;
         }

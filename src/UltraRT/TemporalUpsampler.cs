@@ -9,7 +9,8 @@ namespace UltraRT
     /// <summary>Tunables of <see cref="TemporalUpsampler"/>, read every Execute (docs/denoiser.md, "Temporal upsampling").</summary>
     public sealed class UpsamplerSettings
     {
-        /// <summary>Master switch (F2, -ultrart-notaau). Off = the previous depth-guided 2x2 nearest-texel composite.</summary>
+        /// <summary>Master switch (F2 developer key; the cinematic render turns it off). Off = the depth-guided 2x2
+        /// nearest-texel composite.</summary>
         public bool enabled = true;
         /// <summary>Jitter the trace grid over the screen pixels (off: the upsampler only stabilises the unjittered samples).</summary>
         public bool jitter = true;
@@ -52,7 +53,6 @@ namespace UltraRT
                 float F(float fallback) => float.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : fallback;
                 switch (a[i].ToLowerInvariant())
                 {
-                    case "-ultrart-notaau": s.enabled = false; break;
                     case "-ultrart-taau-nojitter": s.jitter = false; break;
                     case "-ultrart-taau-weight": s.maxWeight = F(s.maxWeight); break;
                     case "-ultrart-taau-sharpness": s.sharpness = F(s.sharpness); break;

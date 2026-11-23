@@ -16,7 +16,6 @@ namespace UltraRT
     ///   -ultrart-cache-mode bounce|primary|off
     ///   -ultrart-cache-lod N             LOD distance in metres (default 10)
     ///   -ultrart-cache-stride N          one update path per NxN trace pixels (default 4)
-    ///   -ultrart-cache-bounces N         update path bounces (1-4, default 2)
     ///   -ultrart-cache-history N         history cap in frames (default 32)
     ///   -ultrart-cache-feedback F        damping of the cached tail (default 0.8)
     ///   -ultrart-cache-size N            log2 of the hash table slots (default 20 = 52 MB)
@@ -47,7 +46,6 @@ namespace UltraRT
                     case "-ultrart-cache-cell": s.cellSize = F(s.cellSize); break;
                     case "-ultrart-cache-lod": s.lodDistance = F(s.lodDistance); break;
                     case "-ultrart-cache-stride": s.updateStride = I(s.updateStride); break;
-                    case "-ultrart-cache-bounces": s.bounces = I(s.bounces); break;
                     case "-ultrart-cache-history": s.historyFrames = F(s.historyFrames); break;
                     case "-ultrart-cache-feedback": s.feedback = F(s.feedback); break;
                     case "-ultrart-cache-size": s.capacityLog2 = I(s.capacityLog2); break;
@@ -74,7 +72,7 @@ namespace UltraRT
             _radianceCache.SetShaders(update, resolve);
         }
 
-        // ---- Denoiser stability (docs/denoiser.md). Lives here so Plugin.cs needs no further hooks.
+        // ---- Denoiser cache seed (docs/denoiser.md). Lives here so Plugin.cs needs no further hooks.
 
         /// <summary>
         /// Tell the denoiser which cache value matches its input this frame (the disocclusion seed): the denoised modes filter
@@ -91,41 +89,10 @@ namespace UltraRT
             _denoiser.CacheOffset = amb * (_primaryAmbient + 0.5f);
         }
 
-        /// <summary>Ctrl+F3: cycle the denoiser presets (DenoiserPreset): Full -> Static (the build before the motion-noise work)
-        /// -> Previous (the build before the static-noise work, also without the guard band)
-        /// -> Legacy (plain SVGF) -> Full.</summary>
-        private bool DenoiserStabilityHotkey()
-        {
-            if (!Input.GetKeyDown(KeyCode.F3) || !(Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl))) return false;
-            if (_denoiser == null) return true;
-            var next = _denoiser.Settings.CurrentPreset() switch
-            {
-                DenoiserPreset.Full => DenoiserPreset.Static,
-                DenoiserPreset.Static => DenoiserPreset.Previous,
-                DenoiserPreset.Previous => DenoiserPreset.Legacy,
-                _ => DenoiserPreset.Full,
-            };
-            ApplyDenoiserPreset(next);
-            string name = next == DenoiserPreset.Full ? "full" : next == DenoiserPreset.Static ? "before the motion work"
-                : next == DenoiserPreset.Previous ? "previous build" : "off (legacy SVGF)";
-            Logger.LogInfo($"Denoiser stability: {name}");
-            Toast($"Denoiser stability: {name} (Ctrl+F3)");
-            return true;
-        }
-
-        /// <summary>Ctrl+F3 and the settings menu (SettingsMenu.cs): a DenoiserPreset on the denoiser plus the guard band, which
-        /// lives elsewhere (static-noise work). The ReSTIR parts the presets used to switch went with ReSTIR (2026-11-19).</summary>
-        private void ApplyDenoiserPreset(DenoiserPreset p)
-        {
-            _denoiser?.Settings.ApplyPreset(p);
-            _guardActive = p == DenoiserPreset.Full || p == DenoiserPreset.Static;
-        }
-
-        /// <summary>F3, Shift+F3, Ctrl+F3: developer keys ([View] DevHotkeys or a bench launch; Plugin.Hotkeys.cs).</summary>
+        /// <summary>F3, Shift+F3: developer keys ([View] DevHotkeys or a bench launch; Plugin.Hotkeys.cs).</summary>
         private void CacheHotkeys()
         {
             if (!DevKey(Input.GetKeyDown(KeyCode.F3), "F3")) return;
-            if (DenoiserStabilityHotkey()) return;
             if (!Input.GetKeyDown(KeyCode.F3) || _radianceCache == null) return;
             var s = _cacheSettings;
             if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift))
@@ -143,49 +110,30 @@ namespace UltraRT
         }
 
         /// <summary>
-        /// Record the cache update + resolve and bind the lookups on PathTrace. Call inside Trace()'s PathTrace bind block,
-        /// after LightSampling.Bind and EmissiveLights.Bind for PathTrace (EmissiveLights' history flag is consumed by its
-        /// first Bind of the frame, which must be PathTrace's), before PathTrace's DispatchRays.
+        /// Bind the cache on PathTrace (its paths update it, folded). Call inside Trace()'s PathTrace bind block, before
+        /// PathTrace's DispatchRays; <see cref="ResolveRadianceCache"/> runs after it.
         /// </summary>
-        private bool _cacheDueFolded;
+        private bool _cacheDue;
 
-        private void TraceRadianceCache(RayTracingShader pathTrace, int w, int h, Matrix4x4 invViewProj, Color ambient)
+        private void TraceRadianceCache(RayTracingShader pathTrace, Color ambient)
         {
             ConfigureDenoiserCacheSeed(ambient);
-            _cacheDueFolded = false;
+            _cacheDue = false;
             if (_radianceCache == null) return;
             if (_radianceCache.Active && (_lightSampling.LightSetChanged || _emissive.SetChanged)) _radianceCache.NotifyLightsChanged();
             bool due = _radianceCache.Due(_frameIndex, _auxEvery);
-            bool folded = _radianceCache.Active && _cacheSettings.folded;
-            if (_radianceCache.Active && due && !folded)
-            {
-                var u = _radianceCache.UpdateShader;
-                _cmd.SetRayTracingAccelerationStructure(u, "_Scene", _proxies.Rtas);
-                _cmd.SetRayTracingBufferParam(u, "_Lights", _lightBuffer);
-                _cmd.SetRayTracingBufferParam(u, "_LightMasks", _lightMaskBuffer);
-                _cmd.SetRayTracingIntParam(u, "_LightCount", _surfLightCount);
-                _cmd.SetRayTracingFloatParam(u, "_LightRadius", _lightRadius);
-                _cmd.SetRayTracingVectorParam(u, "_Relight", RelightParams);
-                _cmd.SetRayTracingFloatParam(u, "_FixtureShadows", _fixtureShadows ? 1f : 0f);
-                _lightSampling.BindTables(_cmd, u);
-                _emissive.Bind(_cmd, u, _lightSamplingSettings.mode);
-                _cmd.SetRayTracingVectorParam(u, "_SkyColor", new Vector4(ambient.r, ambient.g, ambient.b, 1));
-                BindSky(u);
-            }
-            if (!folded) _gpu?.Begin(_cmd, SlotCache);
-            _radianceCache.Execute(_cmd, pathTrace, w, h, invViewProj, _camera.transform.position, _frameIndex, 1f, 1f, due);
-            if (!folded) _gpu?.End(_cmd, SlotCache);
-            else _cacheDueFolded = due;
+            _radianceCache.Execute(_cmd, pathTrace, due);
+            _cacheDue = due && _radianceCache.Active;
         }
 
-        /// <summary>Folded mode: run CacheResolve.compute right after PathTrace's DispatchRays.</summary>
+        /// <summary>Run CacheResolve.compute right after PathTrace's DispatchRays.</summary>
         private void ResolveRadianceCache()
         {
-            if (!_cacheDueFolded || _radianceCache == null) return;
+            if (!_cacheDue || _radianceCache == null) return;
             _gpu?.Begin(_cmd, SlotCache);
-            _radianceCache.ResolveFolded(_cmd);
+            _radianceCache.Resolve(_cmd);
             _gpu?.End(_cmd, SlotCache);
-            _cacheDueFolded = false;
+            _cacheDue = false;
         }
 
         /// <summary>The "cache" view mode: overwrite the PathTrace output with the cache debug view.</summary>
@@ -193,7 +141,7 @@ namespace UltraRT
         {
             if (mode < CacheDebugModeBase || _radianceCache == null) return;
             var view = _cacheSettings.debugView != RadianceCacheDebug.None ? _cacheSettings.debugView : (RadianceCacheDebug)(mode - CacheDebugModeBase);
-            if (_cacheSettings.folded && _radianceCache.Active && _radianceCache.UpdateShader != null)
+            if (_radianceCache.Active && _radianceCache.UpdateShader != null)
             {
                 var u = _radianceCache.UpdateShader;
                 _cmd.SetRayTracingAccelerationStructure(u, "_Scene", _proxies.Rtas);

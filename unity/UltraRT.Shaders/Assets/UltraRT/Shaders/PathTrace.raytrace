@@ -222,9 +222,10 @@ float4 TraceTransparent(RayDesc ray, float opaqueT, float pixelAngle, inout uint
     float3 ng = p.normal; // faces the ray
     SurfaceMaterial mat = MaterialFromPayload(p.material, p.flags);
     float3 n = ng;
-    // 13 = Wet: water. One texel of this trace covers p.t x pixelAngle across the view and 1 / cos more along it.
+    // 13 = Wet: water. One texel of this trace covers p.t x pixelAngle across the view and 1 / cos more along it: the
+    // reflection ray's ripples are band-limited to that footprint.
     if (mat.cls == ULTRART_CLASS_WET)
-        n = WaterNormalBand(ng, pos, p.t, _UltraRTWaterBand > 0.5 ? p.t * pixelAngle / max(abs(dot(ng, ray.Direction)), 0.05) : 0.0);
+        n = WaterNormalBand(ng, pos, p.t, p.t * pixelAngle / max(abs(dot(ng, ray.Direction)), 0.05));
     float3 L = reflect(ray.Direction, n);
     if (dot(L, ng) < 0.02) L = reflect(ray.Direction, ng);
     float dist;
@@ -304,7 +305,7 @@ float2 GlossyCone(float2 cone, float roughness) { return float2(cone.x, cone.y +
 Texture2D<float> _BloodWetTex;
 SamplerState my_linear_clamp_sampler;
 float4 _BloodWetParams;
-float4 _BloodWetGloss; // x roughness, y f0, z specular weight of fully wet blood, w 1 = also on displaced surfaces
+float4 _BloodWetGloss; // x roughness, y f0, z specular weight of fully wet blood
 
 void RayGenBody(bool full)
 {
@@ -453,7 +454,7 @@ void RayGenBody(bool full)
                 // opening's edge. Its history is the wall beside the portal, so send the lookup off screen (DLSS RR
                 // and the denoiser then start it fresh). 8-3's hallway left thin lines of the wall's colour on the
                 // sliding view otherwise (user, 2026-11-18).
-                if (_UltraRTPortalEdge != 0 && !PortalSegmentThrough(path.first, _CamPos.xyz, virtualPos + g_PrimaryMotion))
+                if (!PortalSegmentThrough(path.first, _CamPos.xyz, virtualPos + g_PrimaryMotion))
                 {
                     float3 side = cross(camDir, abs(camDir.y) < 0.9 ? float3(0, 1, 0) : float3(1, 0, 0));
                     g_PrimaryMotion = normalize(side) * 2e4;
@@ -639,7 +640,7 @@ void RayGenBody(bool full)
             g_PlayerF = saturate(1.0 - p.alpha * dot(g_PlayerBlocked, lw) / max(dot(lighting, lw), 1e-6));
         }
         albedo = p.albedo;
-        if (_BloodWetParams.x > 0.0 && path.hops == 0u && p.alpha > 0.5 && ((p.flags & ULTRART_FLAG_DISPLACED) == 0u || _BloodWetGloss.w > 0.5))
+        if (_BloodWetParams.x > 0.0 && path.hops == 0u && p.alpha > 0.5 && (p.flags & ULTRART_FLAG_DISPLACED) == 0u)
         {
             // Fresh blood on this pixel: a glossy, darker film over the surface (a dielectric coat, as rain; REFLECTION
             // materials keep the game's model). The game multiplies the stain's red over the result afterwards.

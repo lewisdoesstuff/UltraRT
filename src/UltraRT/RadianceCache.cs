@@ -44,10 +44,6 @@ namespace UltraRT
         public float normalOffset = 0.5f;
         /// <summary>Update paths: one per stride x stride block of trace pixels (4 = 1/16 of the pixels).</summary>
         public int updateStride = 4;
-        /// <summary>Path vertices that write to the cache (1-4); the vertex after the last bounce reads the cache.</summary>
-        public int bounces = 2;
-        /// <summary>RIS candidates per update path vertex (lights and emissive triangles), one shadow ray.</summary>
-        public int candidates = 12;
         /// <summary>History cap in frames' worth of samples (at each cell's own sampling rate).</summary>
         public float historyFrames = 32f;
         /// <summary>History cap for a few frames after lights or emitters appear or disappear (room toggles).</summary>
@@ -70,16 +66,14 @@ namespace UltraRT
         public bool levelFallback = true;
         /// <summary>Slots in the hash table = 2^capacityLog2 (52 bytes each: 2^20 = 52 MB).</summary>
         public int capacityLog2 = 20;
-        /// <summary>Fold cache updates into PathTrace.raytrace (eliminates CacheUpdate.raytrace DispatchRays). Bench cache.folded=0 for A/B.</summary>
-        public bool folded = true;
         public RadianceCacheDebug debugView = RadianceCacheDebug.None;
     }
 
     /// <summary>
     /// World-space radiance cache for multi-bounce diffuse GI (SHaRC-style spatial hash grid). See docs/radiance-cache.md.
-    /// Per traced frame: <see cref="Execute"/> records the update paths (CacheUpdate.raytrace, its own DispatchRays and
-    /// UAV budget) and the resolve (CacheResolve.compute), and binds the read-only lookup inputs on PathTrace.
-    /// The caller binds the scene, lights, light-sampling tables, emitters and sky on <see cref="UpdateShader"/> first.
+    /// Per traced frame: <see cref="Execute"/> binds the cache on PathTrace, whose paths update it (folded), and
+    /// <see cref="Resolve"/> runs CacheResolve.compute after PathTrace's DispatchRays. <see cref="UpdateShader"/>
+    /// (CacheUpdate.raytrace) is only the debug views' shader since its UpdateRayGen went (2026-11-23).
     /// </summary>
     internal sealed class RadianceCache : IDisposable
     {
@@ -120,17 +114,12 @@ namespace UltraRT
             IdGrid = Shader.PropertyToID("_CacheGrid"),
             IdQuery = Shader.PropertyToID("_CacheQuery"),
             IdFold = Shader.PropertyToID("_CacheFold"),
-            IdTrace = Shader.PropertyToID("_CacheTrace"),
-            IdUpdate = Shader.PropertyToID("_CacheUpdate"),
-            IdCandidates = Shader.PropertyToID("_CacheCandidates"),
             IdDebugOut = Shader.PropertyToID("_CacheDebugOut"),
             IdDebug = Shader.PropertyToID("_CacheDebug"),
             IdFrame = Shader.PropertyToID("_CacheFrame"),
             IdResolve = Shader.PropertyToID("_CacheResolve"),
-            IdFrameIndex = Shader.PropertyToID("_FrameIndex"),
             IdInvViewProj = Shader.PropertyToID("_InvViewProj"),
             IdCamPos = Shader.PropertyToID("_CamPos"),
-            IdLightScale = Shader.PropertyToID("_LightScale"),
             IdEmissionScale = Shader.PropertyToID("_EmissionScale");
 
         public RadianceCache()
@@ -178,17 +167,16 @@ namespace UltraRT
         private bool DueNow(uint frameIndex, int every) => every <= 1 || _needsClear || _fastFrames > 0 || _keys == null || frameIndex % (uint)every == 0;
 
         /// <summary>
-        /// Record the update paths and the resolve (when <see cref="Active"/>) and bind the lookup inputs on PathTrace.
-        /// Must run on every PathTrace dispatch (PathTrace declares the lookup inputs), after the caller bound the shared
-        /// inputs on <see cref="UpdateShader"/>, and before PathTrace's DispatchRays.
+        /// Bind the cache on PathTrace, which updates it (the folded update: PathTrace's own paths write into the cells, every
+        /// <see cref="RadianceCacheSettings.updateStride"/>-th warp) and reads it. Must run on every PathTrace dispatch (PathTrace
+        /// declares the cache inputs), before its DispatchRays; <see cref="Resolve"/> runs after it. (The separate update pass,
+        /// CacheUpdate.raytrace's UpdateRayGen, was removed on 2026-11-23: docs/radiance-cache.md.)
         /// </summary>
-        /// <param name="traceWidth">PathTrace dispatch size; update paths cover it in stride x stride blocks.</param>
-        public void Execute(CommandBuffer cmd, RayTracingShader pathTrace, int traceWidth, int traceHeight,
-                            Matrix4x4 invViewProj, Vector3 camPos, uint frameIndex, float lightScale, float emissionScale, bool update = true)
+        /// <param name="update">Whether PathTrace adds samples this frame (<see cref="Due"/>).</param>
+        public void Execute(CommandBuffer cmd, RayTracingShader pathTrace, bool update = true)
         {
             var s = Settings;
-            bool active = Active;
-            if (active && s.folded)
+            if (Active)
             {
                 EnsureBuffers();
                 if (_needsClear)
@@ -204,56 +192,16 @@ namespace UltraRT
                 cmd.SetRayTracingVectorParam(pathTrace, IdFold, new Vector4(update ? stride : 0f, Mathf.Max(0f, s.feedback), Mathf.Clamp01(s.albedoMax), Mathf.Clamp(s.maxSample, 1f, 1000f)));
                 return;
             }
-            if (active && !update && _keys != null)
-            {
-                BindLookup(cmd, pathTrace, true);
-                cmd.SetRayTracingBufferParam(pathTrace, IdAccum, _dummyAccum);
-                cmd.SetRayTracingVectorParam(pathTrace, IdFold, Vector4.zero);
-                return;
-            }
-            if (active)
-            {
-                EnsureBuffers();
-                var u = UpdateShader;
-                if (_needsClear)
-                {
-                    BindResolve(cmd);
-                    cmd.SetComputeIntParam(_resolve, IdCapacity, _capacity);
-                    cmd.DispatchCompute(_resolve, _kClear, _capacity / 256, 1, 1);
-                    _needsClear = false;
-                }
-
-                int stride = Mathf.Clamp(s.updateStride, 1, 16);
-                int pw = (traceWidth + stride - 1) / stride, ph = (traceHeight + stride - 1) / stride;
-                BindLookup(cmd, u, true);
-                cmd.SetRayTracingBufferParam(u, IdAccum, _accum);
-                cmd.SetRayTracingTextureParam(u, IdDebugOut, _dummyTex);
-                cmd.SetRayTracingIntParam(u, IdDebug, 0);
-                cmd.SetRayTracingMatrixParam(u, IdInvViewProj, invViewProj);
-                cmd.SetRayTracingVectorParam(u, IdCamPos, camPos);
-                cmd.SetRayTracingIntParam(u, IdFrameIndex, unchecked((int)frameIndex));
-                cmd.SetRayTracingFloatParam(u, IdLightScale, lightScale);
-                cmd.SetRayTracingFloatParam(u, IdEmissionScale, emissionScale);
-                cmd.SetRayTracingVectorParam(u, IdTrace, new Vector4(traceWidth, traceHeight, stride, Mathf.Clamp(s.bounces, 1, 4)));
-                cmd.SetRayTracingVectorParam(u, IdUpdate, new Vector4(Mathf.Max(0f, s.feedback), Mathf.Clamp01(s.albedoMax), Mathf.Clamp(s.maxSample, 1f, 1000f), 0));
-                cmd.SetRayTracingIntParam(u, IdCandidates, Mathf.Clamp(s.candidates, 1, 64));
-                cmd.DispatchRays(u, "UpdateRayGen", (uint)pw, (uint)ph, 1);
-
-                RunResolve(cmd);
-            }
-            else if (!s.enabled && _keys != null)
-            {
-                ReleaseBuffers(); // switched off: give the memory back
-            }
-            BindLookup(cmd, pathTrace, active);
+            if (!s.enabled && _keys != null) ReleaseBuffers(); // switched off: give the memory back
+            BindLookup(cmd, pathTrace, false);
             cmd.SetRayTracingBufferParam(pathTrace, IdAccum, _dummyAccum);
             cmd.SetRayTracingVectorParam(pathTrace, IdFold, Vector4.zero);
         }
 
-        /// <summary>Resolve step for folded mode: run CacheResolve.compute right after PathTrace's DispatchRays.</summary>
-        public void ResolveFolded(CommandBuffer cmd)
+        /// <summary>Resolve step: run CacheResolve.compute right after PathTrace's DispatchRays.</summary>
+        public void Resolve(CommandBuffer cmd)
         {
-            if (!Active || !Settings.folded || _keys == null) return;
+            if (!Active || _keys == null) return;
             RunResolve(cmd);
         }
 
@@ -278,15 +226,10 @@ namespace UltraRT
         {
             if (!Active || _keys == null || target == null || view == RadianceCacheDebug.None) return;
             var u = UpdateShader;
-            if (Settings.folded)
-            {
-                BindLookup(cmd, u, true);
-                cmd.SetRayTracingBufferParam(u, IdAccum, _accum);
-                cmd.SetRayTracingMatrixParam(u, IdInvViewProj, invViewProj);
-                cmd.SetRayTracingVectorParam(u, IdCamPos, camPos);
-                cmd.SetRayTracingFloatParam(u, IdLightScale, 1f);
-                cmd.SetRayTracingFloatParam(u, IdEmissionScale, 1f);
-            }
+            BindLookup(cmd, u, true);
+            cmd.SetRayTracingMatrixParam(u, IdInvViewProj, invViewProj);
+            cmd.SetRayTracingVectorParam(u, IdCamPos, camPos);
+            cmd.SetRayTracingFloatParam(u, IdEmissionScale, 1f);
             cmd.SetRayTracingTextureParam(u, IdDebugOut, target);
             cmd.SetRayTracingIntParam(u, IdDebug, (int)view);
             cmd.DispatchRays(u, "DebugRayGen", (uint)target.width, (uint)target.height, 1);

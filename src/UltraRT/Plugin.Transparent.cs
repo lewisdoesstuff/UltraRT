@@ -29,7 +29,6 @@ namespace UltraRT
         private static readonly int TransVPId = Shader.PropertyToID("_UltraRTTransVP");
         private static readonly int TransReflId = Shader.PropertyToID("_UltraRTTransRefl");
         private static readonly int TransParamsId = Shader.PropertyToID("_UltraRTTransParams");
-        private static readonly int TransDisplaceId = Shader.PropertyToID("_UltraRTOverlayDisplace");
         private static readonly int TransFogId = Shader.PropertyToID("_UltraRTFog");
         private static readonly int TransWaterId = Shader.PropertyToID("_UltraRTWater");
         private static readonly int PreAlphaId = Shader.PropertyToID("_UltraRTPreAlpha");
@@ -149,7 +148,6 @@ namespace UltraRT
             // The reflection after its temporal filter (ReflectionFilter.ExecuteTransparent; raw with trans.temporal=0).
             _cmd.SetGlobalTexture(TransReflId, _reflFilter != null ? _reflFilter.ExecuteTransparent(_cmd, _output, viewProj, cam, s) : _output);
             _cmd.SetGlobalVector(TransWaterId, _transWater);
-            _cmd.SetGlobalFloat(TransDisplaceId, s.overlayDisplace ? 1f : 0f); // overlays on displaced water follow the waves
             _cmd.SetGlobalVector(TransParamsId, new Vector4(s.strength, s.maxWeight, _relightActive ? _relightWhite : 0f, 0f));
             // Water absorption (overlay pass Absorb; docs/reflections.md, "Water absorption").
             _cmd.SetGlobalVector(WaterAbsorbId, new Vector4(Mathf.Max(s.waterAbsorb, 0f), Mathf.Clamp01(s.waterAbsorbFloor), Mathf.Clamp01(s.waterAbsorbTint), Mathf.Max(s.waterAbsorbMaxPath, 0.1f)));

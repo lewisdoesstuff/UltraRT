@@ -178,7 +178,6 @@ Shader "UltraRT/Proxy"
             float _Translucent;
             float4 _UltraRTTranslucency; // global (Plugin.Materials.cs): y scales a translucent sheet's _Transmit in shadow rays
             float4 _UltraRTGlass; // global (SceneProxies.Glass): x transmission gain (0 = stained glass blocks light, the old look), y 1 = the scene has stained glass
-            float _UltraRTTransAlpha; // global: 1 = water's path tint follows the game's blend alpha
             float _Unlit;
             float _NoFog;
             float _LitOverride;
@@ -211,7 +210,6 @@ Shader "UltraRT/Proxy"
             float _Scrolling;
             float4 _ScrollSpeed, _ScrollOffset, _ScrollVelocity;
             float _UltraRTTexScroll; // global: 1 = SCROLLING textures move (bench plugin._texScroll=0: frozen, as before)
-            float _UltraRTScrollMotion; // global: 1 = scrolling surfaces report the texture's motion (bench plugin._texScrollMotion=0)
             float _UltraRTFrameDt;      // global: Time.deltaTime of this frame (the game's scroll step)
 
             // ---------------------------------------------------------------- caustics (docs/caustics.md)
@@ -299,9 +297,7 @@ Shader "UltraRT/Proxy"
             // x puddle edge width, y wet margin width (both in puddle-noise units), z roughness and w specular weight of a
             // wet surface without standing water (Plugin.Wet.cs).
             float4 _UltraRTWet2;
-            // x 1 = the ripples of 2026-11-15 (bench A/B: a steep cone per drop, and the detail normal halved over the
-            // drop's whole disc), y largest tilt of the ripple normal (radians, about), z 1 = rain on displaced surfaces at their
-            // rest pose (RestSurface), Plugin.Wet.cs.
+            // y largest tilt of the ripple normal (radians, about), Plugin.Wet.cs. (x, z were A/B switches, removed 2026-11-23.)
             float4 _UltraRTWet3;
 
             float WetHash(float2 p)
@@ -336,7 +332,6 @@ Shader "UltraRT/Proxy"
                 float f = frac(y);
                 float alt = floor(frac(y * 0.5) * 2.0);
                 float x = clamp(9.0 * (d.g + f - 1.0), 0.0, 3.0);
-                if (_UltraRTWet3.x > 0.5) return alt * d.g * (1.0 - f) * sin(1.5 * x);
                 return alt * d.g * (1.0 - f) * sin(2.0943951 * x); // 2 pi / 3: zero at both edges of the band
             }
 
@@ -370,7 +365,6 @@ Shader "UltraRT/Proxy"
                 float hx = RainRing(_RainDrops.SampleLevel(my_linear_repeat_sampler, uv + float2(e.x, 0.0), 0));
                 float hz = RainRing(_RainDrops.SampleLevel(my_linear_repeat_sampler, uv + float2(0.0, e.y), 0));
                 slope = float2(hx - h0, hz - h0) * (_UltraRTWet.w * 1.5) * lerp(0.35, 1.0, puddle);
-                if (_UltraRTWet3.x > 0.5) return;
                 // The difference is per texel of the drop texture, unscaled: across a ring's narrow band it tipped the
                 // normal far enough that the reflection left the lit street for the dark ground or sky, and every drop
                 // drew a dark ellipse on P-2's wet street. Limit the tilt smoothly to _UltraRTWet3.y: a ripple bends a
@@ -387,7 +381,7 @@ Shader "UltraRT/Proxy"
             // (normal) and uv7 (position), object space (SceneProxies.Displaced.cs); every other mesh is at rest already.
             void RestSurface(uint3 tri, float3 b, inout float3 P, inout float3 N)
             {
-                if (_UltraRTWet3.z < 0.5 || !UnityRayTracingHasVertexAttribute(kVertexAttributeTexCoord7)) return;
+                if (!UnityRayTracingHasVertexAttribute(kVertexAttributeTexCoord7)) return;
                 float3 pr = UnityRayTracingFetchVertexAttribute3(tri.x, kVertexAttributeTexCoord7) * b.x
                           + UnityRayTracingFetchVertexAttribute3(tri.y, kVertexAttributeTexCoord7) * b.y
                           + UnityRayTracingFetchVertexAttribute3(tri.z, kVertexAttributeTexCoord7) * b.z;
@@ -849,15 +843,7 @@ Shader "UltraRT/Proxy"
                     n = DetailNormal(u0, u1, u2, p0, p1, p2, n, xy);
                     flags |= ULTRART_FLAG_DETAIL;
                 }
-                if (_UltraRTWet3.x > 0.5)
-                {
-                    if (puddle > 0.0 || any(wetSlope != 0.0))
-                    {
-                        float3 nw = normalize(nVertex + float3(-wetSlope.x, 0.0, -wetSlope.y));
-                        n = normalize(lerp(n, nw, saturate(puddle + (any(wetSlope != 0.0) ? 0.5 : 0.0))));
-                    }
-                }
-                else if (puddle > 0.0 || any(wetSlope != 0.0))
+                if (puddle > 0.0 || any(wetSlope != 0.0))
                 {
                     // Standing water is flat (the surface detail drowns), and tilts with the raindrop rings. Outside the
                     // puddles the ring only tilts the surface's own normal: halving the detail normal wherever a drop's
@@ -903,9 +889,6 @@ Shader "UltraRT/Proxy"
                 if (!causticApart) emission += caustic;
 
                 p.albedo = albedo.rgb;
-                // Water the game draws nearly transparent (P-2's puddles: alpha about 0.1) must tint a path about as little:
-                // towards white by the game's blend alpha, full tint from alpha 0.5 up (pools and seas keep their colour).
-                if (_Transparent == 2.0 && _UltraRTTransAlpha > 0.5) p.albedo = lerp(1.0, albedo.rgb, saturate(2.0 * albedo.a * _TransOpacity));
                 p.alpha = litWeight;
                 p.normal = n;
                 p.t = RayTCurrent();
@@ -917,7 +900,7 @@ Shader "UltraRT/Proxy"
                 if (wantMotion) p.motion = HitMotion(tri, b); // not ?: (both sides run in HLSL 2018: motion buffers read on every hit)
                 // The transparent pass's ray: the game's blend alpha of this water / glass texel (portal glass layer).
                 if (wantTransAlpha && _Transparent > 0.5) p.motion = asuint(saturate(albedo.a * _TransOpacity));
-                if (wantMotion && _Scrolling * _UltraRTTexScroll * _UltraRTScrollMotion > 0.5)
+                if (wantMotion && _Scrolling * _UltraRTTexScroll > 0.5)
                     p.motion = PackMotion(UnpackMotion(p.motion) + ScrollMotion(tri));
 
                 // Reflection material: constant per proxy material, or the secondary set on VERTEX_BLENDING surfaces.

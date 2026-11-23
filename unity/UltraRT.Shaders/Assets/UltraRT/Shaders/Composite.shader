@@ -27,7 +27,6 @@ Shader "UltraRT/Composite"
             float4 _UltraRTUVScale;         // xy: visible size / traced size (guard band; 0 = no guard band), z: _UltraRTUpsampled is set
             Texture2D _UltraRTUpsampled;    // temporal upsampler output (Upsample.compute): screen res, a = 0 where there is no RT surface
             SamplerState my_point_clamp_sampler;
-            float _UltraRTFlipY;
             float4 _UltraRTHdrNative;       // x 1 = native float HDR (UltraRTToneCurve.hlsl): an upsampled a of -1 is a game pixel with HDR gain
 
             struct v2f
@@ -44,7 +43,6 @@ Shader "UltraRT/Composite"
                 o.uv = p;
                 // Rendering into a render texture on D3D flips clip space relative to the texture.
                 if (_ProjectionParams.x < 0.0) o.uv.y = 1.0 - o.uv.y;
-                if (_UltraRTFlipY > 0.5) o.uv.y = 1.0 - o.uv.y;
                 return o;
             }
 

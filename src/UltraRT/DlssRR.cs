@@ -26,10 +26,8 @@ namespace UltraRT
         /// (tone mapped), 2 = RR's lighting X alone (x 0.5: X = 1 is mid grey). Remodulation only.</summary>
         public static int FinishDebug;
         /// <summary>Finish: a pixel no trace sample of this frame matches is still traced when the screen-resolution
-        /// demodulation history has its surface (geometry thinner than a trace texel). Bench plugin._thinMatch=0.</summary>
-        public static bool ThinMatch = true;
-        /// <summary>With ThinMatch: the depth tolerance grows by what this many trace texels change the depth of a
-        /// surface at its angle to the view (edge-on quads: grass blades).</summary>
+        /// demodulation history has its surface (geometry thinner than a trace texel): the depth tolerance grows by what
+        /// this many trace texels change the depth of a surface at its angle to the view (edge-on quads: grass blades).</summary>
         public static float SlopeTexels = 1f;
         /// <summary>Finish, after the thin match: a pixel still unmatched takes the trace sample of the 5x5 around it whose
         /// depth is nearest the game's, if within this fraction of the depth, and is drawn as traced with that sample's
@@ -128,8 +126,6 @@ namespace UltraRT
         public bool Remodulate = true;
         /// <summary>Accumulation of the demodulation colour: the best (nearest) sample of each screen pixel wins.</summary>
         public float DemodSharpness = 30f, DemodMaxWeight = 4f;
-        /// <summary>V1's shadow factor gets a 3x3 same-surface filter before RR (RayReconstruction.compute, PlayerShadowFactor).</summary>
-        public bool PlayerFilter = true;
         /// <summary>Finish: a glowing surface the trace finds in front of the game's depth is drawn from its own sample (lighting
         /// and colour), where the game's depth buffer lacks it. Gabriel's swords: drawn by the game but missing from its depth,
         /// their screen-resolution colour was the organ behind them, which showed through (docs/dlss.md, "Emitters in front of
@@ -397,7 +393,7 @@ namespace UltraRT
             int k;
             var invViewProj = i.viewProj.inverse;
             cmd.SetComputeVectorParam(cs, "_Dim", new Vector4(tw, th, 1f / tw, 1f / th));
-            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, PlayerFilter ? 1f : 0f, FrontEmitters ? 1f : 0f, EmissionOutside ? 1f : 0f));
+            cmd.SetComputeVectorParam(cs, "_RRParams2", new Vector4(remod ? 1f : 0f, 1f, FrontEmitters ? 1f : 0f, EmissionOutside ? 1f : 0f));
             cmd.SetComputeVectorParam(cs, "_CamPos", cam.transform.position);
             cmd.SetComputeMatrixParam(cs, "_InvViewProj", invViewProj);
             cmd.SetComputeVectorParam(cs, "_ReflParams", i.reflParams);
@@ -488,7 +484,7 @@ namespace UltraRT
             cmd.SetComputeVectorParam(cs, "_TraceMap", traceMap);
             cmd.SetComputeVectorParam(cs, "_TraceRay", new Vector4(i.guardScale.x / proj.m00, i.guardScale.y / proj.m11, 0f, 0f));
             cmd.SetComputeVectorParam(cs, "_ZParams", z);
-            cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, GrazingMatch, ThinMatch ? SlopeTexels : 0f));
+            cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, GrazingMatch, SlopeTexels));
             bool cutout = CutoutOn && CutoutShader != null && CutoutRtas != null && remod && _kCutoutPrep >= 0;
             if (cutout)
             {
@@ -506,7 +502,7 @@ namespace UltraRT
                 // The plain depth match first (compute: ray tracing shaders can't read the depth buffer); the rays run
                 // only where it fails. Uses the Finish parameters set above.
                 int kp = _kCutoutPrep;
-                cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, GrazingMatch, ThinMatch ? SlopeTexels : 0f));
+                cmd.SetComputeVectorParam(cs, "_Match", new Vector4(0.03f, 0.05f, GrazingMatch, SlopeTexels));
                 cmd.SetComputeVectorParam(cs, "_OutDim", new Vector4(Ws, Hs, 1f / Ws, 1f / Hs));
                 cmd.SetComputeVectorParam(cs, "_TraceMap", traceMap);
                 cmd.SetComputeVectorParam(cs, "_TraceRay", new Vector4(i.guardScale.x / proj.m00, i.guardScale.y / proj.m11, 0f, 0f));
@@ -533,7 +529,7 @@ namespace UltraRT
                 cmd.DispatchRays(rs, "RayGen", (uint)Ws, (uint)Hs, 1);
                 CutoutFrames++;
             }
-            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinMatch ? ThinNear : 0f, cutout ? 1f : 0f, MatchDebug ? 2f : CutoutDebug ? 1f : 0f, FinishDebug));
+            cmd.SetComputeVectorParam(cs, "_Match2", new Vector4(ThinNear, cutout ? 1f : 0f, MatchDebug ? 2f : CutoutDebug ? 1f : 0f, FinishDebug));
             cmd.SetComputeTextureParam(cs, k, "_Cutout", cutout ? (Texture)_cutout : Texture2D.blackTexture);
             cmd.SetComputeTextureParam(cs, k, "_RRColor", _out);
             cmd.SetComputeTextureParam(cs, k, "_GameDepth", i.gameDepth, 0, RenderTextureSubElement.Depth);

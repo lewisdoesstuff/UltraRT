@@ -59,7 +59,6 @@ Shader "UltraRT/Vfx"
             float4 _VfxWaterLight;             // xyz direction to the light above the surface (unit), w shaft strength
             float4 _VfxWaterParams;            // x caustics strength, y shaft distance (m), z 1 / shaft scale (1/m), w unused
             float4 _VfxWaterFog;               // x fog colour level (x the water colour), y share of it left at depth, zw unused
-            float  _UltraRTFlipY;
             float  _VfxDebug;                  // 1 bloom only, 2 distortion field
             RWTexture2D<float4> _VfxHdrGain : register(u1); // pass 4: rgb gain (linear, >= 1), a = the SDR colour packed
             float4 _VfxHdrFx;                  // x effects: gain - 1 in linear light, y / z brightest channel where it starts / is full, w bloom room (display units)
@@ -79,7 +78,6 @@ Shader "UltraRT/Vfx"
                 o.pos = float4(p * 2.0 - 1.0, 0.0, 1.0);
                 o.uv = p;
                 if (_ProjectionParams.x < 0.0) o.uv.y = 1.0 - o.uv.y;
-                if (_UltraRTFlipY > 0.5) o.uv.y = 1.0 - o.uv.y;
                 return o;
             }
 

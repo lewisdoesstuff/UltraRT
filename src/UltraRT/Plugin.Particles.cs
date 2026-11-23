@@ -102,7 +102,7 @@ namespace UltraRT
             SceneProxies.OrbShellGain = _orbShellGain;
             bool rtTraced = _viewEnabled && _proxies?.Rtas != null && Time.frameCount - _rtTracedFrame < 30;
             _proxies?.SetOrbShells(rtTraced);
-            _proxies?.SetFlatWaterFade(rtTraced && _flatWaterFade); // 1-1's fountain checkerboard (TransparentSurfaces.cs)
+            _proxies?.SetFlatWaterFade(rtTraced); // Limbo water is not faded around the player while traced: 1-1's fountain checkerboard (TransparentSurfaces.cs)
             UpdateGlowSprites(rtTraced); // 1-4's lamp glow sprites, bilinear (Plugin.GlowSprites.cs)
             UpdateGameDither(rtTraced); // the game's screen dither off while traced (Plugin.GameDither.cs)
             UpdateEnemyOutlines(); // the game's enemy outlines, on unless a run turns them off (Plugin.EnemyOutlines.cs)

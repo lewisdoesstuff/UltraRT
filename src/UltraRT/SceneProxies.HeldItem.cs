@@ -11,7 +11,7 @@ namespace UltraRT
     /// ResetHeldItemPosition puts every object of it on layer 13 under the viewmodel arm (Punch.holder), and the third-person
     /// model (PlayerAnimations) has no attachment for it, so V1 held nothing in its reflections while the viewmodel showed a
     /// glowing skull (user, playtest of 2026-11-21, 8-3's supermarket glass). The item's own proxy leaves the RTAS while it
-    /// is on layer 13 (<see cref="HideHeldItems"/>).
+    /// is on layer 13 (HeldHidden).
     ///
     /// While an item is held, a copy of its mesh renderers hangs under the left-hand bone of the third-person model, with
     /// the item's own materials (the plain proxy materials, as the item has on the ground: a skull's emission stays) and

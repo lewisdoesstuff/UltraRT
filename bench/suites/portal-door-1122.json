@@ -1,6 +1,6 @@
 {
  "Name": "portal-door-1122",
- "Note": "2026-11-22 8-3 playtest checks (docs/portals.md section 22), user poses 150-152: blood on glowing ceiling panels behind a portal (bloodstainglow; wet.stainEmission=0 = the old albedo-only tint) and the exit door into the Hallway (5 -> 6): locked, unlocked and opened with RT on (call: effects), and the same with the door portal left out of the RTAS (plugin._portalUnhitTest=1, the user's black doorway). Keep 'unlock unhit' after the plain door scenarios: a side it adds stays out of the RTAS until the door shuts again. The camera's yaw in room 5 depends on the player's rotation after the route (the upside-down room): check the door is in view.",
+ "Note": "2026-11-22 8-3 playtest checks (docs/portals.md section 22), user poses 150-152: blood on glowing ceiling panels behind a portal (bloodstainglow; the old albedo-only variant wet.stainEmission=0 was removed on 2026-11-23) and the exit door into the Hallway (5 -> 6): locked, unlocked and opened with RT on (call: effects), and the same with the door portal left out of the RTAS (plugin._portalUnhitTest=1, the user's black doorway). Keep 'unlock unhit' after the plain door scenarios: a side it adds stays out of the RTAS until the door shuts again. The camera's yaw in room 5 depends on the player's rotation after the route (the upside-down room): check the door is in view.",
  "Scenarios": [
   {
    "Name": "8-3 blood glow",
@@ -14,7 +14,6 @@
    "Modes": [
     "off",
     "pathtrace",
-    "pathtrace+wet.stainEmission=0",
     "pathtrace+wet.stainDebug=1"
    ],
    "Effects": {

@@ -94,7 +94,7 @@ namespace UltraRT
         private bool _hdrGamma22 = true, _hdrDebug;
         private int _hdrCaptureMode;                           // bench: 1 = log statistics of the HDR frame at each screenshot, 2 = + raw frame
         private HdrParams _hdrSent;
-        // Native float HDR (docs/hdr.md, "Native float HDR"): [Display] HDRNative, -ultrart-hdr-native on|off, bench plugin._hdrNative=0|1.
+        // Native float HDR (docs/hdr.md, "Native float HDR"): -ultrart-hdr-native on|off, bench plugin._hdrNative=0|1 (no menu row since 2026-11-23).
         private bool _hdrNative = true;
         private float _hdrNativeTolLo = 0.025f, _hdrNativeTolHi = 0.08f;
         private bool _hdrNativeNow;                            // this frame's composite writes scene values into the float target (HdrPrepare)
@@ -485,6 +485,8 @@ namespace UltraRT
                 return t != null && t.format == RenderTextureFormat.ARGBHalf;
             }
         }
+
+        private static readonly FieldInfo PpReinit = typeof(PostProcessV2_Handler).GetField("reinitializeTextures", BindingFlags.NonPublic | BindingFlags.Instance);
 
         /// <summary>Update: the game's colour target follows the setting. A change makes the game rebuild its targets (as a
         /// resolution change does: PostProcessV2_Handler.reinitializeTextures), which creates them in the patched format.</summary>

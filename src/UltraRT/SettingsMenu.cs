@@ -37,9 +37,6 @@ namespace UltraRT
 
         internal enum TraceQuality { Performance, Balanced, Quality }
         internal enum PathTraceScale { UltraPerformance, Performance, Balanced }
-        internal enum DenoiserQuality { Full, Static, Previous, Legacy, Custom } // same order as DenoiserPreset
-
-        private static readonly UpsamplerSettings UpsamplerDefaults = new UpsamplerSettings();
 
         /// <summary>First thing in Awake, before any config entry or flag changes a field: registers the settings and remembers
         /// the code defaults.</summary>
@@ -97,16 +94,6 @@ namespace UltraRT
                 },
                 v => v.ToString(),
                 v => v == TraceQuality.Performance ? "Performance (0.5x)" : v == TraceQuality.Balanced ? "Balanced (0.67x)" : "Quality (1x)", "-ultrart-scale").Basic();
-            m.Bool("Quality", "TemporalUpsampler", "Temporal upsampler  [F2]", () => _upsampler?.Settings.enabled ?? UpsamplerDefaults.enabled, v =>
-            {
-                if (_upsampler != null) _upsampler.Settings.enabled = v;
-            }, "-ultrart-notaau");
-            m.Choice("Quality", "Denoiser", "Denoiser  [Ctrl+F3]",
-                () => _denoiser == null ? DenoiserQuality.Full : (DenoiserQuality)(int)_denoiser.Settings.CurrentPreset(),
-                v => { if (v != DenoiserQuality.Custom) ApplyDenoiserPreset((DenoiserPreset)(int)v); },
-                v => v.ToString(),
-                v => v == DenoiserQuality.Full ? "Full" : v == DenoiserQuality.Static ? "Static (before the motion work)" : v == DenoiserQuality.Previous ? "Previous build" : v == DenoiserQuality.Legacy ? "Legacy (plain SVGF)" : "Custom (command line)",
-                "-ultrart-dn-*");
             m.Choice("Quality", "RadianceCache", "Radiance cache  [F3]",
                 () => _cacheSettings.enabled ? _cacheSettings.mode : RadianceCacheMode.Off,
                 v => { _cacheSettings.enabled = true; _cacheSettings.mode = v; _denoiser?.Reset(); },
@@ -235,8 +222,8 @@ namespace UltraRT
             m.Float("Display", "HDREffects", "Effects: fire, explosions, beams (x their SDR brightness)", 1f, 4f, 2, () => _hdrEffects, v => _hdrEffects = v, "-ultrart-hdr-effects").Legacy();
             m.Float("Display", "HDRBloom", "Bloom above white (room, display units)", 0f, 4f, 2, () => _hdrBloom, v => _hdrBloom = v, "-ultrart-hdr-bloom").Legacy();
             m.Bool("Display", "HDRHighlights", "Ray-traced highlights above white", () => _hdrHighlights, v => _hdrHighlights = v, "-ultrart-hdr-highlights").Legacy();
-            // Native float HDR (docs/hdr.md, "Native float HDR"); off = the gain maps. A change rebuilds the game's render targets.
-            m.Bool("Display", "HDRNative", "Native float HDR (off = the older gain map)", () => _hdrNative, v => _hdrNative = v, "-ultrart-hdr-native");
+            // Native float HDR (docs/hdr.md, "Native float HDR") has no menu row since 2026-11-23: it is always wanted, and the
+            // gain maps stay the automatic fallback while the game's target is not patched (-ultrart-hdr-native off for tests).
 
             LightEditorSettings(m); // per-level light overrides and the light editor (Plugin.LightOverrides.cs)
             CineSettingsMenu(m); // cinematic camera and offline render (Plugin.Cinematics.cs)
@@ -253,7 +240,7 @@ namespace UltraRT
                 "Insert|light editor (then numpad: 5 aim-select, 4/6 cycle, 8/2 parameter, +/- change, Enter save; docs/lighting-overrides.md)",
                 "Ctrl+Insert|light classifier (docs/lighting-overrides.md)",
                 "Developer keys|only with Advanced > Developer hotkeys (always in bench launches):",
-                "F2|temporal upsampler", "F3|radiance cache mode (Shift+F3: its debug view)", "Ctrl+F3|denoiser preset",
+                "F2|temporal upsampler", "F3|radiance cache mode (Shift+F3: its debug view)",
                 "F6|light sampling (RIS / reference)", "F9|reload shaders (the Reload shaders button works without the developer keys)",
                 "F10|record a camera path (bench)", "F11|save the current pose (bench)",
             }.Concat(CineKeybinds).ToArray();
