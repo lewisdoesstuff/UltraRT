@@ -17,7 +17,7 @@ param(
     [switch] $SkipIconCheck,
     [string] $Icon,
     [string] $Team = 'lemmonsltd',
-    [string] $WebsiteUrl = '',
+    [string] $WebsiteUrl = 'https://lewisdoesstuff.github.io/UltraRT/',
     [switch] $TexturePack,
     [string] $MapsDir,
     [string] $MapsSource = 'ai',

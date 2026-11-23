@@ -2,7 +2,7 @@
 
 UltraRT adds hardware ray tracing and path tracing to ULTRAKILL. It traces shadows, bounce light, reflections, and volumetric fog in real time while keeping the pixel-art textures sharp. NVIDIA DLSS Ray Reconstruction is used for denoising if supported, or UltraRT's own denoiser if not. HDR10 output is supported on compatible displays.
 
-Version {{VERSION}}.
+Version {{VERSION}}. [Watch the trailer](https://youtu.be/OfnADDeXa84) | [Interactive comparisons & project site](https://lewisdoesstuff.github.io/UltraRT/)
 
 ## Features
 
