@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """From one shot list, write the bench suites that render a trailer's shots and the edit list that assembles them
-(docs/trailer.md, "The plan").
+(docs/cinematics.md, "Trailer assembly").
 
     python scripts/trailer-plan.py bench/trailer/final-plan.json [--tier draft|final]
 

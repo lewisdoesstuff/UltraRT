@@ -13,9 +13,9 @@
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
+  <!-- Game location (GameDir): /p:GameDir=..., the ULTRAKILL_DIR env var or Steam's library list (..\GameDir.props). -->
+  <Import Project="..\GameDir.props" />
   <PropertyGroup>
-    <GameDir Condition="'$(GameDir)' == '' and '$(ULTRAKILL_DIR)' != ''">$(ULTRAKILL_DIR)</GameDir>
-    <GameDir Condition="'$(GameDir)' == ''">D:\SteamLibrary\steamapps\common\ULTRAKILL</GameDir>
     <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
   </PropertyGroup>
 

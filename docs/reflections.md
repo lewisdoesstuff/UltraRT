@@ -830,7 +830,7 @@ The bits are Plugin's `_playerRays` (default 15 = all four), uploaded every fram
 separating capture (`bench/suites/diag-v1-grey.json`: the trailer's third-person shot in pathtrace and the debug
 views; the debug ray generation does not trace the player, so only pathtrace and `dn-lighting` show it) says it is
 physics: the body's albedo is blue, the room's light is orange, and a blue surface returns almost none of it, so the
-body is near black with grey highlights from its gloss. By the user's decision 7 (docs/archive/plan-look-and-perf.md) V1
+body is near black with grey highlights from its gloss. By the user's decision 7 (look-and-perf plan, 2026-11-17) V1
 keeps a small unlit share so the blue reads: `SceneProxies.PlayerModelUnlit` = 0.2 of the game's fullbright
 (`-ultrart-v1-unlit F`; 0 = lit by the room only, read when the model's proxies are made). Before / after at the
 same frame: `bench/results/review/v1-unlit-share.png` (`20261117-201615_diag-v1-grey_alt` against

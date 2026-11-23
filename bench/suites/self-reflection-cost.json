@@ -1,8 +1,0 @@
-{
-  "Name": "self-reflection-cost",
-  "_comment": "Which rays make V1 cost GPU time (docs/reflections.md, section 13): _playerRays 0 / 1 reflection / 2 bounce / 4 shadow / 15 all, alternated in one pass.",
-  "Scenarios": [
-    { "Name": "1-1 terminal head-on", "Scene": "Level 1-1", "Path": { "Type": "static", "Position": [6.8, -0.5, 263.0], "Yaw": 0, "Pitch": -5, "Approach": "../recordings/1-1-terminal-glancing.json", "Duration": 12 },
-      "Modes": ["relight+plugin._playerRays=0", "relight+plugin._playerRays=1", "relight+plugin._playerRays=2", "relight+plugin._playerRays=4", "relight"], "Screenshots": [6] }
-  ]
-}

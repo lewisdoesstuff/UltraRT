@@ -1,8 +1,0 @@
-{
-  "Name": "lights-area-test",
-  "Note": "Area lights (docs/lighting-overrides.md): a hand-made 0-1 file in the preview folder (-ultrart-lights-preview): statue orbs as spheres, one as a 2 m rect, one added rect panel; every sampler and pathtrace",
-  "Scenarios": [
-    { "Name": "0-1 metal area", "Scene": "Level 0-1", "Path": { "Type": "static", "Approach": "../recordings/0-1-metal.json", "Duration": 4 },
-      "Modes": ["off", "relight", "relight+plugin._lightOverrides=0", "relight+lights=ref", "pathtrace"], "Screenshots": [2], "ShotSettle": 1 }
-  ]
-}

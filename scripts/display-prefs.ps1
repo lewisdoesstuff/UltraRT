@@ -5,10 +5,11 @@
 #   .\scripts\display-prefs.ps1 show
 param(
     [Parameter(Mandatory)] [ValidateSet('save', 'restore', 'show')] [string] $Action,
-    [string] $GameDir = $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' })
+    [string] $GameDir
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\slots.ps1')
+if (-not $GameDir) { $GameDir = Get-SlotDir 'main' }
 switch ($Action) {
     'save' { if (Save-DisplayPrefs $GameDir) { "saved to $(Get-DisplayPrefsFile $GameDir)" } }
     'restore' {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble a trailer from rendered shots with ffmpeg, driven by an edit-list JSON (docs/trailer.md).
+"""Assemble a trailer from rendered shots with ffmpeg, driven by an edit-list JSON (docs/cinematics.md, "Trailer assembly").
 
     python scripts/trailer.py bench/trailer/trailer-test.json [--root DIR] [--out DIR] [--only N[,N]] [--keep]
 
@@ -37,7 +37,7 @@ FFMPEG = None
 
 def run(args, cwd, log, timeout=None):
     """Run ffmpeg quietly; on failure show the tail of its output. timeout: seconds before an attempt counts as hung
-    (ffmpeg 9.0.2 stalled for good, at 0 % CPU, in clip encodes: docs/trailer.md, v5); it is killed and run once more."""
+    (ffmpeg 9.0.2 stalled for good, at 0 % CPU, in clip encodes while rendering trailer v5); it is killed and run once more."""
     cmd = [FFMPEG, "-hide_banner", "-loglevel", "warning", "-y"] + args
     with open(log, "a", encoding="utf-8") as f:
         f.write("\n$ ffmpeg " + " ".join(f'"{a}"' if (" " in a or "'" in a) else a for a in cmd[1:]) + "\n")

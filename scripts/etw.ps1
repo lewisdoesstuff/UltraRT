@@ -13,7 +13,8 @@ file out of the repo (bench\results is gitignored).
 param(
     [Parameter(Mandatory = $true, Position = 0)][ValidateSet('start', 'stop', 'cancel')][string]$Action,
     [string]$Out = '',
-    [string]$EtwDir = 'D:\UltraRT-Bench\etw',
+    # Where the stop task writes ultrart.etl. Default: read from the registered 'UltraRT ETW stop' task (etw-setup.ps1 -OutDir).
+    [string]$EtwDir = '',
     [int]$TimeoutSec = 300
 )
 $ErrorActionPreference = 'Stop'
@@ -21,7 +22,15 @@ $task = "UltraRT ETW $Action"
 if (-not (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) {
     throw "Scheduled task '$task' is missing: run scripts\etw-setup.ps1 once (it asks for elevation)."
 }
-$etl = Join-Path $EtwDir 'ultrart.etl'
+if ($EtwDir) { $etl = Join-Path $EtwDir 'ultrart.etl' }
+else {
+    $stopArgs = ''
+    $stopTask = Get-ScheduledTask -TaskName 'UltraRT ETW stop' -ErrorAction SilentlyContinue
+    if ($stopTask) { $stopArgs = [string] @($stopTask.Actions)[0].Arguments }
+    $m = [regex]::Match($stopArgs, '-stop\s+"([^"]+)"')
+    if (-not $m.Success) { throw "Cannot read the trace path from the 'UltraRT ETW stop' task ($stopArgs): run scripts\etw-setup.ps1 again or pass -EtwDir" }
+    $etl = $m.Groups[1].Value
+}
 if ($Action -eq 'stop' -and (Test-Path $etl)) { Remove-Item $etl -Force }
 
 $before = (Get-ScheduledTaskInfo -TaskName $task).LastRunTime

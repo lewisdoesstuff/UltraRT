@@ -297,7 +297,7 @@ at all. Now:
   the camera were not picked (`candidates measured N (covered, own light, weak, kind)`, `near but nothing drawn N: <paths>`)
   and names the covering light's path, intensity, range and distance.
 
-Sheet `4-4_gasoline_fire.jpg` in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`.
+Sheet `4-4_gasoline_fire.jpg` (local review sheet, not in the repo).
 
 ### Player-made fire, second pass (2026-11-22, `t3/fix-lighting-reflection-findings`)
 
@@ -331,8 +331,7 @@ Measured (alt, 2560x1440, `pathtrace`, one fresh level load per variant, run `20
 the light at the old placement 46.7, on the surface **81.2**. The corridor's walls, floor and the gun take a warm orange
 from the fire, brightest next to it, where they stayed dark green before. Variants on run `20261122-005752_tmp-flm-c_alt`
 (old placement, so all dark): old colour and gain 6: 50.6; new colour, gain 1.5: 48.5; gain 3: 45.0. Sheet
-`4-4_gasoline_fire.png` (the game, the old placement, the new one) in
-`C:\Users\death\.t3\projects\ultrart\bench\results\review\fix-lighting-reflection-findings\`; suite
+`4-4_gasoline_fire.png` (the game, the old placement, the new one; a local review sheet, not in the repo); suite
 `bench/suites/playtest-1122.json` ("4-4 gasoline fire" and "... before").
 
 Other sprites are affected by fault 2 too: any glowing sprite without a light of its own (most flames with a game light
@@ -658,7 +657,7 @@ without a shot 31.5; `bench/results/20261121-002710_tmp-sgc-b`, `20261121-003639
 | after | 72 | 55 | 30-47 | 27 (baseline) | baseline |
 
 The peak is lower too (the old first frames clipped the whole corridor white). Bench timing jitters by a frame or two
-around a spawn, so single values move by ~15. Sheet `4-1_revolver_flash_timing_pathtrace.jpg` in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`.
+around a spawn, so single values move by ~15. Sheet `4-1_revolver_flash_timing_pathtrace.jpg` (local review sheet, not in the repo).
 
 **Relight still lingers** (not fixed): in relight the frame 0.15 s after a shot measured 76-85 against 23 (old envelope
 131), lit evenly down the corridor, with auto exposure at x1.00 and held. The denoiser's own anti-lag, forced on
@@ -699,7 +698,7 @@ read the same before and during a strike). Scenes in `lightningInsideScenes` (`L
 pose, 0.38 s after `FlashStart` (the strike is 0.3 s in): pathtrace mean luma 24.3 -> 42.5, relight -> 50.3; the
 walkway and the tunnel walls flash warm. At x16 (`fx.lightningIntensity=200`) the frame went white (92). A level rule
 making the game's own flash unshadowed (tried first, `"set": { "shadows": false }`) changed nothing at the strike and
-was dropped. `bench/results/20261121-011038_tmp-sgc-h_alt`, sheet `P-2_pose_2_lightning.jpg` in `C:\Users\death\.t3\projects\ultrart\bench\results\review\stained-glass-and-combat-polish\`.
+was dropped. `bench/results/20261121-011038_tmp-sgc-h_alt`, sheet `P-2_pose_2_lightning.jpg` (local review sheet, not in the repo).
 
 **Plain decorative bolts** (`LightningStrikeDecorative`, no build-up: the strike and its flash at once, a 1.5 s linear
 fade) were not hooked; `FlashStart` now gets the same bolt light, in the flash's hue when it is coloured. No level checked

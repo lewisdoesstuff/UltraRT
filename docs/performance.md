@@ -199,7 +199,7 @@ still a record.
 
 ## Profiling (2026-11-17, branch `t3/perf-profile`)
 
-Tools added for the 120 Hz pathtrace / 240 Hz relight work (docs/archive/plan-look-and-perf.md, 5.1). They answer three
+Tools added for the 120 Hz pathtrace / 240 Hz relight work (the look-and-perf plan of 2026-11-17, 5.1). They answer three
 questions the numbers above could not: is a frame bound by the GPU, the main thread or the render thread; what does
 each pass cost on each of the three; and where do the slow frames come from.
 
@@ -215,7 +215,7 @@ each pass cost on each of the three; and where do the slow frames come from.
 
 ### ETW
 A kernel CPU trace needs administrator rights. `scripts\etw-setup.ps1` asks for them once and registers three scheduled
-tasks that run `wpr.exe` elevated with fixed arguments (start, stop to `D:\UltraRT-Bench\etw\ultrart.etl`, cancel);
+tasks that run `wpr.exe` elevated with fixed arguments (start, stop to `<OutDir>\ultrart.etl`, cancel; `-OutDir` defaults to `%LOCALAPPDATA%\UltraRT\etw`);
 `scripts\etw.ps1` and `bench.ps1 -Etw` use them with no further prompt (`etw-setup.ps1 -Remove` deletes them). The
 trace is system-wide while it records and stays on the machine (`trace.etl` in the run's folder, gitignored; never
 commit or upload one). It grows by about 50 MB per second of a running game (4.4 GB for a 90 s launch) and converting

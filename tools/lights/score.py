@@ -18,7 +18,7 @@ Per pose (a scenario's screenshot time, or a tour view) and mode, over the scree
 
 Verdict: ok, or the reasons it is not: bright / dim (ratio outside --lo..--hi), dark (delta over --dark-delta, when at
 least 2 % of the frame is dark), reveal (reveal% over --reveal). Thresholds were set on the
-user's examples of 2026-11-17 (docs/archive/plan-look-and-perf.md 1.1): 1-4 lamps, the 1-4 bridge and the 6-2 hall must fail.
+user's examples of 2026-11-17 (the look-and-perf plan, 1.1): 1-4 lamps, the 1-4 bridge and the 6-2 hall must fail.
 
 Writes <run>/score.csv and score.md, with --sheet also score.png (game | modes, numbers on the thumbnails, failures in
 red), and with --board appends the rows to a CSV that accumulates over runs (same run, pose and mode: replaced).

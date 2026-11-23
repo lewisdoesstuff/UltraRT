@@ -1,6 +1,0 @@
-{
-    "Name": "poses-8-3",
-    "Scenarios": [
-        { "Name": "8-3 portals", "Scene": "Level 8-3", "RandomPicks": { "False Starts": "1-1" }, "Path": { "Type": "static", "Yaw": 631.03, "Pitch": -4.38, "Approach": "../recordings/8-3-approach.json", "ApproachSpeed": 2, "Duration": 4 }, "Modes": ["off"], "Screenshots": [2] }
-    ]
-}

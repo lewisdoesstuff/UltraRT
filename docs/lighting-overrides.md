@@ -107,7 +107,7 @@ docs/reflections.md, "8-2's pool").
 ## Classes and rules (2026-11-17)
 
 Every level light has a **class**, and a class can carry a **policy**: what RT does with all its lights. This is how
-the 13,157 lights of the 43 levels are handled without an entry each (docs/archive/plan-look-and-perf.md, A4). Code:
+the 13,157 lights of the 43 levels are handled without an entry each (the look-and-perf plan of 2026-11-17, A4). Code:
 `LightClasses.cs` (rules, policies), `Plugin.LightClasses.cs` (resolution per light, review switches, census).
 
 **Where a class comes from**, first match wins:
@@ -1145,7 +1145,7 @@ behind it: `ae.gameMatchUp=1+ae.gameMatchBand=0.1+ae.gameMatchFog=1+ae.maxEV=2`.
 
 Item 6 of the same playtest (materials, sprites, transparency) and the user's 0-S note. Three of the items turned out
 to be light strengths, and those are what this branch ships; the rest is listed with what was found
-(docs/archive/handoff-2026-11-18.md has the next steps). Suites `fx2` (the eight poses, game and pathtrace) and `fx2-b`.
+(the next steps follow below). Suites `fx2` (the eight poses, game and pathtrace) and `fx2-b`.
 Sheets: `bench/results/review/fx2/`. Mean luma of the frame, pathtrace; the "now" numbers were taken with the same
 files in the proposal layer (`lc.layer=proposed`, run `20261118-225053_fx2-b`; 0-S's corridor
 `20261118-224546_fx2-b_alt`), not after the move into the shipped files.
@@ -1223,7 +1223,7 @@ dark corridor (the middle of tour stop 0, view 0), pathtrace.
 
 ## Playtest items, third part (2026-11-18, `t3/playtest-lights`)
 
-Items left open by `t3/materials-fx-2` (docs/archive/handoff-2026-11-18.md). Suite `playtest-lights` (as shipped, each with
+Items left open by `t3/materials-fx-2`. Suite `playtest-lights` (as shipped, each with
 its "before" as a variant), `gabriel` and `playtest-diag` (the viewprobe and census run that found the causes). Sheets:
 `bench/results/review/ptl/`.
 
@@ -1737,7 +1737,7 @@ spheres, one as a 2 m x 0.3 m downward rect, an added 1 m blue panel): relight 6
 
 ## Scoreboard (2026-11-17)
 
-How brightness is compared with the game from now on (docs/archive/plan-look-and-perf.md, workstream A). The earlier numbers
+How brightness is compared with the game from now on (the look-and-perf plan of 2026-11-17, workstream A). The earlier numbers
 on this page are screen means; a mean cannot see the most common complaint, light on what the game hides: 1-4's lamp
 pose has the game's mean (x0.96) while its far wall, door and trees, black in the game, are plainly visible.
 
@@ -1935,5 +1935,4 @@ Not changed: a `player` x0.5 policy for 7-2 (proposal layer) took the arena-stat
 user's corridor view as it was (57.8 -> 58.4), so it is not shipped on this evidence. Next steps: the user's view in HDR
 (a bench run on the HDR display, `docs/hdr.md` "Verifying"), and the room's fog in the user's state (the arena's start
 may switch the game's fog, which the volumetrics and the composite follow). Sheets `7-2_pose_2_teleport_state.png` and
-`7-2_pose_2_arena_state_light_split.png` in
-`C:\Users\death\.t3\projects\ultrart\bench\results\review\fix-lighting-reflection-findings\`.
+`7-2_pose_2_arena_state_light_split.png` (local review sheets, not in the repo).

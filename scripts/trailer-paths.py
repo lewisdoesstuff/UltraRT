@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write camera paths from poses given relative to a known-good base pose (docs/trailer.md, "Authoring paths").
+"""Write camera paths from poses given relative to a known-good base pose (docs/cinematics.md, "Trailer assembly").
 
     python scripts/trailer-paths.py bench/trailer/paths.json            # writes bench/cinematics/<name>.json per path
     python scripts/trailer-paths.py spots.json --scout bench/suites/x.json   # cut keys + a one-frame-per-key suite

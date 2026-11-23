@@ -7,7 +7,7 @@
 #   .\scripts\game-lock.ps1 cancel <owner>     leaves the queue
 #   .\scripts\game-lock.ps1 cache              rebuilds the cached main build if master's HEAD changed (acquire starts this for you)
 #
-# Slots: main = the Steam install, alt = a copy (D:\UltraRT-Bench\ULTRAKILL). Kinds:
+# Slots: main = the Steam install, alt = an optional copy (ULTRAKILL_ALT_DIR; scripts\lib\slots.ps1). Kinds:
 #   perf   (default) frame-time runs: exclusive, needs BOTH slots and no game of the user's. Slot = where it runs (main).
 #   visual screenshots/diagnostics: needs one slot (any = whichever is free, alt first) and no game of the user's.
 # Fair: acquire takes a ticket in <lock dir>\lock-queue (one per owner, re-used by a second acquire of the same owner);
@@ -21,9 +21,13 @@ param(
     [int] $TimeoutMin = 90,
     [ValidateSet('perf', 'visual')] [string] $Kind = 'perf',
     [ValidateSet('main', 'alt', 'any')] [string] $Slot,
-    [string] $GameDir = $(if ($env:ULTRAKILL_DIR) { $env:ULTRAKILL_DIR } else { 'D:\SteamLibrary\steamapps\common\ULTRAKILL' }),
-    [string] $AltDir = $(if ($env:ULTRAKILL_ALT_DIR) { $env:ULTRAKILL_ALT_DIR } else { 'D:\UltraRT-Bench\ULTRAKILL' }),
-    [string] $MainRepo = 'C:\Users\death\.t3\projects\ultrart',
+    # Default: scripts\lib\slots.ps1 (ULTRAKILL_DIR, the local config, Steam's library folders).
+    [string] $GameDir,
+    # Default: ULTRAKILL_ALT_DIR or the local config; empty = no alt slot.
+    [string] $AltDir,
+    # The main checkout (whose HEAD is cached for restores). Default: the checkout that owns this script's repository
+    # (git's common dir), so a worktree's copy still finds it.
+    [string] $MainRepo,
     # Where the lock files, the queue and the main-build cache live. Default: <GameDir>\BepInEx\ultrart. Tests use a scratch dir.
     [string] $LockDir,
     [int] $PollSec = 2,
@@ -36,17 +40,26 @@ param(
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib\slots.ps1')
+if (-not $GameDir) { $GameDir = Get-SlotDir 'main' }
+if (-not $PSBoundParameters.ContainsKey('AltDir')) { $AltDir = Get-AltDir }
+if (-not $MainRepo) {
+    $MainRepo = Split-Path $PSScriptRoot -Parent
+    try {
+        $common = (& git -C $MainRepo rev-parse --path-format=absolute --git-common-dir 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $common) { $MainRepo = Split-Path ($common -replace '/', '\') -Parent }
+    } catch { }
+}
 if (-not $LockDir) { $LockDir = Join-Path $GameDir 'BepInEx\ultrart' }
 New-Item -ItemType Directory -Force $LockDir | Out-Null
 $qdir = Join-Path $LockDir 'lock-queue'
 $cacheDir = Join-Path $LockDir 'main-cache'
 $history = Join-Path $LockDir 'lock-history.csv'
 $dirs = @{ main = $GameDir; alt = $AltDir }
-$altInstalled = Test-Path $AltDir
+$altInstalled = [bool] $AltDir -and (Test-Path $AltDir)
 $slotNames = if ($altInstalled) { @('main', 'alt') } else { @('main') }
 if (-not $Slot) { $Slot = if ($Kind -eq 'visual') { 'any' } else { 'main' } }
 if ($Kind -eq 'perf' -and $Slot -eq 'any') { $Slot = 'main' }
-if ($Slot -eq 'alt' -and -not $altInstalled) { throw "The alt install is not there: $AltDir" }
+if ($Slot -eq 'alt' -and -not $altInstalled) { throw $(if ($AltDir) { "The alt install is not there: $AltDir" } else { 'No alt install configured (ULTRAKILL_ALT_DIR; bench/README.md, "The alt install")' }) }
 
 function LockPath([string] $s) { Join-Path $LockDir $(if ($s -eq 'alt') { 'game-alt.lock' } else { 'game.lock' }) }
 
@@ -189,8 +202,10 @@ function Start-CacheRefresh {
     if ($cur -and $cur.Key -eq (Get-MainKey)) { return }
     $log = Join-Path $LockDir 'main-cache-build.log'
     try {
-        Start-Process powershell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", 'cache',
-            '-GameDir', "`"$GameDir`"", '-AltDir', "`"$AltDir`"", '-MainRepo', "`"$MainRepo`"", '-LockDir', "`"$LockDir`"") `
+        $cacheArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", 'cache',
+            '-GameDir', "`"$GameDir`"", '-MainRepo', "`"$MainRepo`"", '-LockDir', "`"$LockDir`"")
+        if ($AltDir) { $cacheArgs += @('-AltDir', "`"$AltDir`"") }
+        Start-Process powershell -WindowStyle Hidden -ArgumentList $cacheArgs `
             -RedirectStandardOutput $log -RedirectStandardError "$log.err" | Out-Null
     } catch { Write-Warning "Could not start the main-build refresh: $($_.Exception.Message)" }
 }

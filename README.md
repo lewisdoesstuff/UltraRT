@@ -117,13 +117,11 @@ See [docs/release.md](docs/release.md) for Thunderstore packaging, [bench/README
 | [docs/caustics.md](docs/caustics.md) | Water caustics, refraction, absorption, and interactive ripples |
 | [docs/viewmodel.md](docs/viewmodel.md) | Ray-traced lighting on the first-person gun and arms |
 | [docs/aliasing.md](docs/aliasing.md) | Aliasing measurements across modes |
-| [docs/cinematics.md](docs/cinematics.md) | Free camera, spline paths, and offline renderer |
-| [docs/trailer.md](docs/trailer.md) | Trailer shots, paths, and assembly |
+| [docs/cinematics.md](docs/cinematics.md) | Free camera, spline paths, offline renderer, and trailer assembly |
 | [docs/performance.md](docs/performance.md) | 1440p frame-time breakdown and profiling |
 | [docs/perf-audit-2026-11-21.md](docs/perf-audit-2026-11-21.md) | Performance audit and SOTA path-tracing optimization study |
 | [docs/gpu-timer.md](docs/gpu-timer.md) | Native DirectX 12 per-pass GPU timer |
 | [docs/ultrakill-rendering.md](docs/ultrakill-rendering.md) | Notes on ULTRAKILL's rendering pipeline |
-| [docs/archive/](docs/archive) | Older plans and notes kept for history |
 | [bench/README.md](bench/README.md) | Benchmark runner, game lock, suites, and metrics |
 | [tools/materials/README.md](tools/materials/README.md) | Offline detail-map generator |
 | [AGENTS.md](AGENTS.md) | Notes for coding agents in this repository |
