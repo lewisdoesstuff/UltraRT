@@ -35,5 +35,4 @@ UltraRT is a BepInEx ray / path-tracing mod for ULTRAKILL (Unity 2022.3, DX12 DX
 ## Repo conventions
 - Line endings are LF everywhere (`.gitattributes`: `* text=auto eol=lf`). Write LF; do not introduce CRLF. `git ls-files --eol <file>` shows what a file uses.
 - Merge branches with `git merge --no-ff -X ignore-space-at-eol <branch>`. A branch cut before the LF conversion still has CRLF files: add `-X renormalize` as well (`git merge --no-ff -X renormalize -X ignore-space-at-eol <branch>`), or the whole file conflicts.
-- Commit messages from an AI agent end with a `Co-Authored-By: <the model that wrote it> <noreply@anthropic.com>` line.
 - A change is not done until its doc is: update the doc that covers the area (defaults, flags, keys, measured results with their date), keep measured history, and add a note where a historical number no longer matches the current default.
