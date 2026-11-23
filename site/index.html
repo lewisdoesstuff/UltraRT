@@ -1,0 +1,1172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UltraRT 0.3.0: Ray Tracing Mod for ULTRAKILL</title>
+  <meta name="description" content="A DirectX 12 ray tracing and path tracing mod for ULTRAKILL with DLSS Ray Reconstruction and HDR10 support.">
+  <meta property="og:title" content="UltraRT: Ray Tracing Mod for ULTRAKILL">
+  <meta property="og:description" content="A DirectX 12 ray tracing and path tracing mod for ULTRAKILL with DLSS Ray Reconstruction and HDR10 support.">
+  <meta property="og:image" content="assets/screenshots/4-4-after.jpg">
+  <link rel="icon" type="image/png" href="assets/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    @font-face {
+      font-family: "VCR OSD Mono";
+      src: url("assets/vcr-osd-mono.ttf") format("truetype");
+      font-weight: 400 700;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    :root {
+      /* Authentic SmileOS 2.0 palette */
+      --bg-outer: #111114;
+      --win-body: #2c2c30;
+      --win-body-hi: #3c3c42;
+      --win-body-lo: #1c1c20;
+      --well: #161619;
+      --well-border: #0a0a0c;
+
+      --red-top: #c22b26;
+      --red-mid: #a41f1c;
+      --red-bot: #851614;
+      --red-hi: #dc4b44;
+      --red-ink: #470b0a;
+      --red-ctrl-top: #b82924;
+      --red-ctrl-bot: #8c1a17;
+
+      --btn-top: #4c4c52;
+      --btn-mid: #333338;
+      --btn-bot: #222226;
+      --btn-hi: #6b6b73;
+      --btn-lo: #141417;
+
+      --text: #f0f0f2;
+      --muted: #b4b4be;
+      --accent-red: #e84b45;
+      --accent-cyan: #38c6e8;
+      --accent-yellow: #f0b83a;
+
+      --pixel: "VCR OSD Mono", ui-monospace, Consolas, monospace;
+      --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background-color: var(--bg-outer);
+      background-image:
+        repeating-linear-gradient(
+          to bottom,
+          rgba(255, 255, 255, 0.018) 0px,
+          rgba(255, 255, 255, 0.018) 1px,
+          transparent 1px,
+          transparent 3px
+        );
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13.5px;
+      line-height: 1.6;
+      padding: 18px 14px 32px;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    code {
+      font-family: var(--mono);
+      background: #0d0d10;
+      border: 1px solid #35353d;
+      padding: 1px 6px;
+      color: var(--accent-cyan);
+      font-size: 0.92em;
+    }
+
+    /* Outer SmileOS 2.0 Window */
+    .smile-window {
+      max-width: 1120px;
+      margin: 0 auto;
+      background: var(--win-body);
+      border: 3px solid #000;
+      box-shadow:
+        inset 0 0 0 2px var(--win-body-lo),
+        0 18px 48px rgba(0, 0, 0, 0.72);
+    }
+
+    /* Crimson SmileOS 2.0 Title Bar */
+    .titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 10px;
+      background: linear-gradient(180deg, var(--red-top) 0%, var(--red-mid) 55%, var(--red-bot) 100%);
+      border-bottom: 3px solid #000;
+      box-shadow:
+        inset 0 2px 0 var(--red-hi),
+        inset 0 -2px 0 #5c0e0d;
+      user-select: none;
+    }
+    .titlebar-left {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .titlebar-icon {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+      display: block;
+      color: var(--red-ink);
+    }
+    .titlebar-text {
+      font-family: var(--pixel);
+      font-size: 21px;
+      font-weight: 600;
+      line-height: 1;
+      color: #fff;
+      text-shadow: 2px 2px 0 #000;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Signature SmileOS 2.0 red-on-red [.] [+] [square] controls */
+    .win-btns {
+      display: inline-flex;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+    .win-btn {
+      width: 26px;
+      height: 26px;
+      border-radius: 3px;
+      background: linear-gradient(180deg, var(--red-ctrl-top) 0%, var(--red-ctrl-bot) 100%);
+      border: 2px solid var(--red-ink);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 130, 120, 0.35),
+        inset 0 -1px 0 rgba(40, 4, 4, 0.45);
+      display: grid;
+      place-items: center;
+      color: var(--red-ink);
+    }
+
+    /* Main SmileOS 2.0 Body: Left Sidebar + Right Nested Windows */
+    .smile-body {
+      display: grid;
+      grid-template-columns: 248px 1fr;
+      gap: 14px;
+      padding: 14px;
+      align-items: start;
+    }
+
+    /* Left Sidebar (sticky on desktop) */
+    .sidebar {
+      position: sticky;
+      top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    /* SmileOS-style UltraRT Wordmark Lockup */
+    .logo-lockup {
+      padding: 10px 6px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    .logo-row {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 4px;
+      line-height: 1;
+    }
+    .logo-ultra {
+      font-family: var(--pixel);
+      font-size: 38px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 3px 3px 0 #000;
+      letter-spacing: -0.01em;
+    }
+    .logo-r {
+      font-family: var(--pixel);
+      font-size: 26px;
+      font-weight: 700;
+      color: #e84b45;
+      text-shadow: 2px 2px 0 #000;
+    }
+    .logo-t {
+      font-family: var(--pixel);
+      font-size: 26px;
+      font-weight: 700;
+      color: #f0b83a;
+      text-shadow: 2px 2px 0 #000;
+    }
+    .logo-ver {
+      font-family: var(--pixel);
+      font-size: 16px;
+      font-weight: 600;
+      color: #38c6e8;
+      text-shadow: 2px 2px 0 #000;
+      margin-left: 2px;
+    }
+    .rainbow-bar {
+      width: 170px;
+      height: 5px;
+      margin-top: 6px;
+      background: linear-gradient(90deg, #7c4dff 0%, #38c6e8 32%, #4ee06a 58%, #f0b83a 80%, #e84b45 100%);
+      clip-path: polygon(0 80%, 100% 0, 100% 100%, 0 100%);
+      opacity: 0.92;
+    }
+
+    /* Chunky SmileOS 2.0 Dark-Gray Beveled Buttons */
+    .smile-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 4px;
+      background: linear-gradient(180deg, var(--btn-top) 0%, var(--btn-mid) 52%, var(--btn-bot) 100%);
+      border: 2px solid #000;
+      box-shadow:
+        inset 0 2px 0 var(--btn-hi),
+        inset 0 -2px 0 var(--btn-lo);
+      color: #fff;
+      font-family: var(--pixel);
+      font-size: 19px;
+      font-weight: 500;
+      text-shadow: 2px 2px 0 #000;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: filter 0.1s;
+    }
+    .smile-btn:hover,
+    .smile-btn:focus-visible {
+      background: linear-gradient(180deg, #5d5d66 0%, #3d3d44 52%, #2a2a30 100%);
+      outline: none;
+    }
+    .smile-btn:active {
+      background: linear-gradient(180deg, #242428 0%, #313136 100%);
+      box-shadow: inset 0 2px 0 #101014;
+      transform: translateY(1px);
+    }
+    .smile-btn.primary {
+      background: linear-gradient(180deg, var(--red-top) 0%, var(--red-mid) 55%, var(--red-bot) 100%);
+      box-shadow:
+        inset 0 2px 0 var(--red-hi),
+        inset 0 -2px 0 var(--red-ink);
+    }
+    .smile-btn.primary:hover {
+      background: linear-gradient(180deg, #d83630 0%, #b52420 55%, #911816 100%);
+    }
+
+    .sidebar-sep {
+      border: 0;
+      border-top: 2px solid #1b1b1f;
+      border-bottom: 1px solid #3c3c42;
+      margin: 4px 0;
+    }
+
+    /* Right column: Nested Sub-Windows (like "Tip of the Day") */
+    .sub-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-width: 0;
+    }
+    .subwin {
+      background: var(--win-body);
+      border: 3px solid #000;
+      box-shadow: inset 0 0 0 2px var(--win-body-lo);
+      min-width: 0;
+    }
+    .subwin .titlebar {
+      padding: 5px 9px;
+    }
+    .subwin .titlebar-text {
+      font-size: 19px;
+    }
+    .subwin .win-btn {
+      width: 23px;
+      height: 23px;
+    }
+
+    /* Sunken dark display well inside each sub-window */
+    .well-frame {
+      padding: 10px;
+      background: var(--win-body);
+      min-width: 0;
+    }
+    .well {
+      background: var(--well);
+      border: 3px solid var(--well-border);
+      box-shadow:
+        inset 0 0 0 1px #24242a,
+        0 1px 0 var(--win-body-hi);
+      padding: 16px;
+      min-width: 0;
+    }
+
+    /* Intro text inside Compare well */
+    .lead-copy {
+      margin: 0 0 14px;
+      font-family: var(--mono);
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--text);
+    }
+    .hl-red { color: var(--accent-red); font-weight: 600; }
+    .hl-cyan { color: var(--accent-cyan); font-weight: 600; }
+
+    /* Scene selector buttons */
+    .scene-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .scene-tab {
+      padding: 7px 8px;
+      border-radius: 3px;
+      background: linear-gradient(180deg, #3e3e44 0%, #2a2a2f 55%, #1d1d21 100%);
+      border: 2px solid #000;
+      box-shadow: inset 0 1px 0 #5a5a63, inset 0 -1px 0 #111114;
+      color: #d8d8e0;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .scene-tab:hover {
+      color: #fff;
+      background: linear-gradient(180deg, #4f4f57 0%, #34343a 55%, #232328 100%);
+    }
+    .scene-tab.active {
+      background: linear-gradient(180deg, var(--red-top) 0%, var(--red-mid) 55%, var(--red-bot) 100%);
+      box-shadow: inset 0 1px 0 var(--red-hi), inset 0 -1px 0 var(--red-ink);
+      color: #fff;
+      text-shadow: 1px 1px 0 #000;
+    }
+
+    /* Interactive before/after viewport */
+    .compare {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border: 3px solid #000;
+      overflow: hidden;
+      user-select: none;
+      touch-action: pan-y;
+      cursor: ew-resize;
+    }
+    .compare img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      pointer-events: none;
+    }
+    .compare .after-img {
+      clip-path: inset(0 0 0 50%);
+    }
+    .divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      width: 3px;
+      background: var(--accent-red);
+      box-shadow: 0 0 0 1px #000;
+      transform: translateX(-1.5px);
+      pointer-events: none;
+    }
+    .handle {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 34px;
+      height: 34px;
+      border-radius: 3px;
+      background: linear-gradient(180deg, var(--btn-top) 0%, var(--btn-bot) 100%);
+      border: 2px solid #000;
+      box-shadow: inset 0 1px 0 var(--btn-hi), 0 2px 8px rgba(0, 0, 0, 0.7);
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+      color: #fff;
+    }
+    .tag {
+      position: absolute;
+      top: 10px;
+      font-family: var(--pixel);
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      padding: 2px 9px;
+      background: rgba(16, 16, 20, 0.88);
+      border: 2px solid #000;
+      box-shadow: inset 0 0 0 1px #45454e;
+      color: #fff;
+      text-shadow: 1px 1px 0 #000;
+      pointer-events: none;
+    }
+    .tag.left { left: 10px; }
+    .tag.right {
+      right: 10px;
+      box-shadow: inset 0 0 0 1px var(--accent-red);
+      color: #ff9a94;
+    }
+    .compare input[type="range"] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      opacity: 0;
+      cursor: ew-resize;
+    }
+
+    /* Features rows inside well */
+    .spec-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px 20px;
+    }
+    .spec-item h3 {
+      margin: 0 0 3px;
+      font-family: var(--pixel);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent-red);
+      text-shadow: 1px 1px 0 #000;
+    }
+    .spec-item p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    /* Install layout inside well */
+    .install-cols {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 20px;
+    }
+    .install-cols > div { min-width: 0; }
+    .well-sub {
+      margin: 0 0 10px;
+      font-family: var(--pixel);
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      text-shadow: 1px 1px 0 #000;
+    }
+    .steps {
+      margin: 0;
+      padding-left: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .copy-bar {
+      display: flex;
+      align-items: stretch;
+      gap: 6px;
+      margin: 10px 0;
+    }
+    .copy-bar code {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      padding: 7px 10px;
+      background: #0b0b0e;
+      border: 2px solid #000;
+      box-shadow: inset 0 0 0 1px #2f2f38;
+      color: var(--accent-cyan);
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+    .copy-bar button {
+      width: auto;
+      padding: 6px 14px;
+      font-size: 15px;
+      flex-shrink: 0;
+    }
+    .req-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .req-list strong { color: var(--text); }
+
+    /* Performance bar chart inside well */
+    .chart-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #2b2b33;
+    }
+    .chart-meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .legend {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .swatch {
+      width: 11px;
+      height: 11px;
+      border: 1px solid #000;
+      display: inline-block;
+    }
+    .swatch.vanilla { background: #6d6d7a; }
+    .swatch.relight { background: var(--accent-cyan); }
+    .swatch.pt { background: var(--accent-red); }
+
+    .chart-groups {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .chart-group-title {
+      font-family: var(--pixel);
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      margin: 0 0 6px;
+    }
+    .bar-rows {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 78px 1fr 168px;
+      align-items: center;
+      gap: 10px;
+    }
+    .bar-label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .bar-track {
+      position: relative;
+      height: 20px;
+      background: #0d0d10;
+      border: 2px solid #000;
+      box-shadow: inset 0 0 0 1px #23232a;
+      overflow: hidden;
+    }
+    .bar-gridline {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.08);
+      pointer-events: none;
+    }
+    .bar-fill {
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      left: 0;
+      background: #6d6d7a;
+    }
+    .bar-fill.relight { background: var(--accent-cyan); }
+    .bar-fill.pt { background: var(--accent-red); }
+    .bar-range {
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(255, 255, 255, 0.32) 0px,
+        rgba(255, 255, 255, 0.32) 3px,
+        transparent 3px,
+        transparent 6px
+      );
+      border-right: 2px solid #fff;
+    }
+    .bar-val {
+      font-size: 12px;
+      color: var(--text);
+      white-space: nowrap;
+      text-align: right;
+    }
+    .bar-val.dim { color: var(--muted); }
+    .chart-axis {
+      display: grid;
+      grid-template-columns: 78px 1fr 168px;
+      gap: 10px;
+      margin-top: 8px;
+      font-size: 11px;
+      color: #7c7c88;
+    }
+    .axis-ticks {
+      position: relative;
+      height: 16px;
+    }
+    .axis-ticks span {
+      position: absolute;
+      transform: translateX(-50%);
+      white-space: nowrap;
+    }
+    .axis-ticks span:first-child { transform: none; left: 0; }
+    .axis-ticks span:last-child { transform: translateX(-100%); }
+
+    .keys {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid #2b2b33;
+    }
+    .key-item {
+      background: #101014;
+      border: 2px solid #000;
+      padding: 8px 10px;
+      min-width: 0;
+    }
+    kbd {
+      display: inline-block;
+      font-family: var(--pixel);
+      font-size: 14px;
+      color: var(--accent-cyan);
+      margin-bottom: 2px;
+    }
+    .key-item span {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Footer strip inside outer SmileOS window */
+    .smile-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #202024;
+      border-top: 3px solid #000;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .smile-foot p { margin: 0; max-width: 780px; }
+    .foot-links {
+      display: inline-flex;
+      gap: 14px;
+      font-family: var(--pixel);
+      font-size: 15px;
+      color: #fff;
+    }
+    .foot-links a:hover { color: var(--accent-red); }
+
+    @media (max-width: 900px) {
+      .smile-body { grid-template-columns: 1fr; }
+      .sidebar { position: static; }
+      .sidebar-nav {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .sidebar-sep { grid-column: 1 / -1; }
+      .scene-tabs { grid-template-columns: repeat(2, 1fr); }
+      .install-cols { grid-template-columns: 1fr; }
+      .keys { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 560px) {
+      body { padding: 8px 6px 20px; }
+      .smile-body { padding: 10px; }
+      .spec-grid, .keys { grid-template-columns: 1fr; }
+      .well { padding: 12px; }
+      .titlebar-text { font-size: 17px; }
+      .bar-row { grid-template-columns: 64px 1fr; row-gap: 3px; }
+      .bar-val { grid-column: 2; text-align: left; font-size: 11.5px; }
+      .chart-axis { grid-template-columns: 64px 1fr; }
+      .chart-axis .axis-pad-r, .axis-hide-sm { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="smile-window">
+    <header class="titlebar">
+      <div class="titlebar-left">
+        <svg class="titlebar-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <polygon points="8,1 15,8 8,15 1,8"/>
+          <rect x="7" y="7" width="2" height="2" fill="currentColor" stroke="none"/>
+        </svg>
+        <span class="titlebar-text">UltraRT 0.3.0</span>
+      </div>
+      <div class="win-btns" aria-hidden="true">
+        <span class="win-btn"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="3" y="3" width="4" height="4"/></svg></span>
+        <span class="win-btn"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="4" y="1" width="2" height="8"/><rect x="1" y="4" width="8" height="2"/></svg></span>
+        <span class="win-btn"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="6" height="6"/></svg></span>
+      </div>
+    </header>
+
+    <div class="smile-body">
+      <aside class="sidebar">
+        <div class="logo-lockup">
+          <div class="logo-row">
+            <span class="logo-ultra">Ultra</span><span class="logo-r">R</span><span class="logo-t">T</span><span class="logo-ver">0.3</span>
+          </div>
+          <div class="rainbow-bar" aria-hidden="true"></div>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Sections">
+          <a class="smile-btn primary" href="#compare">Compare</a>
+          <a class="smile-btn" href="#features">Features</a>
+          <a class="smile-btn" href="#install">Install</a>
+          <a class="smile-btn" href="#performance">Performance</a>
+          <hr class="sidebar-sep">
+          <a class="smile-btn" href="https://github.com/lewisdoesstuff/UltraRT" target="_blank" rel="noopener">GitHub</a>
+          <a class="smile-btn" href="https://github.com/lewisdoesstuff/UltraRT/tree/master/docs" target="_blank" rel="noopener">Docs</a>
+        </nav>
+      </aside>
+
+      <main class="sub-stack">
+        <section class="subwin" id="compare">
+          <div class="titlebar">
+            <div class="titlebar-left">
+              <svg class="titlebar-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <rect x="2" y="3" width="12" height="8"/>
+                <rect x="4" y="5" width="8" height="4" fill="#a41f1c"/>
+                <rect x="6" y="11" width="4" height="2"/>
+                <rect x="4" y="13" width="8" height="1"/>
+              </svg>
+              <span class="titlebar-text">Compare</span>
+            </div>
+            <div class="win-btns" aria-hidden="true">
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="3" y="3" width="4" height="4"/></svg></span>
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="4" y="1" width="2" height="8"/><rect x="1" y="4" width="8" height="2"/></svg></span>
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="6" height="6"/></svg></span>
+            </div>
+          </div>
+
+          <div class="well-frame">
+            <div class="well">
+              <p class="lead-copy">
+                A DirectX 12 <span class="hl-red">RAY TRACING</span> and <span class="hl-red">PATH TRACING</span> mod for ULTRAKILL.
+                It traces shadows, bounce light, reflections, and volumetric fog in real time with
+                <span class="hl-cyan">DLSS RAY RECONSTRUCTION</span> and <span class="hl-cyan">HDR10</span> support,
+                while keeping the game&rsquo;s pixel-art textures sharp.
+              </p>
+
+              <!--
+                TRAILER EMBED: uncomment and replace VIDEO_ID when the trailer is live
+                <div style="position:relative;aspect-ratio:16/9;background:#000;border:3px solid #000;margin-bottom:12px;">
+                  <iframe src="https://www.youtube-nocookie.com/embed/VIDEO_ID" title="UltraRT Trailer" frameborder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen
+                    style="position:absolute;inset:0;width:100%;height:100%;"></iframe>
+                </div>
+              -->
+
+              <div class="scene-tabs" role="tablist" aria-label="Comparison scenes">
+                <button class="scene-tab active" type="button" data-scene="0">4-4 Clair de Soleil</button>
+                <button class="scene-tab" type="button" data-scene="1">1-1 Heart of the Sunrise</button>
+                <button class="scene-tab" type="button" data-scene="2">2-4 Court of the Corpse King</button>
+                <button class="scene-tab" type="button" data-scene="3">1-4 Clair de Lune</button>
+                <button class="scene-tab" type="button" data-scene="4">7-3 No Sound, No Memory</button>
+                <button class="scene-tab" type="button" data-scene="5">8-3 Disintegration Loop</button>
+                <button class="scene-tab" type="button" data-scene="6">8-2 Through the Mirror</button>
+                <button class="scene-tab" type="button" data-scene="7">6-2 Aesthetics of Hate</button>
+              </div>
+
+              <div class="compare">
+                <img id="img-before" src="assets/screenshots/4-4-before.jpg" alt="ULTRAKILL vanilla">
+                <img id="img-after" class="after-img" src="assets/screenshots/4-4-after.jpg" alt="ULTRAKILL with UltraRT path tracing">
+                <div class="divider" id="divider"></div>
+                <div class="handle" id="handle" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square">
+                    <polyline points="9 18 3 12 9 6"></polyline>
+                    <polyline points="15 6 21 12 15 18"></polyline>
+                  </svg>
+                </div>
+                <span class="tag left">Vanilla</span>
+                <span class="tag right">Path Traced</span>
+                <input id="slider" type="range" min="0" max="100" value="50" aria-label="Compare vanilla and path traced">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="subwin" id="features">
+          <div class="titlebar">
+            <div class="titlebar-left">
+              <svg class="titlebar-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <rect x="5" y="1" width="6" height="2"/>
+                <rect x="3" y="3" width="10" height="5"/>
+                <rect x="5" y="8" width="6" height="3"/>
+                <rect x="6" y="12" width="4" height="2"/>
+              </svg>
+              <span class="titlebar-text">Features</span>
+            </div>
+            <div class="win-btns" aria-hidden="true">
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="3" y="3" width="4" height="4"/></svg></span>
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="4" y="1" width="2" height="8"/><rect x="1" y="4" width="8" height="2"/></svg></span>
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="6" height="6"/></svg></span>
+            </div>
+          </div>
+          <div class="well-frame">
+            <div class="well">
+              <div class="spec-grid">
+                <div class="spec-item">
+                  <h3>Lighting</h3>
+                  <p>Soft shadows, multi-bounce global illumination, sky lighting, and auto exposure. Glowing surfaces and lava cast light across rooms.</p>
+                </div>
+                <div class="spec-item">
+                  <h3>Reflections &amp; Portals</h3>
+                  <p>Metal, glass, water, and mirrors reflect the scene, including V1 and your held weapon. Stained glass projects coloured light, water casts caustics, and light passes through portals.</p>
+                </div>
+                <div class="spec-item">
+                  <h3>Combat Light</h3>
+                  <p>Gunshots, weapon beams, parries, explosions, fires, torches, and lightning illuminate nearby surfaces and smoke.</p>
+                </div>
+                <div class="spec-item">
+                  <h3>Atmosphere &amp; Surfaces</h3>
+                  <p>Volumetric light shafts and fog, lit smoke and blood spray, bloom, heat haze, rain puddles, glossy wet blood on floors, and an optional detail-map pack.</p>
+                </div>
+                <div class="spec-item">
+                  <h3>Denoising</h3>
+                  <p>Uses NVIDIA DLSS Ray Reconstruction on RTX GPUs, and falls back to UltraRT&rsquo;s built-in denoiser on AMD and Intel DXR cards.</p>
+                </div>
+                <div class="spec-item">
+                  <h3>HDR10 &amp; In-Game Tools</h3>
+                  <p>Optional native HDR10 output, a PluginConfigurator settings menu, a live light editor, and a free camera with offline rendering.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="subwin" id="install">
+          <div class="titlebar">
+            <div class="titlebar-left">
+              <svg class="titlebar-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <rect x="6" y="2" width="4" height="6"/>
+                <rect x="3" y="6" width="10" height="2"/>
+                <rect x="5" y="8" width="6" height="2"/>
+                <rect x="7" y="10" width="2" height="1"/>
+                <rect x="2" y="12" width="12" height="2"/>
+              </svg>
+              <span class="titlebar-text">Install</span>
+            </div>
+            <div class="win-btns" aria-hidden="true">
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="3" y="3" width="4" height="4"/></svg></span>
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="4" y="1" width="2" height="8"/><rect x="1" y="4" width="8" height="2"/></svg></span>
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="6" height="6"/></svg></span>
+            </div>
+          </div>
+          <div class="well-frame">
+            <div class="well install-cols">
+              <div>
+                <h3 class="well-sub">r2modman / Thunderstore</h3>
+                <ol class="steps">
+                  <li>Install <strong>UltraRT</strong>. Install <strong>UltraRT_DetailMaps</strong> too if you want normal and roughness detail on textures.</li>
+                  <li>Open <strong>Settings &rarr; Debugging &rarr; Set launch parameters</strong> and paste:</li>
+                </ol>
+                <div class="copy-bar">
+                  <code id="launch-flags">-force-d3d12 -force-gfx-jobs legacy</code>
+                  <button class="smile-btn primary" id="copy-btn" type="button">Copy</button>
+                </div>
+                <ol class="steps" start="3">
+                  <li>Click <strong>Start modded</strong>. Open <strong>Options &rarr; Plugin Config &rarr; UltraRT</strong> in game to change settings.</li>
+                </ol>
+              </div>
+              <div>
+                <h3 class="well-sub">Requirements</h3>
+                <ul class="req-list">
+                  <li><strong>GPU:</strong> Windows with Steam ULTRAKILL and a DXR GPU (NVIDIA RTX 20 series or newer, AMD RX 6000+, or Intel Arc).</li>
+                  <li><strong>Launch options:</strong> ULTRAKILL defaults to DirectX 11, where ray tracing is unavailable. <code>-force-gfx-jobs legacy</code> prevents a freeze in Unity&rsquo;s DirectX 12 renderer when large levels unload.</li>
+                  <li><strong>First launch:</strong> Switching to <code>pathtrace</code> can pause for up to 30 seconds while your GPU driver compiles the shader.</li>
+                  <li><strong>Dependencies:</strong> BepInEx 5 and PluginConfigurator.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="subwin" id="performance">
+          <div class="titlebar">
+            <div class="titlebar-left">
+              <svg class="titlebar-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <rect x="2" y="9" width="3" height="5"/>
+                <rect x="6" y="6" width="3" height="8"/>
+                <rect x="10" y="3" width="4" height="11"/>
+              </svg>
+              <span class="titlebar-text">Performance (RTX 5070 Ti, 1440p)</span>
+            </div>
+            <div class="win-btns" aria-hidden="true">
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="3" y="3" width="4" height="4"/></svg></span>
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor"><rect x="4" y="1" width="2" height="8"/><rect x="1" y="4" width="8" height="2"/></svg></span>
+              <span class="win-btn"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="6" height="6"/></svg></span>
+            </div>
+          </div>
+          <div class="well-frame">
+            <div class="well">
+              <div class="chart-head">
+                <div class="legend">
+                  <span class="legend-item"><span class="swatch vanilla"></span>Vanilla (RT off)</span>
+                  <span class="legend-item"><span class="swatch relight"></span>relight</span>
+                  <span class="legend-item"><span class="swatch pt"></span>pathtrace</span>
+                </div>
+                <span class="chart-meta">2560&times;1440, DX12, 50% trace scale (higher is better)</span>
+              </div>
+
+              <div class="chart-groups">
+                <div>
+                  <h3 class="chart-group-title">Typical levels</h3>
+                  <div class="bar-rows">
+                    <div class="bar-row">
+                      <span class="bar-label">Vanilla</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill" style="width:100%"></div>
+                        <div class="bar-range" style="left:60.9%;width:39.1%"></div>
+                      </div>
+                      <span class="bar-val dim">280&ndash;460+ fps (2.2&ndash;3.6 ms)</span>
+                    </div>
+                    <div class="bar-row">
+                      <span class="bar-label">relight</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill relight" style="width:40.7%"></div>
+                        <div class="bar-range" style="left:28.9%;width:11.8%"></div>
+                      </div>
+                      <span class="bar-val">133&ndash;187 fps (5.3&ndash;7.5 ms)</span>
+                    </div>
+                    <div class="bar-row">
+                      <span class="bar-label">pathtrace</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill pt" style="width:41.3%"></div>
+                        <div class="bar-range" style="left:29.6%;width:11.7%"></div>
+                      </div>
+                      <span class="bar-val">136&ndash;190 fps (5.3&ndash;7.4 ms)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 class="chart-group-title">Portal-heavy levels</h3>
+                  <div class="bar-rows">
+                    <div class="bar-row">
+                      <span class="bar-label">Vanilla</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill" style="width:41.1%"></div>
+                        <div class="bar-range" style="left:25.0%;width:16.1%"></div>
+                      </div>
+                      <span class="bar-val dim">115&ndash;189 fps (5.3&ndash;8.7 ms)</span>
+                    </div>
+                    <div class="bar-row">
+                      <span class="bar-label">relight</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill relight" style="width:23.7%"></div>
+                        <div class="bar-range" style="left:22.4%;width:1.3%"></div>
+                      </div>
+                      <span class="bar-val">103&ndash;109 fps (9.2&ndash;9.7 ms)</span>
+                    </div>
+                    <div class="bar-row">
+                      <span class="bar-label">pathtrace</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill pt" style="width:25.2%"></div>
+                        <div class="bar-range" style="left:22.0%;width:3.2%"></div>
+                      </div>
+                      <span class="bar-val">101&ndash;116 fps (8.6&ndash;9.9 ms)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 class="chart-group-title">Heavy combat</h3>
+                  <div class="bar-rows">
+                    <div class="bar-row">
+                      <span class="bar-label">Vanilla</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill" style="width:55.4%"></div>
+                        <div class="bar-range" style="left:37.0%;width:18.4%"></div>
+                      </div>
+                      <span class="bar-val dim">170&ndash;255 fps (3.9&ndash;5.9 ms)</span>
+                    </div>
+                    <div class="bar-row">
+                      <span class="bar-label">relight</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill relight" style="width:22.2%"></div>
+                        <div class="bar-range" style="left:17.6%;width:4.6%"></div>
+                      </div>
+                      <span class="bar-val">81&ndash;102 fps (9.8&ndash;12.4 ms)</span>
+                    </div>
+                    <div class="bar-row">
+                      <span class="bar-label">pathtrace</span>
+                      <div class="bar-track">
+                        <span class="bar-gridline" style="left:13%"></span>
+                        <span class="bar-gridline" style="left:26.1%"></span>
+                        <span class="bar-gridline" style="left:52.2%"></span>
+                        <span class="bar-gridline" style="left:78.3%"></span>
+                        <div class="bar-fill pt" style="width:23.5%"></div>
+                        <div class="bar-range" style="left:18.9%;width:4.6%"></div>
+                      </div>
+                      <span class="bar-val">87&ndash;108 fps (9.2&ndash;11.5 ms)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="chart-axis" aria-hidden="true">
+                <span></span>
+                <div class="axis-ticks">
+                  <span style="left:0%">0</span>
+                  <span style="left:13%">60</span>
+                  <span style="left:26.1%">120</span>
+                  <span style="left:52.2%">240</span>
+                  <span class="axis-hide-sm" style="left:78.3%">360</span>
+                  <span style="left:100%">460 fps</span>
+                </div>
+                <span class="axis-pad-r"></span>
+              </div>
+
+              <div class="keys">
+                <div class="key-item"><kbd>PgUp / PgDn</kbd><span>Switch mode (pathtrace, relight, pt-dn)</span></div>
+                <div class="key-item"><kbd>F7</kbd><span>Toggle ray tracing</span></div>
+                <div class="key-item"><kbd>Insert</kbd><span>Open light editor</span></div>
+                <div class="key-item"><kbd>Home</kbd><span>Toggle free camera</span></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="smile-foot">
+      <p>
+        UltraRT was written almost entirely using AI coding agents, and the optional detail maps were generated with PBRify Remix (CC0).
+        Licensed under MIT, excluding NVIDIA DLSS and NGX files. Display font: VCR OSD Mono by Riciery Leal.
+        Unofficial mod; ULTRAKILL is &copy; New Blood Interactive / Arsi &ldquo;Hakita&rdquo; Patala.
+      </p>
+      <div class="foot-links">
+        <a href="https://github.com/lewisdoesstuff/UltraRT" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/lewisdoesstuff/UltraRT/blob/master/LICENSE" target="_blank" rel="noopener">License</a>
+        <a href="https://github.com/lewisdoesstuff/UltraRT/tree/master/docs" target="_blank" rel="noopener">Docs</a>
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    const scenes = [
+      { before: "assets/screenshots/4-4-before.jpg", after: "assets/screenshots/4-4-after.jpg" },
+      { before: "assets/screenshots/1-1-before.jpg", after: "assets/screenshots/1-1-after.jpg" },
+      { before: "assets/screenshots/2-4-before.jpg", after: "assets/screenshots/2-4-after.jpg" },
+      { before: "assets/screenshots/1-4-before.jpg", after: "assets/screenshots/1-4-after.jpg" },
+      { before: "assets/screenshots/7-3-before.jpg", after: "assets/screenshots/7-3-after.jpg" },
+      { before: "assets/screenshots/8-3-before.jpg", after: "assets/screenshots/8-3-after.jpg" },
+      { before: "assets/screenshots/8-2-before.jpg", after: "assets/screenshots/8-2-after.jpg" },
+      { before: "assets/screenshots/6-2-before.jpg", after: "assets/screenshots/6-2-after.jpg" }
+    ];
+
+    const slider = document.getElementById("slider");
+    const imgBefore = document.getElementById("img-before");
+    const imgAfter = document.getElementById("img-after");
+    const divider = document.getElementById("divider");
+    const handle = document.getElementById("handle");
+    const tabs = document.querySelectorAll(".scene-tab");
+
+    function setPos(pct) {
+      imgAfter.style.clipPath = `inset(0 0 0 ${pct}%)`;
+      divider.style.left = `${pct}%`;
+      handle.style.left = `${pct}%`;
+    }
+    slider.addEventListener("input", () => setPos(slider.value));
+
+    tabs.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const s = scenes[Number(btn.dataset.scene)];
+        tabs.forEach((b) => b.classList.toggle("active", b === btn));
+        imgBefore.src = s.before;
+        imgAfter.src = s.after;
+      });
+    });
+
+    const copyBtn = document.getElementById("copy-btn");
+    const flags = document.getElementById("launch-flags").textContent;
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(flags);
+        copyBtn.textContent = "Copied";
+        setTimeout(() => { copyBtn.textContent = "Copy"; }, 1600);
+      } catch {
+        copyBtn.textContent = "Failed";
+      }
+    });
+  </script>
+</body>
+</html>
