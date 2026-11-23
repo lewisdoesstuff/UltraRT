@@ -22,10 +22,10 @@ namespace UltraRT.Editor
                 if (args[i] == "-ultrart-out") outDir = args[i + 1];
             Directory.CreateDirectory(outDir);
 
-            // Ray tracing shaders only compile for D3D12; keep D3D11 so the rest still loads there.
+            // UltraRT requires Direct3D 12 (DXR); compiling D3D11 variants only bloats the bundle.
             PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
             PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64,
-                new[] { GraphicsDeviceType.Direct3D12, GraphicsDeviceType.Direct3D11 });
+                new[] { GraphicsDeviceType.Direct3D12 });
 
             var build = new AssetBundleBuild
             {

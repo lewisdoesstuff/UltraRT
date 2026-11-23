@@ -200,7 +200,10 @@ $plug = Join-Path $pkgDir 'plugins'
 $patch = Join-Path $pkgDir 'patchers'
 New-Item -ItemType Directory -Force $plug, $patch | Out-Null
 foreach ($n in 'UltraRT.dll', 'UltraRT.Native.dll', 'ultrart.shaders', 'ultrart-materials.json') { Copy-Item (Join-Path $stage $n) $plug }
-Copy-Item (Join-Path $stage 'lights') $plug -Recurse
+# Ship top-level light overrides only; subfolders like lights\proposed\ are dev review layers (docs/lighting-overrides.md).
+$lightsDst = Join-Path $plug 'lights'
+New-Item -ItemType Directory -Force $lightsDst | Out-Null
+Get-ChildItem (Join-Path $stage 'lights') -File -Filter *.json | ForEach-Object { Copy-Item $_.FullName $lightsDst }
 Copy-Item (Join-Path $stage 'patchers\UltraRT.Preload.dll') $patch
 if ($IncludeDlss) {
     $dll = Join-Path $stage 'nvngx_dlssd.dll'

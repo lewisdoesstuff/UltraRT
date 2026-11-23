@@ -74,12 +74,12 @@ subfolders kept; root files with no rule (`manifest.json`, `README.md`, `CHANGEL
 | `plugins/UltraRT.Native.dll` | same folder | GPU timer, DLSS RR glue, HDR swapchain proxy |
 | `plugins/ultrart.shaders` | same folder | shader bundle |
 | `plugins/ultrart-materials.json` | same folder | shipped material rules |
-| `plugins/lights/*.json`, `plugins/lights/proposed/` | same folder, `lights/` | shipped per-level light overrides (`data/lights`) |
+| `plugins/lights/*.json` | same folder, `lights/` | shipped per-level light overrides (`data/lights`; dev layers like `proposed/` are excluded) |
 | `plugins/nvngx_dlssd.dll` (`-IncludeDlss`) | same folder | NVIDIA's DLSS RR runtime, `rel`, v310.9.16, 48.3 MB |
 | `plugins/NVIDIA-RTX-SDKs-LICENSE.txt`, `plugins/NVIDIA-DLSS-THIRD-PARTY-NOTICES.txt` | same folder | NVIDIA's license (copied from `lib\dlss\LICENSE.txt` at package time) and the runtime's third-party notices (`packaging/thunderstore/`) |
 | `patchers/UltraRT.Preload.dll` | `BepInEx/patchers/<Team>-UltraRT/` | the HDR preloader ([hdr.md](hdr.md)) |
 
-0.3.0: 39 files, 22.2 MB zipped. By hand: `plugins/` to `BepInEx/plugins/UltraRT/`, `patchers/` to
+0.3.0: 43 files, 23.2 MB zipped (2.6 MB without DLSS). By hand: `plugins/` to `BepInEx/plugins/UltraRT/`, `patchers/` to
 `BepInEx/patchers/UltraRT/` (the repo's own layout, which `deploy.ps1` and the dev scripts keep using).
 
 ## Install-location audit (2026-11-19)
