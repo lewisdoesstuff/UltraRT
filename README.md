@@ -70,7 +70,7 @@ For higher frame rates on slower GPUs, pick a faster **Quality preset** (`Ultra`
 
 ## Install
 
-Install **UltraRT** from Thunderstore with r2modman or Thunderstore Mod Manager, set the launch options above in your mod manager, and click **Start modded**. You can also install the optional **UltraRT_DetailMaps** package for subtle normal and roughness detail on the game's textures.
+Install **[UltraRT](https://thunderstore.io/c/ultrakill/p/lemmonsltd/UltraRT/)** from Thunderstore with r2modman or Thunderstore Mod Manager, set the launch options above in your mod manager, and click **Start modded**. You can also install the optional **[UltraRT_DetailMaps](https://thunderstore.io/c/ultrakill/p/lemmonsltd/UltraRT_DetailMaps/)** package for subtle normal and roughness detail on the game's textures.
 
 ## Controls
 
