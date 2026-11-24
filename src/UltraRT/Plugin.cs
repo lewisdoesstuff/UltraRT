@@ -576,6 +576,7 @@ namespace UltraRT
             PortalRasterSkip.Proxies = null;
             Patches.CollectSpawns = false;
             Patches.PendingSpawns.Clear();
+            CyberGrindHooks.ClearPending();
             _spawnCursor = 0;
             _spawnSeen.Clear();
             _accumFrames = 0;

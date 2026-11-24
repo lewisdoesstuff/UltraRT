@@ -99,6 +99,8 @@ namespace UltraRT
             public Transform SourceTransform;
             public GameObject SourceObject;
             public Renderer Proxy;
+            public Transform ProxyTransform;
+            public int TransformGen;
             public SkinnedMeshRenderer SkinnedSource, SkinnedProxy;
             public int BlendShapes;
             public RayTracingSubMeshFlags[] Flags;
@@ -302,6 +304,7 @@ namespace UltraRT
             if (MergeStaticDynamic) BuildStaticDynamicGroups();
 
             AddWarmHitGroups(); // one hidden instance per hit-group shader (SceneProxies.WarmHitGroups.cs)
+            CyberGrindHooks.ClearPending(); // Build() just scanned the current state of EndlessGrid and its combined mesh
             SyncDynamic(force: true);
             Rtas.Build();
             int dynamicRecords = _active.Sum(d => d.Flags.Count(f => f != RayTracingSubMeshFlags.Disabled));
@@ -713,6 +716,7 @@ namespace UltraRT
                 SourceTransform = source.transform,
                 SourceObject = source.gameObject,
                 Proxy = proxy,
+                ProxyTransform = proxy.transform,
                 SkinnedSource = ss,
                 SkinnedProxy = proxy as SkinnedMeshRenderer,
                 BlendShapes = ss != null && ss.sharedMesh != null ? ss.sharedMesh.blendShapeCount : 0,
@@ -819,6 +823,7 @@ namespace UltraRT
             SyncStatic(force);
             Perf.Add(Perf.Sec.Static, ts);
             long td = Perf.Now;
+            SyncCyberGrind(force); // Cyber Grind combined-mesh BLAS refresh and instant cube/stair toggles (SceneProxies.CyberGrind.cs)
 
             // 1) Hierarchy (de)activations arrive as events via ProxyTracker.
             if (force) foreach (var d in _dynamic) _dirty.Add(d);
@@ -878,10 +883,15 @@ namespace UltraRT
                     Motion.SetMotion(d.Slot, d.PrevM * m.inverse, pose ? d.SkinBase : -1);
                     Motion.Ticks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
                 }
-                else if (d.SourceTransform.hasChanged)
+                else if (d.ProxyTransform != null && d.ProxyTransform.hasChanged)
                 {
+                    // Check our own child proxy's hasChanged, not SourceTransform's: game scripts (notably
+                    // BloodsplatterManager's blood-parent tracker on blood-stained Cyber Grind cubes, doors and moving
+                    // platforms) clear SourceTransform.hasChanged = false during Update(), before OnCameraPreRender.
+                    // Unity propagates ancestor moves into child transforms' hasChanged and no game script clears ours.
                     Rtas.UpdateInstanceTransform(d.Proxy);
-                    d.SourceTransform.hasChanged = false; // Unity never clears this itself
+                    d.ProxyTransform.hasChanged = false; // Unity never clears this itself
+                    d.TransformGen++;
                     long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     var m = MotionMatrix(d);
                     d.PrevM = d.CurM;
@@ -1076,7 +1086,8 @@ namespace UltraRT
                 TraceSkin("add", d);
                 Rtas.AddInstance(d.Proxy, d.Flags, enableTriangleCulling: !d.TwoSided, frontTriangleCounterClockwise: InstanceCcw(d), mask: d.Mask | d.ShadowMask, id: d.Id);
                 QueueReAdd(d); // first add of a rigid instance: add it again in 2 frames
-                d.SourceTransform.hasChanged = false;
+                if (d.ProxyTransform != null) d.ProxyTransform.hasChanged = false;
+                d.TransformGen++;
                 _active.Add(d);
                 // Newly in the RTAS: no motion history (it appears where it is).
                 d.CurM = d.PrevM = MotionMatrix(d);
@@ -1583,6 +1594,8 @@ namespace UltraRT
                 m.SetColor("_EmissiveColor", src.GetColor("_EmissionColor"));
                 m.SetFloat("_EmissiveIntensity", 1f);
             }
+            // Cyber Grind (psx/vertexlit/cyber): world-space animated pulse wave (SceneProxies.CyberGrind.cs)
+            else ApplyCyberMaterial(src, m);
 
             if (cubeSun) m.SetFloat("_EmissiveIntensity", 0f); // drawn fullbright below; not a light in the emissive table
 
@@ -1646,6 +1659,7 @@ namespace UltraRT
             DisposeCaustics();
             DisposeVeils();
             DisposeSync();
+            DisposeCyberGrind();
             DisposeDisplaced();
             _dynamic.Clear();
             _active.Clear();

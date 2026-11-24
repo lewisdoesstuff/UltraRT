@@ -198,6 +198,7 @@ namespace UltraRT
                 e.Color = color; e.Emissive = emissive; e.Intensity = intensity; e.Main = main; e.Scale = scale; e.Offset = offset;
                 SyncPropertyUpdates++;
             }
+            SyncCyberMaterials();
             long t3 = Perf.Now;
             SyncCopyTicks += t3 - t2;
             SyncTicks += t3 - t0;
@@ -221,7 +222,9 @@ namespace UltraRT
             var mats = new Material[count];
             for (int i = 0; i < count; i++) mats[i] = _syncMats[i];
             NoteEnemyMaterials(d.Source, mats); // enrage / radiance variants keep their enemy type's lit weight
-            int subCount = d.Flags.Length;
+            var mf = d.Proxy is MeshRenderer ? d.Proxy.GetComponent<MeshFilter>() : null;
+            var mesh = d.SkinnedProxy != null ? d.SkinnedProxy.sharedMesh : (mf != null ? mf.sharedMesh : null);
+            int subCount = mesh != null ? Math.Max(1, mesh.subMeshCount) : d.Flags.Length;
             var flags = SubmeshFlags(mats, subCount);
             var proxyMats = new Material[mats.Length];
             for (int i = 0; i < mats.Length; i++) proxyMats[i] = d.Mask == PlayerMask ? PlayerProxyOrDisabled(mats[i]) : ProxyOrDisabled(mats[i]);
@@ -232,8 +235,8 @@ namespace UltraRT
             SetSyncMaterials(d.Sync, mats);
             d.Sync.Signature = 0;           // a followed block is re-applied to the new materials
             d.Sync.BlockCheckFrame = -1000; // look at its property block again
-            bool flagsChanged = false;
-            for (int i = 0; i < subCount; i++) flagsChanged |= flags[i] != d.Flags[i];
+            bool flagsChanged = flags.Length != d.Flags.Length;
+            for (int i = 0; !flagsChanged && i < flags.Length; i++) flagsChanged = flags[i] != d.Flags[i];
             d.Flags = flags;
             d.Cutout = HasCutoutSubmesh(flags, mats);
             if (flagsChanged && d.Visible)
@@ -460,6 +463,7 @@ namespace UltraRT
                     TwoSided = IsTwoSided(mats[i]),
                     SkyWall = IsSkyWall(mats[i]) || d.Mask == SkyWallMask,
                     Visible = () => e.Visible && e.Proxy != null && e.MatGen == gen,
+                    TransformGen = () => e.TransformGen,
                 });
             }
         }

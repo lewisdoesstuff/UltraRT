@@ -30,6 +30,9 @@ namespace UltraRT
             public bool Static, TwoSided, SkyWall;
             /// <summary>Is this submesh in the RTAS right now (room active, renderer enabled)?</summary>
             public Func<bool> Visible;
+            /// <summary>Bumped by <see cref="SceneProxies.SyncDynamic"/> whenever a rigid dynamic proxy's transform changes
+            /// (since SyncDynamic consumes <c>ProxyTransform.hasChanged</c>); null for static/other owners.</summary>
+            public Func<int> TransformGen;
             /// <summary>Static batches in merge mode: the CPU copy of the combined mesh (raw streams, raw indices). Else null.</summary>
             public byte[][] Streams;
             public int[] Strides;
@@ -136,6 +139,7 @@ namespace UltraRT
                         TwoSided = IsTwoSided(mats[i]),
                         SkyWall = IsSkyWall(mats[i]) || d.Mask == SkyWallMask,
                         Visible = () => e.Visible && e.Proxy != null && e.MatGen == gen,
+                        TransformGen = () => e.TransformGen,
                     });
                 }
             }

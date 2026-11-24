@@ -51,7 +51,7 @@ Correctness never depends on the level. Visibility is always tracked per slot. A
 - **A toggle below the watcher, or `renderer.enabled`**: the scene is correct after at most one slice cycle (`sources / 256` frames). Examples: a destroyed wall, or an object toggled by a script through a field not in the name list.
 - **A level with an unusual hierarchy**, such as rooms at depth 0 or very deep: level 0 still follows the real toggle points. The depth fallback just picks a different granularity.
 - **Room clones from something other than `CheckPoint`**: picked up by the instantiate hook (see [New objects](#new-objects)), or by the 120 s `Rescan`. Static-batched renderers whose combined mesh is known become extra sources. Until then, those slots show only if another source is visible.
-- **Combined meshes created at runtime** (Cyber Grind): unknown to the build, so they are ignored, as before.
+- **Combined meshes created at runtime**: static-batching combined meshes created after `Build()` are unknown to `StaticGroups`; Cyber Grind's `Combined Static Mesh` is handled as a dynamic proxy with per-wave BLAS refreshes (see [Cyber Grind](#cyber-grind-2026-11-24) below).
 - **Memory**: the CPU copy of every combined mesh (vertices and indices) is kept for rebuilds, and logged as `CPU copy N MB`. 1-1's static geometry is about 90k tris, a few MB.
 - **A batch root that moves**: static proxies are parented to `staticBatchRootTransform` (or the scene root), not to the sources, as before.
 
@@ -875,3 +875,94 @@ One, no z-write, queue 3000), coloured with the orb light's colour normalised to
 and at scene teardown. `InGlowShell` accepts such a shell, so the apple is an orb fixture and the statue an orb holder,
 as with the orange orbs. Log: `White orb shell: '...'`. Off: `-ultrart-noorbshells`. 1-4 has six (boss door, main
 hall).
+
+## Cyber Grind (2026-11-24)
+
+User bug report after release: in Cyber Grind (`Endless`), block shadows glitched out and disappeared as soon as enemies
+spawned, while campaign levels worked normally.
+
+### Cause
+
+`EndlessGrid` alternates between two representations of the 16x16 arena:
+1. While a wave's blocks rise or fall (`MakeGridDynamic`), `Combined Static Mesh` is deactivated and all 256 `EndlessCube`
+   (plus `EndlessStairs`) `MeshRenderer`s are enabled, each moving as its own dynamic proxy (shadows worked here).
+2. The moment the blocks finish moving and enemies spawn (`SetupStaticGridMesh`), all 256 cube and stair renderers are
+   disabled, `EndlessGrid` rebuilds **the same `Mesh` instance in place** (`combinedGridStaticMesh.Clear()` +
+   `CombineMeshes(...)` + `UploadMeshData(false)`), assigns `sharedMaterials` (which can grow/shrink as waves add or
+   remove `EndlessStairs`), and reactivates `Combined Static Mesh`.
+
+Unity 2022.3's DXR static BLAS cache keys off the `Mesh` object and never detects an in-place `Clear` / `CombineMeshes`
+mutation. Re-enabling `Combined Static Mesh` therefore re-added the stale pre-wave flat `y = 0` BLAS to the RTAS while
+the game drew the raised wave towers: primary rays missed the raised blocks (composite fell back to the unshadowed game
+raster image) or hit the stale flat floor underneath, making shadows vanish or glitch out.
+
+Two secondary issues compounded the transitions:
+- `MakeGridDynamic` and `SetupStaticGridMesh` toggle `MeshRenderer.enabled` without deactivating the cube/stair
+  GameObjects, so `ProxyTracker` never fired: cubes popped into the RTAS over ~23 frames of the dormant poll on wave
+  start and overlapped `Combined Static Mesh` for up to 4 frames on wave settle.
+- **Blood-stained moving blocks frozen during Wave 6+ transitions**: whenever an enemy bleeds onto a `Grid Cube` (or any
+  moving door/elevator/platform in ULTRAKILL), `BloodsplatterManager` attaches a blood-parent tracker to that collider's
+  `GameObject`. Every frame in `Update()`, that component reads `transform.hasChanged` and clears it back to `false`
+  before `OnCameraPreRender()` runs. Because `SceneProxies.SyncDynamic` previously checked `d.SourceTransform.hasChanged`,
+  every blood-stained `EndlessCube` stopped updating its RTAS transform on subsequent waves (0 stuck on Wave 5, 11 stuck
+  on Wave 6, 21 on Wave 7 in `bench/results/20261124-124859_tmp-cg-diag_alt`), casting stale shadows from the previous
+  wave's heights until `SetupStaticGridMesh` snapped them to their settled positions in one jump.
+- **Deferred stair proxies**: `EndlessGrid.OneDone` instantiates up to 64 `EndlessStairs` (128 renderers) and `JumpPad`s
+  in a single frame right before they rise; waiting on the 0.75 ms/frame `_deferred` budget left newly rising stairs
+  missing from the RTAS for several frames.
+- `SceneProxies.Sync.cs` `CheckSwap` sized replacement submesh flags from `d.Flags.Length` instead of `mesh.subMeshCount`.
+- Cyber Grind's `psx/vertexlit/cyber` materials (`Virtual`, `VirtualTop`, `VirtualTopRow`) have no `EMISSIVE` keyword, so
+  the animated neon wave pulse (and Wave 25+ `_PCGamerMode` rainbow / last-enemy `_WorldOffset` tracking pulse) was
+  missing from traced frames.
+
+### Fix (`src/UltraRT/SceneProxies.CyberGrind.cs`, `SceneProxies.cs`, `EmissiveLights.cs`, `Proxy.shader`)
+
+- **Per-wave BLAS refresh**: `CyberGrindHooks` (registered from `Patches.Apply`) installs Harmony postfixes on
+  `EndlessGrid.SetupStaticGridMesh` and `EndlessGrid.MakeGridDynamic`. On `SetupStaticGridMesh`, `SyncCyberGrind` (at the
+  start of `SyncDynamic`, before dirty evaluation):
+  - ensures `Combined Static Mesh` has a `DynamicProxy` immediately (even if it did not exist at `Build()` time);
+  - snapshots `combinedGridStaticMesh` with `Object.Instantiate` (it is uploaded with `markNoLongerReadable: false`, so
+    `isReadable` is true; if a future game build ever makes it unreadable, falls back to `RayTracingMode.DynamicGeometry`)
+    and assigns the fresh `Mesh` to the proxy so Unity DXR builds a new static BLAS;
+  - retires the previous wave's snapshot after `RetireFrames` (4 frames), also clearing it from `_meshesInRtas` /
+    `_meshFirstFrame`, and destroys all owned copies in `Dispose()`;
+  - re-syncs `sharedMaterials` and `SubmeshFlags` from the new `subMeshCount` and resets `d.EverAdded = false` so the new
+    mesh also gets the 2-frame `QueueReAdd` safeguard.
+  - Log: `Cyber Grind: refreshed 'Combined Static Mesh' BLAS (rebuild #N, mesh <id>, <verts> verts, <subs> submeshes)`
+    (first 4 rebuilds, or whenever `-ultrart-trace-proxies` matches).
+- **Proxy-owned `hasChanged` for all rigid dynamic proxies** (`SceneProxies.cs`, `SceneProxies.Emitters.cs`,
+  `SceneProxies.Sync.cs`, `EmissiveLights.cs`): `SyncDynamic` now checks and clears `d.ProxyTransform.hasChanged` (our
+  own child proxy transform, which Unity still marks dirty whenever any ancestor moves and no game script clears) instead
+  of `d.SourceTransform.hasChanged`, and bumps a per-proxy `TransformGen` counter so `EmissiveLights` sees every move
+  without competing for `hasChanged`. This fixes blood-stained moving objects game-wide (Cyber Grind cubes, doors,
+  elevators, platforms).
+- **Instant cube / stair visibility & spawn transitions**: both `MakeGridDynamic` and `SetupStaticGridMesh` mark every
+  `DynamicProxy` under `EndlessGrid.transform` dirty on the same frame, so cubes/stairs enter and leave the RTAS cleanly
+  in lockstep with `Combined Static Mesh`. While `Combined Static Mesh` is inactive, `FlushCyberGrindDeferred` registers
+  any deferred renderers under `EndlessGrid` immediately so newly spawned `EndlessStairs` and `JumpPad`s have proxies
+  before they start rising. `"Endless"` is also listed in `SdDynamicComponentSubstrings`
+  (`SceneProxies.StaticDynamic.cs`).
+- **Submesh count on swap**: `SceneProxies.Sync.cs` `CheckSwap` now reads `mesh.subMeshCount` and compares
+  `flags.Length != d.Flags.Length` before indexing.
+- **`psx/vertexlit/cyber` pulse & custom textures**: `ApplyCyberMaterial` / `SyncCyberMaterials` mirror
+  `_EmissiveColor`, `_EmissiveIntensity` (into `_CyberIntensity`, keeping `_EmissiveIntensity = 0` so the moving wave is
+  not baked into `EmissiveLights`), `_EmissiveTex`, `_MainTex`, `_WorldOffset`, `_GradientScale`, `_GradientFalloff`,
+  `_GradientSpeed`, `_PCGamerMode`, `_RainbowDensity`, `_UseAlbedoAsEmissive`, `_EmissiveReplaces` and `_RGBEmissive`.
+  `Proxy.shader` evaluates the decoded DXBC pulse formula under `[branch] if (_CyberGrind > 0.5 && _CyberIntensity > 0.0)`
+  using `_UltraRTRainTime * 0.05` (`_Time.x`). Outside Cyber Grind `_cyberMaterials` is empty (zero per-frame cost).
+
+### Verification (2026-11-24)
+
+Verified in `Endless` on the `alt` install (RTX 5070 Ti, 2560x1440, trace scale 0.5):
+- Wave 5 initial build (`bench/results/20261124-115944_tmp-cybergrind-diag_alt`): `normals` and `instance` debug views
+  after enemies spawn (`6.0 s`) match every raised tower, pit and staircase in `Combined Static Mesh` (replacing the
+  stale flat `y = 0` floor seen before the fix in `20261124-114501_tmp-cybergrind-diag_alt`); `pathtrace` 5.70 ms / 176
+  fps, `relight` 4.74 ms / 211 fps.
+- Multi-wave transitions across Waves 5 -> 6 -> 7 with blood stains (`KillEnemies: true`;
+  `bench/results/20261124-125418_tmp-cg-diag_alt` vs before-fix `20261124-124859_tmp-cg-diag_alt`):
+  - Before `ProxyTransform.hasChanged`: 11 cubes drifted on Wave 6 and 21 on Wave 7 (red/blue `_matchDebug` cutouts and
+    stale shadows jumping on settle), plus up to 57 deferred stair renderers lagging behind.
+  - After fix: 0 drifted cubes and 0 deferred stair lag across all 6 wave transitions in `pathtrace` (5.75 ms avg / 174
+    fps, `dynamic` CPU 0.19 ms/frame) and `relight` (5.98 ms avg / 167 fps, `dynamic` CPU 0.19 ms/frame); `_matchDebug`
+    and pre-/post-settle `relight` frames show continuous shadows with no jump on settle and 0 warnings/errors in
+    `game.log`.

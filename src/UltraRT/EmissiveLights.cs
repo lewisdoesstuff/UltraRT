@@ -269,6 +269,9 @@ namespace UltraRT
             public float AreaScale = 1f;
             /// <summary>Space is one of our proxy transforms, so its hasChanged flag is ours to consume.</summary>
             public bool OwnTransform;
+            /// <summary>When set, follows <see cref="SceneProxies"/>'s proxy transform generation (SyncDynamic consumes ProxyTransform.hasChanged).</summary>
+            public Func<int> TransformGen;
+            public int LastTransformGen;
         }
 
         private readonly List<Emitter> _emitters = new List<Emitter>();
@@ -433,7 +436,13 @@ namespace UltraRT
             {
                 var ow = _owners[o];
                 if (ow.World || ow.Space == null) continue;
-                if (ow.OwnTransform)
+                if (ow.TransformGen != null)
+                {
+                    int gen = ow.TransformGen();
+                    if (gen == ow.LastTransformGen) continue;
+                    ow.LastTransformGen = gen;
+                }
+                else if (ow.OwnTransform)
                 {
                     if (!ow.Space.hasChanged) continue;
                     ow.Space.hasChanged = false;
@@ -685,7 +694,14 @@ namespace UltraRT
             var key = s.Owner ?? s;
             if (_ownerByKey.TryGetValue(key, out int o)) return o;
             if (_owners.Count >= MaxOwners) return -1;
-            var ow = new OwnerEntry { Space = s.Space, World = s.Space == null, OwnTransform = s.Space != null && SceneProxies.IsProxyObject(s.Space.gameObject) };
+            var ow = new OwnerEntry
+            {
+                Space = s.Space,
+                World = s.Space == null,
+                OwnTransform = s.Space != null && SceneProxies.IsProxyObject(s.Space.gameObject),
+                TransformGen = s.TransformGen,
+                LastTransformGen = s.TransformGen != null ? s.TransformGen() : 0,
+            };
             ow.Matrix = ow.World ? Matrix4x4.identity : s.Space.localToWorldMatrix;
             ow.AreaScale = AreaScale(ow.Matrix);
             o = _owners.Count;

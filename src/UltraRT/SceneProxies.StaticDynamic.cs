@@ -115,7 +115,7 @@ namespace UltraRT
             "Fall", "Drop", "Slide", "Train", "Tram", "Vehicle", "Car", "Boat", "Ship", "Boss", "Enemy", "Limb",
             "Gib", "Chunk", "Debris", "Altar", "Pedestal", "Terminal", "Shop", "Machine", "Trigger", "Activate",
             "Video", "Screen", "Hologram", "Pendul", "Conveyor", "Crane", "Lift", "Chain", "Rope", "Cloth", "Ragdoll",
-            "Escher", "RoomMove", "Shuffle", "Shift", "Morph", "Teleport", "Warp"
+            "Escher", "RoomMove", "Shuffle", "Shift", "Morph", "Teleport", "Warp", "Endless"
         };
 
         private static readonly Dictionary<Type, bool> SdTypeDynamicCache = new Dictionary<Type, bool>();

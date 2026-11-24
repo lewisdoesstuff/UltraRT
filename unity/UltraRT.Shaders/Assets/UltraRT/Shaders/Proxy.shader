@@ -119,6 +119,12 @@ Shader "UltraRT/Proxy"
         _CausticBounds ("Caustics bounds centre (w = set)", Vector) = (0,0,0,0)
         _CausticCells ("Caustic cells", 2D) = "white" {}
         _CausticPerlin ("Caustic perlin", 2D) = "white" {}
+        // Cyber Grind (psx/vertexlit/cyber; SceneProxies.CyberGrind.cs): world-space animated pulse wave and Wave 25+ rainbow.
+        _CyberGrind ("Cyber Grind pulse", Float) = 0
+        _CyberIntensity ("Cyber Grind emissive intensity", Float) = 0
+        _CyberParams ("Cyber scale, falloff, speed, rainbow", Vector) = (1,1,1,0)
+        _CyberOffset ("Cyber world offset xyz, rainbow density", Vector) = (0,0,0,1)
+        _CyberFlags ("Cyber useAlbedo, replaces, rgbEmissive, 0", Vector) = (0,0,0,0)
     }
 
     SubShader
@@ -221,6 +227,8 @@ Shader "UltraRT/Proxy"
             // count, z 1 = camera hits shadow the pattern (PathTrace.raytrace, CausticShadowed).
             StructuredBuffer<float4> _UltraRTCausticVolumes;
             float4 _UltraRTCaustics;
+            float _CyberGrind, _CyberIntensity;
+            float4 _CyberParams, _CyberOffset, _CyberFlags;
 
             // The game's projection (ULTRAKILL/Master GLCore, decompiled): P rotated by the rotation that takes "up" to d
             // (axis normalize(d.z, 0, -d.x), angle acos(d.y)); its x and z. d = up (or straight down) projects on world xz.
@@ -865,6 +873,32 @@ Shader "UltraRT/Proxy"
                     // unlit texture (a drone's eye) that a luminance step misses.
                     if (_EmissiveThreshold > 1.0) emission *= smoothstep(_EmissiveThreshold - 1.1, _EmissiveThreshold - 0.9, max(e.r, max(e.g, e.b)) - min(e.r, min(e.g, e.b)));
                     else if (_EmissiveThreshold > 0.0) emission *= smoothstep(_EmissiveThreshold - 0.1, _EmissiveThreshold + 0.1, dot(e, float3(0.2126, 0.7152, 0.0722)));
+                }
+                // Cyber Grind (psx/vertexlit/cyber): animated world-space pulse wave (and Wave 25+ rainbow / last-enemy pulse).
+                [branch] if (_CyberGrind > 0.5 && _CyberIntensity > 0.0)
+                {
+                    float3 hitP = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+                    float3 off = _CyberOffset.xyz;
+                    float offLen = length(off);
+                    float3 origin = offLen > 1e-6 ? off * (min(offLen, 500.0) / offLen) : 0.0;
+                    float dist = length(hitP - origin);
+                    float scale = max(_CyberParams.x, 0.01);
+                    float t = (_UltraRTRainTime * 0.05) * _CyberParams.z;
+                    float w = abs(frac(dist / (scale * 100.0) - t) * 2.0 - 1.0);
+                    float wave = w > 1e-6 ? pow(w, max(_CyberParams.y, 1e-4)) : 0.0;
+                    float3 emCol = _CyberFlags.x > 0.5 ? albedo.rgb : _EmissiveColor.rgb;
+                    if (_CyberParams.w > 0.5)
+                    {
+                        float theta = 6.2831853 * frac(dist / (scale * 628.318542 / max(_CyberOffset.w, 1e-4)) - t * 0.31830989 + 0.5);
+                        float s = sin(theta), c = cos(theta);
+                        float3 k = float3(0.57735027, 0.57735027, 0.57735027);
+                        emCol = emCol * c + cross(k, emCol) * s + k * dot(k, emCol) * (1.0 - c);
+                    }
+                    float3 glow = max(emCol * (wave * _CyberIntensity), 0.0);
+                    float3 etex = _EmissiveTex.SampleLevel(my_point_repeat_sampler, texUV, TexMip(_EmissiveTex, lodAlbedo, lodCap)).rgb;
+                    float3 emask = _CyberFlags.z > 0.5 ? etex : dot(etex, float3(0.3, 0.59, 0.11)).xxx;
+                    if (_CyberFlags.y > 0.5) albedo.rgb *= saturate(1.0 - emask);
+                    emission += glow * emask;
                 }
                 // Fresh explosion debris glows and cools; the texture's light and dark texels stay readable.
                 if (_HotDebris > 0.5) emission += _UltraRTDebrisGlow.rgb * (0.4 + 1.2 * dot(albedo.rgb, float3(0.2126, 0.7152, 0.0722)));
