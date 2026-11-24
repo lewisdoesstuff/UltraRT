@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- Fixed Cyber Grind shadows disappearing or glitching out when enemies spawn after a wave settles (refresh the ray-tracing acceleration structure whenever `EndlessGrid` rebuilds its combined arena mesh).
+- Fixed blood-stained moving objects (Cyber Grind blocks on subsequent waves, doors, elevators, moving platforms) freezing in the ray-traced scene while moving, eliminating shadow jumps when blocks settle.
+- Fixed newly spawned Cyber Grind stairs and jump pads popping into ray tracing late during wave transitions.
+- Added the animated Cyber Grind neon pulse wave and custom grid texture support to ray-traced views.
+
 ## 0.3.0
 
 Initial release.
